@@ -452,9 +452,9 @@ export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
 /** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
 export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
-export const insetClass = "px-[17px]";
-/** Rows in one bordered box, split by lines. */
-export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
+export const insetClass = "card-inset px-[17px]";
+/** Rows in one bordered box, split by lines. In a dialog the dialog is the box: no border, rows flush (styles.css). */
+export const listClass = "card-list flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
 /**
  * The row of compact controls atop a screen's content: search and filters, or a one-line add
  * form (`Form className`). One class so every screen's row has the same height and spacing.

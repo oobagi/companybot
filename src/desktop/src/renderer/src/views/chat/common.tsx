@@ -207,7 +207,7 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 		<Layer
 			onClose={onClose}
 			overlayClassName="bg-neutral-900/20"
-			className={`flex max-h-[85vh] w-full ${widths[size]} flex-col gap-5 overflow-y-auto rounded-2xl bg-white p-6 text-[15px] text-neutral-900 shadow-xl`}
+			className={`dialog flex max-h-[85vh] w-full ${widths[size]} flex-col gap-5 overflow-y-auto rounded-2xl bg-white p-6 text-[15px] text-neutral-900 shadow-xl`}
 		>
 			<header className="flex items-center gap-1">
 				<MantineModal.Title className="min-w-0 flex-1 truncate text-lg font-medium">{title}</MantineModal.Title>
