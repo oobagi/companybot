@@ -47,12 +47,12 @@ export function moveCommand(saved: readonly string[], shown: readonly string[], 
 // ---- The drag in progress, shared by every list (one pointer drags one row at a time). ----
 
 type ListEntry = { group: string; axis: Axis; els: Map<string, HTMLElement>; enabled: boolean; onDrop: (from: { list: string; id: string }, index: number) => void };
-type StaticEntry = { group: string; el: HTMLElement; endOf?: string };
+type StaticEntry = { group: string; el: HTMLElement; endOf?: string; startOf?: string };
 const lists = new Map<string, ListEntry>();
 const statics = new Map<string, StaticEntry>();
 
 /** One thing in the group, in order along the axis: a row, or a divider between lists. */
-type Slot = { key: string; list?: string; id?: string; start: number; size: number; pitch: number; endOf?: string };
+type Slot = { key: string; list?: string; id?: string; start: number; size: number; pitch: number; endOf?: string; startOf?: string };
 type Session = {
 	group: string;
 	axis: Axis;
@@ -101,7 +101,7 @@ function measure(group: string, axis: Axis): Slot[] {
 	for (const [key, s] of statics) {
 		if (s.group !== group || !s.el.isConnected) continue;
 		const r = s.el.getBoundingClientRect();
-		raw.push({ key, start: start(r, axis), size: extent(r, axis), endOf: s.endOf });
+		raw.push({ key, start: start(r, axis), size: extent(r, axis), endOf: s.endOf, startOf: s.startOf });
 	}
 	raw.sort((a, b) => a.start - b.start);
 	// A slot's pitch: from its start to the next one's, so gaps and margins move with it.
@@ -125,6 +125,8 @@ export function place(slots: readonly Slot[], source: number, edge: number, enab
 		const prev = others[gap - 1];
 		const next = others[gap];
 		if (prev?.list) return { list: prev.list, index: others.slice(0, gap).filter((s) => s.list === prev.list).length };
+		// Just after a divider that starts a list: its top, even while that list is empty.
+		if (prev?.startOf) return { list: prev.startOf, index: 0 };
 		if (next?.endOf) return { list: next.endOf, index: others.slice(0, gap).filter((s) => s.list === next.endOf).length };
 		if (next?.list) return { list: next.list, index: 0 };
 		return undefined;
@@ -182,10 +184,10 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 	const update = () => {
 		if (!live || live.dropping) return;
 		const dragged = live.slots[live.source]!;
-		// It stays within its group's rows (half a row past either end), not over the rest of the window.
+		// It stays within its group's rows (a row past either end, so an end is easy to hit), not over the rest of the window.
 		const first = live.slots[0]!;
 		const end = live.slots.at(-1)!;
-		const d = Math.min(Math.max(offset(), first.start - dragged.start - dragged.size / 2), end.start + end.size - (dragged.start + dragged.size) + dragged.size / 2);
+		const d = Math.min(Math.max(offset(), first.start - dragged.start - dragged.size), end.start + end.size - dragged.start);
 		const next = place(live.slots, live.source, dragged.start + d, (k) => lists.get(k)?.enabled ?? false);
 		el.style.transform = axis === "y" ? `translate3d(0, ${d}px, 0) scale(1.03)` : `translate3d(${d}px, 0, 0) scale(1.03)`;
 		if (next && (next.target.at !== live.target.at || next.target.list !== live.target.list)) {
@@ -315,11 +317,14 @@ export function useDragList({ group, axis = "y", enabled, onDrop }: { group?: st
 	return { item, key };
 }
 
-/** A divider between lists in a group: it slides with the rows, and a drop just before it ends `endOf`. */
-export function useDragStatic(group: string, endOf?: string) {
+/**
+ * A divider between lists in a group: it slides with the rows. A drop just before it ends `endOf`; one just
+ * after it starts `startOf`, so an empty list still takes rows.
+ */
+export function useDragStatic(group: string, { endOf, startOf }: { endOf?: string; startOf?: string } = {}) {
 	const key = useId();
 	const now = useSyncExternalStore(subscribe, snapshot, snapshot);
-	const ref = useCallback((el: HTMLElement | null) => (el ? statics.set(key, { group, el, endOf }) : statics.delete(key)), [key, group, endOf]);
+	const ref = useCallback((el: HTMLElement | null) => (el ? statics.set(key, { group, el, endOf, startOf }) : statics.delete(key)), [key, group, endOf, startOf]);
 	const mine = now?.group === group;
 	return { ref, style: mine ? shiftStyle(now.shifts.get(key)) : undefined, className: mine ? `sortable-shift sortable-${now.axis}` : "" };
 }

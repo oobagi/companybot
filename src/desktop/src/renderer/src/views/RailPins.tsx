@@ -93,9 +93,10 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 			if (command) changePinOrder(command);
 		},
 	});
-	const { item: recentDrag } = useDragList({ group: "rail", enabled: true, onDrop: (from) => { if (from.list === pinList) { toggle(from.id as PinKey); visit(from.id as PinKey); } } });
-	const pinDivider = useDragStatic("rail");
-	const recentDivider = useDragStatic("rail", pinList);
+	const { item: recentDrag, key: recentList } = useDragList({ group: "rail", enabled: true, onDrop: (from) => { if (from.list === pinList) { toggle(from.id as PinKey); visit(from.id as PinKey); } } });
+	// Both dividers stay while either list has rows, so an empty one still takes a drop; it shows only while dragging.
+	const pinDivider = useDragStatic("rail", { startOf: pinList });
+	const recentDivider = useDragStatic("rail", { endOf: pinList, startOf: recentList });
 	// The RECENT_SHOWN you opened last, in the order they came in (`steadyOrder`). While some are
 	// still loading, the rail keeps what it showed: one arriving late would look new and jump to the top.
 	const ws = workspace?.id ?? "";
@@ -107,6 +108,7 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 		if (ready) railOrder.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
 	}, [ready, ws, orderKey]);
 	const lately = order.map(resolve).filter((e): e is Entry => !!e);
+	const any = sorted.length > 0 || lately.length > 0;
 	const row = (e: Entry, isPinned: boolean, d?: DragProps) => (
 		<RailItem
 			key={e.key}
@@ -121,9 +123,9 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 	);
 	return (
 		<>
-			{!!sorted.length && <Divider {...pinDivider} />}
+			{any && <Divider {...pinDivider} className={`${pinDivider.className} ${sorted.length || pinDivider.className ? "" : "invisible"}`} />}
 			{sorted.map((e) => row(e, true, drag(e.key)))}
-			{!!lately.length && <Divider {...recentDivider} />}
+			{any && <Divider {...recentDivider} className={`${recentDivider.className} ${lately.length || recentDivider.className ? "" : "invisible"}`} />}
 			{lately.map((e) => row(e, false, recentDrag(e.key)))}
 		</>
 	);

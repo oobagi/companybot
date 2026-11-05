@@ -85,3 +85,12 @@ it("keeps unseen shared rows when dragging visible ones and disables forbidden d
 	act(() => root.unmount());
 	vi.unstubAllGlobals();
 });
+
+it("drops into an empty list just after the divider that starts it", () => {
+	// Pins a and b, then the recents divider with no recents under it.
+	const pinsOnly = [row("p", "a", 0), row("p", "b", 32), { key: "div", start: 64, size: 1, pitch: 8, endOf: "p", startOf: "r" }];
+	expect(place(pinsOnly, 1, 60, any)!.target).toMatchObject({ list: "r", index: 0 });
+	// No pins: a recent dragged above the pins divider lands as the first pin.
+	const recentsOnly = [{ key: "top", start: 0, size: 1, pitch: 8, startOf: "p" }, { key: "div", start: 8, size: 1, pitch: 8, endOf: "p", startOf: "r" }, row("r", "x", 16)];
+	expect(place(recentsOnly, 2, -20, any)!.target).toMatchObject({ list: "p", index: 0 });
+});
