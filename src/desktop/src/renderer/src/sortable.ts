@@ -169,6 +169,9 @@ const EDGE = 40;
 function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent) {
 	const l = lists.get(list);
 	if (!l || session || e.button !== 0 || e.ctrlKey || e.metaKey) return;
+	// Move the whole row, not just its handle (a sidebar row's handle is inside it): the row carries the
+	// landing transition, so moving only the handle would snap into place instead of gliding.
+	el = l.els.get(id) ?? el;
 	if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable=true]")) return;
 	const { axis, group } = l;
 	// Lists a row may land in: its own, and others in the group that take it (recents take pins, not tabs).
