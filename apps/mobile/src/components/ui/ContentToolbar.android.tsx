@@ -1,5 +1,5 @@
 import { Host, Icon, IconButton, Row } from '@expo/ui/jetpack-compose';
-import { fillMaxWidth, size } from '@expo/ui/jetpack-compose/modifiers';
+import { size } from '@expo/ui/jetpack-compose/modifiers';
 import { View } from 'react-native';
 import { useTheme } from '@/design';
 import { ContentToolbarFrame } from './ContentToolbarFrame';
@@ -10,8 +10,8 @@ export function ContentToolbar({ actions, status, busy = false, accessibilityLab
   const { colors, dark, sizes, spacing } = useTheme();
   return <ContentToolbarFrame status={status} busy={busy} accessibilityLabel={accessibilityLabel}>
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-    <Host matchContents={{ vertical: true }} colorScheme={dark ? 'dark' : 'light'} style={{ flex: 1, minHeight: sizes.touch }}>
-      <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: spacing.sm }} modifiers={[fillMaxWidth()]}>
+    <Host matchContents colorScheme={dark ? 'dark' : 'light'} style={{ minHeight: sizes.touch }}>
+      <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: spacing.sm }}>
         {actions.slice(0, toolbarDirectActionLimit).map((action) => {
           const inactive = busy || !!action.disabled;
           return <IconButton key={action.id} enabled={!inactive} onClick={inactive ? undefined : action.onPress} colors={{ contentColor: colors.text, disabledContentColor: colors.muted }} modifiers={[size(sizes.touch, sizes.touch)]}>

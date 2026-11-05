@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  expo@58.0.23: a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00
+  expo@58.0.23: b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254
 
 importers:
 
@@ -200,7 +200,7 @@ importers:
         version: 1.49.0(react@19.3.0)
       expo:
         specifier: ~58.0.23
-        version: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+        version: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-asset:
         specifier: ~58.0.20
         version: 58.0.20(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3)
@@ -225,6 +225,9 @@ importers:
       expo-font:
         specifier: ~58.0.11
         version: 58.0.11(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
+      expo-glass-effect:
+        specifier: ~58.0.5
+        version: 58.0.5(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
       expo-image-picker:
         specifier: ~58.0.10
         version: 58.0.10(expo@58.0.23)
@@ -286,6 +289,9 @@ importers:
       '@types/react':
         specifier: ~19.3.0
         version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.3.0
+        version: 19.3.0(@types/react@19.3.0)
       eslint:
         specifier: ^9.39.5
         version: 9.39.5(jiti@2.7.0)(supports-color@8.1.1)
@@ -8357,7 +8363,7 @@ snapshots:
       compression: 1.8.2(supports-color@8.1.1)
       connect: 3.7.0(supports-color@8.1.1)
       dnssd-advertise: 1.1.6
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-server: 58.0.6
       fetch-nodeshim: 0.4.10
       getenv: 2.0.0
@@ -8449,13 +8455,13 @@ snapshots:
     dependencies:
       chalk: 4.1.2
     optionalDependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
   '@expo/dom-webview@58.0.2(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)':
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
@@ -8527,7 +8533,7 @@ snapshots:
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
       stacktrace-parser: 0.1.11
     optionalDependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
 
   '@expo/material-symbols@0.1.1': {}
 
@@ -8562,7 +8568,7 @@ snapshots:
       resolve-from: 5.0.0
       tinyglobby: 0.2.17
     optionalDependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -8585,7 +8591,7 @@ snapshots:
     dependencies:
       '@expo/log-box': 58.0.15(@expo/dom-webview@58.0.2)(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
       anser: 1.4.10
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       pretty-format: 29.7.0
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
@@ -8677,7 +8683,7 @@ snapshots:
   '@expo/router-server@58.0.21(@expo/metro-runtime@58.0.17)(expo-constants@58.0.15)(expo-font@58.0.11)(expo-router@58.0.30)(expo-server@58.0.6)(expo@58.0.23)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@8.1.1)':
     dependencies:
       debug: 4.4.3(supports-color@8.1.1)
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-constants: 58.0.15(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
       expo-font: 58.0.11(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
       expo-server: 58.0.6
@@ -8701,7 +8707,7 @@ snapshots:
 
   '@expo/ui@58.0.27(@babel/core@7.29.7(supports-color@8.1.1))(expo@58.0.23)(react-dom@19.3.0(react@19.3.0))(react-native-worklets@0.13.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1))(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)':
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
       sf-symbols-typescript: 2.2.0
@@ -10253,7 +10259,7 @@ snapshots:
       react-refresh: 0.14.2
     optionalDependencies:
       '@babel/runtime': 7.29.10
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
     transitivePeerDependencies:
       - '@babel/core'
       - supports-color
@@ -11339,12 +11345,12 @@ snapshots:
 
   expo-application@58.1.2(expo@58.0.23):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
 
   expo-asset@58.0.20(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3):
     dependencies:
       '@expo/image-utils': 0.12.6(supports-color@8.1.1)(typescript@6.0.3)
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-constants: 58.0.15(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
@@ -11354,14 +11360,14 @@ snapshots:
 
   expo-audio@58.0.11(expo-asset@58.0.20(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3))(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-asset: 58.0.20(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
   expo-clipboard@58.0.4(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
@@ -11369,7 +11375,7 @@ snapshots:
     dependencies:
       '@expo/env': 2.5.4(supports-color@8.1.1)
       '@expo/require-utils': 58.0.5(supports-color@8.1.1)(typescript@6.0.3)
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
@@ -11377,46 +11383,46 @@ snapshots:
 
   expo-crypto@58.0.7(expo@58.0.23):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
 
   expo-document-picker@58.0.4(expo@58.0.23):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
 
   expo-file-system@58.0.13(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
   expo-font@58.0.11(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
   expo-glass-effect@58.0.5(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
   expo-image-loader@58.0.3(expo@58.0.23):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
 
   expo-image-picker@58.0.10(expo@58.0.23):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-image-loader: 58.0.3(expo@58.0.23)
 
   expo-keep-awake@58.0.3(expo@58.0.23)(react@19.3.0):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
 
   expo-linking@58.0.16(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-constants: 58.0.15(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
       invariant: 2.2.4
       react: 19.3.0
@@ -11467,7 +11473,7 @@ snapshots:
       '@expo/image-utils': 0.12.6(supports-color@8.1.1)(typescript@6.0.3)
       abort-controller: 3.0.0
       badgin: 1.2.3
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-application: 58.1.2(expo@58.0.23)
       expo-constants: 58.0.15(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
       react: 19.3.0
@@ -11486,7 +11492,7 @@ snapshots:
       '@react-native-masked-view/masked-view': 0.3.2(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
       '@react-native/normalize-colors': 0.88.1
       client-only: 0.0.1
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-constants: 58.0.15(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
       expo-glass-effect: 58.0.5(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
       expo-linking: 58.0.16(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3)
@@ -11517,7 +11523,7 @@ snapshots:
 
   expo-secure-store@58.0.2(expo@58.0.23):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
 
   expo-server-sdk@8.0.0:
     dependencies:
@@ -11528,14 +11534,14 @@ snapshots:
 
   expo-status-bar@58.0.4(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
   expo-symbols@58.0.4(expo-font@58.0.11)(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0):
     dependencies:
       '@expo-google-fonts/material-symbols': 0.4.52
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       expo-font: 58.0.11(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
       react: 19.3.0
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
@@ -11545,7 +11551,7 @@ snapshots:
     dependencies:
       '@react-native/normalize-colors': 0.88.1
       debug: 4.4.3(supports-color@8.1.1)
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
     optionalDependencies:
       react-native-web: 0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -11554,10 +11560,10 @@ snapshots:
 
   expo-web-browser@58.0.7(expo@58.0.23)(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)):
     dependencies:
-      expo: 58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108)
+      expo: 58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108)
       react-native: 0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1)
 
-  expo@58.0.23(patch_hash=a99e3236454e090d4ae280b5d7bc55454c55be494e382a3b175d2c66fdd9eb00)(460310e3b6bd5c1f40236ad331444108):
+  expo@58.0.23(patch_hash=b173149cf2a09fd0150cab5fe2804b2fba838c4186f386b5c947a3871dac8254)(460310e3b6bd5c1f40236ad331444108):
     dependencies:
       '@babel/runtime': 7.29.10
       '@expo/cli': 58.1.19(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.17)(expo-constants@58.0.15)(expo-font@58.0.11)(expo-router@58.0.30)(expo@58.0.23)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3)

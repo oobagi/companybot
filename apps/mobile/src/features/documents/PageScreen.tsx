@@ -3,8 +3,9 @@ import { HeaderMenu } from '@/components/navigation/HeaderMenu';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { router, Stack as RouterStack } from 'expo-router';
 import { useState } from 'react';
-import { Modal, ScrollView } from 'react-native';
-import { Badge, Button, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, Stack, Text } from '@/components/ui';
+import { ScrollView } from 'react-native';
+import Add from '@expo/material-symbols/add.xml';
+import { Badge, Button, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, Text } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
@@ -16,6 +17,7 @@ import { useDocumentConfirm } from './Confirm';
 import { AccessSheet } from '@/features/access/AccessSheet';
 import { useArrangements } from '@/features/arrangements/useArrangements';
 import type { Action } from '@/components/ui/ActionMenu';
+import { ContentToolbar } from '@/components/ui/ContentToolbar';
 
 export function PageScreen({ pageId }: { pageId: string }) {
   const page = useQuery(api.pages.get, { pageId });
@@ -72,11 +74,10 @@ export function PageScreen({ pageId }: { pageId: string }) {
     {panel === 'move' && <MovePage pageId={page._id} parentId={page.parentId} onClose={() => setPanel(undefined)} />}
     {panel === 'create' && <NewPage parentId={page._id} onClose={() => setPanel(undefined)} />}
     {panel === 'history' && <PageHistory pageId={page._id} canRestore={page.canEdit} onClose={() => setPanel(undefined)} />}
-    {panel === 'children' && <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPanel(undefined)}><Screen edges={['top', 'left', 'right', 'bottom']}><Stack style={{ flex: 1 }}>
-      <Stack horizontal><Text variant="heading" style={{ flex: 1 }}>Sub-pages</Text><Button label="Close" variant="ghost" onPress={() => setPanel(undefined)} /></Stack>
-      {page.canEdit && <Button label="New sub-page" onPress={() => setPanel('create')} />}
+    {panel === 'children' && <EditorSheet title="Sub-pages" scroll={false} onClose={() => setPanel(undefined)}>
       <PageChildren parentId={page._id} onSelect={(id) => { setPanel(undefined); openPage(id); }} />
-    </Stack></Screen></Modal>}
+      {page.canEdit && !page.archived && <ContentToolbar accessibilityLabel="Sub-page actions" actions={[{ id: 'create', label: 'New sub-page', icon: { ios: 'plus', android: Add }, onPress: () => setPanel('create') }]} />}
+    </EditorSheet>}
   </Screen>;
 }
 

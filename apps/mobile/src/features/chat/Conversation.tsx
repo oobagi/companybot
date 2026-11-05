@@ -1,11 +1,10 @@
 import { usePinAction } from '@/features/pins/usePins';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { MESSAGE_PAGE } from '@companybot/core/chat';
-import { TYPING_MS } from '@companybot/core/typing';
 import { Stack as RouterStack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, FlatList, View } from 'react-native';
-import { Button, Card, EmptyState, ErrorState, Loading, Screen, Stack, Text } from '@/components/ui';
+import { AppState, FlatList, ScrollView, View } from 'react-native';
+import { Button, Card, EmptyState, ErrorState, Loading, Screen, Text } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
@@ -20,6 +19,8 @@ import { canWriteChat } from './access';
 import { messageTimeline } from './dates';
 import { useMessages } from './useMessages';
 import { MESSAGE_SEEK_BATCH, messageSeekState } from './pagination';
+import { ChatActivity } from './ChatActivity';
+import { useTypingPeople } from './useTypingPeople';
 
 export function Conversation({ chatId, threadId }: { chatId: Id<'chats'>; threadId?: Id<'chatMessages'> }) {
   const workspace = useWorkspace();
@@ -115,34 +116,25 @@ function OpenConversation({ chatId, threadId }: { chatId: Id<'chats'>; threadId?
   return <Screen keyboard padded={false}>
     <RouterStack.Screen options={{ title: threadId ? 'Thread' : chatTitle(chat) }} />
     <HeaderMenu label="Conversation actions" actions={actions} onAction={perform} />
-    {chat.topic && <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}><Text variant="caption" tone="muted">{chat.topic}</Text></View>}
+    {chat.topic && <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}><Text variant="supporting" tone="muted" numberOfLines={2}>{chat.topic}</Text></View>}
     {task.error && <ErrorState message={task.error} />}
     {pin.error && <ErrorState message={pin.error} />}
     {seek === 'loading' && <Loading layout="inline" label="Looking for this message…" />}
     {seek === 'continue' && <Card><Text tone="muted">This message is older than the history loaded so far.</Text><Button label="Continue looking" variant="secondary" onPress={() => setSeekBudget({ target: messageId, limit: Math.max(seekLimit, messages?.length ?? 0) + MESSAGE_SEEK_BATCH })} /></Card>}
     {seek === 'missing' && <Card><Text tone="muted">This message is no longer available in this conversation.</Text></Card>}
-    {messages === undefined ? <Loading label="Loading messages…" /> : !messages.length ? <EmptyState title={threadId ? 'Thread not found' : 'No messages yet'} description={threadId ? 'This thread is no longer available.' : `Start a conversation in ${chatTitle(chat)}.`} /> : <FlatList ref={timeline} data={data} inverted keyExtractor={(m) => m._id} renderItem={({ item }) => item.sending ? <PendingMessageRow name={item.author.name} image={item.author.image} text={item.text} files={item.sending.files} dayLabel={days.get(item._id)} /> : <MessageRow row={item} highlighted={item._id === messageId} readOnly={!writable} inThread={!!threadId} dayLabel={days.get(item._id)} onStreamVisibility={streamVisibility} />} onScrollToIndexFailed={({ index, averageItemLength }) => { if (retries.current++ >= 3) return; timeline.current?.scrollToOffset({ offset: index * averageItemLength, animated: false }); clearTimeout(retryTimer.current); retryTimer.current = setTimeout(scrollToTarget, 150); }} onScrollBeginDrag={() => { userScrolled.current = true; }} onEndReached={() => { if (userScrolled.current && status === 'CanLoadMore' && seek !== 'loading' && seek !== 'continue') { userScrolled.current = false; more(); } }} onEndReachedThreshold={0.3} ListFooterComponent={status === 'LoadingMore' ? <Loading layout="inline" label="Loading older messages…" /> : status === 'CanLoadMore' ? <Button label="Load older messages" variant="ghost" onPress={more} /> : undefined} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }} initialNumToRender={16} maxToRenderPerBatch={12} windowSize={9} contentContainerStyle={{ paddingVertical: spacing.md }} />}
+    {messages === undefined || !messages.length ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+      {messages === undefined ? <Loading label="Loading messages…" /> : <EmptyState title={threadId ? 'Thread not found' : 'No messages yet'} description={threadId ? 'This thread is no longer available.' : `Start a conversation in ${chatTitle(chat)}.`} />}
+    </ScrollView> : <FlatList ref={timeline} data={data} inverted keyExtractor={(m) => m._id} renderItem={({ item }) => item.sending ? <PendingMessageRow name={item.author.name} image={item.author.image} text={item.text} files={item.sending.files} dayLabel={days.get(item._id)} /> : <MessageRow row={item} highlighted={item._id === messageId} readOnly={!writable} inThread={!!threadId} dayLabel={days.get(item._id)} onStreamVisibility={streamVisibility} />} onScrollToIndexFailed={({ index, averageItemLength }) => { if (retries.current++ >= 3) return; timeline.current?.scrollToOffset({ offset: index * averageItemLength, animated: false }); clearTimeout(retryTimer.current); retryTimer.current = setTimeout(scrollToTarget, 150); }} onScrollBeginDrag={() => { userScrolled.current = true; }} onEndReached={() => { if (userScrolled.current && status === 'CanLoadMore' && seek !== 'loading' && seek !== 'continue') { userScrolled.current = false; more(); } }} onEndReachedThreshold={0.3} ListFooterComponent={status === 'LoadingMore' ? <Loading layout="inline" label="Loading older messages…" /> : status === 'CanLoadMore' ? <Button label="Load older messages" variant="ghost" onPress={more} /> : undefined} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }} initialNumToRender={16} maxToRenderPerBatch={12} windowSize={9} contentContainerStyle={{ paddingVertical: spacing.md }} />}
     <TypingStatus chatId={chatId} threadId={threadId} />
     {chat.trash ? <Card><Text>This conversation is in Archive.</Text><Button label="Open Archive" variant="secondary" onPress={() => router.push('/settings/archive')} /></Card> : readonlyThread ? <Card><Text tone="muted">This is a read-only conversation between agents.</Text></Card> : !chat.canPost ? <Card><Text tone="muted">You have view-only access to this conversation.</Text></Card> : messages !== undefined && (!threadId || messages.length > 0) && <Composer key={`${chatId}:${threadId ?? 'main'}`} chatId={chatId} threadId={threadId} />}
   </Screen>;
 }
 
+const noPeople: never[] = [];
 function TypingStatus({ chatId, threadId }: { chatId: Id<'chats'>; threadId?: Id<'chatMessages'> }) {
   const typing = useQuery(api.typing.list, { chatId, threadId });
   const stop = useMutation(api.turns.stop);
-  const { spacing } = useTheme();
   const task = useTask();
-  if (!typing?.people.length && !typing?.agents.length) return null;
-  return <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}>
-    {typing?.agents.map((agent) => <Stack horizontal key={agent.turnId}><Text variant="caption" tone="muted" style={{ flex: 1 }}>{agent.name}: {agent.step ?? 'Writing…'}</Text>{agent.canStop && <Button label={agent.stopping ? 'Stopping…' : 'Stop'} variant="ghost" disabled={agent.stopping || task.busy} onPress={() => void task.run(() => stop({ turnId: agent.turnId }))} />}</Stack>)}
-    {typing?.people.map((person) => <PersonTyping key={`${person.id}:${person.at}`} name={person.name} />)}
-    {task.error && <ErrorState message={task.error} />}
-  </View>;
-}
-
-/** Each new server ping remounts its timer, independent of device/server clock skew. */
-function PersonTyping({ name }: { name: string }) {
-  const [visible, setVisible] = useState(true);
-  useEffect(() => { const timer = setTimeout(() => setVisible(false), TYPING_MS); return () => clearTimeout(timer); }, []);
-  return visible ? <Text variant="caption" tone="muted">{name} is typing…</Text> : null;
+  const people = useTypingPeople(typing?.people ?? noPeople);
+  return <ChatActivity people={people} agents={typing?.agents ?? []} busy={task.busy} error={task.error} onStop={turnId => { const agent = typing?.agents.find(value => value.turnId === turnId); if (agent?.canStop && !agent.stopping) void task.run(() => stop({ turnId: agent.turnId })); }} />;
 }

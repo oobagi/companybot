@@ -3,7 +3,7 @@ import type { FunctionReturnType } from 'convex/server';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { router, Stack as RouterStack, useLocalSearchParams } from 'expo-router';
-import { Badge, Button, Divider, EditorSheet, EmptyState, ErrorState, Field, GroupedList, ListRow, Loading, Screen, ScreenList, Text, useConfirm } from '@/components/ui';
+import { Badge, Button, Divider, EditorSheet, EmptyState, ErrorState, Field, SettingsList, ListRow, Loading, Screen, ScreenList, Text, useConfirm } from '@/components/ui';
 import { HeaderMenu } from '@/components/navigation/HeaderMenu';
 import { NavigationHeader } from '@/components/navigation/NavigationHeader';
 import { api } from '@/lib/api';
@@ -69,7 +69,7 @@ function ConnectorDetail({ connector, owner }: { connector: Connector; owner: bo
       });
     }} />}
     <Screen nativeScroll padded={false}>{dialog}{guard.dialog}
-      <GroupedList sections={[
+      <SettingsList sections={[
         ...(task.error && !mode ? [{ id: 'error', rows: [{ id: 'error', title: 'Could not complete the action', subtitle: task.error }] }] : []),
         { id: 'about', rows: [{ id: 'description', title: connector.description, subtitle: `${connector.publisher} · v${connector.version}` }] },
         { id: 'connection', title: 'Connection', footer: connector.connection === 'personal' ? 'Each person connects their own account.' : 'One shared account for the workspace.', rows: [

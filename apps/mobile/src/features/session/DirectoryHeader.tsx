@@ -9,8 +9,8 @@ export function DirectoryHeader({ workspaceSwitcher = true, menu = [], ...props 
   const me = useQuery(api.workspace.me);
   return <NavigationHeader {...props} menu={workspaceSwitcher ? [
     ...menu,
-    { label: 'Pinned and recent', onPress: () => router.push('/saved') },
-    ...(__DEV__ ? [{ label: 'Components', onPress: () => router.push('/components') }] : []),
+    { label: 'Pinned and recent', icon: 'pin', onPress: () => router.push('/saved') },
+    ...(__DEV__ ? [{ label: 'Components', icon: 'square.grid.2x2' as const, onPress: () => router.push('/components') }] : []),
   ] : menu} leading={workspaceSwitcher ? {
     label: `Switch workspace, ${me?.workspace ?? 'Companybot'}`,
     image: me?.workspaceImage,

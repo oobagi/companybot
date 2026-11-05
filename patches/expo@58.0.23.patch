@@ -10,16 +10,22 @@ index 0000000000000000000000000000000000000000..e8a78a284e40f7f3d9a9a97a8b605df2
 +export {};
 diff --git a/build/dom/injectJavaScript.js b/build/dom/injectJavaScript.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..34d548c90d248c6b414847121ad624ba01524155
+index 0000000000000000000000000000000000000000..39b7152d501ec7c7f19986fd4dfb167acee36002
 --- /dev/null
 +++ b/build/dom/injectJavaScript.js
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,20 @@
 +/** Native Expo views return a promise even though WebView's public method is typed void. */
 +export function injectJavaScriptSafely(view, script, isDetached) {
 +  const report = (error) => {
 +    const removedView = error instanceof Error &&
 +      /Unable to find the (?:class )?'?[\w.]*DomWebView'? view with tag '?\d+'?/.test(error.message);
-+    if (isDetached() && removedView) return;
++    if (removedView) {
++      if (isDetached()) return;
++      // Native activity teardown can precede React's ref/layout cleanup.
++      // Recheck once after that commit; a still-attached failure remains visible.
++      setTimeout(() => { if (!isDetached()) console.error(error); }, 0);
++      return;
++    }
 +    console.error(error);
 +  };
 +  try {
@@ -98,10 +104,10 @@ index 02f713b7592c68e3cb6db2013b2aee0600a602a8..cae34fdcaa1cd3e912d9a0c1121a554b
                      type: '$$props',
 diff --git a/src/dom/injectJavaScript.ts b/src/dom/injectJavaScript.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7c5fbbb85b3214c0c46c00efa211ef3cc635deba
+index 0000000000000000000000000000000000000000..5efde33d65a60ad8d73cc54f6f48e42de7682211
 --- /dev/null
 +++ b/src/dom/injectJavaScript.ts
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,28 @@
 +type ScriptTarget = { injectJavaScript: (script: string) => unknown };
 +
 +/** Native Expo views return a promise even though WebView's public method is typed void. */
@@ -115,7 +121,13 @@ index 0000000000000000000000000000000000000000..7c5fbbb85b3214c0c46c00efa211ef3c
 +    // A live-view failure or any other exception still needs to be diagnosed.
 +    const removedView = error instanceof Error &&
 +      /Unable to find the (?:class )?'?[\w.]*DomWebView'? view with tag '?\d+'?/.test(error.message);
-+    if (isDetached() && removedView) return;
++    if (removedView) {
++      if (isDetached()) return;
++      // Native activity teardown can precede React's ref/layout cleanup.
++      // Recheck once after that commit; a still-attached failure remains visible.
++      setTimeout(() => { if (!isDetached()) console.error(error); }, 0);
++      return;
++    }
 +    console.error(error);
 +  };
 +  try {

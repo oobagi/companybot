@@ -11,6 +11,7 @@ export type DocumentPayload = {
   editable: boolean;
   canCreatePage: boolean;
   dark: boolean;
+  fontScale?: number;
   colors: Colors;
   references: Record<string, Reference>;
   image?: { url: string; request: number };

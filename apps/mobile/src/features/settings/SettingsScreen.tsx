@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { DirectoryHeader } from '@/features/session/DirectoryHeader';
-import { NativeSettings } from './NativeSettings';
+import { SettingsContent } from './SettingsContent';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useNotifications } from '@/lib/notifications/NotificationsProvider';
 import { useUnsavedWork } from '@/lib/UnsavedWork';
@@ -40,6 +40,6 @@ export default function SettingsScreen() {
   const logOut = () => void task.run(async () => { if (await confirmDiscard()) { await beforeSignOut(); await signOut(); } });
   const name = prefs?.displayName || me?.email || 'Your account';
   return <><DirectoryHeader /><Screen nativeScroll padded={false} edges={['left', 'right']}>
-    <NativeSettings name={name} email={me?.email} image={prefs?.image} onAccount={openAccount} groups={groups} onSignOut={logOut} signingOut={task.busy} error={task.error} />
+    <SettingsContent name={name} email={me?.email} image={prefs?.image} onAccount={openAccount} groups={groups} onSignOut={logOut} signingOut={task.busy} error={task.error} />
   </Screen></>;
 }

@@ -2,11 +2,13 @@
 
 import { BlockNoteEditor, docToBlocks, filterSuggestionItems } from '@blocknote/core';
 import { getDefaultReactSlashMenuItems, SuggestionMenuController } from '@blocknote/react';
-import { BlockNoteView, darkDefaultTheme, lightDefaultTheme } from '@blocknote/mantine';
+import { BlockNoteView } from '@blocknote/mantine';
+import { MantineProvider } from '@mantine/core';
 // Metro does not reliably preserve the skin's nested package CSS imports.
 import '@blocknote/core/style.css';
 import '@blocknote/react/style.css';
-import '@blocknote/mantine/style.css';
+import '@mantine/core/styles.css';
+import '@blocknote/mantine/blocknoteStyles.css';
 import { linkedPageId, pageHref, validPageHref } from '@companybot/core/page-links';
 import { sendableSteps } from 'prosemirror-collab';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -68,24 +70,35 @@ export default function DocumentDOM(wire: Props) {
     submitSteps: props.submitSteps,
   }, props.latestVersion));
   useEffect(() => { transport.replaceCallbacks(props); }, [transport, props]);
-  const editor = useMemo(() => {
-    if (!props.snapshot.content) return null;
-    const initial = JSON.parse(props.snapshot.content);
-    const parser = BlockNoteEditor.create({ schema, _headless: true });
-    const blocks = docToBlocks(parser.pmSchema.nodeFromJSON(initial));
-    parser._tiptapEditor.destroy();
-    const instance = BlockNoteEditor.create({
-      schema,
-      initialContent: blocks,
-      links: { isValidLink: validPageHref, onClick: () => true },
-      _tiptapOptions: { extensions: [documentSyncExtension(transport.client, props.pageId, api.pageSync, {
-        initialContent: initial, initialVersion: props.snapshot.version,
-      }, { onSyncError: (error) => { setProblem(error.message); void notifications.send(() => props.onStatus(!!sendableSteps(instance._tiptapEditor.state), error.message)); } })] },
-    });
-    return instance;
+  const initialized = useMemo(() => {
+    try {
+      if (!props.snapshot.content) return { editor: null, error: 'This document is unavailable.' };
+      const initial = JSON.parse(props.snapshot.content);
+      const parser = BlockNoteEditor.create({ schema, _headless: true });
+      const blocks = (() => {
+        try { return docToBlocks(parser.pmSchema.nodeFromJSON(initial)); }
+        finally { parser._tiptapEditor.destroy(); }
+      })();
+      const instance = BlockNoteEditor.create({
+        schema,
+        initialContent: blocks,
+        links: { isValidLink: validPageHref, onClick: () => true },
+        _tiptapOptions: { extensions: [documentSyncExtension(transport.client, props.pageId, api.pageSync, {
+          initialContent: initial, initialVersion: props.snapshot.version,
+        }, { onSyncError: (error) => { setProblem(error.message); void notifications.send(() => props.onStatus(!!sendableSteps(instance._tiptapEditor.state), error.message)); } })] },
+      });
+      return { editor: instance, error: undefined };
+    } catch (error) {
+      console.error('Document initialization failed', error);
+      return { editor: null, error: 'This document could not be opened. Try again.' };
+    }
     // This component is keyed by document/version-preview identity; never reset local edits on remote props.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const { editor } = initialized;
+  useEffect(() => {
+    if (initialized.error) void notifications.send(() => latest.current.onStatus(false, initialized.error!));
+  }, [initialized, notifications]);
   const lifetime = useMemo(() => createEditorLifetime(() => editor?._tiptapEditor.destroy()), [editor]);
   // BlockNoteView only unmounts its view. Destroy also releases the sync extension
   // and performs its best-effort final flush; a same-tick StrictMode remount cancels it.
@@ -154,9 +167,12 @@ export default function DocumentDOM(wire: Props) {
     });
   }, [editor, perform, props.command, props.editable, receiveCommand]);
   if (!editor) return <p role="status">This document is unavailable.</p>;
-  const baseTheme = props.dark ? darkDefaultTheme : lightDefaultTheme;
-  return <References.Provider value={props.references}><PageBlockActions.Provider value={props.editable ? id => { void perform(id); } : null}>
-    <div className={`mobile-document${native ? ' native-document bn-scroll-container' : ''}`} style={{ color: props.colors.text, background: props.colors.background, '--page-border': props.colors.border, '--page-link': props.colors.link, '--space-sm': `${spacing.sm}px`, '--space-md': `${spacing.md}px`, '--space-lg': `${spacing.lg}px`, '--space-footer': `${spacing.xxxl}px`, '--radius-md': `${radii.md}px`, '--touch': `${sizes.touch}px`, '--body-size': `${typography.body.fontSize}px`, '--caption-size': `${typography.caption.fontSize}px` } as React.CSSProperties}
+  const fontScale = props.fontScale ?? 1;
+  // The flattened Mantine CSS needs its variables and color scheme on the DOM
+  // root. BlockNote's fallback provider disables those, assuming its CSS loader
+  // resolved the nested mantineStyles.css import instead.
+  return <MantineProvider forceColorScheme={props.dark ? 'dark' : 'light'} theme={{ fontFamily: 'system-ui, sans-serif', fontSizes: { xs: `${typography.caption.fontSize * fontScale}px`, sm: `${typography.supporting.fontSize * fontScale}px`, md: `${typography.body.fontSize * fontScale}px` } }}><References.Provider value={props.references}><PageBlockActions.Provider value={props.editable ? id => { void perform(id); } : null}>
+    <div className={`mobile-document${native ? ' native-document bn-scroll-container' : ''}`} style={{ color: props.colors.text, background: props.colors.background, '--page-text': props.colors.text, '--page-background': props.colors.background, '--page-border': props.colors.border, '--page-link': props.colors.link, '--space-sm': `${spacing.sm}px`, '--space-md': `${spacing.md}px`, '--space-lg': `${spacing.lg}px`, '--space-footer': `${spacing.xxxl}px`, '--radius-md': `${radii.md}px`, '--touch': `${sizes.touch}px`, '--body-size': `${typography.body.fontSize * fontScale}px`, '--body-leading': typography.body.lineHeight / typography.body.fontSize, '--caption-size': `${typography.caption.fontSize * fontScale}px` } as React.CSSProperties}
       onClickCapture={(event) => {
         const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
         if (!anchor) return;
@@ -166,12 +182,12 @@ export default function DocumentDOM(wire: Props) {
       }}>
       {problem && <p role="alert">Your changes have not synced: {problem}</p>}
       {actionProblem && <p role="alert">{actionProblem}</p>}
-      <BlockNoteView editor={editor} editable={props.editable} theme={{ ...baseTheme, fontFamily: 'system-ui, sans-serif', colors: { ...baseTheme.colors, editor: { text: props.colors.text, background: props.colors.background } } }} sideMenu={false} slashMenu={false} filePanel={false}>
+      <BlockNoteView editor={editor} editable={props.editable} theme={props.dark ? 'dark' : 'light'} sideMenu={false} slashMenu={false} filePanel={false}>
         <SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
           ...getDefaultReactSlashMenuItems(editor).filter((item) => !(['image', 'video', 'audio', 'file'] as const).some((type) => item.title === editor.dictionary.slash_menu[type].title)),
           ...(props.canCreatePage ? [{ title: 'Page', subtext: 'Add a page inside', aliases: ['page', 'subpage'], group: 'Pages', onItemClick: () => { void perform(editor.getTextCursorPosition().block.id, true); } }] : []),
         ], query)} />
       </BlockNoteView>
     </div>
-  </PageBlockActions.Provider></References.Provider>;
+  </PageBlockActions.Provider></References.Provider></MantineProvider>;
 }

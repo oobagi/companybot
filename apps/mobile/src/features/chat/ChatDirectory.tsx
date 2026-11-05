@@ -31,10 +31,10 @@ export function ChatDirectory() {
   const agents = chats.agents.filter((a) => matches(a.name));
   const dms = chats.dms.filter((c) => (!c.agentId || c.parentId) && matches(chatTitle(c)));
   return <><DirectoryHeader search={{ placeholder: 'Search chats', value: search, onChange: setSearch }} action={{ label: 'New message', onPress: () => setDialog('new') }} menu={[
-    { label: 'Threads', onPress: () => setDialog('threads') },
-    ...(arrangements.writable ? [{ label: 'Organize channels', onPress: () => setDialog('organize') }] : []),
-    { label: 'Browse channels', onPress: () => setDialog('browse') },
-    ...(me?.access && can(me.access, 'channels.edit') ? [{ label: 'New channel', onPress: () => setDialog('channel') }] : []),
+    { label: 'Threads', icon: 'bubble.left.and.bubble.right', onPress: () => setDialog('threads') },
+    ...(arrangements.writable ? [{ label: 'Organize channels', icon: 'arrow.up.arrow.down' as const, onPress: () => setDialog('organize') }] : []),
+    { label: 'Browse channels', icon: 'number', onPress: () => setDialog('browse') },
+    ...(me?.access && can(me.access, 'channels.edit') ? [{ label: 'New channel', icon: 'plus' as const, onPress: () => setDialog('channel') }] : []),
   ]} /><Screen scroll edges={['left', 'right']}><Stack style={{ flexGrow: 1 }}>
     {task.error && <ErrorState message={task.error} />}
     {!agents.length && !channels.length && !dms.length ? <EmptyState title={search ? 'No chats found' : 'No conversations yet'} description={search ? 'Try a different name.' : 'Start a conversation with a teammate or agent.'} /> : <>

@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
-import { Avatar, Button, ChoicePicker, ConfirmSheet, EditorSheet, ErrorState, Field, GroupedList, Loading, Screen, Section, Text } from '@/components/ui';
+import { Avatar, Button, ChoicePicker, ConfirmSheet, EditorSheet, ErrorState, Field, SettingsList, Loading, Screen, Section, Text } from '@/components/ui';
 
 type Settings = NonNullable<FunctionReturnType<typeof api.workspace.settings>>;
 const editableSettings = (value: Settings) => ({ name: value.name, currency: value.currency, memory: value.memory, imageModel: value.imageModel, routerModel: value.routerModel, threadHours: value.threadHours });
@@ -31,7 +31,7 @@ export default function General() {
   return <>
     {allowed && <EditToolbarButton label="Edit workspace" onPress={() => setEditing(true)} disabled={task.busy} />}
     <Screen nativeScroll padded={false}>
-      <GroupedList sections={[
+      <SettingsList sections={[
         { id: 'workspace', title: 'Workspace', rows: [
           { id: 'identity', title: settings.name, subtitle: 'Workspace', leading: <Avatar name={settings.name} image={settings.image} size="lg" />, onPress: edit, accessibilityHint: allowed ? 'Edit workspace settings' : undefined },
           { id: 'currency', title: 'Currency', value: settings.currency, onPress: edit },

@@ -1,13 +1,14 @@
 import type { PropsWithChildren } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { useTheme } from '@/design';
 import { Text } from './Text';
+import { FloatingBar } from './FloatingBar';
 import type { ContentToolbarProps } from './ContentToolbar.types';
 
 export function ContentToolbarFrame({ children, status, busy, accessibilityLabel = 'Editing actions' }: PropsWithChildren<Pick<ContentToolbarProps, 'status' | 'busy' | 'accessibilityLabel'>>) {
-  const { colors, spacing } = useTheme();
-  return <View accessibilityRole="toolbar" accessibilityLabel={accessibilityLabel} accessibilityState={{ busy }} style={{ backgroundColor: colors.background, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingHorizontal: spacing.md }}>
-    {status ? <Text variant="caption" tone="muted" accessibilityLiveRegion="polite" style={{ paddingTop: spacing.sm }}>{status}</Text> : null}
-    {children}
+  const { spacing } = useTheme();
+  return <View accessibilityRole="toolbar" accessibilityLabel={accessibilityLabel} accessibilityState={{ busy }} style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: spacing.xs }}>
+    {status ? <Text variant="supporting" tone="muted" accessibilityLiveRegion="polite" style={{ textAlign: 'center' }}>{status}</Text> : null}
+    <View style={{ alignSelf: 'center', maxWidth: '100%' }}><FloatingBar>{children}</FloatingBar></View>
   </View>;
 }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { injectJavaScriptSafely } from 'expo/src/dom/injectJavaScript';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('native document bridge teardown', () => {
   const removed = new Error("Call to function 'DomWebView.injectJavaScript' has been rejected.\n→ Caused by: Unable to find the class expo.modules.webview.DomWebView view with tag 1960");
@@ -17,10 +17,22 @@ describe('native document bridge teardown', () => {
     expect(report).not.toHaveBeenCalled();
   });
 
+  it('allows React cleanup to follow native view removal in the same event-loop turn', async () => {
+    vi.useFakeTimers();
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let detached = false;
+    injectJavaScriptSafely({ injectJavaScript: () => Promise.reject(removed) }, 'result', () => detached);
+    await Promise.resolve();
+    detached = true;
+    await vi.runAllTimersAsync();
+    expect(report).not.toHaveBeenCalled();
+  });
+
   it('reports missing-view failures while the view is still attached', async () => {
+    vi.useFakeTimers();
     const report = vi.spyOn(console, 'error').mockImplementation(() => {});
     injectJavaScriptSafely({ injectJavaScript: () => Promise.reject(removed) }, 'result', () => false);
-    await Promise.resolve();
+    await vi.runAllTimersAsync();
     expect(report).toHaveBeenCalledWith(removed);
   });
 

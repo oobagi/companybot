@@ -4,20 +4,20 @@ import { Redirect, Stack as RouterStack, useFocusEffect } from 'expo-router';
 import Edit from '@expo/material-symbols/edit.xml';
 import Photo from '@expo/material-symbols/add_photo_alternate.xml';
 import More from '@expo/material-symbols/more_horiz.xml';
-import Person from '@expo/material-symbols/person.xml';
 import History from '@expo/material-symbols/history.xml';
 import { ThemeProvider, useTheme } from '@/design';
 import { HeaderMenu } from '@/components/navigation/HeaderMenu';
 import { ActionMenu, Avatar, Button, ChoicePicker, EditorSheet, Field, ListRow, Screen, Section, Stack, Text } from '@/components/ui';
-import { GroupedList } from '@/components/ui/GroupedList';
+import { SettingsList } from '@/components/ui/SettingsList';
 import { ContentToolbar } from '@/components/ui/ContentToolbar';
 import { DateInput } from '@/components/ui/native-controls/DateInput';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DirectoryExample } from './DirectoryExample';
 import { FeedbackExample } from './FeedbackExample';
 import { PendingMessageRow } from '@/features/chat/PendingMessageRow';
+import { ConversationExample } from './ConversationExample';
 
-const examples = ['Directory', 'Lists', 'Forms', 'Choices', 'Typography', 'Sending', 'Toolbar', 'Empty', 'Loading', 'Error'] as const;
+const examples = ['Directory', 'Lists', 'Forms', 'Choices', 'Typography', 'Sending', 'Conversation', 'Toolbar', 'Empty', 'Loading', 'Error'] as const;
 type Example = typeof examples[number];
 
 /** Development-only reference: feature screens should compose these same building blocks. */
@@ -52,11 +52,11 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
   ]} onAction={id => { if (id === 'appearance') onAppearance(); else if (examples.includes(id as Example)) { setExample(id as Example); setNotice(''); } }} />}</>;
   let content;
   if (example === 'Lists' || example === 'Forms') content = <Screen nativeScroll padded={false}>
-    <GroupedList sections={example === 'Lists' ? [
+    <SettingsList sections={example === 'Lists' ? [
       { id: 'account', title: 'Account', rows: [{ id: 'profile', title: name, subtitle: 'Profile and preferences', leading: <Avatar name={name} />, onPress: () => setEditing('short') }] },
       { id: 'values', title: 'Workspace', rows: [
         { id: 'name', title: 'Name', value: 'Companybot', onPress: () => setNotice('Workspace row selected') },
-        { id: 'people', title: 'Members', value: '12 people', icon: { ios: 'person.2', android: Person }, onPress: () => setNotice('Members row selected') },
+        { id: 'people', title: 'Members', value: '12 people', icon: { ios: 'person.2', android: 'group', web: 'group' }, onPress: () => setNotice('Members row selected') },
         { id: 'long', title: 'A longer row label that needs room to wrap', value: 'A long value remains readable', onPress: () => setNotice('Long row selected') },
         { id: 'disabled', title: 'Unavailable action', value: 'Read only', disabled: true, onPress: () => {} },
       ] },
@@ -75,6 +75,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
   else if (example === 'Directory') content = <DirectoryExample menu={[...examples.filter(value => value !== 'Directory').map(value => ({ label: value, onPress: () => setExample(value) })), { label: appearance === 'light' ? 'Dark appearance' : 'Light appearance', onPress: onAppearance }]} />;
   else if (example === 'Empty' || example === 'Loading' || example === 'Error') content = <FeedbackExample key={example} kind={example} />;
   else if (example === 'Sending') content = <Screen scroll padded={false}><PendingMessageRow name="Alex Morgan" text="Here is the project summary for our next review. This longer message should wrap naturally with larger text sizes." files={2} dayLabel="Today" /><PendingMessageRow name="Alex Morgan" text="" files={1} /></Screen>;
+  else if (example === 'Conversation') content = <ConversationExample />;
   else if (example === 'Toolbar') content = <Screen padded={false}><View style={{ flex: 1, padding: spacing.lg }}><Text>A bounded content area fills the available space.</Text><Button label={busyToolbar ? "Finish saving" : "Preview busy toolbar"} variant="secondary" onPress={() => setBusyToolbar(value => !value)} />{notice ? <Text tone="muted">{notice}</Text> : null}</View><ContentToolbar busy={busyToolbar} status={busyToolbar ? "Saving…" : "All changes saved"} actions={[
     { id: 'edit', label: 'Edit', icon: { ios: 'pencil', android: Edit }, onPress: () => setNotice('Edit selected') },
     { id: 'image', label: 'Add image (unavailable)', disabled: true, icon: { ios: 'photo.badge.plus', android: Photo }, onPress: () => setNotice('Image selected') },
@@ -87,7 +88,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
       <Section title="Compact menus"><Stack horizontal style={{ flexWrap: 'wrap' }}><ChoicePicker presentation="compact" label="View" options={shortChoices} value={selection} onChange={value => { if (typeof value === 'string') setSelection(value); }} /><ChoicePicker presentation="compact" label="Unavailable" options={shortChoices} value="mine" onChange={() => {}} disabled /></Stack></Section>
       <Section title="Form rows"><ChoicePicker label="View" options={shortChoices} value={selection} onChange={value => { if (typeof value === 'string') setSelection(value); }} /><ChoicePicker label="Multiple selections" multiple options={longChoices} value={many} onChange={value => { if (Array.isArray(value)) setMany(value); }} /><DateInput label="Date" value={date} onChange={setDate} /></Section>
     </> : <>
-      <Section title="System typography"><Text variant="title">A clear page title</Text><Text variant="heading">Section heading</Text><Text>Body text uses the system font and follows the device’s text size.</Text><Text variant="caption" tone="muted">Supporting information stays secondary.</Text></Section>
+      <Section title="System typography"><Text variant="title">A clear page title</Text><Text variant="heading">Section heading</Text><Text>Body text uses the system font and follows the device’s text size.</Text><Text variant="supporting" tone="muted">Supporting information stays secondary.</Text><Text variant="caption" tone="muted">Metadata · 9:41 AM</Text></Section>
       <Section title="Custom content rows"><View>
         <ListRow title="A content item" description="Useful supporting detail" value="Today" disclosure onPress={() => setNotice('Opened item')} />
         <ListRow title="A longer title that wraps across several lines at larger text sizes" description="Rows grow with their content. This supporting text must stay above the next row without relying on extra space between rows." disclosure onPress={() => setNotice('Opened long item')} />
@@ -107,10 +108,10 @@ function ExampleForm({ name, long = false, onSave, onClose }: { name: string; lo
   const [notes, setNotes] = useState('');
   const [reviewers, setReviewers] = useState<string[]>([]);
   const guard = useDraftGuard({ dirty: draft !== name || role !== 'member' || !!notes || reviewers.length > 0, onClose });
-  return <EditorSheet title="Edit profile" size="content" dismissible={guard.dismissible} onClose={() => void guard.close()}>
+  const save = () => { if (!draft.trim()) return; onSave(draft.trim()); guard.complete(); onClose(); };
+  return <EditorSheet title="Edit profile" size="content" dismissible={guard.dismissible} onClose={() => void guard.close()} submit={{ onPress: save, disabled: !draft.trim() }}>
     {guard.dialog}<Field label="Name" value={draft} onChangeText={setDraft} textContentType="name" autoComplete="name" returnKeyType="done" />
     <ChoicePicker label="Role" value={role} options={[{ value: 'member', label: 'Member' }, { value: 'admin', label: 'Admin' }]} onChange={value => { if (typeof value === 'string') setRole(value); }} />
     {long && <><ChoicePicker label="Reviewers" multiple value={reviewers} options={Array.from({ length: 12 }, (_, index) => ({ value: String(index), label: `Reviewer ${index + 1}` }))} onChange={value => { if (Array.isArray(value)) setReviewers(value); }} /><Field label="Notes" hint="The form should scroll when its content exceeds the sheet, including with the keyboard open." multiline value={notes} onChangeText={setNotes} /></>}
-    <Button label="Save" disabled={!draft.trim()} onPress={() => { onSave(draft.trim()); guard.complete(); onClose(); }} />
   </EditorSheet>;
 }

@@ -9,6 +9,6 @@ export { EditorSheet, ChoicePicker, ConfirmSheet } from './EditorSheet';
 
 export { useConfirm } from './useConfirm';
 export { ActionMenu, type Action } from './ActionMenu';
-export { GroupedList, type GroupedListProps, type GroupedListRow, type GroupedListSection } from './GroupedList';
+export { SettingsList, SettingsGroup, SettingsRow, type SettingsListProps, type SettingsRowData, type SettingsSection } from './SettingsList';
 export { ContentToolbar } from './ContentToolbar';
 export type { ContentToolbarProps, ContentToolbarAction } from './ContentToolbar.types';

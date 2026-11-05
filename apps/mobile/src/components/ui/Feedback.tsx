@@ -13,7 +13,7 @@ export function EmptyState({ title, description, action, layout = 'screen', styl
   return <View {...props} style={[{ flexGrow: layout === 'screen' ? 1 : 0, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: layout === 'screen' ? spacing.xl : spacing.lg, width: '100%' }, style]}>
     <View style={{ width: '100%', maxWidth: 360, alignItems: 'center', gap: spacing.sm }}>
       <Text variant={layout === 'screen' ? 'heading' : 'label'} accessibilityRole="header" style={{ textAlign: 'center' }}>{title}</Text>
-      {description && <Text variant={layout === 'screen' ? 'body' : 'caption'} tone="muted" style={{ textAlign: 'center' }}>{description}</Text>}
+      {description && <Text variant={layout === 'screen' ? 'body' : 'supporting'} tone="muted" style={{ textAlign: 'center' }}>{description}</Text>}
       {action && <View style={{ marginTop: spacing.sm }}>{action}</View>}
     </View>
   </View>;
@@ -21,7 +21,7 @@ export function EmptyState({ title, description, action, layout = 'screen', styl
 
 export function Loading({ label = 'Loading…', layout = 'screen', style, ...props }: FeedbackProps & { label?: string }) {
   const { colors, spacing } = useTheme();
-  return <View {...props} accessibilityState={{ busy: true }} accessibilityLabel={label} accessible style={[{ flexGrow: layout === 'screen' ? 1 : 0, flexDirection: layout === 'screen' ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', padding: layout === 'screen' ? spacing.xl : spacing.md, gap: spacing.sm }, style]}><ActivityIndicator color={colors.muted} /><Text variant="caption" tone="muted" style={{ textAlign: 'center', flexShrink: 1 }}>{label}</Text></View>;
+  return <View {...props} accessibilityState={{ busy: true }} accessibilityLabel={label} accessible style={[{ flexGrow: layout === 'screen' ? 1 : 0, flexDirection: layout === 'screen' ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', padding: layout === 'screen' ? spacing.xl : spacing.md, gap: spacing.sm }, style]}><ActivityIndicator color={colors.muted} /><Text variant="supporting" tone="muted" style={{ textAlign: 'center', flexShrink: 1 }}>{label}</Text></View>;
 }
 
 export function ErrorState({ message, onRetry, layout = 'inline', style, ...props }: FeedbackProps & { message: string; onRetry?: () => void }) {

@@ -14,6 +14,8 @@ import Folder from '@expo/material-symbols/folder.xml';
 import Add from '@expo/material-symbols/add.xml';
 import Archive from '@expo/material-symbols/archive.xml';
 import Undo from '@expo/material-symbols/undo.xml';
+import Tag from '@expo/material-symbols/tag.xml';
+import Widgets from '@expo/material-symbols/widgets.xml';
 
 const androidIcons = {
   'info.circle': Info,
@@ -32,6 +34,8 @@ const androidIcons = {
   plus: Add,
   archivebox: Archive,
   'arrow.uturn.backward': Undo,
+  number: Tag,
+  'square.grid.2x2': Widgets,
 };
 
 /** Expo menus accept SF names on iOS and image assets on Android. */

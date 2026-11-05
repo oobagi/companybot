@@ -9,7 +9,7 @@ import { File } from 'expo-file-system';
 import * as Linking from 'expo-linking';
 import { router, usePreventRemove } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AppState, Platform, View } from 'react-native';
+import { AppState, Platform, useWindowDimensions, View } from 'react-native';
 import { EmptyState, ErrorState, Loading } from '@/components/ui';
 import { ContentToolbar } from '@/components/ui/ContentToolbar';
 import PhotoIcon from '@expo/material-symbols/image.xml';
@@ -19,7 +19,8 @@ import { useTheme } from '@/design';
 import { api, errorMessage } from '@/lib/api';
 import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
-import DocumentDOM from './Editor.dom';
+import { DocumentSurface } from './DocumentSurface';
+import { documentFontScale } from './editorStartup';
 import type { Reference } from './schema';
 import { useDocumentConfirm } from './Confirm';
 import type { Submit } from './transport';
@@ -47,9 +48,11 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   }, []);
   const workspace = useWorkspace();
   const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
   const snapshot = useRawQuery(api.pageSync.getSnapshot, { id: pageId });
   const version = useRawQuery(api.pageSync.latestVersion, { id: pageId });
   const [dirty, setDirty] = useState(false);
+  const [editorReady, setEditorReady] = useState(false);
   const [error, setError] = useState<string>();
   const [references, setReferences] = useState<Record<string, Reference>>({});
   const [referenceIds, setReferenceIds] = useState<string[]>([]);
@@ -125,7 +128,7 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
     {actions.dialog}
     {(error || upload.error) && <ErrorState message={error ?? upload.error!} onRetry={error ? () => setRetry(n => n + 1) : undefined} />}
     {referenceIds.map((id) => <PageReference key={id} id={id} onChange={setReference} />)}
-    <DocumentDOM payload={encodeDocumentPayload({ pageId, snapshot, latestVersion: version, retrySignal: `${connection.connectionCount}:${retry}`, editable, canCreatePage: standalone, command, dark: theme.dark, colors: theme.colors, image, references })} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage}
+    <DocumentSurface onReadyChange={setEditorReady} protectedWork={dirty || imageBusy || actions.busy} payload={encodeDocumentPayload({ pageId, snapshot, latestVersion: version, retrySignal: `${connection.connectionCount}:${retry}`, editable, canCreatePage: standalone, command, dark: theme.dark, fontScale: documentFontScale(Platform.OS, fontScale), colors: theme.colors, image, references })} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage}
       getSteps={(atVersion) => convex.query(api.pageSync.getSteps, { id: pageId, version: atVersion })}
       submitSteps={(args: Submit) => {
         if (!editable) return Promise.reject(new Error('This document is read only.'));
@@ -143,8 +146,8 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
         if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } });
         else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href).catch((e: unknown) => setError(errorMessage(e)));
       }}
-      dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} />
-    {editable && <ContentToolbar accessibilityLabel="Document editing" status={upload.busy ? 'Uploading image…' : image ? 'Adding image…' : dirty ? 'Saving changes…' : undefined} busy={imageBusy || actions.busy} actions={[
+      dom={{ style: { flex: 1, minHeight: 0 }, hideKeyboardAccessoryView: true, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} />
+    {editable && <ContentToolbar accessibilityLabel="Document editing" status={upload.busy ? 'Uploading image…' : image ? 'Adding image…' : dirty ? 'Saving changes…' : undefined} busy={!editorReady || imageBusy || actions.busy} actions={[
       { id: 'blocks', label: 'Block actions', icon: { ios: 'ellipsis', android: BlocksIcon }, onPress: () => sendCommand('blocks') },
       { id: 'image', label: 'Add image', icon: { ios: 'photo', android: PhotoIcon }, onPress: () => void pickImage() },
       ...(standalone ? [{ id: 'page', label: 'New sub-page', icon: { ios: 'doc.badge.plus' as const, android: PageIcon }, onPress: () => sendCommand('page') }] : []),
@@ -160,15 +163,16 @@ function PageReference({ id, onChange }: { id: string; onChange: (id: string, va
 
 export function VersionDocument({ content, identity }: { content: string; identity: string }) {
   const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
   const [referenceIds, setReferenceIds] = useState<string[]>([]);
   const [references, setReferences] = useState<Record<string, Reference>>({});
   const setReference = useCallback((id: string, value: Reference) => setReferences(previous => ({ ...previous, [id]: value })), []);
   return <View style={{ flex: 1, minHeight: 0 }}>
     {referenceIds.map(id => <PageReference key={id} id={id} onChange={setReference} />)}
-    <DocumentDOM key={identity} payload={encodeDocumentPayload({ pageId: identity, snapshot: { content, version: 1 }, latestVersion: 1, editable: false, canCreatePage: false, dark: theme.dark, colors: theme.colors, references })} onBlockActions={async () => null} onCreatePage={async () => null}
+    <DocumentSurface key={identity} payload={encodeDocumentPayload({ pageId: identity, snapshot: { content, version: 1 }, latestVersion: 1, editable: false, canCreatePage: false, dark: theme.dark, fontScale: documentFontScale(Platform.OS, fontScale), colors: theme.colors, references })} onBlockActions={async () => null} onCreatePage={async () => null}
     getSteps={async () => ({ steps: [], clientIds: [], version: 1 })} submitSteps={async () => { throw new Error('History is read only.'); }}
     onReferences={async ids => setReferenceIds(ids)} onStatus={async () => {}} onRemovePages={async () => false}
     onImageResult={async () => {}}
     onOpenLink={async (href) => { const id = linkedPageId(href); if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } }); else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href); }}
-    dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} /></View>;
+    dom={{ style: { flex: 1, minHeight: 0 }, hideKeyboardAccessoryView: true, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} /></View>;
 }

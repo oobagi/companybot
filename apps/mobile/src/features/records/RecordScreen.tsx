@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { router, Stack as RouterStack } from 'expo-router';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import type { FieldValue } from '@companybot/core/records';
-import { Button, Card, ConfirmSheet, EditorSheet, EmptyState, ErrorState, GroupedList, Loading, Screen, Text } from '@/components/ui';
+import { Button, Card, ConfirmSheet, EditorSheet, EmptyState, ErrorState, SettingsList, Loading, Screen, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
-import type { GroupedListSection } from '@/components/ui/GroupedList.types';
+import type { SettingsSection } from '@/components/ui/SettingsList';
 import type { Action } from '@/components/ui/ActionMenu';
 import { useConfirm } from '@/components/ui/useConfirm';
 import { FieldForm } from './DatabaseForms';
@@ -60,7 +60,7 @@ function RecordContent({ record }: { record: RecordDetail }) {
     ...(capabilities.edit ? [{ id: 'archive', title: 'Archive record', icon: 'archivebox' as const, destructive: true }] : []),
     ...(record.archived && record.trash?.canRestore ? [{ id: 'restore', title: 'Restore record', icon: 'arrow.uturn.backward' as const }] : []),
   ];
-  const sections: GroupedListSection[] = [
+  const sections: SettingsSection[] = [
     ...(record.archived ? [{ id: 'archived', rows: [{ id: 'status', title: 'Archived', subtitle: 'Properties, notes and history are kept.' }] }] : []),
     { id: 'properties', title: 'Properties', rows: record.fields.flatMap(f => [
       { id: f.key, title: f.label, subtitle: valueText(f, record.values[f.key], refs), onPress: capabilities.edit ? () => setEditing(f) : undefined, testID: `record-property-${f.key}` },
@@ -86,7 +86,7 @@ function RecordContent({ record }: { record: RecordDetail }) {
     }} />
     <Screen nativeScroll padded={false}>
       {(pin.error || task.error) && <ErrorState message={pin.error ?? task.error!} />}
-      <GroupedList sections={sections} />
+      <SettingsList sections={sections} />
     </Screen>
     {editing && capabilities.edit && <ValueForm key={editing.key} field={editing} value={record.values[editing.key]} refs={refs} onSave={next => update({ recordId: record._id, values: { [editing.key]: next } })} onClose={() => setEditing(undefined)} />}
     {field && !record.archived && type?.canManage && <FieldForm database={type} field={field === 'new' ? undefined : field} onClose={() => setField(undefined)} />}

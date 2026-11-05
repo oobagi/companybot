@@ -4,14 +4,15 @@ import { TYPING_PING_MS } from '@companybot/core/typing';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, TextInput, View } from 'react-native';
-import { ActionMenu, Button, ErrorState, IconButton, ListRow, Stack, Text } from '@/components/ui';
+import { ActivityIndicator, View } from 'react-native';
+import { ActionMenu, Button, IconButton, Stack, Text } from '@/components/ui';
 import Photo from '@expo/material-symbols/photo_library.xml';
 import Camera from '@expo/material-symbols/photo_camera.xml';
 import Attach from '@expo/material-symbols/attach_file.xml';
 import Mention from '@expo/material-symbols/alternate_email.xml';
 import Microphone from '@expo/material-symbols/mic.xml';
 import { ComposerSymbol } from './ComposerSymbol';
+import { MessageInput } from '@/components/ui/MessageInput';
 import { useTheme } from '@/design';
 import { api, errorMessage } from '@/lib/api';
 import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
@@ -22,6 +23,8 @@ import { useDictation } from './useDictation';
 import { draftMentions, intactMention, rebaseMentions, recordMentions } from './logic';
 import { showSending } from './showSending';
 import { MentionPicker } from './MentionPicker';
+import { ComposerAttachments } from './ComposerAttachments';
+import { ComposerDetails } from './ComposerDetails';
 
 export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?: Id<'chatMessages'> }) {
   const chats = useQuery(api.chats.list);
@@ -32,7 +35,7 @@ export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?:
   const discard = useMutation(api.files.discard);
   const ping = useMutation(api.typing.ping);
   const upload = useFileUpload();
-  const { colors, spacing, radii, typography, sizes } = useTheme();
+  const { colors, spacing } = useTheme();
   const key = `companybot.draft:${convexUrl}:${chats?.me ?? 'loading'}:${workspace?.id}:${chatId}:${threadId ?? 'main'}`;
   const draft = useChatDraft(key);
   const dictation = useDictation((text) => changeDraft(key, (d) => ({ ...d, text: `${d.text}${d.text && !/\s$/.test(d.text) ? ' ' : ''}${text}` })));
@@ -40,7 +43,6 @@ export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?:
   const busy = !!draft.sending;
   const [picking, setPicking] = useState(false);
   const [mentionsOpen, setMentionsOpen] = useState(false);
-  const [contentHeight, setContentHeight] = useState(44);
   const [fileError, setFileError] = useState<string>();
   const lastPing = useRef(0);
   const pickerLock = useRef(false);
@@ -95,11 +97,15 @@ export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?:
       lastPing.current = 0;
     });
   };
-  return <View style={{ borderTopWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, gap: spacing.xs }}>
-    {!busy && draft.files.map((file) => <ListRow key={file.key} title={file.name} description={file.error ?? (file.file ? 'Ready to send' : 'Uploading…')} trailing={<Button label="Remove" accessibilityLabel={`Remove ${file.name}`} variant="ghost" disabled={busy} onPress={() => removeFile(file.key)} />} />)}
-    {(draft.sendError || fileError || dictation.error) && <ErrorState message={draft.sendError ? `Message not sent. Your draft and attachments are kept. ${draft.sendError}` : fileError ?? dictation.error!} />}
-    {!busy && draft.mentions.length > 0 && <Text variant="caption" tone="muted">Mentioning {draft.mentions.map(mention => `${mention.name}${mention.detail ? ` (${mention.detail})` : ''}`).join(', ')}</Text>}
-    <Stack horizontal gap="xs" style={{ alignItems: 'flex-end' }}>
+  return <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.xs }}>
+    {!busy && <ComposerAttachments files={draft.files.map(file => ({ key: file.key, name: file.name, ready: !!file.file, error: file.error }))} onRemove={removeFile} />}
+    <ComposerDetails issues={[
+      ...(draft.sendError ? [{ label: 'Message not sent', message: `Your draft and attachments are kept. ${draft.sendError}` }] : []),
+      ...(fileError ? [{ label: 'Attachment issue', message: fileError }] : []),
+      ...(dictation.error ? [{ label: 'Dictation issue', message: dictation.error }] : []),
+    ]} mentions={busy ? [] : draft.mentions} />
+    <MessageInput accessibilityLabel={threadId ? 'Reply in thread' : 'Message'} placeholder={threadId ? 'Reply…' : 'Message…'} value={busy ? '' : draft.text} onChangeText={edit} editable={ready && !busy}
+      leading={
       <ActionMenu label="Add to message" actions={[
         { id: 'photos', title: 'Photo library', icon: process.env.EXPO_OS === 'ios' ? 'photo' : Photo, disabled: !ready || picking || busy || draft.files.length >= FILES_PER_MESSAGE },
         { id: 'camera', title: 'Take a photo', icon: process.env.EXPO_OS === 'ios' ? 'camera' : Camera, disabled: !ready || picking || busy || draft.files.length >= FILES_PER_MESSAGE },
@@ -114,15 +120,12 @@ export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?:
       }}>
         {picking ? <ActivityIndicator color={colors.muted} accessibilityLabel="Adding files" /> : <ComposerSymbol name="add" color={colors.muted} />}
       </ActionMenu>
-      <TextInput accessibilityLabel={threadId ? 'Reply in thread' : 'Message'} placeholder={threadId ? 'Reply…' : 'Message…'}
-        multiline submitBehavior="newline" value={busy ? '' : draft.text} onChangeText={edit} editable={ready && !busy}
-        onContentSizeChange={event => setContentHeight(Math.ceil(event.nativeEvent.contentSize.height))}
-        scrollEnabled={contentHeight >= 144} placeholderTextColor={colors.muted} selectionColor={colors.link} underlineColorAndroid="transparent"
-        style={[typography.body, { flex: 1, height: Math.max(44, Math.min(144, contentHeight)), minHeight: 44, maxHeight: 144, marginVertical: (sizes.touch - 44) / 2, borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surface, color: colors.text, textAlignVertical: 'top' }]} />
+      }
+      trailing={
       <IconButton label="Send message" accessibilityState={{ busy }} disabled={!ready || busy || team === undefined || skills === undefined || picking || dictation.state !== 'idle' || (!draft.text.trim() && !draft.files.length) || draft.files.some((f) => !f.file)} onPress={submit}>
         {busy ? <ActivityIndicator color={colors.link} /> : <ComposerSymbol name="send" color={colors.link} />}
       </IconButton>
-    </Stack>
+      } />
     {dictation.state !== 'idle' && <Stack horizontal gap="sm"><Text tone="muted" variant="caption" accessibilityLiveRegion="polite" style={{ flex: 1 }}>{dictation.state === 'recording' ? 'Recording…' : dictation.state === 'transcribing' ? 'Transcribing…' : 'Preparing microphone…'}</Text>{dictation.state === 'recording' && <Button label="Stop" variant="secondary" accessibilityLabel="Stop dictation and transcribe" onPress={() => void dictation.toggle()} />}<Button label="Cancel" variant="ghost" accessibilityLabel="Cancel dictation" onPress={dictation.cancel} /></Stack>}
     {mentionsOpen && <MentionPicker directory={directory} onClose={() => setMentionsOpen(false)} onPick={(token, mention) => { changeDraft(key, d => { const prefix = `${d.text}${d.text && !/\s$/.test(d.text) ? ' ' : ''}`; return { ...d, text: `${prefix}${token} `, mentions: mention ? [...d.mentions, { ...mention, start: prefix.length, end: prefix.length + token.length }] : d.mentions }; }); setMentionsOpen(false); }} />}
 

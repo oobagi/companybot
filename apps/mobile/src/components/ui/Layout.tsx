@@ -79,7 +79,7 @@ export function Section({ title, description, action, children, style }: { title
   const { spacing } = useTheme();
   return <View style={[{ gap: spacing.md }, style]}>
     {(title || action) && <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-      <View style={{ flex: 1, gap: spacing.xs }}>{title && <Text variant="label" accessibilityRole="header">{title}</Text>}{description && <Text tone="muted" variant="caption">{description}</Text>}</View>
+      <View style={{ flex: 1, gap: spacing.xs }}>{title && <Text variant="label" accessibilityRole="header">{title}</Text>}{description && <Text tone="muted" variant="supporting">{description}</Text>}</View>
       {action}
     </View>}
     {children}

@@ -10,7 +10,7 @@ export function ContentToolbar({ actions, status, busy = false, accessibilityLab
   const { colors, dark, sizes, spacing } = useTheme();
   return <ContentToolbarFrame status={status} busy={busy} accessibilityLabel={label}>
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-    <Host matchContents={{ vertical: true }} colorScheme={dark ? 'dark' : 'light'} ignoreSafeArea="all" style={{ flex: 1, minHeight: sizes.touch }}>
+    <Host matchContents colorScheme={dark ? 'dark' : 'light'} ignoreSafeArea="all" style={{ minHeight: sizes.touch }}>
       <HStack spacing={spacing.sm}>
         {actions.slice(0, toolbarDirectActionLimit).map((action) => {
           const inactive = busy || !!action.disabled;

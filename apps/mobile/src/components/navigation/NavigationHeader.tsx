@@ -6,8 +6,10 @@ import Add from '@expo/material-symbols/add.xml';
 import More from '@expo/material-symbols/more_vert.xml';
 import { ActionMenu, Button, Field, Stack as Row } from '@/components/ui';
 import { useTheme } from '@/design';
+import type { Action } from '@/components/ui/ActionMenu';
+import { menuIcon } from '@/components/ui/menuIcon';
 
-export type HeaderAction = { label: string; onPress: () => void; disabled?: boolean };
+export type HeaderAction = { label: string; onPress: () => void; disabled?: boolean; icon?: Action['icon'] };
 export type NavigationHeaderProps = {
   search?: { placeholder: string; value: string; onChange: (value: string) => void };
   action?: HeaderAction;
@@ -58,7 +60,7 @@ export function NavigationHeader({ search, action, menu = [], leading }: Navigat
     <Row horizontal style={{ flexWrap: 'wrap' }}>
       {leading && <Button label={leading.label} onPress={leading.onPress} disabled={leading.disabled} variant="ghost" />}
       {action && <Button {...action} />}
-      {menu.length > 0 && <ActionMenu label="More actions" actions={menu.map((item, index) => ({ id: String(index), title: item.label, disabled: item.disabled }))} onAction={id => menu[Number(id)]?.onPress()} />}
+      {menu.length > 0 && <ActionMenu label="More actions" actions={menu.map((item, index) => ({ id: String(index), title: item.label, icon: item.icon, disabled: item.disabled }))} onAction={id => menu[Number(id)]?.onPress()} />}
     </Row>
     {search && <Field label={search.placeholder} value={search.value} onChangeText={search.onChange} autoCapitalize="none" />}
   </>;
@@ -73,7 +75,7 @@ export function NavigationHeader({ search, action, menu = [], leading }: Navigat
     {search && <Stack.SearchBar ref={searchRef} placeholder={search.placeholder} onOpen={syncSearch} onFocus={syncSearch} onChangeText={event => { desiredText.current = nativeText.current = event.nativeEvent.text; search.onChange(event.nativeEvent.text); }} onCancelButtonPress={() => { desiredText.current = nativeText.current = ''; search.onChange(''); }} autoCapitalize="none" obscureBackground={false} hideWhenScrolling={false} placement="stacked" />}
     <Stack.Toolbar placement="right">
       {menu.length > 0 && <Stack.Toolbar.Menu icon={process.env.EXPO_OS === 'ios' ? 'ellipsis' : More} accessibilityLabel="More actions">
-        {menu.map(item => <Stack.Toolbar.MenuAction key={item.label} onPress={item.onPress} disabled={item.disabled}>{item.label}</Stack.Toolbar.MenuAction>)}
+        {menu.map(item => <Stack.Toolbar.MenuAction key={item.label} icon={menuIcon(item.icon)} onPress={item.onPress} disabled={item.disabled}>{item.label}</Stack.Toolbar.MenuAction>)}
       </Stack.Toolbar.Menu>}
       {action && <Stack.Toolbar.Button icon={process.env.EXPO_OS === 'ios' ? 'plus' : Add} accessibilityLabel={action.label} onPress={action.onPress} disabled={action.disabled}>{action.label}</Stack.Toolbar.Button>}
     </Stack.Toolbar>

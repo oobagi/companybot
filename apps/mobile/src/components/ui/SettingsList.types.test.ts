@@ -1,8 +1,8 @@
 import { expectTypeOf, it } from 'vitest';
-import type { GroupedListProps, GroupedListRow } from './GroupedList.types';
+import type { SettingsListProps, SettingsRowData } from './SettingsList';
 
 it('keeps toggles controlled and prevents a second nested press action', () => {
-  type Toggle = Extract<GroupedListRow, { kind: 'toggle' }>;
+  type Toggle = Extract<SettingsRowData, { kind: 'toggle' }>;
   expectTypeOf<Toggle['value']>().toEqualTypeOf<boolean>();
   expectTypeOf<Toggle['onValueChange']>().toEqualTypeOf<(value: boolean) => void>();
   expectTypeOf<Toggle['onPress']>().toEqualTypeOf<undefined>();
@@ -11,7 +11,7 @@ it('keeps toggles controlled and prevents a second nested press action', () => {
 
 it('accepts readonly section data without requiring actions on informational rows', () => {
   const props = { sections: [{ id: 'details', rows: [{ id: 'name', title: 'Name', value: 'Example' }] }] } as const;
-  expectTypeOf(props).toExtend<GroupedListProps>();
-  type ValueRow = Exclude<GroupedListRow, { kind: 'toggle' }>;
+  expectTypeOf(props).toExtend<SettingsListProps>();
+  type ValueRow = Exclude<SettingsRowData, { kind: 'toggle' }>;
   expectTypeOf<ValueRow['onValueChange']>().toEqualTypeOf<undefined>();
 });

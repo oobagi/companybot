@@ -7,7 +7,9 @@ html, body, #root { margin: 0; min-height: 100%; width: 100%; }
    Do not force its minimum height back to the keyboard-closed viewport. */
 .mobile-document.native-document { min-height: 0; }
 body:has(.native-document) { overflow: hidden; }
-.mobile-document .bn-editor { padding: var(--space-md) var(--space-lg) var(--space-footer); font-size: var(--body-size); line-height: 1.6; }
+.bn-mantine { --bn-font-family: system-ui, sans-serif; }
+.mobile-document .bn-editor { color: var(--page-text); background: var(--page-background); padding: var(--space-md) var(--space-lg) var(--space-footer); font-size: var(--body-size); line-height: var(--body-leading); }
+.mobile-document .bn-block-outer { line-height: inherit; }
 .mobile-document .bn-block-content[data-content-type="table"] { max-width: 100%; overflow-x: auto; }
 .mobile-document .bn-inline-content a { color: var(--page-link); }
 .mobile-page-link { display: flex; align-items: center; gap: var(--space-md); min-height: var(--touch); padding: var(--space-sm) var(--space-md); border: 1px solid var(--page-border); border-radius: var(--radius-md); color: inherit; text-decoration: none; width: 100%; box-sizing: border-box; }
@@ -17,3 +19,11 @@ body:has(.native-document) { overflow: hidden; }
 .mobile-page-block { display: flex; align-items: center; gap: var(--space-sm); width: 100%; }
 .mobile-page-block .mobile-page-link { flex: 1; min-width: 0; }
 .mobile-page-block > button { color: inherit; background: transparent; border: 0; border-radius: var(--radius-md); padding: var(--space-sm) var(--space-md); font: inherit; touch-action: manipulation; }
+
+/* The mobile toolbar is portalled to body, outside .mobile-document. Let its
+   labels grow with system text size instead of clipping inside fixed heights. */
+.bn-mobile-formatting-toolbar .bn-toolbar .mantine-Button-root,
+.bn-mobile-formatting-toolbar .bn-toolbar .mantine-ActionIcon-root { min-width: 48px; min-height: 48px; height: auto; padding-block: 8px; }
+.bn-mobile-formatting-toolbar .bn-toolbar .mantine-ActionIcon-root { width: auto; padding-inline: 8px; }
+.bn-mantine .bn-select .mantine-Menu-item,
+.bn-mantine .bn-menu-dropdown .mantine-Menu-item { font-size: var(--mantine-font-size-sm); }

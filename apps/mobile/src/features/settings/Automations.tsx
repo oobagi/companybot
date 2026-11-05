@@ -6,7 +6,7 @@ import type { FunctionReturnType } from 'convex/server';
 import * as Clipboard from 'expo-clipboard';
 import { useState } from 'react';
 import { router, Stack as RouterStack, useLocalSearchParams } from 'expo-router';
-import { Badge, Button, Card, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, GroupedList, ListRow, Loading, Screen, ScreenList, Stack, Text, Divider, useConfirm } from '@/components/ui';
+import { Badge, Button, Card, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, SettingsList, ListRow, Loading, Screen, ScreenList, Stack, Text, Divider, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
@@ -76,7 +76,7 @@ function AutomationDetail({ automation: a }: { automation: Automation }) {
       });
     }} />}
     <Screen nativeScroll padded={false}>{dialog}{guard.dialog}
-      <GroupedList sections={[
+      <SettingsList sections={[
         ...(task.error && !mode ? [{ id: 'error', rows: [{ id: 'error', title: 'Could not complete the action', subtitle: task.error }] }] : []),
         ...(notice ? [{ id: 'notice', rows: [{ id: 'notice', title: notice }] }] : []),
         { id: 'summary', rows: [
