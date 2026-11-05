@@ -27,6 +27,7 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 	const decide = useMutation(api.approvals.decide);
 	const { error, busy, run } = useRun();
 	const [raw, setRaw] = useState(false);
+	// Losing a race to another device or click resolves `{ decided: false }`: the card already shows the outcome.
 	const send = (approve: boolean, always = false) => {
 		if (!approval) return;
 		run(decide({ approvalId: approval._id, hash: approval.hash, approve, always: !!always }));
@@ -52,7 +53,7 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 						</button>
 					)}
 				</div>
-				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields input={approval.input} /> : <p className={hintClass}>Loading…</p>}
+				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields fields={approval.fields} input={approval.input} /> : <p className={hintClass}>Loading…</p>}
 			</div>
 			{approval && <Status approval={approval} busy={busy} raw={raw} onDecide={send} />}
 			<Notice>{error}</Notice>
@@ -121,11 +122,13 @@ function Status({
 	}
 }
 
-/** Top-level fields, each in full: text as written (phone numbers laid out), numbers plain, anything else as JSON. */
-function Fields({ input }: { input: string }) {
-	const value: unknown = JSON.parse(input);
-	if (!value || typeof value !== "object" || Array.isArray(value)) return <Raw text={pretty(input)} />;
-	const entries = Object.entries(value);
+/**
+ * The call's fields, each in full, as the server named them for you (ids as names you can see): text as
+ * written (phone numbers laid out), numbers plain, anything else as JSON. Raw shows the exact input.
+ */
+function Fields({ fields, input }: { fields: Approval["fields"]; input: string }) {
+	if (!fields) return <Raw text={pretty(input)} />;
+	const entries = fields.map((f) => [f.key, f.value] as const);
 	if (entries.length === 0) return <p className={descriptionClass}>No input.</p>;
 	return (
 		<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
@@ -136,7 +139,7 @@ function Fields({ input }: { input: string }) {
 						{typeof v === "string" ? (
 							readableValue(v)
 						) : typeof v === "number" || typeof v === "boolean" ? (
-							v.toLocaleString()
+							typeof v === "boolean" ? (v ? "Yes" : "No") : v.toLocaleString()
 						) : (
 							<code className="text-xs">{JSON.stringify(v, null, 2)}</code>
 						)}

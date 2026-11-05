@@ -1,4 +1,4 @@
-import { type BuiltInRole, flipSwitch, roleSwitches, switches } from "@companybot/core";
+import { type BuiltInRole, canGrantRole, flipSwitch, roleSwitches, switches } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -34,12 +34,17 @@ export const list = query({
 		const held = new Map<Id<"roles">, number>();
 		for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)))
 			for (const id of accessOf(roles, row).roles) held.set(id, (held.get(id) ?? 0) + 1);
+		const invited = new Map<Id<"roles">, number>();
+		for await (const row of ctx.db.query("invites").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)))
+			for (const id of accessOf(roles, row).roles) invited.set(id, (invited.get(id) ?? 0) + 1);
 		return roles.map((r) => ({
 			id: r._id,
 			name: r.name,
 			builtIn: r.builtIn ?? null,
 			permissions: roleSwitches(r.builtIn, r.switches),
 			people: held.get(r._id) ?? 0,
+			/** Pending invites that give it: deleting it moves those left with none to Member. */
+			invited: invited.get(r._id) ?? 0,
 		}));
 	},
 });
@@ -101,23 +106,30 @@ export const remove = mutation({
 		const role = await requireEditable(ctx, member, id);
 		if (role.builtIn === "member") throw new ConvexError("Member is the role new people get, so it can't be deleted. Change its switches instead.");
 		await ctx.db.delete(id);
-		await startCascade(ctx, "role", { workspaceId: member.workspaceId, roleId: id });
+		await startCascade(ctx, "role", { workspaceId: member.workspaceId, roleId: id, fallbackRoleId: await builtInId(ctx, member.workspaceId, "member") });
 	},
 });
 
 /**
- * Role ids someone may hand out: this workspace's, at least one, no repeats. Only owners give
- * the Owner role, so `members.manage` alone can't make anyone an owner.
+ * Role ids someone may hand out in place of `current`: this workspace's, at least one, no repeats. Only
+ * owners give the Owner role, so `members.manage` alone can't make anyone an owner, and anyone else gives
+ * or takes only roles whose switches they all hold (`canGrant`), so they can't hand out more than they have.
  */
-export async function checkRoles(ctx: QueryCtx, member: Member, ids: Id<"roles">[]) {
+export async function checkRoles(ctx: QueryCtx, member: Member, ids: Id<"roles">[], current: Id<"roles">[] = []) {
 	const roles = await rolesOf(ctx, member.workspaceId);
 	const picked = [...new Set(ids)];
 	if (picked.length === 0) throw new ConvexError("Pick at least one role.");
 	if (picked.some((id) => !roles.some((r) => r._id === id))) throw new ConvexError("Role not found.");
 	const owner = roles.find((r) => r.builtIn === "owner")!._id;
 	if (picked.includes(owner) && !member.owner) throw new ConvexError("Only owners can make someone an owner.");
+	const changed = [...picked.filter((id) => !current.includes(id)), ...current.filter((id) => !picked.includes(id))];
+	const beyond = roles.find((r) => changed.includes(r._id) && !canGrant(member, r));
+	if (beyond) throw new ConvexError(`Only Owners and people with every switch ${beyond.name} has can give or take it.`);
 	return picked;
 }
+
+/** core `canGrantRole`, for a stored role. */
+const canGrant = (member: Member, role: Doc<"roles">) => canGrantRole(member, { builtIn: role.builtIn, permissions: roleSwitches(role.builtIn, role.switches) });
 
 /** The ids of one of the built-in roles, for code that hands out a default. */
 export const builtInId = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, which: BuiltInRole) => (await builtInRole(ctx, workspaceId, which))._id;
@@ -130,7 +142,8 @@ export async function setMemberRoles(ctx: MutationCtx, member: Member, row: Doc<
 	const owner = await builtInId(ctx, member.workspaceId, "owner");
 	const wasOwner = accessOf(await rolesOf(ctx, member.workspaceId), row).owner;
 	if (wasOwner && !member.owner) throw new ConvexError("Only owners can change an owner's roles.");
-	const picked = await checkRoles(ctx, member, ids);
+	if (!member.owner && row.userId === member.userId) throw new ConvexError("You can't change your own roles. Ask an Owner.");
+	const picked = await checkRoles(ctx, member, ids, accessOf(await rolesOf(ctx, member.workspaceId), row).roles);
 	if (wasOwner && !picked.includes(owner) && !(await hasLiveOwner(ctx, member.workspaceId, row.userId))) throw new ConvexError("A workspace needs at least one owner.");
 	await ctx.db.patch(row._id, { roles: picked });
 }

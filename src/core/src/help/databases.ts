@@ -16,7 +16,8 @@ Each database has its own entry in Databases' sidebar (Databases in the rail); i
 
 ## Using a database
 - **List**: pick columns, click a header to sort, and filter by any field. Search by name and text.
-- **Saved views**: save a filter, sort and columns (or a board) to share with the workspace. View tab order and the All tab's columns and layout are also shared. Only people whose role can rearrange shared sidebar lists can change these.
+- **Saved views**: save a filter, sort and columns (or a board) to share with the workspace. View tab order and the All tab's columns and layout are also shared. Only people whose role can rearrange shared sidebar lists can change these, and the All tab's layout also takes Edit in the database.
+- **Board**: cards grouped by a choice field. A database without one can't be shown as a board; add a choice field first.
 - **Record page**: edit fields in place. Below: pending follow-ups agents set about it (see **help: automations**), linked records, chat messages that mention it, and the record's page for longer notes (see **help: pages**).
 - **History**: every change with who and when (an agent shows as "Companybot, for Jaden"). Undo reverses one change.
 - **Money**: each amount keeps its own currency. The workspace currency in [General](#/settings/general) only sets the default for new ones.

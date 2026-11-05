@@ -4,8 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, requireInWorkspace, requireMember, requirePermission } from "./lib";
-import { accessInfo, reach, requireAccess, savedAccess } from "./placeAccess";
-import { createType, fieldsOf, fieldsShown, requireType, typesOf, updateType } from "./recordOps";
+import { accessInfo, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
+import { NO_BOARD, createType, fieldsOf, fieldsShown, groupsCards, requireType, typesOf, updateType } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { changeAccessSources } from "./replySources";
 import { accessArg, databaseDisplay } from "./schema";
@@ -39,6 +39,8 @@ export const list = query({
 					display: t.display ?? { layout: "table" as const },
 					...access,
 					canEdit: level === "edit" && can(member, "records.edit"),
+					/** Whether they may change the All tab's shared layout and grouping (recordTypes.setDisplay). */
+					canSetDisplay: level === "edit" && can(member, "sidebar.arrange"),
 					canManage: manage,
 					fields: await Promise.all(
 						[...fields.filter((f) => !f.archived), ...fields.filter((f) => f.archived)].map(async (f) => ({
@@ -77,6 +79,7 @@ export const setAccess = mutation({
 		requireAccess(member, "database", type.plural, type.access, "edit");
 		if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 		const list = await savedAccess(ctx, member, access);
+		requireKeepsEdit(member, "database", list);
 		await changeAccessSources(ctx, member, type, { access: list });
 		// Everyone at Edit is the default: store nothing.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
@@ -88,18 +91,16 @@ type Display = { layout?: "table" | "board"; groupBy?: string };
 
 /** Each change names only what it sets, so two people changing layout and grouping at once don't undo each other. */
 async function saveDisplay(ctx: MutationCtx, member: Member, typeId: Id<"recordTypes">, change: Display) {
-	// Arranging a database you can open: View is enough, as for its order in the sidebar.
-	const type = await requireType(ctx, member, typeId);
+	// Everyone's All tab shows it, so changing it takes Edit in the database, not just View.
+	const type = await requireType(ctx, member, typeId, "edit");
 	if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	if (change.groupBy && !(await groupable(ctx, typeId, change.groupBy))) throw new ConvexError("Group a board by a live choice field that holds one option.");
+	if (change.layout === "board" && !(await fieldsOf(ctx, typeId)).some(groupsCards)) throw new ConvexError(NO_BOARD);
 	const display = { layout: change.layout ?? type.display?.layout ?? "table", groupBy: change.groupBy ?? type.display?.groupBy };
 	await ctx.db.patch(typeId, { display });
 }
 
-const groupable = async (ctx: MutationCtx, typeId: Id<"recordTypes">, key: string) => {
-	const field = (await fieldsOf(ctx, typeId)).find((f) => f.key === key && !f.archived);
-	return !!field && field.kind === "choice" && !field.multiple;
-};
+const groupable = async (ctx: MutationCtx, typeId: Id<"recordTypes">, key: string) => (await fieldsOf(ctx, typeId)).some((f) => f.key === key && groupsCards(f));
 
 export const setDisplay = mutation({
 	args: { typeId: v.id("recordTypes"), display: v.object({ layout: v.optional(databaseDisplay.fields.layout), groupBy: v.optional(v.string()) }) },

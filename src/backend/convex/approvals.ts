@@ -23,10 +23,12 @@ import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import { titleOf } from "./connectorTools";
-import { erased, getMember, liveWorkspace, memberOf, nameOf, requireLiveAgent, requireMember, sweepExpired, toActor } from "./lib";
+import { type Member, erased, getMember, liveWorkspace, memberOf, nameOf, requireLiveAgent, requireMember, sweepExpired, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
-import { canReadReplyDetails, readReplyDetails } from "./replyPrivacy";
-import { fieldsOf, typesOf } from "./recordOps";
+import { canReadReplyDetails, canReadSources, readReplyDetails } from "./replyPrivacy";
+import { fieldsOf, requireRecord, typesOf } from "./recordOps";
+import { requirePage } from "./pageOps";
+import { reach } from "./placeAccess";
 import { writeSources } from "./replySources";
 import { type Op, opArg, risk } from "./schema";
 export type { Op };
@@ -251,6 +253,9 @@ export const forReply = query({
 				const shownInput = privateInput ? "{}" : row.input;
 				const input: unknown = JSON.parse(shownInput);
 				const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
+				const def = builtinTools.find((t) => t.id === row.tool);
+				const named = await namedInput(ctx, member, input);
+				const action = def?.action?.(input) ?? actionLabel(row.tool, title);
 
 				return {
 					_id: row._id,
@@ -258,14 +263,16 @@ export const forReply = query({
 					tool: row.tool,
 					/** The service's name ("Night Owl"), or null for built-ins. */
 					service: findConnector(group)?.name ?? null,
-					/** Its name for people: "Send SMS". */
-					action: actionLabel(row.tool, title),
+					/** What this call does, for people: "Send SMS", "Archive page". */
+					action,
 					/** The ask: "I'd like to send an email to dana@acme.com from your Gmail.", or "Monday summary wants to post in #general as you." */
 					ask: askText(row.tool, connector, input, {
 						title,
-						said: builtinTools.find((t) => t.id === row.tool)?.label?.(input),
+						said: (named.target && def?.label?.(input, { title: named.target, name: named.target })) || def?.label?.(input) || (def?.action ? action : undefined),
 						automation: automation ? automationName(automation) : undefined,
 					}),
+					/** The input as the card shows it: ids as names this viewer can see, never a hidden place's. Null: not fields. */
+					fields: named.fields?.filter((f) => !def?.actionKeys?.includes(f.key)) ?? null,
 					/** The automation whose run made the call, so the card says where the agent's words came from. */
 					automation: automation ? automationName(automation) : null,
 					/** Set when "Always allow" would cover only this automation's runs. */
@@ -295,6 +302,68 @@ export const forReply = query({
 });
 
 /**
+ * A held call's input for its card: each id it names as what this viewer may see ("Old pricing notes",
+ * "#sales"), or what it is ("a page you can't see"), never a hidden place's name. `target` is the name of
+ * what it acts on (its `page`, `id` or `record`), when the viewer can see it. A manage tool's `request`
+ * shows its fields. What runs is still the exact stored input (Raw).
+ */
+async function namedInput(ctx: QueryCtx, member: Member, input: unknown) {
+	if (!input || typeof input !== "object" || Array.isArray(input)) return { fields: null, target: undefined };
+	const top = input as Record<string, unknown>;
+	const request = Object.keys(top).length === 1 && top.request && typeof top.request === "object" && !Array.isArray(top.request) ? (top.request as Record<string, unknown>) : top;
+	const names = new Map<string, { name: string; seen: boolean } | null>();
+	const nameOfId = async (id: string) => {
+		if (!names.has(id)) names.set(id, await idName(ctx, member, id));
+		return names.get(id)!;
+	};
+	const shown = async (v: unknown): Promise<unknown> => typeof v === "string" ? (await nameOfId(v))?.name ?? v : Array.isArray(v) ? Promise.all(v.map(shown)) : v;
+	const fields = [];
+	for (const [key, value] of Object.entries(request)) fields.push({ key, value: await shown(value) });
+	let target: string | undefined;
+	for (const key of ["page", "id", "record"]) {
+		const named = typeof request[key] === "string" ? await nameOfId(request[key]) : null;
+		if (named) { target = named.seen ? named.name : undefined; break; }
+	}
+	return { fields, target };
+}
+
+/** What an id names for this viewer, or null if it isn't one of these kinds. Gates are the shared readers'. */
+async function idName(ctx: QueryCtx, member: Member, id: string): Promise<{ name: string; seen: boolean } | null> {
+	const hidden = (name: string) => ({ name, seen: false });
+	const seen = (name: string) => ({ name, seen: true });
+	const pageId = ctx.db.normalizeId("pages", id);
+	if (pageId) {
+		if (!(await ctx.db.get(pageId))) return hidden("a deleted page");
+		return await requirePage(ctx, member, pageId).then((p) => seen(p.title || "Untitled"), () => hidden("a page you can't see"));
+	}
+	const recordId = ctx.db.normalizeId("records", id);
+	if (recordId) {
+		if (!(await ctx.db.get(recordId))) return hidden("a deleted record");
+		return await requireRecord(ctx, member, recordId).then((r) => seen(r.title || "Untitled"), () => hidden("a record you can't see"));
+	}
+	const typeId = ctx.db.normalizeId("recordTypes", id);
+	if (typeId) {
+		const type = await ctx.db.get(typeId);
+		return type && type.workspaceId === member.workspaceId && reach(member, type.access) && await canReadSources(ctx, member, type.usedPlaces) ? seen(type.plural) : hidden("a database you can't see");
+	}
+	const chatId = ctx.db.normalizeId("chats", id);
+	if (chatId) {
+		const chat = await ctx.db.get(chatId);
+		if (chat && await canSee(ctx, chat, member)) return seen(chat.kind === "channel" ? `#${chat.name}` : "a direct message");
+		return hidden(chat?.kind === "channel" ? "a channel you can't see" : "a conversation you can't see");
+	}
+	const userId = ctx.db.normalizeId("users", id);
+	if (userId) return await memberOf(ctx, userId, member.workspaceId) ? seen(await nameOf(ctx, userId)) : hidden("someone");
+	const agentId = ctx.db.normalizeId("agents", id);
+	if (agentId) {
+		const agent = await ctx.db.get(agentId);
+		return agent?.workspaceId === member.workspaceId ? seen(agent.name) : hidden("an agent");
+	}
+	if (ctx.db.normalizeId("chatMessages", id)) return hidden("a message");
+	return null;
+}
+
+/**
  * Approve or deny. `hash` is the one the approver was shown: if it doesn't match the
  * stored call exactly, nothing is decided. Only the person the agent acted for can
  * decide, while they can still see the chat, before it expires.
@@ -316,7 +385,9 @@ export const decide = mutation({
 		}
 		const status = approvalStatus(row);
 		if (status === "expired") throw new ConvexError("This request expired. Ask the agent again.");
-		if (status !== "pending") throw new ConvexError("This was already decided.");
+		// Lost a race (another device, a double click): the card already shows the outcome. Not an error,
+		// since the client logs every failed mutation to the console.
+		if (status !== "pending") return { decided: false };
 		if (hash !== row.hash) throw new ConvexError("This action isn't the one you were shown. Nothing ran.");
 		const agent = await requireLiveAgent(ctx, member, row.agentId);
 
@@ -342,6 +413,7 @@ export const decide = mutation({
 			...(asked?.chain && { chain: asked.chain }),
 			...(asked?.ask && { ask: asked.ask }),
 		});
+		return { decided: true };
 	},
 });
 

@@ -154,7 +154,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keepOnReset: "Everyone stays, with their role. The reset puts them all in the new #general, with a fresh tutorial.",
 	},
 	invites: {
-		role: roleRefs<"invites">(),
+		// An invite left with no role joins as Member, as one sent without a role does.
+		role: { ...roleRefs<"invites">(), scrub: (row, _get, root) => {
+			const roles = row.roles!.filter((id) => id !== root.roleId);
+			return { roles: roles.length || !root.fallbackRoleId ? roles : [root.fallbackRoleId] };
+		} },
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
 		keepOnReset: "Pending invites still stand: they join the fresh workspace.",

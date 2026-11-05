@@ -128,7 +128,7 @@ describe("roles", () => {
 		await owner.mutation(api.roles.setPermission, { id: admins, permission: "members.manage", on: true });
 		const them = await membership(member);
 		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [memberRole, admins] });
-		await expect(member.mutation(api.workspace.setRoles, { id: them.id, roles: [ownerRole] })).rejects.toThrow("Only owners can make someone an owner.");
+		await expect(member.mutation(api.workspace.setRoles, { id: them.id, roles: [ownerRole] })).rejects.toThrow("You can't change your own roles.");
 		await expect(member.mutation(api.workspace.setRoles, { id: me.id, roles: [memberRole] })).rejects.toThrow("Only owners can change an owner's roles.");
 		await expect(member.mutation(api.workspace.removeMember, { id: me.id })).rejects.toThrow("Only owners can remove an owner.");
 		await expect(member.mutation(api.workspace.invite, { email: "boss@co.com", roles: [ownerRole] })).rejects.toThrow("Only owners can make someone an owner.");
@@ -143,7 +143,36 @@ describe("roles", () => {
 		expect((await crew.query(api.workspace.me))!.access!.roles).toEqual([admins]);
 	});
 
-	it("moves people and invites off a deleted role, without granting a replacement, and stops connectors allowing it", async () => {
+	it("lets someone who hands out roles give or take only roles within their own switches, and never their own", async () => {
+		const { t, owner, member, id, membership } = await setup();
+		const memberRole = await id("Member");
+		const admins = await owner.mutation(api.roles.create, { name: "Admins" });
+		await owner.mutation(api.roles.setPermission, { id: admins, permission: "members.manage", on: true });
+		const office = await owner.mutation(api.roles.create, { name: "Office" });
+		for (const permission of ["members.manage", "trash.manage", "fields.edit"] as const) await owner.mutation(api.roles.setPermission, { id: office, permission, on: true });
+		await owner.mutation(api.workspace.setRoles, { id: (await membership(member)).id, roles: [memberRole, admins] });
+		await owner.mutation(api.workspace.invite, { email: "dana@co.com", roles: [memberRole] });
+		const dana = await signIn(t, "dana@co.com");
+		const self = (await membership(member)).id;
+		const them = (await membership(dana)).id;
+		// Not to themselves, through either the new call or alpha.9's.
+		await expect(member.mutation(api.workspace.setRoles, { id: self, roles: [memberRole, admins, office] })).rejects.toThrow("You can't change your own roles.");
+		await expect(member.mutation(api.workspace.setRoles, { id: self, roles: [memberRole] })).rejects.toThrow("You can't change your own roles.");
+		await expect(member.mutation(api.workspace.setRole, { id: self, role: "member" })).rejects.toThrow("You can't change your own roles.");
+		// Nor a role with switches they don't hold, to anyone, by invite either; nor taking one away.
+		await expect(member.mutation(api.workspace.setRoles, { id: them, roles: [memberRole, office] })).rejects.toThrow("Office");
+		await expect(member.mutation(api.workspace.invite, { email: "new@co.com", roles: [office] })).rejects.toThrow("Office");
+		await owner.mutation(api.workspace.setRoles, { id: them, roles: [memberRole, office] });
+		await expect(member.mutation(api.workspace.setRoles, { id: them, roles: [memberRole] })).rejects.toThrow("Office");
+		// Roles within their switches, and Member, are fine; keeping Office as it is too.
+		await member.mutation(api.workspace.setRoles, { id: them, roles: [memberRole, office, admins] });
+		await member.mutation(api.workspace.setRole, { id: them, role: "member" });
+		await member.mutation(api.workspace.invite, { email: "old@co.com", role: "member" });
+		expect([...(await membership(dana)).roles].sort()).toEqual([memberRole, office, admins].sort());
+		expect((await membership(member)).roles).toEqual([memberRole, admins]);
+	});
+
+	it("moves people and invites off a deleted role, invites left with none to Member, and stops connectors allowing it", async () => {
 		const { t, owner, member, id, membership } = await setup();
 		const [office, crew] = [await owner.mutation(api.roles.create, { name: "Office" }), await owner.mutation(api.roles.create, { name: "Crew" })];
 		const them = await membership(member);
@@ -152,10 +181,17 @@ describe("roles", () => {
 		await owner.mutation(api.workspace.invite, { email: "new@co.com", roles: [office] });
 		await owner.mutation(api.connectors.setInstalled, { connectorId: "crm", installed: true });
 		await owner.mutation(api.connectors.setRoles, { connectorId: "crm", roles: [office, crew] });
+		await owner.mutation(api.workspace.invite, { email: "both@co.com", roles: [office, crew] });
+		// The confirmation counts invites that give it, not just people.
+		expect((await owner.query(api.roles.list))!.find((r) => r.id === office)).toMatchObject({ people: 2, invited: 2 });
 		await owner.mutation(api.roles.remove, { id: office });
+		await settle(t);
 		expect((await membership(member)).roles).toEqual([]);
 		expect((await membership(owner)).roles).toEqual([await id("Owner"), crew]);
-		expect((await owner.query(api.workspace.team))!.invites[0]!.roles).toEqual([]);
+		// An invite it was the only role of joins as Member, as one sent without a role does; others keep the rest.
+		const invites = (await owner.query(api.workspace.team))!.invites;
+		expect(invites.find((i) => i.email === "new@co.com")!.roles).toEqual([await id("Member")]);
+		expect(invites.find((i) => i.email === "both@co.com")!.roles).toEqual([crew]);
 		expect((await owner.query(api.connectors.list)).find((c) => c.id === "crm")!.roleIds).toEqual([crew]);
 		expect((await owner.query(api.roles.list))!.map((r) => r.name)).toEqual(["Owner", "Member", "Crew"]);
 		expect((await member.query(api.workspace.me))!.access!.permissions).toEqual([]);

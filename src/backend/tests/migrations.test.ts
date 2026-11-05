@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
+import { readDoc } from "../convex/pageOps";
 
 import { agentTurn, agentsOf, generalOf, modules, signIn, messagesIn } from "./helpers";
 import { seedAutomation } from "./legacyFixtures";
@@ -482,4 +483,27 @@ it("copies profiles onto memberships, moves last used out of preferences, and co
 	});
 	expect(counts.general[0]).toBe(counts.general[1]);
 	expect(counts.channel).toEqual([1, 1]);
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.pageChildBlocks.
+it("gives sub-pages from before pages were blocks exactly one block in their parent, once", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+	const old = await owner.mutation(api.pages.create, { title: "Old guide", parentId: root, insertInParent: false });
+	const placed = await owner.mutation(api.pages.create, { title: "New guide", parentId: root });
+	const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.flatMap((b) => b.firstChild?.type.name === "page" ? [b.firstChild.attrs.pageId as string] : []));
+	expect(await blocks()).toEqual([placed]);
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	expect((await blocks()).sort()).toEqual([old, placed].sort());
 });

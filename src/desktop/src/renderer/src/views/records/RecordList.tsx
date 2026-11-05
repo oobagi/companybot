@@ -92,7 +92,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			for (const id of columns.filter((k) => !shown.includes(k))) changeColumns({ op: "remove", id, seed });
 		}
 		// Send only what changed, so someone else's layout or grouping change isn't overwritten.
-		if (!selected && writable && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
+		if (!selected && type.canSetDisplay && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
 	};
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
@@ -207,19 +207,20 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					onChange={setColumns}
 					onNewField={type.canManage ? () => setAddingField("text") : undefined}
 				/>}
-				{(selected || writable) && layout === "board" && group && (
+				{(selected || type.canSetDisplay) && layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">
 						Group by
 						<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
 					</label>
 				)}
-				{(selected || writable) && <span className="ml-auto">
+				{(selected || type.canSetDisplay) && <span className="ml-auto">
 					<Segmented
 						label="Layout"
 						value={layout}
 						options={[
 							{ value: "table", label: "Table" },
-							{ value: "board", label: "Board" },
+							// A board groups cards by a choice field: none, no board (the server refuses it too).
+							...(groupFields.length || layout === "board" ? [{ value: "board" as const, label: "Board" }] : []),
 						]}
 						onChange={(l) => change({ layout: l })}
 					/>

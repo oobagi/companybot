@@ -117,6 +117,20 @@ it("imports only absent lists, resolves database keys once, and stores layout on
 	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board", groupBy: "missing" } })).rejects.toThrow("live choice field");
 });
 
+it("changes a database's shared layout only with Edit in it, and never to a board with nothing to group by", async () => {
+	const { owner, member } = await ownerAndMember();
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Notes" });
+	const displayOf = async () => (await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)?.display;
+	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId, display: { layout: "board" } })).rejects.toThrow("Add a choice field first");
+	await expect(owner.mutation(api.databaseViews.save, { typeId, name: "Cards", columns: ["name"], filters: [], layout: "board" })).rejects.toThrow("Add a choice field first");
+	expect(await displayOf()).toEqual({ layout: "table" });
+	// View is enough to open it, not to change what everyone's All tab shows.
+	await owner.mutation(api.recordTypes.setAccess, { typeId, access: [{ role: "everyone", level: "view" }] });
+	await expect(member.mutation(api.recordTypes.setDisplay, { typeId, display: { layout: "table" } })).rejects.toThrow("Only Owners can change Notes.");
+	expect((await member.query(api.recordTypes.list)).find((t) => t._id === typeId)).toMatchObject({ canSetDisplay: false });
+	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)).toMatchObject({ canSetDisplay: true });
+});
+
 it("merges display changes so layout and grouping don't overwrite each other; imports that can't succeed are skipped", async () => {
 	const { owner, member } = await ownerAndMember();
 	const type = (await owner.query(api.recordTypes.list))[0]!;

@@ -90,11 +90,17 @@ function pageBinds(input: PageWriteInput): Bound[] {
 function writeLabel(input: PageWriteInput, output: unknown) {
 	const title = text(output, "title");
 	if (text(output, "error") || !title) return;
-	if (input.action === "move") return `Move page ${title}`;
 	if (input.restore) return `Restore a version of ${title}`;
-	if (input.trash !== undefined) return `${input.trash ? "Archive" : "Restore"} page ${title}`;
-	if (!input.page && !input.record) return `Create page ${title}`;
-	return input.markdown === undefined ? `Update page ${title}` : `Write page ${title}`;
+	return `${writeAction(input)} ${title}`;
+}
+
+/** "Archive page": what a write does, before anything names its page. */
+function writeAction(input: PageWriteInput) {
+	if (input.action === "move") return "Move page";
+	if (input.restore) return "Restore a page version";
+	if (input.trash !== undefined) return input.trash ? "Archive page" : "Restore page";
+	if (!input.page && !input.record) return "Create page";
+	return input.markdown === undefined ? "Update page" : "Write page";
 }
 
 export const pageTools: ToolDef[] = [
@@ -139,5 +145,7 @@ export const pageTools: ToolDef[] = [
 		binds: pageBinds,
 		execute: (input, { pages }) => pages.write(input),
 		label: writeLabel,
+		action: writeAction,
+		actionKeys: ["action", "trash"],
 	}),
 ];

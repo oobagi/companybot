@@ -1,7 +1,7 @@
 import { setActivity } from "./chatOps";
 import { publicSearchChat, ensureSeatActivity } from "./chatDiscovery";
 import { fromLegacy } from "./wakeups";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
@@ -9,7 +9,8 @@ import { type MutationCtx, internalMutation, internalQuery } from "./_generated/
 import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
 import { type RunOutcome, triggerIndexes, scheduleCursor } from "./automationOps";
-import { memberProfile, rolesOf, timeZoneOf } from "./lib";
+import { accessOf, memberOf, memberProfile, rolesOf, timeZoneOf } from "./lib";
+import { appendPageBlock } from "./pageOps";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
 
@@ -439,6 +440,39 @@ export const continueSeatCount = internalMutation({
 	},
 });
 
+// Sub-pages made before pages became blocks (Oct 31) had no block in their parent: the editor used to add one
+// on open, racing the server's own insert for new children (two blocks). The server is the only writer now;
+// this gives each older child its block, as the person who made it (or an owner) if they can edit the parent.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test.
+export const pageChildBlocks = migrations.define({
+	table: "pages",
+	batchSize: 5,
+	migrateOne: async (ctx, page) => {
+		if (!page.parentId || page.recordId || page.archived) return;
+		const parent = await ctx.db.get(page.parentId);
+		if (!parent || parent.archived) return;
+		const roles = await rolesOf(ctx, page.workspaceId);
+		const creator = await memberOf(ctx, page.createdBy, page.workspaceId);
+		const candidates = creator ? [creator] : [];
+		for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", page.workspaceId))) {
+			if (candidates.length > 1) break;
+			if (row.userId !== page.createdBy && accessOf(roles, row).owner) {
+				const owner = await memberOf(ctx, row.userId, page.workspaceId);
+				if (owner) candidates.push(owner);
+			}
+		}
+		for (const member of candidates) {
+			try {
+				await appendPageBlock(ctx, { member }, parent, page._id);
+				return;
+			} catch (e) {
+				// Someone who can't edit it (or a parent under an archived page): try the next, else leave it.
+				if (!(e instanceof ConvexError)) throw e;
+			}
+		}
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -474,6 +508,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.memberProfiles,
 	internal.migrations.lastWorkspaces,
 	internal.migrations.chatMemberCounts,
+	internal.migrations.pageChildBlocks,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

@@ -8,12 +8,12 @@ export default {
 Agents act as the person who asked. Anything that leaves Companybot (a send, a call, a payment, a change in another app) **asks first**. Companybot's own work (records, pages, memory) runs right away and is logged in [Activity](#/settings/activity); archiving anything always asks.
 
 ## The approval card
-An agent's held action appears in the chat as a card from the agent, saying exactly what it wants to do, with three buttons:
+An agent's held action appears in the chat as a card from the agent, saying exactly what it wants to do ("Archive page"), with what it touches by name: the page, record or channel as you can see it, or "a page you can't see" when you can't. **Raw** shows the exact input. Three buttons:
 - **Allow once**: run it this time.
 - **Always allow**: run it now and don't ask again for this action. Only you can choose it, and not for locked actions. The card says what "always" covers.
 - **Deny**: don't run it. The agent is told and carries on.
 
-Only the person the agent is acting for can decide, within 24 hours. No role can decide for someone else.
+Only the person the agent is acting for can decide, within 24 hours. No role can decide for someone else. If it was already answered (on another device, say), the card just shows that answer.
 
 What you approve is exactly what runs. The card names the exact page, record, field or chat, and if it's edited before the action runs (say, someone changes the page it would overwrite, or adds a record to a database it would archive), the action doesn't run; ask again. An approved action runs once, even if something retries it. If an action in another app gets cut off, its card says it **may or may not have happened**: check there before trying again.
 
@@ -34,6 +34,7 @@ Each channel, database and page has a **Who can access** list: **Everyone**, or 
 - **View** reads; **Edit** (or **Post**) also changes it. Owners always have Edit.
 - Every place starts at Everyone, Edit, so nothing changes until someone restricts it. Examples: a read-only channel (Everyone: View, Office: Post), a read-only page, a private database (Deals: Office only).
 - **Change it**: a channel's details (click its name), a database's settings, or a page's ⋯ menu. It takes the switch to change that kind of place, and Edit in it. A lock in the sidebar marks a restricted place; hover it for who can.
+- **You can't lock yourself out**: a change that would take away your own Edit (Post, for a channel) is refused with "You'd lose edit access. Ask an Owner." Only owners can make it, since nobody else could undo it.
 - **Sub-pages** follow their parent's list unless they set their own. A record's page follows its database. Moving a page never opens it to more people.
 - **Private channels** keep their members; the list applies on top.
 - **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." It names the place only if they asked for it by that name; otherwise it's "this database". In a channel they can only view, agents don't reply or follow up for them, and a reply already under way stops when they lose Post.
