@@ -58,7 +58,7 @@ export function ActivityTab() {
 
 function DatabaseActivity({ results, status, loadMore }: { results: FunctionReturnType<typeof api.records.activity>["page"]; status: string; loadMore: (count: number) => void }) {
 	return (
-		<Section title="Database changes" hint="Records, fields, databases and shared views, including changes made by agents.">
+		<Section title="Database changes">
 			{results.map((e) => {
 				const [kind, action] = e.action.includes(".") ? e.action.split(".") : ["record", e.action];
 				return <div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>

@@ -239,7 +239,7 @@ function History({ agent, canManage }: { agent: Agent; canManage: boolean }) {
 	if (!versions) return null;
 
 	return (
-		<Section title="History" hint="Every save is kept. Restoring saves an old version as the newest one.">
+		<Section title="History" note="Every save is kept. Restoring saves an old version as the newest one.">
 			<Notice>{error}</Notice>
 			{versions.map((v, i) => {
 				// Picked, so versions from before reasoning existed read as the default it ran with.

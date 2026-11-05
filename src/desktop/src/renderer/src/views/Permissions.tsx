@@ -24,10 +24,7 @@ export function YourPermissions() {
 	const { error, run } = useRun();
 	if (!rules) return <Loading />;
 	return (
-		<Section
-			title="Yours"
-			hint="Actions you've set to run without asking, or never, in this workspace."
-		>
+		<Section title="Yours" note="Actions you've set to run without asking, or never, in this workspace.">
 			{dialog}
 			<Notice>{error}</Notice>
 			{rules.length === 0 && <p className={`${hintClass} ${insetClass}`}>Nothing yet. Everything asks first.</p>}
@@ -99,7 +96,7 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 	const { error, busy, run } = useRun();
 	if (!actions) return <Loading />;
 	return (
-		<Section title="Actions" hint="What agents can do here when acting for you. Anything that changes something asks first unless you say otherwise.">
+		<Section title="Actions" note="Anything that changes something asks you first, unless you set it otherwise.">
 			<Notice>{error}</Notice>
 			{actions.length === 0 && (
 				<p className={`${hintClass} ${insetClass}`}>
@@ -138,10 +135,7 @@ export function WorkspaceLocks() {
 	if (!actions) return <Loading />;
 	const shown = actions.filter((a) => a.risk !== "none" || a.lock);
 	return (
-		<Settings
-			title="Action locks"
-			hint="For everyone, over anyone's own settings. Locked actions always ask; nobody can set them to Always."
-		>
+		<Settings title="Action locks" note="For everyone, over their own settings. Locked actions always ask; nobody can set them to Always.">
 			{error && <div className="p-3"><Notice>{error}</Notice></div>}
 			{shown.length === 0 && <p className="px-4 py-3 text-sm text-neutral-400">No actions yet. Install and connect a connector first.</p>}
 			{shown.map((a) => {

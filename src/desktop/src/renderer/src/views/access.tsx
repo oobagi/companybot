@@ -59,7 +59,7 @@ export function WhoCanAccess({
 	return (
 		<Section
 			title="Who can access"
-			hint={lines.filter(Boolean).join(" ")}
+			note={lines.filter(Boolean).join(" ")}
 			action={
 				follow && !follow.following && (
 					<button type="button" className={compactButton} onClick={() => run(follow.onFollow())}>

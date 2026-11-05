@@ -201,8 +201,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 			{isChannel && (chat.canManage ? <EditChannel chat={chat} /> : <AboutChannel chat={chat} />)}
 			{isChannel && chat.access && <ChannelAccess chat={chat} access={chat.access} />}
 			<Section
-				title="Members"
-				hint={count || undefined}
+				title={count ? `Members · ${count}` : "Members"}
 				action={
 					isChannel && (
 						<button type="button" onClick={() => setAdding(true)} className={compactButton}>

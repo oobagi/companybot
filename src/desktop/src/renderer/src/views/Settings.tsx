@@ -9,7 +9,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
+import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, dangerButton, disabledButtonClass, hintClass, insetClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
@@ -291,7 +291,8 @@ function GeneralForm({
 		<>
 			{canManage && <ConflictNotice draft={draft} />}
 			<Notice>{error}</Notice>
-			<Settings title="Workspace" hint={ownerOnly}>
+			{ownerOnly && <p className={`${hintClass} ${insetClass}`}>{ownerOnly}</p>}
+			<Settings title="Workspace">
 				<Setting label="Logo" hint={`Its icon in the workspace rail at the far left. ${pictureLimits}.`}>
 					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!canManage} />
 				</Setting>
@@ -319,8 +320,8 @@ function GeneralForm({
 					<Toggle disabled={!canManage} checked={value.memory} onChange={(memory) => draft.set({ ...value, memory })} />
 				</Setting>
 			</Settings>
-			<Settings title="Agents in channels" hint={ownerOnly ?? "In channels set to \"When relevant\", a quick model call decides whether each agent replies, reacts or stays quiet."}>
-				<Setting label="Reply decisions" hint="What makes that call. Jev is a decision model: fastest and cheapest. Any language model works too.">
+			<Settings title="Agents in channels">
+				<Setting label="Reply decisions" hint="Decides when agents reply in channels set to “When relevant”. Jev is fastest and cheapest.">
 					<ModelPicker
 						models={settings.routerModels}
 						defaultModel={ROUTER_MODEL}
@@ -332,8 +333,8 @@ function GeneralForm({
 					/>
 				</Setting>
 			</Settings>
-			<Settings title="Pictures" hint={ownerOnly ?? "Agents make and edit pictures when asked, through AI Gateway."}>
-				<Setting label="Picture model" hint="What agents make pictures with.">
+			<Settings title="Pictures">
+				<Setting label="Picture model" hint="What agents make and edit pictures with, when asked.">
 					<ModelPicker
 						models={settings.imageModels}
 						defaultModel={defaultImageModel}
@@ -396,7 +397,7 @@ function ProfileTab() {
 			<SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={save} onDiscard={draft.discard} />
 			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
-			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
+			<Settings title="You" note="Only you see these, except your photo, name and time zone.">
 				<Setting label="Photo" hint={`Shown to your team in every workspace. ${pictureLimits}.`}>
 					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
 				</Setting>

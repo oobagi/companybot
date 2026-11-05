@@ -307,7 +307,7 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 			<Field label="Name">
 				<input value={value.name} disabled={!canEdit} onChange={(e) => draft.set({ ...value, name: e.target.value })} className={inputClass} />
 			</Field>
-			<Settings title="What it can do" hint={fixed ? undefined : "People get every switch any of their roles has."}>
+			<Settings title="What it can do" note={fixed ? undefined : "People get every switch any of their roles has."}>
 				{switches.map((p) => (
 					<Setting key={p} label={switchLabel(p)}>
 						<Checkbox label={switchLabel(p)} checked={fixed || value.on.includes(p)} disabled={!canEdit} onChange={(on) => toggle(p, on)} />

@@ -332,39 +332,44 @@ export function Tabs<T extends string>({
 /**
  * A titled part of a screen, usually a stack of cards. Its heading is inset to line up with the
  * text inside them; `flush` keeps it at the edge, for plain content (a form) that sits there too.
+ * Headings are a title only: what a setting does is its own hint. `note`, for the rare section
+ * that needs one, is a small footnote under its content, as in macOS settings.
  */
-export function Section({ title, hint, flush, action, children }: { title: string; hint?: string; flush?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
+export function Section({ title, note, flush, action, children }: { title: string; note?: string; flush?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} flush={flush} action={action} />
+			<Heading title={title} flush={flush} action={action} />
 			{children}
+			<Note text={note} flush={flush} />
 		</section>
 	);
 }
 
-/** Section and Settings headings: a title and a hint, and on the right a button for the section (Add). */
-function Heading({ title, hint, flush, action }: { title?: string; hint?: string; flush?: boolean; action?: React.ReactNode }) {
-	if (!title && !hint) return null;
+/** Section and Settings headings: a title, and on the right a button for the section (Add). */
+function Heading({ title, flush, action }: { title?: string; flush?: boolean; action?: React.ReactNode }) {
+	if (!title) return null;
 	return (
-		<div className={`flex items-end gap-3 ${flush ? "" : insetClass}`}>
-			<div className="min-w-0 flex-1">
-				{title && <h2 className="font-medium">{title}</h2>}
-				{hint && <p className={descriptionClass}>{hint}</p>}
-			</div>
+		<div className={`flex min-h-7 items-center gap-3 ${flush ? "" : insetClass}`}>
+			<h2 className="min-w-0 flex-1 font-medium">{title}</h2>
 			{action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
 		</div>
 	);
+}
+
+function Note({ text, flush }: { text?: string; flush?: boolean }) {
+	return text ? <p className={`text-xs text-neutral-500 ${flush ? "" : insetClass}`}>{text}</p> : null;
 }
 
 /**
  * Settings, one per row in a card: what it is and a one-line hint on the left, its
  * control on the right. Every settings screen uses it, so labels and controls line up.
  */
-export function Settings({ title, hint, action, children }: { title?: string; hint?: string; action?: React.ReactNode; children: React.ReactNode }) {
+export function Settings({ title, note, action, children }: { title?: string; note?: string; action?: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} action={action} />
+			<Heading title={title} action={action} />
 			<div className={listClass}>{children}</div>
+			<Note text={note} />
 		</section>
 	);
 }

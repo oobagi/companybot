@@ -48,7 +48,7 @@ export function AutomationsTab() {
 				error={error}
 				card={card}
 			/>
-			<PendingWakeups title="Follow-ups" hint="Times an agent will check back on its own, in the chat where it was asked." />
+			<PendingWakeups title="Follow-ups" note="Times an agent will check back on its own, in the chat where it was asked." />
 		</div>
 	);
 }
@@ -349,7 +349,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 				]}
 			/>
 			{a.installed && !a.trash && <AutomationSettings automation={a} team={canManage} />}
-			<Section title="What the agent is asked" hint="Sent to the agent each run, as if the person it runs for asked it.">
+			<Section title="What the agent is asked" note="Sent to the agent each run, as if the person it runs for asked it.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{a.prompt}</Markdown>
 			</Section>
 		</Detail>

@@ -158,7 +158,7 @@ export function SkillScreen({ access, id }: { access: Access; id: string }) {
 		>
 			<Notice>{error}</Notice>
 			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />
-			<Section title="Instructions" hint="What the agent reads when it loads this skill.">
+			<Section title="Instructions" note="What the agent reads when it loads this skill.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{open.instructions}</Markdown>
 			</Section>
 		</Detail>
