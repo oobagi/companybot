@@ -400,6 +400,20 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 	);
 }
 
+/**
+ * A count in a pill: unread @mentions and DMs on the rail and in the switcher (red), an @ on a
+ * sidebar row (`dark`). `ring` cuts it out from what it sits on (the rail's background).
+ */
+export function CountBadge({ count, dark, ring, className = "" }: { count: number | string; dark?: boolean; ring?: boolean; className?: string }) {
+	return (
+		<span
+			className={`inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] leading-none font-bold text-white tabular-nums ${dark ? "bg-neutral-900" : "bg-red-500"} ${ring ? "ring-2 ring-neutral-100" : ""} ${className}`}
+		>
+			{typeof count === "number" && count > 9 ? "9+" : count}
+		</span>
+	);
+}
+
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
 export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;

@@ -6,7 +6,7 @@ import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { Field, Form, MenuDivider, Notice, compactButton, compactPrimaryButton, inputClass, primaryButton, useRun } from "../ui";
+import { CountBadge, Field, Form, MenuDivider, Notice, compactButton, compactPrimaryButton, inputClass, primaryButton, useRun } from "../ui";
 import { Avatar, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
 
 const none: never[] = [];
@@ -16,9 +16,7 @@ const workspaceKey = (w: { id: string }) => w.id;
 /** A red count of chats with an unread @mention or DM. */
 function Mentions({ count }: { count: number }) {
 	return (
-		<span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white">
-			{count > 9 ? "9+" : count}
-		</span>
+		<CountBadge count={count} />
 	);
 }
 

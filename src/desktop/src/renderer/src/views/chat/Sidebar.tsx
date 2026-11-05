@@ -8,7 +8,7 @@ import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type DragProps, useSortable } from "../../sortable";
-import { Notice, RenameInput, useClock, useRun } from "../../ui";
+import { CountBadge, Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
@@ -434,9 +434,7 @@ export function Item({
 					{typeof children === "string" ? <span className="truncate">{children}</span> : children}
 					{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
 					{mentioned && !active && (
-						<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
-							@
-						</span>
+						<CountBadge count="@" dark className="ml-auto" />
 					)}
 				</button>
 			)}

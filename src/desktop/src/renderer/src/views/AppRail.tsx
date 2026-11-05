@@ -1,7 +1,7 @@
 import { ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { useTip } from "../ui";
+import { CountBadge, useTip } from "../ui";
 
 /** The rail's tabs, top to bottom until you drag them into your order. */
 export const appTabs = [
@@ -83,9 +83,7 @@ export function AppRail({
 										<t.icon size={22} weight={active ? "fill" : "regular"} />
 									</button>
 									{badge?.mentions ? (
-										<span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
-											{badge.mentions > 9 ? "9+" : badge.mentions}
-										</span>
+										<CountBadge count={badge.mentions} ring className="pointer-events-none absolute -top-1 -right-1" />
 									) : (
 										badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
 									)}
