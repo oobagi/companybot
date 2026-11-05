@@ -9,7 +9,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
+import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
@@ -372,25 +372,29 @@ function ProfileTab() {
 	const update = useMutation(api.preferences.update);
 	const me = useQuery(api.workspace.me);
 	const erase = useMutation(api.workspace.eraseAccount);
-	// Edited together and saved from the top bar, like General; only what changed is sent.
+	// Edited together and saved from the top bar, like General. The draft keeps `start`, your preferences
+	// as they were when you began, so Save sends only what you changed here, never another device's change
+	// back; if they changed meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
 	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all" };
-	const draft = useDraft("account:preferences", saved, 0);
+	const draft = useDraft("account:preferences", { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
 	const save = () => {
+		const { start } = value;
 		const changed = {
-			...(value.displayName !== saved.displayName && { displayName: value.displayName }),
-			...(value.timeZone !== saved.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
-			...(value.sendWith !== saved.sendWith && { sendWith: value.sendWith }),
-			...(value.notify !== saved.notify && { notify: value.notify }),
+			...(value.displayName !== start.displayName && { displayName: value.displayName }),
+			...(value.timeZone !== start.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
+			...(value.sendWith !== start.sendWith && { sendWith: value.sendWith }),
+			...(value.notify !== start.notify && { notify: value.notify }),
 		};
-		run(update(changed), draft.discard);
+		run(update(changed), () => draft.discard());
 	};
 
 	return (
 		<>
-			<SaveBar dirty={draft.dirty} onSave={save} onDiscard={draft.discard} />
+			<SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={save} onDiscard={draft.discard} />
+			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
 			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
 				<Setting label="Photo" hint={`Shown to your team in every workspace. ${pictureLimits}.`}>

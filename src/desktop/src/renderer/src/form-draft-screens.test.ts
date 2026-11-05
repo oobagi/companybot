@@ -137,3 +137,14 @@ it("clears edited database fields after saving, and stays open", async () => {
 	expect(close).not.toHaveBeenCalled();
 	expect((document.querySelector("input") as HTMLInputElement).value).toBe("Projects");
 });
+it("saves only your preference edits, never another device's change back", async () => {
+	const prefs = () => createElement(SettingsView, { access, tab: "preferences" });
+	await render(prefs());
+	await change("input", "Alicia");
+	// Another device turns notifications on while this draft is open.
+	state.queries = { ...state.queries, "preferences:get": { displayName: "Alice", timeZone: "UTC", sendWith: "enter", notify: "all" } };
+	await render(prefs());
+	expect(document.body.textContent).toContain("Keep mine");
+	await click("Keep mine"); await click("Save");
+	expect(state.save).toHaveBeenLastCalledWith({ displayName: "Alicia" });
+});

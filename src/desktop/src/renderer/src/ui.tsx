@@ -683,6 +683,9 @@ const subscribeDrafts = (listener: () => void) => {
 	draftListeners.add(listener);
 	return () => { draftListeners.delete(listener); };
 };
+/** A version for `useDraft` from a value with none of its own (a role, your preferences): changes when it does. */
+export const versionOf = (value: unknown) => [...JSON.stringify(value)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7);
+
 export function useDraft<T>(key: string, saved: T, version: number) {
 	const me = useQuery(api.workspace.me);
 	const workspace = useWorkspace();

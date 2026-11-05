@@ -7,7 +7,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
 import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, cardClass, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun } from "../ui";
+import { ConflictNotice, Field, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun } from "../ui";
 
 import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
@@ -253,7 +253,6 @@ type RoleConfig = { name: string; on: Permission[] };
 /** The draft keeps `start`, the role as it was when you began editing, so Save sends only what you changed. */
 type RoleDraft = RoleConfig & { start: RoleConfig };
 /** Roles have no version number; the draft notices someone else's save by what changed. */
-const versionOf = (c: RoleConfig) => [...JSON.stringify(c)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7);
 
 function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: string; to: string[] }[]; canEdit: boolean }) {
 	const rename = useMutation(api.roles.rename);
