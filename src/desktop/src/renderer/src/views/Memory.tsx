@@ -8,7 +8,7 @@ import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { ArchiveIcon, EditIcon, HistoryIcon, MemoryIcon, MoreIcon, RestoreIcon, TrashIcon } from "../icons";
-import { ConflictNotice, EmptyState, Field, Form, Loading, NewButton, NoMatches, Notice, PageActions, Section, cardClass, compactButton, compactPrimaryButton, iconButton, hintClass, inputClass, insetClass, metadataClass, primaryButton, secondaryButton, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
+import { ConflictNotice, EmptyState, Form, Loading, NewButton, NoMatches, Notice, PageActions, Section, Setting, Settings, cardClass, compactButton, compactControlClass, compactPrimaryButton, iconButton, hintClass, insetClass, metadataClass, primaryButton, secondaryButton, timeAgo, toolbarClass, useDraft, useRun, wideControlClass } from "../ui";
 
 import { DialogButtons, MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "./chat/common";
 
@@ -109,7 +109,8 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 						autoFocus
 						value={draft.value}
 						onChange={(e) => draft.set(e.target.value)}
-						className={`${inputClass} flex-1 resize-none bg-neutral-50 leading-relaxed`}
+						aria-label="Memory"
+						className={`${compactControlClass} flex-1 resize-none leading-relaxed`}
 					/>
 				)}
 				{memory.canEdit &&
@@ -217,26 +218,28 @@ function NewMemoryDialog({
 	const [scope, setScope] = useState<MemoryScope>("personal");
 	const { error, busy, run } = useRun();
 	return (
-		<Modal title="New memory" onClose={onClose}>
-			<Form onSubmit={() => content.trim() && agentId && run(onAdd(agentId, scope, content.trim()), onClose)}>
-				<Field label="What to remember">
-					<textarea autoFocus rows={3} value={content} onChange={(e) => setContent(e.target.value)} placeholder="e.g. Invoices go out on the 1st." className={inputClass} />
-				</Field>
-				<Field label="Agent">
-					<Select className={inputClass} label="Agent" value={agentId} options={agentOptions(agents)} onChange={(id) => setAgentId(id as Id<"agents">)} />
-				</Field>
-				<Field label="Who can see it" hint={scope === "personal" ? "Only you. The agent uses it when it's helping you." : "Everyone in the workspace, and anyone can fix it."}>
-					<Select
-						className={inputClass}
-						label="Who can see it"
-						value={scope}
-						options={[
-							{ value: "personal", label: "Just me" },
-							{ value: "workspace", label: canAddTeam ? "Team" : "Team (your roles can't add these)", disabled: !canAddTeam },
-						]}
-						onChange={setScope}
-					/>
-				</Field>
+		<Modal title="New memory" size="lg" onClose={onClose}>
+			<Form className="flex flex-col gap-3" onSubmit={() => content.trim() && agentId && run(onAdd(agentId, scope, content.trim()), onClose)}>
+				<Settings>
+					<Setting wide label="What to remember">
+						<textarea aria-label="What to remember" autoFocus rows={3} value={content} onChange={(e) => setContent(e.target.value)} placeholder="e.g. Invoices go out on the 1st." className={`${compactControlClass} w-full`} />
+					</Setting>
+					<Setting label="Agent">
+						<Select className={wideControlClass} label="Agent" value={agentId} options={agentOptions(agents)} onChange={(id) => setAgentId(id as Id<"agents">)} />
+					</Setting>
+					<Setting label="Who can see it" hint={scope === "personal" ? "Only you. The agent uses it when it's helping you." : "Everyone in the workspace, and anyone can fix it."}>
+						<Select
+							className={wideControlClass}
+							label="Who can see it"
+							value={scope}
+							options={[
+								{ value: "personal", label: "Just me" },
+								{ value: "workspace", label: canAddTeam ? "Team" : "Team (your roles can't add these)", disabled: !canAddTeam },
+							]}
+							onChange={setScope}
+						/>
+					</Setting>
+				</Settings>
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>

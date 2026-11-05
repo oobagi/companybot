@@ -51,21 +51,20 @@ export function PendingWakeups({ recordId, title, note }: { recordId?: Id<"recor
 								]
 									.filter(Boolean)
 									.join(" · ")}
+								{/* Links inside the line of text. */}
 								{w.place && (
-									<>
-										{" · "}
-										<button type="button" className="hover:underline" onClick={() => navigate("chat", w.place!.chatId, ...(w.place!.threadId ? ["thread", w.place!.threadId] : []))}>
+									<span>
+										{" "}· <button type="button" className="hover:underline" onClick={() => navigate("chat", w.place!.chatId, ...(w.place!.threadId ? ["thread", w.place!.threadId] : []))}>
 											{w.place.label}
 										</button>
-									</>
+									</span>
 								)}
 								{w.record && !recordId && (
-									<>
-										{" · "}
-										<button type="button" className="hover:underline" onClick={() => navigate(...recordPath(w.record!.typeKey, w.record!._id))}>
+									<span>
+										{" "}· <button type="button" className="hover:underline" onClick={() => navigate(...recordPath(w.record!.typeKey, w.record!._id))}>
 											{w.record.title}
 										</button>
-									</>
+									</span>
 								)}
 							</span>
 						</div>
