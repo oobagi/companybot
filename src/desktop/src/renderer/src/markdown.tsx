@@ -26,7 +26,7 @@ function ExternalLinkModal({ url, onClose, onConfirm }: LinkSafetyModalProps) {
 	const [copied, setCopied] = useState(false);
 	const { busy, error, run } = useRun();
 	return (
-		<Modal title="Open external link?" onClose={onClose}>
+		<Modal title="Open external link?" size="md" onClose={onClose}>
 			<p className={descriptionClass}>This link opens in your browser.</p>
 			<p className="max-h-40 overflow-y-auto rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm wrap-anywhere select-text">{url}</p>
 			<Notice>{error}</Notice>

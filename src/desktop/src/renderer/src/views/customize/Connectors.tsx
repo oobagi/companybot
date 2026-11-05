@@ -201,7 +201,7 @@ function ConnectKeyDialog({ connector, auth, onClose }: { connector: ConnectorIt
 	const [key, setKey] = useState("");
 	const { error, busy, run } = useRun();
 	return (
-		<Modal title={`Connect ${connector.name}`} size="lg" onClose={onClose}>
+		<Modal title={`Connect ${connector.name}`} onClose={onClose}>
 			<Form className="flex flex-col gap-3" onSubmit={() => run(connect({ connectorId: connector.id, credentials: { type: "api_key", key } }), onClose)}>
 				<Settings>
 					<Setting label={auth.label} hint={auth.help ?? "Stored encrypted. Agents use it only for people whose roles can use this connector."}>
@@ -294,7 +294,7 @@ export function NewConnectorDialog({ onClose }: { onClose: () => void }) {
 	const { error, busy, run } = useRun();
 	const close = () => (draft.discard(), onClose());
 	return (
-		<Modal title="New connector" size="lg" onClose={close}>
+		<Modal title="New connector" onClose={close}>
 			<Form className="flex flex-col gap-3" onSubmit={() => run(create({ connector: draft.value }).then((id) => { close(); navigate("settings", "connectors", id); }))}>
 				<ConnectorFields autoFocus value={draft.value} onChange={draft.set} />
 				<Notice>{error}</Notice>
@@ -321,7 +321,7 @@ function ConnectorSettingsDialog({ connector, onClose }: { connector: ConnectorI
 	const removeIt = () =>
 		confirm({ title: `Remove ${connector.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes it, with its saved connections and permissions. Agents granted it lose its tools.", onConfirm: () => remove({ connectorId: connector.id }).then(() => { onClose(); navigate("settings", "connectors"); }) });
 	return (
-		<Modal title={connector.name} size="lg" onClose={onClose} menu={(closeMenu) => <MenuItem danger onClick={() => (closeMenu(), removeIt())}><TrashIcon /> Remove connector</MenuItem>}>
+		<Modal title={connector.name} onClose={onClose} menu={(closeMenu) => <MenuItem danger onClick={() => (closeMenu(), removeIt())}><TrashIcon /> Remove connector</MenuItem>}>
 			{dialog}
 			<Form
 				className="flex flex-col gap-3"

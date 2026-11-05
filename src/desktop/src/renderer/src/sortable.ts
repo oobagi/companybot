@@ -274,7 +274,8 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 	window.addEventListener("keydown", key, true);
 }
 
-const slide = "transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+/** How far a row slides while another is dragged past it; `.sortable-shift` in styles.css moves it. */
+const shiftStyle = (px = 0) => ({ "--sort-shift": `${px}px` }) as React.CSSProperties;
 
 /**
  * A list you can drag rows within, and, in a `group`, between. `onDrop` gets what was dropped (from
@@ -304,8 +305,8 @@ export function useDragList({ group, axis = "y", enabled, onDrop }: { group?: st
 			const shift = mine && !lifted ? now.shifts.get(slotKey(key, id)) : undefined;
 			return {
 				ref,
-				className: lifted ? (now.dropping ? "sortable-landing" : "sortable-lifted") : "",
-				style: mine && !lifted ? { transform: shift ? (axis === "y" ? `translate3d(0, ${shift}px, 0)` : `translate3d(${shift}px, 0, 0)`) : undefined, transition: slide } : undefined,
+				className: lifted ? (now.dropping ? "sortable-landing" : "sortable-lifted") : mine ? `sortable-shift sortable-${axis}` : "",
+				style: mine && !lifted ? shiftStyle(shift) : undefined,
 				onPointerDown: enabled ? (e) => begin(key, id, e.currentTarget as HTMLElement, e) : undefined,
 			};
 		},
@@ -319,9 +320,8 @@ export function useDragStatic(group: string, endOf?: string) {
 	const key = useId();
 	const now = useSyncExternalStore(subscribe, snapshot, snapshot);
 	const ref = useCallback((el: HTMLElement | null) => (el ? statics.set(key, { group, el, endOf }) : statics.delete(key)), [key, group, endOf]);
-	const shift = now?.group === group ? now.shifts.get(key) : undefined;
-	const style: React.CSSProperties | undefined = now?.group === group ? { transform: shift ? (now.axis === "y" ? `translate3d(0, ${shift}px, 0)` : `translate3d(${shift}px, 0, 0)`) : undefined, transition: slide } : undefined;
-	return { ref, style };
+	const mine = now?.group === group;
+	return { ref, style: mine ? shiftStyle(now.shifts.get(key)) : undefined, className: mine ? `sortable-shift sortable-${now.axis}` : "" };
 }
 
 /**

@@ -11,7 +11,7 @@ import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactButton, compactDangerButton, compactPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
-import { CurrencySelect, Select } from "../controls";
+import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
@@ -235,22 +235,6 @@ function DangerAction({
 				</Modal>
 			)}
 		</>
-	);
-}
-
-/** An on/off switch. */
-function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (on: boolean) => void }) {
-	return (
-		<button
-			type="button"
-			role="switch"
-			aria-checked={checked}
-			disabled={disabled}
-			onClick={() => onChange(!checked)}
-			className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-neutral-900" : "bg-neutral-300"} ${disabledButtonClass}`}
-		>
-			<span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : ""}`} />
-		</button>
 	);
 }
 

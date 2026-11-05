@@ -199,11 +199,10 @@ export function Layer({ onClose, className, overlayClassName, children }: { onCl
 /**
  * A dialog. Its fields are `Settings`/`Setting` rows in a card, exactly as on a settings screen (never
  * stacked fields); a form (create, rename, invite) ends with `DialogButtons` (Cancel, then the action) at
- * the bottom right. Settings for one thing (a channel, a database) take `size="lg"`; Leave, Archive and the
- * like go in `menu`, the ⋯ beside Close.
- * `size="xl"` for side-by-side content (page history).
+ * the bottom right. Leave, Archive and the like go in `menu`, the ⋯ beside Close. `size="md"` for a yes/no
+ * question with no rows; `size="xl"` for side-by-side content (page history).
  */
-export function Modal({ title, size = "md", menu, onClose, children }: { title: string; size?: "md" | "lg" | "xl"; menu?: (close: () => void) => React.ReactNode; onClose: () => void; children: React.ReactNode }) {
+export function Modal({ title, size = "lg", menu, onClose, children }: { title: string; size?: "md" | "lg" | "xl"; menu?: (close: () => void) => React.ReactNode; onClose: () => void; children: React.ReactNode }) {
 	return (
 		<Layer
 			onClose={onClose}
@@ -381,7 +380,7 @@ export function MenuItem({ onClick, danger, children }: { onClick: () => void; d
 /** A yes/no question: Cancel, or `action` (red when `danger`). */
 export function Confirm(props: { title: string; action: string; danger?: boolean; busy?: boolean; error?: string; onConfirm: () => void; onClose: () => void; children?: React.ReactNode }) {
 	return (
-		<Modal title={props.title} onClose={props.onClose}>
+		<Modal title={props.title} size="md" onClose={props.onClose}>
 			<div className="flex flex-col gap-4 text-sm">
 				{props.children && <p className="text-neutral-600">{props.children}</p>}
 				<Notice>{props.error}</Notice>

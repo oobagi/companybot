@@ -33,7 +33,7 @@ export function ImagePicker({
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex items-center gap-3">
-				<Avatar name={name} image={image} agent={agent} size="lg" />
+				<Avatar name={name} image={image} agent={agent} />
 				{!disabled && (
 					<>
 						<button type="button" disabled={busy} onClick={() => input.current?.click()} className={compactButton}>

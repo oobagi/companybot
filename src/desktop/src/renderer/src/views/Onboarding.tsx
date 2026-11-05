@@ -8,9 +8,9 @@ import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
 import { appTabs } from "./AppRail";
-import { Form, Notice, Setting, Settings, compactControlClass, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Form, Notice, Setting, Settings, compactControlClass, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass, trailingAction } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
-import { Group, Item, trailingAction } from "./chat/Sidebar";
+import { Group, Item } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
 
 /**

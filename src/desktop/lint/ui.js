@@ -18,6 +18,9 @@ const buttonClasses = new Set([
 	"barPrimaryButton",
 	"iconButton",
 	"iconDangerButton",
+	"trailingAction",
+	"railButton",
+	"cardButton",
 ]);
 
 /** Dialog-sized buttons: they belong in a dialog's `DialogButtons`, bottom right. */
@@ -127,7 +130,8 @@ const rules = {
 			JSXOpeningElement(node) {
 				const isButton = elementName(node) === "button";
 				const { names, classes } = parts(attribute(node, "className")?.value);
-				const shared = [...names].some((n) => buttonClasses.has(n) || isImported(context, node, n));
+				// Only the named shared looks count: importing a helper like `disabledButtonClass` doesn't make a look shared.
+				const shared = [...names].some((n) => buttonClasses.has(n));
 				if (isButton || [...names].some((n) => buttonClasses.has(n))) {
 					const placed = classes.find((c) => /^(\w+:)*self-(start|end)$/.test(c));
 					if (placed) context.report({ node, messageId: "placed", data: { cls: placed } });

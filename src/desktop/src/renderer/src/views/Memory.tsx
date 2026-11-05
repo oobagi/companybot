@@ -218,7 +218,7 @@ function NewMemoryDialog({
 	const [scope, setScope] = useState<MemoryScope>("personal");
 	const { error, busy, run } = useRun();
 	return (
-		<Modal title="New memory" size="lg" onClose={onClose}>
+		<Modal title="New memory" onClose={onClose}>
 			<Form className="flex flex-col gap-3" onSubmit={() => content.trim() && agentId && run(onAdd(agentId, scope, content.trim()), onClose)}>
 				<Settings>
 					<Setting wide label="What to remember">

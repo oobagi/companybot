@@ -1,3 +1,4 @@
+import { trailingAction } from "../../ui";
 import { DOCX, FILES_PER_MESSAGE, XLSX, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "../../convex";
@@ -5,7 +6,6 @@ import { AttachIcon, CloseIcon, FileCsvIcon, FileDocIcon, FileIcon, FilePdfIcon,
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
 import { Layer, iconButton } from "./common";
-import { trailingAction } from "./Sidebar";
 import { type Pending, pendingFiles, pendingKey } from "./composerFiles";
 import type { Message } from "./data";
 

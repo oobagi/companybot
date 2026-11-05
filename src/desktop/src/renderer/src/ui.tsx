@@ -401,16 +401,6 @@ export function Form({ className = "flex flex-col gap-4", onSubmit, children }: 
 }
 
 /** The old stacked form field: `ui/no-stacked-form` reports every use. Forms are `Setting` rows; delete this once none are left. */
-export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-	return (
-		<label className="flex flex-col gap-1.5">
-			<span className="text-sm font-medium">{label}</span>
-			{children}
-			{hint && <span className="text-xs text-neutral-500">{hint}</span>}
-		</label>
-	);
-}
-
 /**
  * A count in a pill: unread @mentions and DMs on the rail and in the switcher (red), an @ on a
  * sidebar row (`dark`). `ring` cuts it out from what it sits on (the rail's background).
@@ -428,7 +418,6 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
 /** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
-export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
 export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
@@ -447,13 +436,21 @@ export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+/** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
+export const trailingAction =
+	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
+/** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
+export const railButton = (active: boolean) =>
+	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */
 export const hintClass = "text-sm text-neutral-400";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
+/** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
+export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
 export const insetClass = "px-[17px]";
 /** Rows in one bordered box, split by lines. */

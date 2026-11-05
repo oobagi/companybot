@@ -8,7 +8,7 @@ import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
-import { CountBadge, Notice, RenameInput, useClock, useRun } from "../../ui";
+import { CountBadge, Notice, RenameInput, useClock, useRun, trailingAction } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
@@ -79,7 +79,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 				const open = !folded.includes(c._id);
 				const d = splitDrag(drag(c._id));
 				return (
-					<div key={c._id} ref={d.box.ref} style={d.box.style} className={`flex flex-col gap-px ${d.box.className}`}>
+					<div key={c._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
 				<Item
 					drag={d.handle}
 					pin={`chat:${c._id}`}
@@ -171,7 +171,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 				};
 				const dd = splitDrag(drag(d.key));
 				return (
-					<div key={d.key} ref={dd.box.ref} style={dd.box.style} className={`flex flex-col gap-px ${dd.box.className}`}>
+					<div key={d.key} {...dd.box} className={`flex flex-col gap-px ${dd.box.className}`}>
 				<Item
 					drag={dd.handle}
 					// No DM with this agent yet: pinning starts it (it's what the pin opens).
@@ -294,16 +294,11 @@ export function SidebarList({ children }: { children: React.ReactNode }) {
 /** A section header's +. */
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
 	return (
-		// oxlint-disable-next-line ui/button-class -- trailingAction is the sidebar's shared trailing-control look (also PageTree's); it belongs in ui.tsx
 		<button type="button" onClick={onClick} title={label} aria-label={label} className={trailingAction}>
 			<PlusIcon />
 		</button>
 	);
 }
-
-/** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
-export const trailingAction =
-	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
 
 /**
  * A sidebar row. The row is the only hover surface; its controls show on hover at its right end.
@@ -452,7 +447,6 @@ export function Item({
 							onClose={closeMenu}
 							className="w-52 p-1"
 							target={
-								// oxlint-disable-next-line ui/button-class -- trailingAction is the sidebar's shared trailing-control look; it belongs in ui.tsx
 								<button type="button" title="More" aria-label={label ? `Actions for ${label}` : "Actions"} onClick={() => setMenuAt(menuAt === "button" ? undefined : "button")} className={trailingAction}>
 									<MoreIcon weight="bold" />
 								</button>

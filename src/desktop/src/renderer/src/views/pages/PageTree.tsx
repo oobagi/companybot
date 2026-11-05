@@ -7,8 +7,8 @@ import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, PrivateIc
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
-import { LoadMore, Notice, compactControlClass, descriptionClass, useDebounced, useRun } from "../../ui";
-import { Item, trailingAction } from "../chat/Sidebar";
+import { LoadMore, Notice, compactControlClass, descriptionClass, useDebounced, useRun, trailingAction } from "../../ui";
+import { Item } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 
 type PageId = Id<"pages">;
@@ -46,7 +46,7 @@ function PageNavTree({ openId, canEdit }: { openId?: string; canEdit: boolean })
 			const guides = parentId ? [...above, !last] : [];
 			const d = splitDrag(drag);
 			return (
-				<div key={p._id} ref={d.box.ref} style={d.box.style} className={`flex flex-col gap-px ${d.box.className}`}>
+				<div key={p._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
 					<Item drag={d.handle} pin={`page:${p._id}`} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
 						rename={p.canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
 						menu={p.canEdit ? (close) => <>
@@ -147,7 +147,7 @@ export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () =>
 	const page = useQuery(api.pages.get, { pageId });
 	const setAccess = useMutation(api.pages.setAccess);
 	return (
-		<Modal title={page ? page.title || "Untitled" : "Who can access"} size="lg" onClose={onClose}>
+		<Modal title={page ? page.title || "Untitled" : "Who can access"} onClose={onClose}>
 			{page?.recordId ? (
 				<p className={descriptionClass}>A record's page follows its database's list.</p>
 			) : (

@@ -1,7 +1,7 @@
 import { ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { CountBadge, useTip } from "../ui";
+import { CountBadge, useTip, railButton } from "../ui";
 
 /** The rail's tabs, top to bottom until you drag them into your order. */
 export const appTabs = [
@@ -25,10 +25,6 @@ const tabId = (t: (typeof appTabs)[number]) => t.id;
  * bottom. `below` (pins and recents) goes under the tabs, with the rail's tips. Drag a tab to
  * reorder them; the order syncs with your account in this workspace. In Settings no tab is lit.
  */
-/** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
-export const railButton = (active: boolean) =>
-	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
-
 export function AppRail({
 	tab,
 	onOpen,
@@ -77,7 +73,6 @@ export function AppRail({
 						return (
 							<span key={t.id} {...d} onPointerDown={d.onPointerDown && ((e) => (hideTip(), d.onPointerDown!(e)))} className={`relative flex ${d.className}`}>
 								<span className="relative flex" {...tipFor(t.label, i < 9 ? shortcutLabel("tab", i + 1) : undefined)}>
-									{/* oxlint-disable-next-line ui/button-class -- railButton is the rail's own button look (tabs and pins); it belongs in ui.tsx */}
 									<button
 										type="button"
 										aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread ${badge.mentions === 1 ? "mention or DM" : "mentions or DMs"}` : t.label}

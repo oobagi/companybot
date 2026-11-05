@@ -1,7 +1,7 @@
+import { trailingAction } from "../../ui";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { CloseIcon } from "../../icons";
-import { trailingAction } from "./Sidebar";
 import type { Message } from "./data";
 
 // Cards under a message for its first links (backend linkPreviews.ts): site, title, a bit of the

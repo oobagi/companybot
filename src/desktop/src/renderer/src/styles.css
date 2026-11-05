@@ -145,6 +145,15 @@ body {
 	cursor: grabbing !important;
 	user-select: none;
 }
+.sortable-shift {
+	transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sortable-shift.sortable-y {
+	transform: translate3d(0, var(--sort-shift, 0px), 0);
+}
+.sortable-shift.sortable-x {
+	transform: translate3d(var(--sort-shift, 0px), 0, 0);
+}
 .sortable-lifted,
 .sortable-landing {
 	position: relative;

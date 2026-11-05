@@ -1,3 +1,4 @@
+import { railButton } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useQuery, useWorkspace } from "../convex";
@@ -9,7 +10,6 @@ import { useStoredIds } from "../arrangements";
 import type { useTip } from "../ui";
 import { Avatar, MenuItem, PopoverPanel } from "./chat/common";
 import { useTypes } from "./records/data";
-import { railButton } from "./AppRail";
 
 type TipFor = ReturnType<typeof useTip>["tipFor"];
 
@@ -129,7 +129,7 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 	);
 }
 
-const Divider = (props: { ref?: (el: HTMLElement | null) => void; style?: React.CSSProperties }) => <span aria-hidden {...props} className="my-1 h-px w-6 shrink-0 bg-neutral-300/80" />;
+const Divider = ({ className = "", ...props }: { ref?: (el: HTMLElement | null) => void; style?: React.CSSProperties; className?: string }) => <span aria-hidden {...props} className={`my-1 h-px w-6 shrink-0 bg-neutral-300/80 ${className}`} />;
 
 /** One pin or recent: click to open, right-click to pin or unpin. */
 function RailItem({

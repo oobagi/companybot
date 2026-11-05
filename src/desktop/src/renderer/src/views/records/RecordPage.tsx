@@ -8,7 +8,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, compactButton, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, compactButton, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun, cardButton } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -229,7 +229,7 @@ function Discussion({ recordId }: { recordId: Id<"records"> }) {
 						key={m.messageId}
 						type="button"
 						onClick={() => navigate("chat", m.chatId, ...(m.threadId ? ["thread", m.threadId] : ["message", m.messageId]))}
-						className={`flex flex-col gap-1 text-left text-sm hover:bg-neutral-50 ${cardClass}`}
+						className={`flex-col gap-1 text-sm ${cardButton}`}
 					>
 						<span className="flex items-baseline gap-2">
 							<span className="font-medium">{m.author}</span>

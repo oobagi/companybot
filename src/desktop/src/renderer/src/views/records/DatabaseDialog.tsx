@@ -47,7 +47,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 			</Modal>
 		);
 	return (
-		<Modal title={type.plural} size="lg" onClose={close} menu={(closeMenu) => <MenuItem onClick={() => (closeMenu(), archive())}><ArchiveIcon /> Archive database</MenuItem>}>
+		<Modal title={type.plural} onClose={close} menu={(closeMenu) => <MenuItem onClick={() => (closeMenu(), archive())}><ArchiveIcon /> Archive database</MenuItem>}>
 			{dialog}
 			<Form className="flex flex-col gap-3" onSubmit={() => run(update({ typeId: type._id, ...draft.value, version: draft.base }), () => draft.discard())}>
 				<ConflictNotice draft={draft} />

@@ -7,7 +7,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
 import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
+import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton } from "../ui";
 
 import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
@@ -203,7 +203,7 @@ export function RolesTab({ access }: { access: Access }) {
 			{creating && <NewRoleDialog onClose={() => setCreating(false)} />}
 			<section className="flex flex-col gap-2">
 				{roles.map((r) => (
-					<button key={r.id} type="button" onClick={() => navigate("settings", "roles", r.id)} className={`flex items-center gap-3 text-left hover:bg-neutral-50 ${cardClass}`}>
+					<button key={r.id} type="button" onClick={() => navigate("settings", "roles", r.id)} className={`items-center gap-3 ${cardButton}`}>
 						<span className="flex min-w-0 flex-1 flex-col">
 							<span className="truncate font-medium">{r.name}</span>
 							<span className="truncate text-xs text-neutral-500">{roleSummary(r)}</span>

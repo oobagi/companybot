@@ -106,9 +106,7 @@ function InstallButton({
 			disabled={!canManage || busy}
 			title={canManage ? (installed ? "Remove" : undefined) : "None of your roles can install this"}
 			onClick={onToggle}
-			className={`shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass} ${
-				installed ? "border border-neutral-200 text-neutral-600" : "bg-neutral-900 text-white"
-			}`}
+			className={`shrink-0 ${installed ? compactButton : compactPrimaryButton}`}
 		>
 			{installed ? "Installed" : "Install"}
 		</button>

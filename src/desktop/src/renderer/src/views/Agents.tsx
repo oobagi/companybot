@@ -15,7 +15,7 @@ import { ModelPicker } from "./ModelPicker";
 import { archiveQuestion, useConfirm } from "./chat/common";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, ArchiveIcon, CaretDownIcon, CaretRightIcon, RestoreIcon } from "../icons";
-import { ConflictNotice, type Crumb, Loading, Notice, Page, SaveBar, Section, Setting, Settings, barButton, cardClass, compactButton, compactControlClass, descriptionClass, metadataClass, timeAgo, useDraft, useRun, wideControlClass } from "../ui";
+import { ConflictNotice, type Crumb, Loading, Notice, Page, SaveBar, Section, Setting, Settings, barButton, cardClass, compactButton, compactControlClass, descriptionClass, metadataClass, timeAgo, useDraft, useRun, wideControlClass, cardButton } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
@@ -46,7 +46,7 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 		<button
 			type="button"
 			onClick={onOpen}
-			className={`flex flex-col gap-0.5 text-left hover:bg-neutral-50 ${cardClass}`}
+			className={`flex-col gap-0.5 ${cardButton}`}
 		>
 			<span className="font-medium">{agent.name}</span>
 			{agent.description && <span className={descriptionClass}>{agent.description}</span>}
