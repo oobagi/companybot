@@ -94,7 +94,8 @@ export function steadyOrder(before: readonly PinKey[], latest: readonly PinKey[]
  * then a divider and what you opened lately that isn't pinned. Drag a recent up into the group to pin it,
  * a pin down to unpin it; tabs can't leave. Pin from a sidebar row's menu, or right-click one here.
  * ⌘1–9 open the group's first nine, in the order shown. `tab` and `open` are what's on screen: one
- * button is lit, the pin or recent if it's on the rail, else its tab.
+ * button is lit, the one you came through. A pin or recent you clicked stays lit until you leave it;
+ * anything else (its tab, the sidebar, search) lights the tab.
  */
 export function RailPins({
 	tab,
@@ -112,6 +113,16 @@ export function RailPins({
 	hideTip: () => void;
 }) {
 	const { pins, recent, toggle, visit } = usePins();
+	// The pin or recent you opened from the rail. Going anywhere else lets go of it.
+	const [via, setVia] = useState<PinKey>();
+	const [was, setWas] = useState(open);
+	if (open !== was) {
+		setWas(open);
+		if (open !== via) setVia(undefined);
+	}
+	const throughRail = !!via && via === open;
+	const openEntry = (e: Entry) => (setVia(e.key), navigate(...e.path));
+	const openTab = (t: AppTab) => (setVia(undefined), onOpenTab(t));
 	const workspace = useWorkspace();
 	const { resolve, ready } = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
@@ -143,13 +154,13 @@ export function RailPins({
 	useJump("tab", (n) => {
 		const to = sorted[n - 1];
 		if (!to) return false;
-		// Already lit: nothing to do. A tab whose screen shows a pin instead isn't lit, so it opens.
-		if (to.tab ? to.tab.id === tab && !onRail : to.entry!.key === open) return false;
+		// Already lit: nothing to do.
+		if (to.tab ? to.tab.id === tab && !throughRail : to.entry!.key === open && throughRail) return false;
 		blurActiveEditable();
 		// A rail button clicked earlier would show its keyboard focus ring once keys are pressed.
 		if (document.activeElement instanceof HTMLElement && document.activeElement.closest("nav[aria-label='App']")) document.activeElement.blur();
-		if (to.tab) onOpenTab(to.tab.id);
-		else navigate(...to.entry!.path);
+		if (to.tab) openTab(to.tab.id);
+		else openEntry(to.entry!);
 	});
 
 	// Your last RECENT_SHOWN places, less the pinned ones, in the order they came in (`steadyOrder`). Pinning
@@ -164,19 +175,17 @@ export function RailPins({
 		if (ready) shownRecents.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
 	}, [ready, ws, orderKey]);
 	const lately = order.map(resolve).filter((e): e is Entry => !!e);
-	// One thing lit: what's on screen if it's on the rail (a pin or a recent), else its tab.
-	const onRail = !!open && (pinned.some((e) => e.key === open) || lately.some((e) => e.key === open));
 	return (
 		<>
 			{sorted.map((m, i) => {
 				const shortcut = i < 9 ? shortcutLabel("tab", i + 1) : undefined;
-				if (m.tab) return <TabButton key={m.id} tab={m.tab} active={m.id === tab && !onRail} badge={badges[m.tab.id]} drag={drag(m.id)} onOpen={onOpenTab} tip={tipFor(m.tab.label, shortcut)} hideTip={hideTip} />;
+				if (m.tab) return <TabButton key={m.id} tab={m.tab} active={m.id === tab && !throughRail} badge={badges[m.tab.id]} drag={drag(m.id)} onOpen={openTab} tip={tipFor(m.tab.label, shortcut)} hideTip={hideTip} />;
 				const e = m.entry!;
-				return <RailItem key={m.id} entry={e} active={e.key === open} pinned drag={drag(m.id)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, shortcut)} hideTip={hideTip} />;
+				return <RailItem key={m.id} entry={e} active={throughRail && e.key === open} pinned drag={drag(m.id)} onOpen={() => openEntry(e)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, shortcut)} hideTip={hideTip} />;
 			})}
 			<Divider {...divider} className={`${divider.className} ${lately.length || divider.className ? "" : "invisible"}`} />
 			{lately.map((e) => (
-				<RailItem key={e.key} entry={e} active={e.key === open} pinned={false} drag={recentDrag(e.key)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, "Recent")} hideTip={hideTip} />
+				<RailItem key={e.key} entry={e} active={throughRail && e.key === open} pinned={false} drag={recentDrag(e.key)} onOpen={() => openEntry(e)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, "Recent")} hideTip={hideTip} />
 			))}
 		</>
 	);
@@ -206,7 +215,12 @@ function TabButton({ tab: t, active, badge, drag, onOpen, tip, hideTip }: { tab:
 	);
 }
 
-const Divider = ({ className = "", ...props }: { ref?: (el: HTMLElement | null) => void; style?: React.CSSProperties; className?: string }) => <span aria-hidden {...props} className={`my-1 h-px w-6 shrink-0 bg-neutral-300/80 ${className}`} />;
+// Padding, not margin: the drag measures boxes, and a margin would make drops land a few pixels off.
+const Divider = ({ className = "", ...props }: { ref?: (el: HTMLElement | null) => void; style?: React.CSSProperties; className?: string }) => (
+	<span aria-hidden {...props} className={`flex shrink-0 py-1 ${className}`}>
+		<span className="h-px w-6 bg-neutral-300/80" />
+	</span>
+);
 
 /** One pin or recent: click to open, right-click to pin or unpin. */
 function RailItem({
@@ -214,6 +228,7 @@ function RailItem({
 	active,
 	pinned,
 	drag,
+	onOpen,
 	onToggle,
 	tip,
 	hideTip,
@@ -222,6 +237,7 @@ function RailItem({
 	active: boolean;
 	pinned: boolean;
 	drag?: DragProps;
+	onOpen: () => void;
 	onToggle: () => void;
 	tip: ReturnType<TipFor>;
 	hideTip: () => void;
@@ -240,7 +256,7 @@ function RailItem({
 					type="button"
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
-					onClick={() => (hideTip(), navigate(...entry.path))}
+					onClick={() => (hideTip(), onOpen())}
 					className={railButton(active)}
 				>
 					{entry.icon}
