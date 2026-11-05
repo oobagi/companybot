@@ -97,16 +97,6 @@ export const usageThisMonth = migrations.define({
 	},
 });
 
-// Welcomes became fixed text (onboarding.ts), but old turns still carry their retired `welcome`. Clearing it
-// lets the schema drop the field.
-export const clearTurnWelcome = migrations.define({
-	table: "agentTurns",
-	batchSize: 20,
-	migrateOne: async (ctx, turn) => {
-		if (turn.welcome) await ctx.db.patch(turn._id, { welcome: undefined });
-	},
-});
-
 // Companybot got follow-ups, so it can check back later (wakeups.ts). New workspaces get them from
 // default-agents.ts; this adds them to each existing Companybot that still has its default skills.load
 // grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
@@ -446,7 +436,6 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.companybotWebTools,
 	internal.migrations.usageThisMonth,
 	internal.migrations.companybotImageTool,
-	internal.migrations.clearTurnWelcome,
 	internal.migrations.companybotFollowupTools,
 	internal.migrations.cronSchedules,
 	internal.migrations.customRoles,

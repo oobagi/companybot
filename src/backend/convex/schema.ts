@@ -752,9 +752,6 @@ export default defineSchema({
 		agentId: v.id("agents"),
 		/** The message that mentioned the agent (or any message, in an agent DM). Unset on old welcome turns, and the approvals that follow one. */
 		triggerId: v.optional(v.id("chatMessages")),
-		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). migrations.clearTurnWelcome clears it.
-		// COMPAT(0.1.0-alpha.9): once that has run on prod, drop this field, the migration and its test.
-		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
 		/** The agent acts as this person: their roles, connector connections, and access. */
 		actorId: v.id("users"),
 		/** The streaming reply, once running. */
