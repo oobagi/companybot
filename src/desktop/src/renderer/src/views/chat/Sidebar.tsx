@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
-import { type PinKey, usePins } from "../../pins";
+import { type PinKey, setRailVia, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
@@ -417,7 +417,8 @@ export function Item({
 					title={title}
 					// ⌥1–9 count the list's top-level rows (`sidebarRow`).
 					data-sidebar-item={!guides.length && !create ? "" : undefined}
-					onClick={onClick}
+					// A sidebar click is a choice too: the rail's tab lights, not a pin you came through.
+					onClick={() => (setRailVia(undefined), onClick())}
 					onDoubleClick={rename && (() => setRenaming(true))}
 					onKeyDown={rename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(true)))}
 					className={`${surfaceButton} flex flex-1 items-center gap-2 after:absolute after:inset-0 after:rounded-lg`}
