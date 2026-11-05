@@ -233,7 +233,7 @@ function TabButton({ tab: t, active, badge, drag, onOpen, tip, hideTip }: { tab:
 				{badge?.mentions ? (
 					<CountBadge count={badge.mentions} ring className="pointer-events-none absolute -top-1 -right-1" />
 				) : (
-					badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
+					badge?.unread && <span className="pointer-events-none absolute top-0.5 right-0.5 size-3 rounded-full border-2 border-neutral-100 bg-sky-500" />
 				)}
 			</span>
 		</span>
@@ -290,7 +290,7 @@ function RailItem({
 					{entry.icon}
 				</button>
 				{(entry.mentioned || entry.unread) && (
-					<span className={`pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 ${entry.mentioned ? "bg-red-500" : "bg-sky-500"}`} />
+					<span className={`pointer-events-none absolute top-0.5 right-0.5 size-3 rounded-full border-2 border-neutral-100 ${entry.mentioned ? "bg-red-500" : "bg-sky-500"}`} />
 				)}
 			</span>
 			{menuAt && (

@@ -429,6 +429,8 @@ export function Item({
 					{mentioned && !active && (
 						<CountBadge count="@" dark className="ml-auto" />
 					)}
+					{/* Unread, besides the bold name: a dot at the row's end, as on the rail. */}
+					{unread && !mentioned && !active && <span aria-hidden className="ml-auto size-2 shrink-0 rounded-full bg-sky-500" />}
 				</button>
 			)}
 			{(items || actions) && !renaming && (
