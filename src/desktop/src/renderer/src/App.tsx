@@ -28,7 +28,7 @@ import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps, SidebarList } from "./views/chat/Sidebar";
+import { AddButton, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
@@ -242,7 +242,15 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									// pt-2.5: its name sits on the same line as the top bar's title.
 									<div className="drag px-3 pt-2.5 pb-4">
 										{tab ? (
-											<h1 className="truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+											<div className="flex items-center gap-1 pr-2">
+												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+												{/* Databases is one list, so its + sits by the tab's name rather than under a heading repeating it. */}
+												{tab === "databases" && can(access, "fields.edit") && (
+													<span className="no-drag flex">
+														<AddButton label="New database" onClick={() => setNewDatabase(true)} />
+													</span>
+												)}
+											</div>
 										) : (
 											<div className="no-drag flex flex-col">
 												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
@@ -319,24 +327,21 @@ function DatabasesNav({
 	openKey,
 	canCreate,
 	onCreate,
-	section,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
 	canCreate: boolean;
 	onCreate: () => void;
-	section?: SectionProps;
 }) {
 	const { sorted, drag } = useSortable("databases", types, typeKeyOf);
-	const shown = section?.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
 	const [editing, setEditing] = useState<RecordType>();
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	return (
-		<Group title="Databases" section={section} add={canCreate && <AddButton label="New database" onClick={onCreate} />}>
-			{shown.map((type) => (
+		<div className="flex flex-col gap-px">
+			{sorted.map((type) => (
 				<Item
 					key={type._id}
 					drag={drag(type._id)}
@@ -366,12 +371,12 @@ function DatabasesNav({
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
-			{!types.length && canCreate && !section?.collapsed && (
+			{!types.length && canCreate && (
 				<Item icon={<PlusIcon />} muted create onClick={onCreate}>
 					New database
 				</Item>
 			)}
-		</Group>
+		</div>
 	);
 }
 
