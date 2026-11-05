@@ -3,18 +3,47 @@ import { api, internal } from "../convex/_generated/api";
 import { agentsOf, ownerAndMember, settle, signIn, workspaceOf } from "./helpers";
 import "./connectorFixtures";
 
-// No real network: DNS answers come from `dns` below, and every fetch is recorded and refused.
-const dns = vi.hoisted(() => ({ answers: new Map<string, string[]>(), asked: [] as string[] }));
+// No real network. DNS answers come from `dns.answer`. Custom connectors' requests go through undici
+// (connectorNetwork.request), mocked here as a tiny MCP server that records which address each request
+// actually connected to, by asking the request's own dispatcher, as a real connection would.
+// Any other fetch is recorded and refused.
+const dns = vi.hoisted(() => ({ answer: (_host: string, _nth: number): string[] => [], asked: [] as string[] }));
 vi.mock("node:dns/promises", () => ({
 	lookup: async (hostname: string) => {
 		dns.asked.push(hostname);
-		return (dns.answers.get(hostname) ?? []).map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
+		return dns.answer(hostname, dns.asked.length).map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
+	},
+}));
+type Lookup = (host: string, options: { all: true }, callback: (error: unknown, all: { address: string }[]) => void) => void;
+const server = vi.hoisted(() => ({ connections: [] as { url: string; method: string; address: string }[] }));
+vi.mock("undici", () => ({
+	Agent: class {
+		constructor(readonly options: { connect: { lookup: Lookup } }) {}
+		close = async () => {};
+	},
+	fetch: async (url: string, init: { method: string; body?: Uint8Array; dispatcher: { options: { connect: { lookup: Lookup } } } }) => {
+		const host = new URL(url).hostname;
+		const [first] = await new Promise<{ address: string }[]>((resolve, reject) => init.dispatcher.options.connect.lookup(host, { all: true }, (e, all) => (e ? reject(e) : resolve(all))));
+		server.connections.push({ url, method: init.method, address: first!.address });
+		const message = init.body ? JSON.parse(new TextDecoder().decode(init.body)) : null;
+		const json = (reply: { result: unknown } | { error: unknown }) => ({
+			status: 200,
+			statusText: "OK",
+			headers: new Headers({ "content-type": "application/json" }),
+			body: [new TextEncoder().encode(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }))],
+		});
+		if (message?.method === "initialize") return json({ result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "tickets", version: "1" } } });
+		if (message?.method === "tools/list") return json({ result: { tools: [{ name: "find_ticket", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }] } });
+		// An older server: it only knows initialize (the client falls back to it).
+		if (message?.id !== undefined) return json({ error: { code: -32601, message: "Method not found" } });
+		return { status: 202, statusText: "Accepted", headers: new Headers(), body: [] };
 	},
 }));
 const fetched: string[] = [];
 beforeEach(() => {
 	fetched.length = 0;
-	dns.answers.clear();
+	server.connections.length = 0;
+	dns.answer = () => [];
 	dns.asked.length = 0;
 	vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
 		fetched.push(input instanceof Request ? input.url : String(input));
@@ -30,7 +59,6 @@ const tickets = {
 	name: "Tickets",
 	description: "Our support desk",
 	url: "https://mcp.tickets.example/mcp",
-	transport: "http" as const,
 	connection: "personal" as const,
 	auth: { type: "api_key" as const, header: "Authorization", prefix: "Bearer ", label: "API key" },
 };
@@ -40,7 +68,7 @@ describe("custom connectors", () => {
 		const { owner, member } = await ownerAndMember();
 		await expect(member.mutation(api.customConnectors.create, { connector: tickets })).rejects.toThrow("Only people with the");
 		const id = await owner.mutation(api.customConnectors.create, { connector: tickets });
-		expect(id).toBe("custom-tickets");
+		expect(id).toMatch(/^custom-tickets-[a-z0-9]{6}$/);
 		await expect(member.mutation(api.customConnectors.update, { connectorId: id, connector: { ...tickets, name: "Mine" } })).rejects.toThrow("Only people with the");
 		await expect(member.mutation(api.customConnectors.remove, { connectorId: id })).rejects.toThrow("Only people with the");
 
@@ -49,8 +77,10 @@ describe("custom connectors", () => {
 		expect(seen).toMatchObject({ name: "Tickets", custom: true, installed: true, canUse: true, connected: false, server: tickets.url });
 		await member.action(api.connectors.connect, { connectorId: id, credentials: { type: "api_key", key: "member-key" } });
 		expect((await member.query(api.connectors.list)).find((c) => c.id === id)?.connected).toBe(true);
-		// Its ids never collide with the catalog's: a second one with the same name gets its own.
-		expect(await owner.mutation(api.customConnectors.create, { connector: tickets })).toBe("custom-tickets-2");
+		// A second one with the same name gets its own id.
+		const second = await owner.mutation(api.customConnectors.create, { connector: tickets });
+		expect(second).toMatch(/^custom-tickets-[a-z0-9]{6}$/);
+		expect(second).not.toBe(id);
 	});
 
 	it.each([
@@ -76,35 +106,46 @@ describe("custom connectors", () => {
 		await expect(owner.mutation(api.customConnectors.update, { connectorId: id, connector: { ...tickets, url } })).rejects.toThrow(message);
 	});
 
-	it("resolves and checks the server's addresses before every connection, so a repointed name is refused", async () => {
-		const { owner } = await ownerAndMember();
+	it("connects only to the address it checked: a lookup that turns private later is never used", async () => {
+		const { t, owner } = await ownerAndMember();
 		const id = await owner.mutation(api.customConnectors.create, { connector: { ...tickets, connection: "workspace", auth: { type: "none" } } });
 		const refresh = () => owner.action(api.agent.refreshTools, { connectorId: id });
+		// Public on the first lookup; the metadata address on every one after (DNS rebinding).
+		dns.answer = (_host, nth) => (nth === 1 ? ["93.184.216.34"] : ["169.254.169.254"]);
 
-		// A private answer: refused before anything is sent.
-		dns.answers.set("mcp.tickets.example", ["10.0.0.7"]);
-		await expect(refresh()).rejects.toThrow("Couldn't reach Tickets");
+		// One connection: looked up once, then every request (initialize, notifications, tools/list) goes to the checked address.
+		await refresh();
 		expect(dns.asked).toEqual(["mcp.tickets.example"]);
+		expect(server.connections.length).toBeGreaterThanOrEqual(3);
+		expect(new Set(server.connections.map((c) => c.address))).toEqual(new Set(["93.184.216.34"]));
+		expect(new Set(server.connections.map((c) => c.url))).toEqual(new Set([tickets.url]));
+		const tools = await t.run(async (ctx) => (await ctx.db.query("connectorTools").first())?.tools.map((tool) => tool.name));
+		expect(tools).toEqual(["find_ticket"]);
+
+		// The next connection looks up again, gets the metadata address, and sends nothing.
+		const sent = server.connections.length;
+		await expect(refresh()).rejects.toThrow("Couldn't reach Tickets");
+		expect(dns.asked).toHaveLength(2);
+		expect(server.connections).toHaveLength(sent);
+		expect(server.connections.map((c) => c.address)).not.toContain("169.254.169.254");
+		// Nothing went out through the runtime's own fetch either.
 		expect(fetched).toEqual([]);
+	});
 
-		// A public answer: it connects (the test network refuses it, but requests were allowed out).
-		dns.answers.set("mcp.tickets.example", ["93.184.216.34"]);
-		await expect(refresh()).rejects.toThrow("Couldn't reach Tickets");
-		expect(fetched.length).toBeGreaterThan(0);
-		expect(new Set(fetched)).toEqual(new Set([tickets.url]));
-		const sent = fetched.length;
+	it("refuses private, mixed or missing answers before anything is sent", async () => {
+		const { owner } = await ownerAndMember();
+		const id = await owner.mutation(api.customConnectors.create, { connector: { ...tickets, connection: "workspace", auth: { type: "none" } } });
+		for (const answer of [["10.0.0.7"], ["93.184.216.34", "127.0.0.1"], ["fd00:ec2::254"], []]) {
+			dns.answer = () => answer;
+			await expect(owner.action(api.agent.refreshTools, { connectorId: id })).rejects.toThrow("Couldn't reach Tickets");
+		}
+		expect(server.connections).toEqual([]);
+		expect(fetched).toEqual([]);
+	});
 
-		// The same name rebound to the metadata address: the next connection checks again and sends nothing.
-		dns.answers.set("mcp.tickets.example", ["93.184.216.34", "169.254.169.254"]);
-		await expect(refresh()).rejects.toThrow("Couldn't reach Tickets");
-		expect(fetched).toHaveLength(sent);
-		// Once per connection, not once per request or once ever.
-		expect(dns.asked).toEqual(["mcp.tickets.example", "mcp.tickets.example", "mcp.tickets.example"]);
-
-		// No answer at all: refused too.
-		dns.answers.clear();
-		await expect(refresh()).rejects.toThrow("Couldn't reach Tickets");
-		expect(fetched).toHaveLength(sent);
+	it("is Streamable HTTP only: a legacy SSE transport, whose stream can't be pinned, can't be saved", async () => {
+		const { owner } = await ownerAndMember();
+		await expect(owner.mutation(api.customConnectors.create, { connector: { ...tickets, transport: "sse" } as typeof tickets })).rejects.toThrow("transport");
 	});
 
 	it("belongs to its workspace alone", async () => {
@@ -128,8 +169,9 @@ describe("custom connectors", () => {
 		await other.mutation(api.agents.update, { agentId: theirs.companybot._id, expectedVersion: theirs.companybot.version, config: { ...grant, name: "Companybot", model: theirs.companybot.model } });
 		expect((await agentsOf(other)).companybot.tools).not.toContain(`${id}.*`);
 
-		// Their own, with the same name and so the same id, is a different connector with its own server.
-		expect(await other.mutation(api.customConnectors.create, { connector: { ...tickets, url: "https://elsewhere.example/mcp" } })).toBe(id);
+		// Their own, with the same name, is a different connector with its own id and server.
+		const theirId = await other.mutation(api.customConnectors.create, { connector: { ...tickets, url: "https://elsewhere.example/mcp" } });
+		expect(theirId).not.toBe(id);
 		const servers = async () => (await t.run((ctx) => ctx.db.query("customConnectors").collect())).map((c) => [c.workspaceId, c.url]);
 		expect(await servers()).toEqual([
 			[await workspaceOf(owner), tickets.url],
@@ -137,8 +179,8 @@ describe("custom connectors", () => {
 		]);
 		const [mine] = await t.query(internal.connectors.forTurn, { userId: owner.userId, workspaceId: await workspaceOf(owner), connectorIds: [id] });
 		expect(mine?.connector.mcp.url).toBe(tickets.url);
-		// Theirs isn't connected: the owner's account stays in the owner's workspace.
-		expect(await t.query(internal.connectors.forTurn, { userId: other.userId, workspaceId: otherWorkspace, connectorIds: [id] })).toEqual([]);
+		// The owner's id still means nothing there, and theirs isn't connected: accounts stay in their workspace.
+		expect(await t.query(internal.connectors.forTurn, { userId: other.userId, workspaceId: otherWorkspace, connectorIds: [id, theirId] })).toEqual([]);
 	});
 
 	it("starts strict when its server or sign-in changes: accounts, rules and locks go; it stays installed for the same roles", async () => {
@@ -204,8 +246,11 @@ describe("custom connectors", () => {
 		expect((await owner.query(api.connectors.list)).map((c) => c.id)).not.toContain(id);
 		expect(await t.query(internal.connectors.forTurn, { userId: member.userId, workspaceId: await workspaceOf(owner), connectorIds: [id] })).toEqual([]);
 		await expect(member.mutation(api.permissions.set, { action: `${id}.close_ticket`, setting: "always" })).rejects.toThrow("Install the connector first");
-		// A new one by the same name waits until the old one's rows are gone, so none come back.
-		await expect(owner.mutation(api.customConnectors.create, { connector: tickets })).rejects.toThrow("just removed");
+		// A new one by the same name, even right away, is a new connector: the old grant doesn't reach it.
+		const again = await owner.mutation(api.customConnectors.create, { connector: { ...tickets, url: "https://other-desk.example/mcp" } });
+		expect(again).not.toBe(id);
+		expect(await t.query(internal.connectors.forTurn, { userId: owner.userId, workspaceId: await workspaceOf(owner), connectorIds: [id] })).toEqual([]);
+		await owner.mutation(api.customConnectors.remove, { connectorId: again });
 		await settle(t);
 		const left = await t.run(async (ctx) => ({
 			custom: await ctx.db.query("customConnectors").collect(),
