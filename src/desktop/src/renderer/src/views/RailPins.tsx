@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api";
-import { useQuery } from "../convex";
+import { useQuery, useWorkspace } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
 import { type PinKey, RECENT_SHOWN, pathOf, splitPin, usePins } from "../pins";
 import { navigate } from "../router";
@@ -16,14 +16,15 @@ type Entry = { key: PinKey; label: string; icon: React.ReactNode; path: string[]
 
 const entryKey = (e: Entry) => e.key;
 
-/** Turns pins into what they are now, so renames show and deleted things drop out. */
+/** Turns pins into what they are now, so renames show and deleted things drop out. `ready` once all have loaded. */
 function useEntries(keys: PinKey[]) {
 	const chats = useQuery(api.chats.list);
 	const pages = useQuery(api.pages.list);
 	const types = useTypes();
 	const recordIds = keys.flatMap((k) => (k.startsWith("rec:") ? [splitPin(k)[1]] : []));
 	const records = useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip");
-	return (key: PinKey): Entry | undefined => {
+	const ready = !!chats && !!pages && !!types && (!recordIds.length || !!records);
+	const resolve = (key: PinKey): Entry | undefined => {
 		const [kind, id] = splitPin(key);
 		const plain = { key, path: pathOf(key), unread: false, mentioned: false };
 		if (kind === "rec") {
@@ -51,6 +52,23 @@ function useEntries(keys: PinKey[]) {
 		const others = dm.members.filter((m) => m.id !== chats.me);
 		return { ...plain, ...state, label: dm.title, icon: <Avatar name={dm.title} image={others.length === 1 ? others[0]!.image : undefined} size="pair" /> };
 	};
+	return { resolve, ready };
+}
+
+/** Each workspace's recents in the order the rail shows them, for this session. */
+const railOrder = new Map<string, PinKey[]>();
+
+/**
+ * Recents in a steady order: one already on the rail keeps its place when you open it again (the
+ * saved list moves it to the front), and one new to the list comes in at the top. Which ones show
+ * is still the latest RECENT_SHOWN, so the one you used longest ago is what drops off. The order
+ * starts as the saved one each launch. Same input, same output, so a second render changes nothing.
+ */
+export function steadyOrder(workspaceId: string, latest: PinKey[]): PinKey[] {
+	const before = (railOrder.get(workspaceId) ?? []).filter((k) => latest.includes(k));
+	const next = [...latest.filter((k) => !before.includes(k)), ...before];
+	railOrder.set(workspaceId, next);
+	return next;
 }
 
 /**
@@ -60,27 +78,15 @@ function useEntries(keys: PinKey[]) {
  */
 export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; tipFor: TipFor; hideTip: () => void }) {
 	const { pins, recent, toggle } = usePins();
-	const resolve = useEntries([...pins, ...recent]);
+	const workspace = useWorkspace();
+	const { resolve, ready } = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
 	const { sorted, drag } = useSortable("pinsOrder", pinned, entryKey);
-	// Opening a recent makes it the latest, which would move it to the top under your pointer.
-	// Clicked, the recents keep their places until the pointer leaves the rail.
-	const [held, setHeld] = useState<PinKey[]>();
-	useEffect(() => {
-		if (!held) return;
-		const release = (e: PointerEvent) => {
-			if (!(e.target instanceof Element && e.target.closest("nav[aria-label='App']"))) setHeld(undefined);
-		};
-		document.addEventListener("pointerover", release);
-		return () => document.removeEventListener("pointerover", release);
-	}, [held]);
-	const latest = recent
-		.filter((k) => !pins.includes(k))
-		.map(resolve)
-		.filter((e): e is Entry => !!e)
-		.slice(0, RECENT_SHOWN);
-	const place = (e: Entry) => (held!.includes(e.key) ? held!.indexOf(e.key) : held!.length);
-	const lately = held ? [...latest].sort((a, b) => place(a) - place(b)) : latest;
+	// The RECENT_SHOWN you opened last, in the order they came in (`steadyOrder`). While some are
+	// still loading, the rail keeps what it showed: one arriving late would look new and jump to the top.
+	const ws = workspace?.id ?? "";
+	const latest = recent.filter((k) => !pins.includes(k)).map(resolve).filter((e): e is Entry => !!e).slice(0, RECENT_SHOWN);
+	const lately = (ready ? steadyOrder(ws, latest.map(entryKey)) : (railOrder.get(ws) ?? [])).map(resolve).filter((e): e is Entry => !!e);
 	const row = (e: Entry, isPinned: boolean, d?: DragProps) => (
 		<RailItem
 			key={e.key}
@@ -89,8 +95,6 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 			pinned={isPinned}
 			drag={d}
 			onToggle={() => toggle(e.key)}
-			// A keyboard press (`detail` 0) has no pointer to leave, so it doesn't hold them.
-			onOpen={isPinned ? undefined : (click) => click.detail && setHeld(lately.map(entryKey))}
 			tip={tipFor(e.label, isPinned ? undefined : "Recent")}
 			hideTip={hideTip}
 		/>
@@ -114,7 +118,6 @@ function RailItem({
 	pinned,
 	drag,
 	onToggle,
-	onOpen,
 	tip,
 	hideTip,
 }: {
@@ -123,7 +126,6 @@ function RailItem({
 	pinned: boolean;
 	drag?: DragProps;
 	onToggle: () => void;
-	onOpen?: (click: React.MouseEvent) => void;
 	tip: ReturnType<TipFor>;
 	hideTip: () => void;
 }) {
@@ -141,7 +143,7 @@ function RailItem({
 					type="button"
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
-					onClick={(click) => (hideTip(), onOpen?.(click), navigate(...entry.path))}
+					onClick={() => (hideTip(), navigate(...entry.path))}
 					className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
 				>
 					{entry.icon}
