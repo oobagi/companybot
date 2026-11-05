@@ -71,7 +71,7 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 	if (tab === "archive") return <TrashView access={access} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
-		<Page title={current.label} description={(current as { description?: string }).description}>
+		<Page title={current.label} intro={(current as { description?: string }).description}>
 			{tab === "general" && <GeneralTab access={access} />}
 			{tab === "members" && <MembersTab access={access} />}
 			{tab === "memory" && <MemoryTab access={access} />}

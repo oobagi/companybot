@@ -49,7 +49,7 @@ export function TrashView({ access }: { access: Access }) {
 	const { confirm, dialog } = useConfirm();
 	const canPurge = can(access, "trash.manage");
 	return (
-		<Page title="Archive" description="Archived items are kept here until you restore them or explicitly delete them forever.">
+		<Page title="Archive" intro="Archived items are kept here until you restore them or explicitly delete them forever.">
 			<div className={toolbarClass}>
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Archive" className={wideControlClass} />
 				<Select

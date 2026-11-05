@@ -239,13 +239,15 @@ const actionSlot = createContext<HTMLElement | null>(null);
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
- * `description` sits next to the title in the top bar; `actions` go on its right. `wide` for tables.
+ * `description` sits next to the title in the top bar (short: it truncates); `intro`, a sentence or
+ * two about the screen, opens its content in full. `actions` go on the top bar's right. `wide` for tables.
  */
 export function Page({
 	title,
 	crumbs,
 	heading,
 	description,
+	intro,
 	actions,
 	wide,
 	children,
@@ -254,6 +256,7 @@ export function Page({
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
 	description?: string;
+	intro?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
 	children: React.ReactNode;
@@ -278,6 +281,7 @@ export function Page({
 					}`}
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
+					{intro && <p className={descriptionClass}>{intro}</p>}
 					{children}
 				</div>
 			</actionSlot.Provider>
@@ -441,18 +445,15 @@ export function NewButton({ label, onClick }: { label: string; onClick: () => vo
 
 /**
  * A screen with nothing in it yet: no button, since the top bar's create action is how you start.
- * In the middle of the space under the top bar on every screen, however much sits above it:
- * sticky `top-1/2` brings it down to the middle; when the controls above reach past that,
- * it stays just below them.
+ * The same distance below whatever sits above it on every screen. Centering it in the leftover
+ * space put it in a different place on each screen, depending on how that screen was laid out.
  */
 export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
 	return (
-		<div className="flex flex-1 flex-col items-center pt-24">
-			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
-				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
-				<h2 className="text-base font-medium">{title}</h2>
-				<p className={descriptionClass}>{children}</p>
-			</div>
+		<div className="flex flex-col items-center gap-2 py-16 text-center">
+			<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
+			<h2 className="text-base font-medium">{title}</h2>
+			<p className={descriptionClass}>{children}</p>
 		</div>
 	);
 }
