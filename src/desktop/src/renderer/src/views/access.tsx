@@ -1,9 +1,9 @@
 import { EVERYONE, type PlaceKind, losesOwnEdit, ownEditMessage } from "@companybot/core/place-access";
-import { Select } from "../controls";
 import { useQuery } from "../convex";
 import { api } from "../api";
-import { CloseIcon, PrivateIcon, RestoreIcon } from "../icons";
-import { Notice, Section, compactButton, compactControlClass, hintClass, iconButton, listClass, useRun } from "../ui";
+import { CaretDownIcon, CheckIcon, PlusIcon, PrivateIcon, RestoreIcon } from "../icons";
+import { Notice, Section, barButton, compactButton, hintClass, listClass, useRun } from "../ui";
+import { MenuItem, Popover } from "./chat/common";
 
 // Who can access a channel, database or page (core place-access.ts): Everyone or roles, each at
 // View or Edit (Post, for a channel). One control for all three, so they read the same.
@@ -11,7 +11,8 @@ import { Notice, Section, compactButton, compactControlClass, hintClass, iconBut
 export type AccessEntry = { role: string; level: "view" | "edit" };
 
 /**
- * The "Who can access" section of a dialog: one row per role, editable when `onSave` is given; each
+ * The "Who can access" section of a dialog: one row per role, its level a quiet menu with Remove
+ * under it, and + Add on the heading (as in a share dialog); editable when `onSave` is given; each
  * change saves at once (the server checks who may). `hint` adds a line under the heading.
  * `follow`: a page that can follow its parent's list (a top-level page's is the default, Everyone at
  * Edit). Changing anything while it follows gives the page its own list; a button goes back.
@@ -41,10 +42,11 @@ export function WhoCanAccess({
 	const save = (next: AccessEntry[]) => onSave && run(onSave(next));
 	const levels = (role: string) => {
 		const view = access.map((x) => (x.role === role ? { ...x, level: "view" as const } : x));
-		return [
-			{ value: "view" as const, label: "Can view", ...(locksOut(view) && { disabled: true, hint: lockedOut }) },
-			{ value: "edit" as const, label: `Can ${verb}` },
+		const options: { value: AccessEntry["level"]; label: string; disabled?: boolean; hint?: string }[] = [
+			{ value: "view", label: "Can view", ...(locksOut(view) && { disabled: true, hint: lockedOut }) },
+			{ value: "edit", label: `Can ${verb}` },
 		];
+		return options;
 	};
 	const without = (role: string) => access.filter((x) => x.role !== role);
 	const guarded = access.some((e) => locksOut(without(e.role)));
@@ -56,17 +58,27 @@ export function WhoCanAccess({
 		`Owners can always ${verb}${kind === "channel" ? " in it" : " it"}.`,
 		onSave && guarded && `Taking away your own ${verb === "post" ? "Post" : "Edit"} needs an Owner.`,
 	];
+	const add = onSave && addable.length > 0 && (
+		<Popover label="Add a role" trigger={<><PlusIcon /> Add</>} className={compactButton} panelClassName="flex w-56 flex-col p-1 text-sm">
+			{(close) =>
+				addable.map((r) => (
+					<MenuItem key={r.id} onClick={() => (close(), save([...access, { role: r.id, level: "view" }]))}>
+						{r.name}
+					</MenuItem>
+				))
+			}
+		</Popover>
+	);
+	const reset = follow && !follow.following && (
+		<button type="button" className={compactButton} onClick={() => run(follow.onFollow())}>
+			<RestoreIcon /> {follow.parent ? "Use parent page's" : "Reset to default"}
+		</button>
+	);
 	return (
 		<Section
 			title="Who can access"
 			note={lines.filter(Boolean).join(" ")}
-			action={
-				follow && !follow.following && (
-					<button type="button" className={compactButton} onClick={() => run(follow.onFollow())}>
-						<RestoreIcon /> {follow.parent ? "Use parent page's" : "Reset to default"}
-					</button>
-				)
-			}
+			action={(add || reset) && <>{reset}{add}</>}
 		>
 			<ul className={listClass}>
 				{access.length === 0 && <li className={`px-4 py-2.5 ${hintClass}`}>Only Owners can see it.</li>}
@@ -74,42 +86,33 @@ export function WhoCanAccess({
 					<li key={e.role} className="flex min-h-12 items-center gap-2 px-4 py-2">
 						<span className="flex-1 truncate text-sm">{nameOf(e.role)}</span>
 						{onSave ? (
-							<>
-								<Select
-									label={`What ${nameOf(e.role)} can do`}
-									value={e.level}
-									options={levels(e.role)}
-									className={`${compactControlClass} w-32`}
-									onChange={(level) => save(access.map((x) => (x.role === e.role ? { ...x, level } : x)))}
-								/>
-								<button
-									type="button"
-									aria-label={`Remove ${nameOf(e.role)}`}
-									title={locksOut(without(e.role)) ? lockedOut : "Remove"}
-									disabled={locksOut(without(e.role))}
-									onClick={() => save(without(e.role))}
-									className={`${iconButton} disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent`}
-								>
-									<CloseIcon />
-								</button>
-							</>
+							// The role's level, and Remove under it, as in a share dialog: no box until hovered.
+							<Popover
+								label={`What ${nameOf(e.role)} can do`}
+								trigger={<>{e.level === "edit" ? `Can ${verb}` : "Can view"}<CaretDownIcon className="text-neutral-400" /></>}
+								className={barButton}
+								panelClassName="flex w-56 flex-col p-1 text-sm"
+							>
+								{(close) => (
+									<>
+										{levels(e.role).map((l) => (
+											<MenuItem key={l.value} disabled={l.disabled} title={l.hint} onClick={() => (close(), l.value !== e.level && save(access.map((x) => (x.role === e.role ? { ...x, level: l.value } : x))))}>
+												<span className="flex-1">{l.label}</span>
+												{l.value === e.level && <CheckIcon className="text-neutral-500" />}
+											</MenuItem>
+										))}
+										<span aria-hidden className="my-1 h-px bg-neutral-100" />
+										<MenuItem danger disabled={locksOut(without(e.role))} title={locksOut(without(e.role)) ? lockedOut : undefined} onClick={() => (close(), save(without(e.role)))}>
+											Remove access
+										</MenuItem>
+									</>
+								)}
+							</Popover>
 						) : (
 							<span className="text-sm text-neutral-500">{e.level === "edit" ? `Can ${verb}` : "Can view"}</span>
 						)}
 					</li>
 				))}
-				{onSave && addable.length > 0 && (
-					<li className="px-4 py-2">
-						<Select
-							value={undefined}
-							placeholder="Add a role…"
-							label="Add a role"
-							className={compactControlClass}
-							options={addable.map((r) => ({ value: r.id, label: r.name }))}
-							onChange={(role) => save([...access, { role, level: "view" }])}
-						/>
-					</li>
-				)}
 			</ul>
 			<Notice>{error}</Notice>
 		</Section>

@@ -365,12 +365,14 @@ export function PopoverPanel({
 }
 
 /** A row in a popover menu. */
-export function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?: boolean; children: React.ReactNode }) {
+export function MenuItem({ onClick, danger, disabled, title, children }: { onClick: () => void; danger?: boolean; disabled?: boolean; title?: string; children: React.ReactNode }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${danger ? "text-red-600 hover:bg-red-50" : "hover:bg-neutral-100"}`}
+			disabled={disabled}
+			title={title}
+			className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${danger ? "text-red-600 hover:bg-red-50" : "hover:bg-neutral-100"}`}
 		>
 			{children}
 		</button>
