@@ -655,6 +655,14 @@ export function useDebounced<T>(value: T, ms = 250) {
  */
 const formDrafts = new Map<string, { value: unknown; base: number }>();
 const draftListeners = new Set<() => void>();
+let draftPerson: string | null = null;
+/** Called at the app boundary, including when no form is open. */
+export function setFormDraftPerson(person: string | null) {
+	if (person === draftPerson) return;
+	draftPerson = person;
+	formDrafts.clear();
+	draftListeners.forEach((listener) => listener());
+}
 const subscribeDrafts = (listener: () => void) => {
 	draftListeners.add(listener);
 	return () => { draftListeners.delete(listener); };

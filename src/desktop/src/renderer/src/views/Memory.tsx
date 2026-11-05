@@ -94,10 +94,10 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	return (
 		<div className={`flex flex-col gap-2 ${cardClass}`}>
 			{dialog}
-			<ConflictNotice draft={draft} who={memory.updatedByName} />
+			{memory.canEdit && <ConflictNotice draft={draft} who={memory.updatedByName} />}
 			<Notice>{error}</Notice>
 			<div className="flex items-start gap-3">
-				{!draft.dirty ? (
+				{!memory.canEdit || !draft.dirty ? (
 					<p className="flex-1 leading-relaxed">{memory.content}</p>
 				) : (
 					<textarea

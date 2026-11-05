@@ -27,7 +27,7 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 | [Skills](#/settings/skills) | Personal or team instructions | Everyone for Just me; roles that can make and change team skills do the rest |
 | [Automations](#/settings/automations) | Jobs on a schedule or event | Anyone makes personal ones; roles that can make and change team automations do the rest |
 
-Shared settings (agents, workspace name and the like) are edited then saved. If someone saved first, you are asked whether to use theirs or keep yours.
+Shared settings (agents, workspace name and the like) are edited then saved. Unsaved edits stay when you leave a screen and come back, until you quit, sign out, save or discard them. Closing a database dialog cancels its edits. If someone saved first, you are asked whether to use theirs or keep yours.
 
 Topics: **help: general**, **help: account-settings**, **help: members**, **help: permissions**, **help: memory**, **help: activity**, **help: trash**, **help: agents**, **help: connectors**, **help: skills**, **help: automations**.
 `,

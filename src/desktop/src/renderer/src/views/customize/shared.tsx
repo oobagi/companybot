@@ -166,7 +166,7 @@ export function NewItem({
 			<Notice>{error}</Notice>
 			<div className="flex flex-col gap-5">
 				{children}
-                {onDiscard && <button type="button" className={barButton} onClick={onDiscard}>Discard</button>}
+				{onDiscard && <button type="button" className={`${barButton} self-start`} onClick={onDiscard}>Discard</button>}
 				<button type="button" className={`${primaryButton} self-start`} onClick={onCreate}>
 					Create
 				</button>
@@ -180,7 +180,7 @@ export function NewItem({
  * people who can't change it, or while it's in Trash), Delete (to Trash), and Save. `children` go below the fields.
  */
 export function MadeItemDetail<T>({
- id,
+	id,
 	tab,
 	name,
 	createdByName,
@@ -233,11 +233,11 @@ export function MadeItemDetail<T>({
 		>
 			{dialog}
 			{trash && <TrashNotice trash={trash} />}
-			<ConflictNotice draft={draft} who={custom.updatedByName} />
+			{editable && <ConflictNotice draft={draft} who={custom.updatedByName} />}
 			<Notice>{error}</Notice>
 			{!canEdit && <CantEdit tab={tab} />}
 			<fieldset disabled={!editable} className="flex flex-col gap-5">
-				{fields(draft.value, draft.set)}
+				{fields(editable ? draft.value : saved, draft.set)}
 			</fieldset>
 			{children}
 			{editable && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => run(onSave(draft.value, draft.base), draft.discard)} />}

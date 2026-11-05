@@ -272,22 +272,21 @@ function GeneralForm({
 }) {
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
-	const draft = useDraft("settings",
-		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
-		settings.version,
-	);
+	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) };
+	const draft = useDraft("settings", saved, settings.version);
+	const value = canManage ? draft.value : saved;
 	const [confirming, setConfirming] = useState(false);
 	const { error, run } = useRun();
 	const submit = () => {
-		const { imageBudget, threadHours, ...rest } = draft.value;
+		const { imageBudget, threadHours, ...rest } = value;
 		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), threadHours: Number(threadHours), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
 	};
 	const spent = settings.imageSpentUsd === null ? "" : ` ${formatUsd(settings.imageSpentUsd)} used in ${monthLabel(usageMonth(Date.now()))}.`;
-	const currencyChanged = draft.value.currency !== settings.currency;
+	const currencyChanged = value.currency !== settings.currency;
 	const ownerOnly = canManage ? undefined : "Your roles can't change workspace settings.";
 	return (
 		<>
-			<ConflictNotice draft={draft} />
+			{canManage && <ConflictNotice draft={draft} />}
 			<Notice>{error}</Notice>
 			<Settings title="Workspace" hint={ownerOnly}>
 				<Setting label="Logo" hint={`Its icon in the workspace rail at the far left. ${pictureLimits}.`}>
@@ -297,24 +296,24 @@ function GeneralForm({
 					<input
 						className={wideControlClass}
 						disabled={!canManage}
-						value={draft.value.name}
-						onChange={(e) => draft.set({ ...draft.value, name: e.target.value })}
+						value={value.name}
+						onChange={(e) => draft.set({ ...value, name: e.target.value })}
 					/>
 				</Setting>
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
-					<CurrencySelect className={wideControlClass} disabled={!canManage} value={draft.value.currency} onChange={(currency) => draft.set({ ...draft.value, currency })} />
+					<CurrencySelect className={wideControlClass} disabled={!canManage} value={value.currency} onChange={(currency) => draft.set({ ...value, currency })} />
 				</Setting>
 				<Setting label="Threads in the sidebar" hint="How long a thread stays under its channel after its last reply. It's still there under its message either way.">
 					<Select
 						className={wideControlClass}
 						disabled={!canManage}
-						value={draft.value.threadHours}
+						value={value.threadHours}
 						options={threadWindows.map((w) => ({ value: String(w.hours), label: w.label }))}
-						onChange={(threadHours) => draft.set({ ...draft.value, threadHours })}
+						onChange={(threadHours) => draft.set({ ...value, threadHours })}
 					/>
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
-					<Toggle disabled={!canManage} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
+					<Toggle disabled={!canManage} checked={value.memory} onChange={(memory) => draft.set({ ...value, memory })} />
 				</Setting>
 			</Settings>
 			<Settings title="Agents in channels" hint={ownerOnly ?? "In channels set to \"When relevant\", a quick model call decides whether each agent replies, reacts or stays quiet."}>
@@ -322,11 +321,11 @@ function GeneralForm({
 					<ModelPicker
 						models={settings.routerModels}
 						defaultModel={ROUTER_MODEL}
-						value={draft.value.routerModel}
+						value={value.routerModel}
 						note={(m) => (isDecisionModel(m.id) ? "Decision model · about 0.2s a call" : modelNote(m))}
 						disabled={!canManage}
 						className={wideControlClass}
-						onChange={(routerModel) => draft.set({ ...draft.value, routerModel })}
+						onChange={(routerModel) => draft.set({ ...value, routerModel })}
 					/>
 				</Setting>
 			</Settings>
@@ -335,11 +334,11 @@ function GeneralForm({
 					<ModelPicker
 						models={settings.imageModels}
 						defaultModel={defaultImageModel}
-						value={draft.value.imageModel}
+						value={value.imageModel}
 						note={imageModelNote}
 						disabled={!canManage}
 						className={wideControlClass}
-						onChange={(imageModel) => draft.set({ ...draft.value, imageModel })}
+						onChange={(imageModel) => draft.set({ ...value, imageModel })}
 					/>
 				</Setting>
 				<Setting label="Monthly budget" hint={`What agents may spend on pictures each month, in US dollars. $0 turns pictures off.${spent}`}>
@@ -347,15 +346,15 @@ function GeneralForm({
 						className={wideControlClass}
 						disabled={!canManage}
 						inputMode="decimal"
-						value={draft.value.imageBudget}
-						onChange={(e) => draft.set({ ...draft.value, imageBudget: e.target.value.replace(/[^\d.]/g, "") })}
+						value={value.imageBudget}
+						onChange={(e) => draft.set({ ...value, imageBudget: e.target.value.replace(/[^\d.]/g, "") })}
 					/>
 				</Setting>
 			</Settings>
 			{canManage && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />}
-			{confirming && (
+			{canManage && confirming && (
 				<Confirm title="Change currency?" action="Change currency" onConfirm={submit} onClose={() => setConfirming(false)}>
-					Existing amounts stay in {settings.currency}. New amounts will use {draft.value.currency}.
+					Existing amounts stay in {settings.currency}. New amounts will use {value.currency}.
 				</Confirm>
 			)}
 		</>
@@ -371,8 +370,8 @@ function ProfileTab() {
 	const me = useQuery(api.workspace.me);
 	const erase = useMutation(api.workspace.eraseAccount);
 	const nameDraft = useDraft("account:name", prefs?.displayName ?? "", 0);
- const name = nameDraft.dirty ? nameDraft.value : undefined;
- const setName = (value: string | undefined) => value === undefined ? nameDraft.discard() : nameDraft.set(value);
+	const name = nameDraft.dirty ? nameDraft.value : undefined;
+	const setName = (value: string | undefined) => value === undefined ? nameDraft.discard() : nameDraft.set(value);
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
 	const shownName = name ?? prefs.displayName;

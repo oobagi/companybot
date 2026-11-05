@@ -97,7 +97,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
-	const open = (id: string) => (setViewId(id), draft.discard());
+	const open = (id: string) => setViewId(id);
 	// Someone deleted the open view.
 	useEffect(() => {
 		if (views && viewId !== "all" && !selected) open("all");

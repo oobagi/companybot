@@ -1,7 +1,6 @@
 import { type Access, can } from "@companybot/core/permissions";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "@companybot/core/skills";
 import type { FunctionReturnType } from "convex/server";
-
 import { Select } from "../../controls";
 import { useConfirm } from "../chat/common";
 import { api } from "../../api";
@@ -78,16 +77,15 @@ function SkillFields({ value, onChange }: { value: SkillConfig; onChange: (value
 
 function NewSkill({ access }: { access: Access }) {
 	const draft = useDraft<{ audience: "team" | "personal"; config: SkillConfig }>("skills:new", { audience: "personal", config: { name: "", description: "", instructions: "" } }, 0);
- const { audience, config } = draft.value;
- const setAudience = (audience: "team" | "personal") => draft.set({ ...draft.value, audience });
- const setConfig = (config: SkillConfig) => draft.set({ ...draft.value, config });
+	const { audience, config } = draft.value;
+	const setAudience = (audience: "team" | "personal") => draft.set({ ...draft.value, audience });
+	const setConfig = (config: SkillConfig) => draft.set({ ...draft.value, config });
 	const create = useMutation(api.skills.create);
 	const { error, run } = useRun();
 
-
 	return (
 		<NewItem
-            onDiscard={draft.dirty ? draft.discard : undefined}
+			onDiscard={draft.dirty ? draft.discard : undefined}
 			tab="skills"
 			noun="skill"
 			error={error}
@@ -112,7 +110,7 @@ function CustomSkillDetail({ skill: s, custom, access }: { access: Access; skill
 	return (
 		<MadeItemDetail<SkillConfig>
 			tab="skills"
-            id={s.id}
+			id={s.id}
 			name={s.name}
 			createdByName={s.createdByName}
 			canEdit={s.canEdit}

@@ -245,14 +245,17 @@ function NewAutomation({ team }: { team: boolean }) {
 	const agents = useQuery(api.agents.list)?.filter((x) => !x.archived);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
 	const { error, run } = useRun();
- const draft = useDraft<{ config: CustomAutomationConfig; agentId: string; audience: { audience: Audience; channelId?: Id<"chats"> } }>("automations:new", { config: { name: "", prompt: "", trigger: defaultSchedule }, agentId: "", audience: { audience: "creator" } }, 0);
- const { config, agentId, audience } = draft.value;
- const setConfig = (config: CustomAutomationConfig) => draft.set({ ...draft.value, config });
- const setAgentId = (agentId: string) => draft.set({ ...draft.value, agentId });
- const setAudience = (audience: typeof draft.value.audience) => draft.set({ ...draft.value, audience });
+	const draft = useDraft<{ config: CustomAutomationConfig; agentId: string; audience: { audience: Audience; channelId?: Id<"chats"> } }>("automations:new", { config: { name: "", prompt: "", trigger: defaultSchedule }, agentId: "", audience: { audience: "creator" } }, 0);
+	const { config: restoredConfig, agentId, audience: restoredAudience } = draft.value;
+	const audience = restoredAudience.audience === "channel" && !channels.some((c) => c._id === restoredAudience.channelId) ? { audience: "creator" as const } : restoredAudience;
+	const trigger = restoredConfig.trigger;
+	const config = trigger.type === "event" && trigger.event === "message.posted" && !channels.some((c) => c._id === trigger.channelId) ? { ...restoredConfig, trigger: { type: "event" as const, event: "member.joined" as const } } : restoredConfig;
+	const setConfig = (config: CustomAutomationConfig) => draft.set({ ...draft.value, config });
+	const setAgentId = (agentId: string) => draft.set({ ...draft.value, agentId });
+	const setAudience = (audience: typeof draft.value.audience) => draft.set({ ...draft.value, audience });
 
 	if (!agents) return <Missing tab="automations" loaded={false} />;
-	const agent = agentId || agents[0]?._id || "";
+	const agent = agents.find((a) => a._id === agentId)?._id || agents[0]?._id || "";
 	if (!agent)
 		return (
 			<Page title="New automation" crumbs={customizeCrumbs("automations")}>
@@ -262,7 +265,7 @@ function NewAutomation({ team }: { team: boolean }) {
 
 	return (
 		<NewItem
-            onDiscard={draft.dirty ? draft.discard : undefined}
+			onDiscard={draft.dirty ? draft.discard : undefined}
 			tab="automations"
 			noun="automation"
 			error={error}
@@ -304,7 +307,7 @@ function CustomAutomationDetail({ automation: a, custom, team }: { automation: A
 	return (
 		<MadeItemDetail<CustomAutomationConfig>
 			tab="automations"
-            id={a.id}
+			id={a.id}
 			name={a.name}
 			createdByName={a.createdByName}
 			canEdit={a.canEdit}
