@@ -254,7 +254,7 @@ function ConnectorFields({ value, onChange, autoFocus }: { value: ConnectorForm;
 	const auth = value.auth;
 	const { set, setSignIn, setKey } = fieldSetters(value, onChange);
 	return (
-		<Settings title="Connector">
+		<Settings>
 			<Setting label="Name">
 				<input aria-label="Name" autoFocus={autoFocus} required maxLength={CUSTOM_CONNECTOR_NAME_MAX} placeholder="e.g. Support desk" className={wideControlClass} value={value.name} onChange={(e) => set({ name: e.target.value })} />
 			</Setting>

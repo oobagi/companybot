@@ -103,12 +103,13 @@ const defaultSchedule = { type: "schedule" as const, cron: DEFAULT_CRON };
 
 /** Name, when, and what to ask: the parts of an automation someone writes, as one card. `children` are rows under them (Agent, Runs for). */
 function AutomationFields({
+	title,
 	value,
 	onChange,
 	channels,
 	timeZone,
 	children,
-}: {
+}: { title?: string;
 	value: CustomAutomationConfig;
 	onChange: (value: CustomAutomationConfig) => void;
 	channels: Channel[];
@@ -125,7 +126,7 @@ function AutomationFields({
 		{ label: "When another app sends a webhook", value: { type: "webhook" } },
 	];
 	return (
-		<Settings title="Automation">
+		<Settings title={title}>
 			<Setting label="Name">
 				<input
 					aria-label="Name"
@@ -321,7 +322,7 @@ function CustomAutomationDetail({ automation: a, custom, team }: { automation: A
 			trash={a.trash}
 			onDelete={() => remove({ automationId: a.id })}
 			onSave={(config, expectedVersion) => save({ automationId: a.id, config, expectedVersion })}
-			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
+			fields={(value, onChange) => <AutomationFields title="Automation" value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
 		>
 			{!a.trash && <AutomationSettings automation={a} team={team} />}
 		</MadeItemDetail>
