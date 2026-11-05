@@ -3,7 +3,8 @@ import { Select } from "../controls";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, insetClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, iconDangerButton, insetClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
+import { TrashIcon } from "../icons";
 import { Confirm, useConfirm } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -40,8 +41,8 @@ export function YourPermissions() {
 						<p className="text-neutral-500">{r.text}</p>
 					</div>
 					{r.automation ? (
-						<button type="button" onClick={() => confirm({ title: "Remove this permission?", action: "Remove permission", danger: false, body: "The automation will ask again before this action runs.", onConfirm: () => remove({ ruleId: r._id }) })} className="text-neutral-500 hover:text-red-600">
-							Remove
+						<button type="button" onClick={() => confirm({ title: "Remove this permission?", action: "Remove permission", danger: false, body: "The automation will ask again before this action runs.", onConfirm: () => remove({ ruleId: r._id }) })} aria-label="Remove" title="Remove permission" className={iconDangerButton}>
+							<TrashIcon size={16} />
 						</button>
 					) : (
 						<Select

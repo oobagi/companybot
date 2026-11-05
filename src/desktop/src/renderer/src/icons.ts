@@ -4,6 +4,8 @@
 export {
 	ArchiveIcon,
 	ArrowBendUpLeftIcon as ReplyIcon,
+	ArrowCounterClockwiseIcon as RestoreIcon,
+	ArrowBendDownRightIcon as MoveIcon,
 	ArrowDownIcon,
 	ArrowLeftIcon,
 	ArrowRightIcon,

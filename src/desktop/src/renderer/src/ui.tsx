@@ -4,7 +4,7 @@ import { Component, Fragment, createContext, useCallback, useContext, useEffect,
 import { createPortal } from "react-dom";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
-import { PlusIcon } from "./icons";
+import { CaretDownIcon, PlusIcon } from "./icons";
 import { navigate } from "./router";
 import type { DragProps } from "./sortable";
 import { Popover } from "./views/chat/common";
@@ -407,6 +407,10 @@ export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
 export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): the same box, smaller. */
+export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+/** `compactButton` for a destructive action (Leave channel): the same box, red text. */
+export const compactDangerButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 ${disabledButtonClass}`;
 /** Submits a row of compact controls (Invite, Add, Save): their box, filled. */
 export const compactPrimaryButton = `rounded-lg border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
@@ -414,6 +418,9 @@ export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white 
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
 export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+/** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
+export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
 const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
@@ -701,10 +708,10 @@ export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discar
 	return (
 		<div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 			<p className="flex-1">{who || "Someone"} saved a change while you were editing.</p>
-			<button type="button" onClick={draft.discard} className="font-medium hover:underline">
+			<button type="button" onClick={draft.discard} className={`${compactButton} bg-white`}>
 				Use theirs
 			</button>
-			<button type="button" onClick={draft.keepMine} className="font-medium hover:underline">
+			<button type="button" onClick={draft.keepMine} className={`${compactButton} bg-white`}>
 				Keep mine
 			</button>
 		</div>
@@ -721,7 +728,7 @@ export function PageActions({ children }: { children: React.ReactNode }) {
 export function SaveBar({ dirty, canSave = true, onSave, onDiscard }: { dirty: boolean; canSave?: boolean; onSave: () => void; onDiscard: () => void }) {
 	return (
 		<PageActions>
-			<button type="button" disabled={!dirty} onClick={onDiscard} className={barButton}>
+			<button type="button" disabled={!dirty} onClick={onDiscard} className={compactButton}>
 				Discard
 			</button>
 			<button type="button" disabled={!dirty || !canSave} onClick={onSave} className={compactPrimaryButton}>
@@ -749,8 +756,8 @@ export function LoadMore({ status, onMore }: { status: string; onMore: () => voi
 	if (status === "LoadingMore") return <p className={`text-center ${metadataClass}`}>Loading…</p>;
 	if (status !== "CanLoadMore") return null;
 	return (
-		<button type="button" onClick={onMore} className={`self-center ${metadataClass} hover:text-neutral-700`}>
-			Load more
+		<button type="button" onClick={onMore} className={`self-center ${compactButton}`}>
+			<CaretDownIcon /> Load more
 		</button>
 	);
 }

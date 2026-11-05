@@ -6,7 +6,7 @@ import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { Field, Form, MenuDivider, Notice, inputClass, primaryButton, useRun } from "../ui";
+import { Field, Form, MenuDivider, Notice, compactButton, compactPrimaryButton, inputClass, primaryButton, useRun } from "../ui";
 import { Avatar, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
 
 const none: never[] = [];
@@ -170,11 +170,11 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 				</span>
 				{dot}
 			</div>
-			<div className="flex gap-3 pl-[30px] text-xs font-medium">
-				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className="text-sky-800 hover:underline">
+			<div className="flex gap-2 pl-[30px]">
+				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className={compactPrimaryButton}>
 					Join
 				</button>
-				<button type="button" onClick={() => run(decline({ id: invite.id }))} className="text-neutral-500 hover:underline">
+				<button type="button" onClick={() => run(decline({ id: invite.id }))} className={compactButton}>
 					Decline
 				</button>
 			</div>
