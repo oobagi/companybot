@@ -78,9 +78,9 @@ export function AppRail({
 										aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread ${badge.mentions === 1 ? "mention or DM" : "mentions or DMs"}` : t.label}
 										aria-current={active ? "page" : undefined}
 										onClick={() => (t.id !== tab && blurActiveEditable(), hideTip(), onOpen(t.id))}
-										className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+										className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
 									>
-										<t.icon size={20} weight={active ? "fill" : "regular"} />
+										<t.icon size={22} weight={active ? "fill" : "regular"} />
 									</button>
 									{badge?.mentions ? (
 										<span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">

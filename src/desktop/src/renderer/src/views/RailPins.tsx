@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useQuery } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
@@ -28,28 +28,28 @@ function useEntries(keys: PinKey[]) {
 		const plain = { key, path: pathOf(key), unread: false, mentioned: false };
 		if (kind === "rec") {
 			const record = records?.find((r) => r._id === id);
-			return record && { ...plain, path: pathOf(key, record.typeKey), label: record.title || "Untitled", icon: <RecordIcon size={20} /> };
+			return record && { ...plain, path: pathOf(key, record.typeKey), label: record.title || "Untitled", icon: <RecordIcon size={22} /> };
 		}
 		if (kind === "page") {
 			const page = pages?.find((p) => p._id === id);
-			return page && { ...plain, label: page.title || "Untitled", icon: <PageIcon size={20} /> };
+			return page && { ...plain, label: page.title || "Untitled", icon: <PageIcon size={22} /> };
 		}
 		if (kind === "db") {
 			const type = types?.find((t) => t.key === id);
-			return type && { ...plain, label: type.plural, icon: <DatabaseIcon size={20} /> };
+			return type && { ...plain, label: type.plural, icon: <DatabaseIcon size={22} /> };
 		}
 		if (!chats) return undefined;
 		const channel = chats.channels.find((c) => c._id === id);
-		if (channel) return { ...plain, label: `#${channel.name}`, icon: channel.private ? <PrivateIcon size={20} /> : <ChannelIcon size={20} />, unread: channel.unread, mentioned: channel.mentioned };
+		if (channel) return { ...plain, label: `#${channel.name}`, icon: channel.private ? <PrivateIcon size={22} /> : <ChannelIcon size={22} />, unread: channel.unread, mentioned: channel.mentioned };
 		const agent = chats.agents.find((a) => a.dmId === id);
-		if (agent) return { ...plain, label: agent.name, icon: <Avatar name={agent.name} image={agent.image} agent size="sm" />, unread: agent.unread, mentioned: agent.mentioned };
+		if (agent) return { ...plain, label: agent.name, icon: <Avatar name={agent.name} image={agent.image} agent size="pair" />, unread: agent.unread, mentioned: agent.mentioned };
 		const dm = chats.dms.find((d) => d._id === id);
 		if (!dm) return undefined;
 		const state = { unread: dm.unread, mentioned: dm.mentioned };
 		// A side chat with an agent, under its DM.
-		if (dm.parentId) return { ...plain, ...state, label: dm.label ?? "New chat", icon: <ChatIcon size={20} /> };
+		if (dm.parentId) return { ...plain, ...state, label: dm.label ?? "New chat", icon: <ChatIcon size={22} /> };
 		const others = dm.members.filter((m) => m.id !== chats.me);
-		return { ...plain, ...state, label: dm.title, icon: <Avatar name={dm.title} image={others.length === 1 ? others[0]!.image : undefined} size="sm" /> };
+		return { ...plain, ...state, label: dm.title, icon: <Avatar name={dm.title} image={others.length === 1 ? others[0]!.image : undefined} size="pair" /> };
 	};
 }
 
@@ -63,13 +63,37 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 	const resolve = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
 	const { sorted, drag } = useSortable("pinsOrder", pinned, entryKey);
-	const lately = recent
+	// Opening a recent makes it the latest, which would move it to the top under your pointer.
+	// Clicked, the recents keep their places until the pointer leaves the rail.
+	const [held, setHeld] = useState<PinKey[]>();
+	useEffect(() => {
+		if (!held) return;
+		const release = (e: PointerEvent) => {
+			if (!(e.target instanceof Element && e.target.closest("nav[aria-label='App']"))) setHeld(undefined);
+		};
+		document.addEventListener("pointerover", release);
+		return () => document.removeEventListener("pointerover", release);
+	}, [held]);
+	const latest = recent
 		.filter((k) => !pins.includes(k))
 		.map(resolve)
 		.filter((e): e is Entry => !!e)
 		.slice(0, RECENT_SHOWN);
+	const place = (e: Entry) => (held!.includes(e.key) ? held!.indexOf(e.key) : held!.length);
+	const lately = held ? [...latest].sort((a, b) => place(a) - place(b)) : latest;
 	const row = (e: Entry, isPinned: boolean, d?: DragProps) => (
-		<RailItem key={e.key} entry={e} active={e.key === open} pinned={isPinned} drag={d} onToggle={() => toggle(e.key)} tip={tipFor(e.label, isPinned ? undefined : "Recent")} hideTip={hideTip} />
+		<RailItem
+			key={e.key}
+			entry={e}
+			active={e.key === open}
+			pinned={isPinned}
+			drag={d}
+			onToggle={() => toggle(e.key)}
+			// A keyboard press (`detail` 0) has no pointer to leave, so it doesn't hold them.
+			onOpen={isPinned ? undefined : (click) => click.detail && setHeld(lately.map(entryKey))}
+			tip={tipFor(e.label, isPinned ? undefined : "Recent")}
+			hideTip={hideTip}
+		/>
 	);
 	return (
 		<>
@@ -90,6 +114,7 @@ function RailItem({
 	pinned,
 	drag,
 	onToggle,
+	onOpen,
 	tip,
 	hideTip,
 }: {
@@ -98,6 +123,7 @@ function RailItem({
 	pinned: boolean;
 	drag?: DragProps;
 	onToggle: () => void;
+	onOpen?: (click: React.MouseEvent) => void;
 	tip: ReturnType<TipFor>;
 	hideTip: () => void;
 }) {
@@ -115,8 +141,8 @@ function RailItem({
 					type="button"
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
-					onClick={() => (hideTip(), navigate(...entry.path))}
-					className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+					onClick={(click) => (hideTip(), onOpen?.(click), navigate(...entry.path))}
+					className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
 				>
 					{entry.icon}
 				</button>

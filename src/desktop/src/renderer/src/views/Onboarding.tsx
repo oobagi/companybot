@@ -224,8 +224,8 @@ function Preview({ name, company, invites }: { name: string; company: string; in
 						<Avatar name={workspace} agent />
 						<div className="my-auto flex flex-col items-center gap-1">
 							{appTabs.map((t) => (
-								<span key={t.id} className={`flex size-9 items-center justify-center rounded-lg ${t.id === "chat" ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500"}`}>
-									<t.icon size={20} weight={t.id === "chat" ? "fill" : "regular"} />
+								<span key={t.id} className={`flex size-10 items-center justify-center rounded-lg ${t.id === "chat" ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500"}`}>
+									<t.icon size={22} weight={t.id === "chat" ? "fill" : "regular"} />
 								</span>
 							))}
 						</div>
