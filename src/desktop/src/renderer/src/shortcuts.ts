@@ -21,13 +21,13 @@ export const typing = (target: EventTarget | null) =>
 
 export function jumpOf(e: KeyboardEvent): Jump | undefined {
 	const digit = /^Digit([1-9])$/.exec(e.code);
-	if (!digit || e.repeat || e.defaultPrevented || anyLayerOpen()) return undefined;
+	if (!digit || e.isComposing || e.repeat || e.defaultPrevented || anyLayerOpen()) return undefined;
 	const n = Number(digit[1]);
 	const mods = `${e.metaKey ? "M" : ""}${e.ctrlKey ? "C" : ""}${e.altKey ? "A" : ""}${e.shiftKey ? "S" : ""}`;
 	const [tab, workspace] = isMac() ? ["M", "MC"] : ["C", "CS"];
 	if (mods === tab) return { to: "tab", n };
 	if (mods === workspace) return { to: "workspace", n };
-	if (mods === "A") return { to: "item", n };
+	if (mods === "A" && !(typing(e.target) && /^[ -~]$/.test(e.key) && !/^\d$/.test(e.key))) return { to: "item", n };
 	return undefined;
 }
 
@@ -46,9 +46,8 @@ export function useJump(to: Jump["to"], go: (n: number) => boolean | void) {
 		const key = (e: KeyboardEvent) => {
 			const jump = jumpOf(e);
 			if (jump?.to !== to) return;
-			blurActiveEditable();
 			// False: nothing there (a 7th tab), so the key does what it would have.
-			if (latest.current(jump.n) !== false || to === "item") e.preventDefault();
+			if (latest.current(jump.n) !== false) e.preventDefault();
 		};
 		window.addEventListener("keydown", key);
 		return () => window.removeEventListener("keydown", key);
@@ -66,6 +65,6 @@ export function sidebarRow(list: HTMLElement | null, n: number) {
 }
 
 export function blurActiveEditable() {
- const active = document.activeElement;
- if (active instanceof HTMLElement && typing(active)) active.blur();
+	const active = document.activeElement;
+	if (active instanceof HTMLElement && typing(active)) active.blur();
 }

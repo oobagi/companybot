@@ -4,7 +4,7 @@ import { getFunctionName } from "convex/server";
 import { convexToJson } from "convex/values";
 import { describe, expect, it } from "vitest";
 import { api } from "../../api";
-import { type Message, inOrder, showSending } from "./data";
+import { type Message, chatBadge, inOrder, showSending } from "./data";
 
 const workspaceId = "w1" as Id<"workspaces">;
 const chatId = "c1" as Id<"chats">;
@@ -30,20 +30,20 @@ const shownIn = (local: OptimisticLocalStore, args: Record<string, unknown>, cur
 	(local.getQuery(api.messages.page, pageArgs(args, cursor) as never)?.page ?? []) as Message[];
 
 describe("showSending", () => {
- it("keeps each send distinct and its identity stable when replayed", () => {
- const first = showSending();
- const second = showSending();
- const fresh = () => store([[api.messages.page, pageArgs({}), pageOf([])], team]);
- const local = fresh();
- first(local, send);
- second(local, send);
- const ids = shownIn(local, {}).map((m) => m._id);
- expect(new Set(ids).size).toBe(2);
- const replay = fresh();
- first(replay, send);
- second(replay, send);
- expect(shownIn(replay, {}).map((m) => m._id)).toEqual(ids);
- });
+	it("keeps each send distinct and its identity stable when replayed", () => {
+		const first = showSending();
+		const second = showSending();
+		const fresh = () => store([[api.messages.page, pageArgs({}), pageOf([])], team]);
+		const local = fresh();
+		first(local, send);
+		second(local, send);
+		const ids = shownIn(local, {}).map((m) => m._id);
+		expect(new Set(ids).size).toBe(2);
+		const replay = fresh();
+		first(replay, send);
+		second(replay, send);
+		expect(shownIn(replay, {}).map((m) => m._id)).toEqual(ids);
+	});
 
 	it("adds your message, marked sending, to the end of the chat's newest page", () => {
 		const local = store([[api.messages.page, pageArgs({}), pageOf([{ _id: "m1" }])], [api.messages.page, pageArgs({}, "older"), pageOf([{ _id: "m0" }])], team]);
@@ -84,4 +84,10 @@ describe("inOrder", () => {
 		expect(inOrder(pages).map((x) => x._id)).toEqual(["m1", "m2", "m5", "m3", "m4", "m0"]);
 		expect(inOrder(pages, "m0" as Id<"chatMessages">).map((x) => x._id)).toEqual(["m0", "m1", "m2", "m5", "m3", "m4"]);
 	});
+});
+
+it("counts an unread agent DM once despite its agent sidebar copy", () => {
+	const dm = { kind: "dm", mentioned: false, unread: true };
+	const chats = { channels: [], dms: [dm], agents: [{ ...dm }] };
+	expect(chatBadge(chats)).toEqual({ mentions: 1, unread: true });
 });

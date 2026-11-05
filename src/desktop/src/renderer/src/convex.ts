@@ -3,7 +3,7 @@ import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuer
 import type { OptimisticUpdate } from "convex/browser";
 import { type PaginatedQueryReference, useAction as useConvexAction, useMutation as useConvexMutation } from "convex/react";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
-import { createContext, useCallback, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext } from "react";
 
 // The app's Convex hooks. Use these, not convex/react's: each call carries the workspace this
 // window has open, so a request always acts where it was made, whatever another device opened
@@ -45,13 +45,13 @@ export function usePaginatedQuery<Q extends PaginatedQueryReference>(
  * the server's arrive; its args include `workspaceId`, for the queries it reads and sets.
  */
 /** A factory creates per-call optimistic state once, before Convex can replay the update. */
-export function useMutation<M extends FunctionReference<"mutation">>(mutation: M, optimistic?: OptimisticUpdate<FunctionArgs<M>>, optimisticFactory?: () => OptimisticUpdate<FunctionArgs<M>>) {
+export function useMutation<M extends FunctionReference<"mutation">>(mutation: M, optimistic?: () => OptimisticUpdate<FunctionArgs<M>>) {
 	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
 	const plain = useConvexMutation(mutation);
 
 	return useCallback(
-		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => (optimisticFactory ? plain.withOptimisticUpdate(optimisticFactory()) : optimistic ? plain.withOptimisticUpdate(optimistic) : plain)(withWorkspace(args as Args, workspaceId)),
-		[plain, optimistic, optimisticFactory, workspaceId],
+		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => (optimistic ? plain.withOptimisticUpdate(optimistic()) : plain)(withWorkspace(args as Args, workspaceId)),
+		[plain, optimistic, workspaceId],
 	);
 }
 

@@ -56,6 +56,7 @@ export async function updatePreferences(ctx: MutationCtx, userId: Id<"users">, {
 	}
 	if (changes.displayName !== undefined) {
 		changes.displayName = changes.displayName.trim();
+		if (!changes.displayName) throw new ConvexError("Enter your name.");
 		if (changes.displayName.length > 60) throw new ConvexError("Keep your name under 60 characters.");
 	}
 	await savePreferences(ctx, userId, changes);

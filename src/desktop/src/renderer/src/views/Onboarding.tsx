@@ -24,7 +24,7 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 	const me = useQuery(api.workspace.me);
 	const prefs = useQuery(api.preferences.get);
 	const setUp = useMutation(api.workspace.setUp);
- const update = useMutation(api.preferences.update);
+	const update = useMutation(api.preferences.update);
 	const { signOut } = useAuthActions();
 	const [step, setStep] = useState<OnboardingStep>("you");
 	// Someone back here after deleting their last workspace already has a name.
@@ -53,9 +53,9 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 
 	const submit = () => {
 		if (step === "you") {
- if (!name.trim()) return fail("Enter your name.");
- return void run(update({ displayName: name }).then(() => go("company")));
- }
+			if (!name.trim()) return fail("Enter your name.");
+			return void run(update({ displayName: name }).then(() => go("company")));
+		}
 		if (step === "company") return company.trim() ? go("team") : fail("Enter your company's name.");
 		const invalid = addInvites(draft);
 		if (invalid.length > 0) return fail(`Not an email: ${invalid.join(", ")}`);
@@ -291,22 +291,28 @@ function Preview({ name, company, invites }: { name: string; company: string; in
 
 /** Invited members already have a workspace, but still choose their own name. */
 export function NameOnboarding() {
- const prefs = useQuery(api.preferences.get);
- const update = useMutation(api.preferences.update);
- const [typed, setTyped] = useState<string>();
- const name = typed ?? prefs?.displayName ?? "";
- const { error, busy, run, fail } = useRun();
- return <div className="drag flex h-screen items-center justify-center bg-neutral-50">
- <Form className="no-drag flex w-[360px] flex-col gap-6" onSubmit={() => {
- if (!name.trim()) return fail("Enter your name.");
- void run(update({ displayName: name }));
- }}>
- <Intro title="First, your name" body="Companybot and your teammates call you by it." />
- <NameField name={name} onChange={setTyped} />
- <Notice>{error}</Notice><button type="submit" disabled={busy} className={primaryButton}>Continue</button>
- </Form></div>;
+	const { signOut } = useAuthActions();
+	const prefs = useQuery(api.preferences.get);
+	const update = useMutation(api.preferences.update);
+	const [typed, setTyped] = useState<string>();
+	const name = typed ?? prefs?.displayName ?? "";
+	const { error, busy, run, fail } = useRun();
+	return (
+		<div className="drag flex h-screen items-center justify-center bg-neutral-50">
+			<Form className="no-drag flex w-[360px] flex-col gap-6" onSubmit={() => {
+				if (!name.trim()) return fail("Enter your name.");
+				void run(update({ displayName: name }));
+			}}>
+				<Intro title="First, your name" body="Companybot and your teammates call you by it." />
+				<NameField name={name} onChange={setTyped} />
+				<Notice>{error}</Notice>
+				<button type="submit" disabled={busy} className={primaryButton}>Continue</button>
+				<button type="button" onClick={() => void signOut()} className={descriptionClass}>Sign out</button>
+			</Form>
+		</div>
+	);
 }
 
 function NameField({ name, onChange }: { name: string; onChange: (name: string) => void }) {
- return <Field label="Your name"><input autoFocus value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${inputClass} bg-white py-2.5`} /></Field>;
+	return <Field label="Your name"><input autoFocus value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${inputClass} bg-white py-2.5`} /></Field>;
 }

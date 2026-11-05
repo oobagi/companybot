@@ -33,7 +33,7 @@ const same = (a: readonly string[], b: readonly string[]) => a.length === b.leng
  */
 export function useStoredIds(list: ArrangementList, entityId?: string) {
 	const state = useContext(Context);
-	const mutate = useMutation(api.arrangements.change, optimisticArrangements);
+	const mutate = useMutation(api.arrangements.change, () => optimisticArrangements);
 	const ids = state?.data.rows.find((r) => r.list === list && r.entityId === entityId)?.ids ?? empty;
 	const saved = state?.data.rows.some((r) => r.list === list && r.entityId === entityId);
 	const current = useRef({ ids, saved });

@@ -42,44 +42,44 @@ export function useMessages(chatId: Id<"chats">, threadId?: Id<"chatMessages">) 
  * it (Discord does the same). A send that fails takes it out again; the composer gets the text back.
  */
 export const showSending = (): OptimisticUpdate<FunctionArgs<typeof api.messages.send>> => {
- const now = Date.now();
- const id = crypto.randomUUID();
- return (store, { workspaceId, chatId, threadId, text, attachments = [] }) => {
-	// Its newest page: every one asked for with no cursor (a split page is asked for again, with its end).
-	const newest = store
-		.getAllQueries(api.messages.page)
-		.filter(({ args, value }) => value && args.workspaceId === workspaceId && args.chatId === chatId && args.threadId === threadId && args.paginationOpts.cursor === null);
-	const me = store.getQuery(api.workspace.team, { workspaceId })?.members.find((m) => m.isYou);
-	if (!newest.length || !me) return;
-	const message: Message = {
-		_id: `sending:${id}` as Id<"chatMessages">,
-		_creationTime: now,
-		shownAt: now,
-		chatId,
-		threadId: threadId ?? null,
-		author: { type: "user", id: me.userId, name: me.name || me.email, image: me.image },
-		text: text.trim(),
-		parts: [],
-		status: "done",
-		error: null,
-		stoppedBy: null,
-		stats: null,
-		editedAt: null,
-		deleted: false,
-		mine: true,
-		replyCount: 0,
-		lastReplyAt: null,
-		replyAuthors: [],
-		reactions: [],
-		automation: null,
-		attachments: [],
-		linkPreviews: [],
-		pause: null,
-		ask: null,
-		sending: { files: attachments.length },
+	const now = Date.now();
+	const id = crypto.randomUUID();
+	return (store, { workspaceId, chatId, threadId, text, attachments = [] }) => {
+		// Its newest page: every one asked for with no cursor (a split page is asked for again, with its end).
+		const newest = store
+			.getAllQueries(api.messages.page)
+			.filter(({ args, value }) => value && args.workspaceId === workspaceId && args.chatId === chatId && args.threadId === threadId && args.paginationOpts.cursor === null);
+		const me = store.getQuery(api.workspace.team, { workspaceId })?.members.find((m) => m.isYou);
+		if (!newest.length || !me) return;
+		const message: Message = {
+			_id: `sending:${id}` as Id<"chatMessages">,
+			_creationTime: now,
+			shownAt: now,
+			chatId,
+			threadId: threadId ?? null,
+			author: { type: "user", id: me.userId, name: me.name || me.email, image: me.image },
+			text: text.trim(),
+			parts: [],
+			status: "done",
+			error: null,
+			stoppedBy: null,
+			stats: null,
+			editedAt: null,
+			deleted: false,
+			mine: true,
+			replyCount: 0,
+			lastReplyAt: null,
+			replyAuthors: [],
+			reactions: [],
+			automation: null,
+			attachments: [],
+			linkPreviews: [],
+			pause: null,
+			ask: null,
+			sending: { files: attachments.length },
+		};
+		for (const { args, value } of newest) store.setQuery(api.messages.page, args, { ...value!, page: [...value!.page, message] });
 	};
-	for (const { args, value } of newest) store.setQuery(api.messages.page, args, { ...value!, page: [...value!.page, message] });
-};
 };
 
 /** People, agents, channels and skills you can mention or add. `people` leaves you out. */
@@ -111,3 +111,9 @@ export function useDirectory() {
 
 export const chatTitle = (chat: Pick<ChatItem, "kind" | "name" | "title">) =>
 	chat.kind === "channel" ? `#${chat.name}` : chat.title;
+
+/** Count each chat once; agent sidebar rows copy their DM activity. */
+export function chatBadge(chats: { channels: { kind: string; mentioned: boolean; unread: boolean }[]; dms: { kind: string; mentioned: boolean; unread: boolean }[] }) {
+	const waiting = [...chats.channels, ...chats.dms];
+	return { mentions: waiting.filter((c) => c.mentioned || (c.kind === "dm" && c.unread)).length, unread: waiting.some((c) => c.unread) };
+}

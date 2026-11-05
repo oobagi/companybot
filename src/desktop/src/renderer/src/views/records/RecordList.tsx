@@ -62,7 +62,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
 	// "All" follows the workspace display; saved views keep their own settings.
 	const [storedColumns, changeColumns, writable] = useStoredIds("columns", type._id);
-	const setDisplay = useMutation(api.recordTypes.setDisplay, optimisticDisplay);
+	const setDisplay = useMutation(api.recordTypes.setDisplay, () => optimisticDisplay);
 	const display = type.display ?? { layout: "table" as const };
 	const saved: Settings | undefined = selected && {
 		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),

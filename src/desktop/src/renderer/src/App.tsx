@@ -1,3 +1,4 @@
+import { chatBadge } from "./views/chat/data";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -61,8 +62,8 @@ function Workspace() {
 	const ensure = useMutation(api.workspace.ensure);
 	const remember = useMutation(api.workspace.switchTo);
 	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
-	// Whether invites have been checked, so onboarding doesn't flash before they're joined.
 	const profile = useQuery(api.preferences.get);
+	// Whether invites have been checked, so onboarding doesn't flash before they're joined.
 	const [ensured, setEnsured] = useState(false);
 	const { error, fail } = useRun();
 	const ids = mine?.workspaces.map((w) => w.id) ?? [];
@@ -188,8 +189,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		if (here && canSaveRecent) visit(here);
 	}, [here, visit, canSaveRecent]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
-	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
-	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => (c.mentioned || ((!("kind" in c) || c.kind === "dm") && c.unread))).length, unread: waiting.some((c) => c.unread) } };
+	const badges: Partial<Record<AppTab, TabBadge>> = { chat: chats ? chatBadge(chats) : { mentions: 0, unread: false } };
 	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
 	const sections = useSortable("sections", sectionIds, sectionKey);
 	const [folded, changeFolded] = useStoredIds("folded");

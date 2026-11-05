@@ -63,3 +63,10 @@ describe("time zones", () => {
 	});
 
 });
+
+it("rejects clearing a saved name", async () => {
+ const { owner } = await ownerAndMember();
+ await owner.mutation(api.preferences.update, { displayName: "Ada" });
+ await expect(owner.mutation(api.preferences.update, { displayName: "   " })).rejects.toThrow("Enter your name");
+ expect((await owner.query(api.preferences.get)).displayName).toBe("Ada");
+});

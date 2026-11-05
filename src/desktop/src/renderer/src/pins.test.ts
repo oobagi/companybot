@@ -11,9 +11,9 @@ const live = vi.hoisted(() => ({ data: { rows: [] as Arrangement[], writable: tr
 vi.mock("./convex", async () => {
 	const { useCallback } = await import("react");
 	return {
-		useMutation: (_fn: unknown, optimistic: (cache: unknown, args: unknown) => void) => useCallback(async (args: { list: string; command: unknown }) => {
+		useMutation: (_fn: unknown, optimistic: () => (cache: unknown, args: unknown) => void) => useCallback(async (args: { list: string; command: unknown }) => {
 			if (live.reject) throw Error("Could not save pins");
-			optimistic({
+			optimistic()({
 				getAllQueries: () => [{ args: { workspaceId: "w1" }, value: live.data }],
 				setQuery: (_fn: unknown, _args: unknown, value: typeof live.data) => { live.data = value; },
 			}, { ...args, workspaceId: "w1" });
