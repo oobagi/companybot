@@ -29,7 +29,8 @@ export default function SettingsScreen() {
   const prefs = useQuery(api.preferences.get);
   const { signOut } = useAuthActions();
   const { beforeSignOut } = useNotifications();
-  const task = useTask();
+  // Signing out performs the global discard check inside this task.
+  const task = useTask({ guardWorkspace: false });
   const groups = [
     { title: me?.workspace ?? 'Workspace', ids: ['general', 'members', 'permissions'] },
     { title: 'Agents & tools', ids: ['agents', 'skills', 'automations', 'connectors', 'memory'] },

@@ -10,6 +10,7 @@ import '@blocknote/mantine/style.css';
 import { linkedPageId, pageHref, validPageHref } from '@companybot/core/page-links';
 import { sendableSteps } from 'prosemirror-collab';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createImageInsertion } from './imageInsertion';
 import type { DOMProps } from 'expo/dom';
 import { api } from '@/lib/api';
 import { radii, sizes, spacing, typography } from '@/design/tokens';
@@ -32,6 +33,7 @@ type Props = EditorTransport & {
   onOpenLink: (href: string) => Promise<void>;
   onRemovePages: (ids: string[]) => Promise<boolean>;
   onStatus: (dirty: boolean, error: string | null) => Promise<void>;
+  onImageResult: (request: number, dirty: boolean, error: string | null) => Promise<void>;
 };
 
 export default function DocumentDOM(wire: Props) {
@@ -119,13 +121,14 @@ export default function DocumentDOM(wire: Props) {
     if (!editor || !props.editable) return;
     return installPageRemovalGuard(editor, ids => latest.current.onRemovePages(ids), error => setActionProblem(error instanceof Error ? error.message : String(error)));
   }, [editor, props.editable]);
-  const inserted = useRef<number | undefined>(undefined);
+  const [insertImage] = useState(createImageInsertion);
   useEffect(() => {
-    if (!editor || !props.editable || !props.image || inserted.current === props.image.request) return;
-    inserted.current = props.image.request;
-    const cursor = editor.getTextCursorPosition();
-    editor.insertBlocks([{ type: 'image', props: { url: props.image.url } }], cursor.block, 'after');
-  }, [editor, props.editable, props.image]);
+    if (!editor) return;
+    const result = insertImage(editor, props.image, props.editable);
+    if (!result) return;
+    // Transfer the navigation lock from native upload to the editor's actual sync state.
+    void notifications.send(() => latest.current.onImageResult(result.request, !!sendableSteps(editor._tiptapEditor.state), result.error));
+  }, [editor, insertImage, notifications, props.editable, props.image]);
   const perform = useCallback(async (id: string, creating = false) => {
     if (!editor || !latest.current.editable || action.current) return;
     const controller = new AbortController(); action.current = controller;

@@ -8,7 +8,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import * as Linking from 'expo-linking';
 import { router, usePreventRemove } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, Platform, View } from 'react-native';
 import { EmptyState, ErrorState, Loading } from '@/components/ui';
 import { ContentToolbar } from '@/components/ui/ContentToolbar';
@@ -50,15 +50,19 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   const snapshot = useRawQuery(api.pageSync.getSnapshot, { id: pageId });
   const version = useRawQuery(api.pageSync.latestVersion, { id: pageId });
   const [dirty, setDirty] = useState(false);
-  useUnsavedDocument(pageId, dirty);
   const [error, setError] = useState<string>();
   const [references, setReferences] = useState<Record<string, Reference>>({});
   const [referenceIds, setReferenceIds] = useState<string[]>([]);
   const [image, setImage] = useState<{ url: string; request: number }>();
+  const pendingImage = useRef<number | undefined>(undefined);
   const [command, setCommand] = useState<DocumentCommand>();
   const sendCommand = (kind: DocumentCommand['kind']) => setCommand(previous => ({ kind, request: (previous?.request ?? 0) + 1 }));
   const { confirm, dialog } = useDocumentConfirm();
   const upload = useTask();
+  const imageBusy = upload.busy || !!image;
+  const latestImageBusy = useRef(imageBusy);
+  useLayoutEffect(() => { latestImageBusy.current = imageBusy; }, [imageBusy]);
+  useUnsavedDocument(pageId, dirty, imageBusy);
   const archive = useMutation(api.trash.move);
   const addImage = useMutation(api.pages.addImage);
   const create = useMutation(api.pages.create);
@@ -71,8 +75,10 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   const token = useAuthToken();
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  usePreventRemove(dirty, ({ repeat }) => {
-    void confirm({ title: 'Changes are still saving', body: 'Stay on this page until your changes sync. Leaving now may lose your latest edits.', action: 'Leave without saving', danger: true }).then((leave) => { if (leave) { setDirty(false); repeat(); } });
+  usePreventRemove(dirty || imageBusy, ({ repeat }) => {
+    // Uploads can already be committed on the server; they are not discardable drafts.
+    if (imageBusy) return;
+    void confirm({ title: 'Changes are still saving', body: 'Stay on this page until your changes sync. Leaving now may lose your latest edits.', action: 'Leave without saving', danger: true }).then((leave) => { if (leave && !latestImageBusy.current) { setDirty(false); repeat(); } });
   });
   const status = useCallback(async (unsaved: boolean, message: string | null) => {
     if (!mounted.current) return;
@@ -108,8 +114,9 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
     const response = await expoFetch(`${endpoint}?workspaceId=${encodeURIComponent(workspace.id)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: file });
     const result = await response.json() as { storageId?: Id<'_storage'>; error?: string };
     if (!response.ok || !result.storageId) throw new Error(result.error ?? 'The image upload failed. Try again.');
+    if (!mounted.current) return;
     const url = await addImage({ pageId, file: result.storageId });
-    if (mounted.current) setImage({ url, request: Date.now() });
+    if (mounted.current) { const request = Date.now(); pendingImage.current = request; setImage({ url, request }); }
   });
   if (snapshot === undefined || version === undefined) return <Loading label="Opening editor…" />;
   if (!snapshot.content || version === null) return <EmptyState title="Document unavailable" />;
@@ -125,13 +132,19 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
         return convex.mutation(api.pageSync.submitSteps, boundDocumentSteps(pageId, args));
       }}
       onReferences={async (ids) => { setReferenceIds(ids); }} onStatus={status} onRemovePages={removePages}
+      onImageResult={async (request, unsaved, message) => {
+        if (!mounted.current || pendingImage.current !== request) return;
+        pendingImage.current = undefined;
+        setDirty(unsaved); setImage(undefined);
+        if (message) setError(message);
+      }}
       onOpenLink={async (href) => {
         const id = linkedPageId(href);
         if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } });
         else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href).catch((e: unknown) => setError(errorMessage(e)));
       }}
       dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} />
-    {editable && <ContentToolbar accessibilityLabel="Document editing" status={upload.busy ? 'Uploading image…' : dirty ? 'Saving changes…' : undefined} busy={upload.busy || actions.busy} actions={[
+    {editable && <ContentToolbar accessibilityLabel="Document editing" status={upload.busy ? 'Uploading image…' : image ? 'Adding image…' : dirty ? 'Saving changes…' : undefined} busy={imageBusy || actions.busy} actions={[
       { id: 'blocks', label: 'Block actions', icon: { ios: 'ellipsis', android: BlocksIcon }, onPress: () => sendCommand('blocks') },
       { id: 'image', label: 'Add image', icon: { ios: 'photo', android: PhotoIcon }, onPress: () => void pickImage() },
       ...(standalone ? [{ id: 'page', label: 'New sub-page', icon: { ios: 'doc.badge.plus' as const, android: PageIcon }, onPress: () => sendCommand('page') }] : []),
@@ -147,9 +160,15 @@ function PageReference({ id, onChange }: { id: string; onChange: (id: string, va
 
 export function VersionDocument({ content, identity }: { content: string; identity: string }) {
   const theme = useTheme();
-  return <View style={{ flex: 1, minHeight: 0 }}><DocumentDOM key={identity} payload={encodeDocumentPayload({ pageId: identity, snapshot: { content, version: 1 }, latestVersion: 1, editable: false, canCreatePage: false, dark: theme.dark, colors: theme.colors, references: {} })} onBlockActions={async () => null} onCreatePage={async () => null}
+  const [referenceIds, setReferenceIds] = useState<string[]>([]);
+  const [references, setReferences] = useState<Record<string, Reference>>({});
+  const setReference = useCallback((id: string, value: Reference) => setReferences(previous => ({ ...previous, [id]: value })), []);
+  return <View style={{ flex: 1, minHeight: 0 }}>
+    {referenceIds.map(id => <PageReference key={id} id={id} onChange={setReference} />)}
+    <DocumentDOM key={identity} payload={encodeDocumentPayload({ pageId: identity, snapshot: { content, version: 1 }, latestVersion: 1, editable: false, canCreatePage: false, dark: theme.dark, colors: theme.colors, references })} onBlockActions={async () => null} onCreatePage={async () => null}
     getSteps={async () => ({ steps: [], clientIds: [], version: 1 })} submitSteps={async () => { throw new Error('History is read only.'); }}
-    onReferences={async () => {}} onStatus={async () => {}} onRemovePages={async () => false}
+    onReferences={async ids => setReferenceIds(ids)} onStatus={async () => {}} onRemovePages={async () => false}
+    onImageResult={async () => {}}
     onOpenLink={async (href) => { const id = linkedPageId(href); if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } }); else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href); }}
     dom={{ style: { flex: 1, minHeight: 0 }, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} /></View>;
 }

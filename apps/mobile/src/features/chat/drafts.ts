@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useSyncExternalStore } from 'react';
 import { deserializeDraft, emptyDraft, serializeDraft, type Draft } from './draftStorage';
+import { deliverDraft } from './sendDraft';
 export type { DraftFile } from './draftStorage';
 
 const empty = emptyDraft;
@@ -11,10 +12,8 @@ const writes = new Map<string, Promise<void>>();
 const publish = () => listeners.forEach((listener) => listener());
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 export const readDraft = (key: string) => drafts.get(key) ?? empty;
-export function changeDraft(key: string, update: (draft: Draft) => Draft) {
+function writeDraft(key: string, after: Draft) {
   const before = readDraft(key);
-  if (!before.ready) return;
-  const after = update(before);
   drafts.set(key, after);
   if (after.text !== before.text || after.mentions !== before.mentions || after.files !== before.files) {
     const value = serializeDraft(after, Date.now());
@@ -24,6 +23,13 @@ export function changeDraft(key: string, update: (draft: Draft) => Draft) {
   }
   publish();
 }
+export function changeDraft(key: string, update: (draft: Draft) => Draft) {
+  const before = readDraft(key);
+  if (!before.ready || before.sending) return;
+  writeDraft(key, { ...update(before), sendError: undefined });
+}
+export const sendChatDraft = (key: string, send: (draft: Draft) => Promise<unknown>) => deliverDraft({ read: readDraft, write: writeDraft }, key, send);
+
 export function useChatDraft(key: string) {
   const draft = useSyncExternalStore(subscribe, () => readDraft(key), () => empty);
   useEffect(() => {

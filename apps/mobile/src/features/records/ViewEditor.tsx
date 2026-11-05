@@ -7,6 +7,7 @@ import { useDraftGuard } from '@/lib/useDraftGuard';
 import { useConfirm } from '@/components/ui/useConfirm';
 import { DateInput } from '@/components/ui/native-controls/DateInput';
 import { localDateToCalendar } from '@/components/ui/native-controls/calendarDate';
+import { normalizeViewConfig } from './deviceView';
 import { groupable, sortable, type Database, type SavedView, type ViewConfig } from './model';
 import { LinkPicker, UserPicker } from './ValueEditor';
 import { buildFilter, draftFilter, replaceFilter, viewIsStale, type Condition, type FilterDraft } from './filters';
@@ -23,12 +24,14 @@ export function ViewEditor({ database, value, view: selectedView, baseVersion, o
   const [step, setStep] = useState<'options' | 'name'>('options');
   const [filter, setFilter] = useState<FilterStep>();
   const views = useQuery(api.databaseViews.list, { typeId: database._id });
+  const workspaceSettings = useQuery(api.workspace.settings);
   const save = useMutation(api.databaseViews.save);
   const remove = useMutation(api.databaseViews.remove);
   const task = useTask();
   const { confirm, dialog } = useConfirm();
   const [deleting, setDeleting] = useState(false);
   const fields = database.fields.filter(f => !f.archived);
+  const missingFields = draft.columns.some(key => !fields.some(f => f.key === key)) || draft.filters.some(filter => !fields.some(f => f.key === filter.field)) || !!(draft.sort && !['createdAt', 'updatedAt'].includes(draft.sort.field) && !fields.some(f => f.key === draft.sort?.field && sortable(f))) || !!(draft.groupBy && !fields.some(f => f.key === draft.groupBy && groupable(f)));
   const stale = view && viewIsStale(version, views?.find(v => v._id === view._id)?.version);
   const filterDirty = !!filter && JSON.stringify(filter.draft) !== JSON.stringify(filter.initial);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.config) || name !== initial.name || filterDirty;
@@ -42,12 +45,14 @@ export function ViewEditor({ database, value, view: selectedView, baseVersion, o
     if (!filterDirty || await confirm({ title: 'Discard filter changes?', body: 'The other view options will be kept.', action: 'Discard filter', danger: true })) setFilter(undefined);
   };
   const saveShared = () => void task.run(async () => {
+    if (missingFields) throw new Error('Remove unavailable fields before saving this view.');
     const id = await save({ typeId: database._id, ...draft, name: name.trim(), ...(view ? { viewId: view._id, version } : {}) });
     await onApply(draft, id); onClose();
   });
   return <EditorSheet title={filter ? filter.index === 'new' ? 'Add filter' : 'Edit filter' : step === 'name' ? 'New shared view' : 'View options'} onClose={() => void guard.close()} busy={task.busy} dismissible={guard.dismissible}>
     {dialog}{guard.dialog}
     {task.error && <ErrorState message={task.error} />}
+    {missingFields && <Stack gap="sm"><Text>Some fields in this draft are no longer available. Remove them from these view options before applying or saving.</Text><Button label="Remove unavailable fields" variant="secondary" disabled={task.busy || !!filter} onPress={() => setDraft(normalizeViewConfig(draft, database, workspaceSettings?.currency ?? 'USD'))} />{filter && <Text tone="muted">Return to view options first to keep or discard your current filter changes.</Text>}</Stack>}
     {stale && <Text tone="danger">This shared view changed. Close options and reselect the view to load its latest settings before saving for everyone.</Text>}
     {filter ? <>
       <Button label="Back to view options" variant="ghost" onPress={() => void backFromFilter()} />
@@ -58,7 +63,7 @@ export function ViewEditor({ database, value, view: selectedView, baseVersion, o
       <Button label="Back to view options" variant="ghost" disabled={task.busy} onPress={() => setStep('options')} />
       <Text tone="muted">Save these view options for everyone in your workspace.</Text>
       <Field label="Shared view name" value={name} onChangeText={setName} maxLength={120} editable={!task.busy} autoFocus />
-      <Button label="Create shared view" disabled={!canSave || !name.trim()} loading={task.busy} onPress={saveShared} />
+      <Button label="Create shared view" disabled={!canSave || !name.trim() || missingFields} loading={task.busy} onPress={saveShared} />
     </> : <>
     <ChoicePicker disabled={task.busy || sharedDisplay?.editable === false} label="Layout" value={draft.layout ?? 'table'} options={[{ value: 'table', label: 'List' }, { value: 'board', label: 'Board' }]} onChange={v => { if (v === 'table' || v === 'board') setDraft({ ...draft, layout: v }); }} />
     {draft.layout === 'board' && <ChoicePicker disabled={task.busy || sharedDisplay?.editable === false} label="Group by" value={draft.groupBy ?? ''} options={fields.filter(groupable).map(f => ({ value: f.key, label: f.label }))} onChange={v => { if (typeof v === 'string') setDraft({ ...draft, groupBy: v || undefined }); }} />}
@@ -69,9 +74,9 @@ export function ViewEditor({ database, value, view: selectedView, baseVersion, o
     {draft.filters.map((filter, index) => <Stack key={index} gap="xs"><ListRow title={fields.find(f => f.key === filter.field)?.label ?? filter.field} description={Object.entries(filter).filter(([key]) => key !== 'field').map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(', ')} disabled={task.busy} onPress={() => openFilter(index)} /><Button label="Remove filter" variant="ghost" disabled={task.busy} onPress={() => setDraft({ ...draft, filters: draft.filters.filter((_, i) => i !== index) })} /></Stack>)}
     <Button label="Add filter" variant="secondary" disabled={task.busy || draft.filters.length >= 10} onPress={() => openFilter('new')} />
     {sharedDisplay && <Text variant="caption" tone="muted">The All records layout, grouping and properties shown are shared. Filters and sorting apply on this device.</Text>}
-    <Button label={sharedDisplay ? "Apply view options" : "Apply on this device"} loading={task.busy} onPress={() => void task.run(async () => { await onApply(draft, undefined, initial.config); onClose(); })} />
+    <Button label={sharedDisplay ? "Apply view options" : "Apply on this device"} disabled={missingFields} loading={task.busy} onPress={() => void task.run(async () => { if (missingFields) return; await onApply(draft, undefined, initial.config); onClose(); })} />
     {canSave && (view ? <><Field label="Shared view name" value={name} onChangeText={setName} maxLength={120} editable={!task.busy} />
-      <Button label="Save for everyone" variant="secondary" disabled={!name.trim() || !!stale} loading={task.busy} onPress={saveShared} />
+      <Button label="Save for everyone" variant="secondary" disabled={!name.trim() || !!stale || missingFields} loading={task.busy} onPress={saveShared} />
     </> : <Button label="New shared view" variant="secondary" onPress={() => { task.clear(); setStep('name'); }} />)}
     {view && canSave && (deleting ? <Stack><Text>Delete this shared view for everyone? Records are kept.</Text><Button label="Delete shared view" variant="danger" disabled={!!stale} loading={task.busy} onPress={() => void task.run(async () => { await remove({ viewId: view._id, version: version! }); await onApply(value, ''); onClose(); })} /><Button label="Cancel deletion" variant="ghost" disabled={task.busy} onPress={() => setDeleting(false)} /></Stack> : <Button label="Delete shared view" variant="ghost" disabled={task.busy} onPress={() => setDeleting(true)} />)}
     </>}

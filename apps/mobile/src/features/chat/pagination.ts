@@ -1,7 +1,7 @@
 /** Pages arrive newest first, each internally chronological. A thread parent stays first. */
-export function orderedMessages<T extends { _id: string; shownAt: number }>(rows: readonly T[], threadId?: string): T[] {
+export function orderedMessages<T extends { _id: string; shownAt: number; sending?: unknown }>(rows: readonly T[], threadId?: string): T[] {
   return [...new Map(rows.map(row => [row._id, row])).values()].sort((a, b) =>
-    Number(b._id === threadId) - Number(a._id === threadId) || a.shownAt - b.shownAt);
+    Number(b._id === threadId) - Number(a._id === threadId) || Number(!!a.sending) - Number(!!b.sending) || a.shownAt - b.shownAt);
 }
 
 export const MESSAGE_SEEK_BATCH = 500;

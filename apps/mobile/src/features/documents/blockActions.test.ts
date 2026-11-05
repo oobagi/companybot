@@ -5,6 +5,7 @@ import { documentSchema, type PageEditor } from './schema';
 import { applyBlockAction, blockTarget, createPageAtBlock, installPageRemovalGuard, readBlockTarget } from './blockActions';
 import { createActionRequests, type PendingAction } from './actionRequests';
 import { createDocumentCommandReceiver } from './commands';
+import { createImageInsertion } from './imageInsertion';
 
 const editors: PageEditor[] = [];
 function editor() {
@@ -14,6 +15,19 @@ function editor() {
   return value;
 }
 afterEach(() => { for (const value of editors.splice(0)) value._tiptapEditor.destroy(); vi.useRealTimers(); });
+
+it('acknowledges image insertion once and releases failed or revoked requests without adding a block', () => {
+  const value = editor(); const insert = createImageInsertion();
+  value.setTextCursorPosition('a', 'end');
+  const image = { request: 1, url: 'https://example.test/image.png' };
+  expect(insert(value, image, true)).toEqual({ request: 1, error: null });
+  expect(insert(value, image, true)).toBeUndefined();
+  expect(value.document.map(block => block.type)).toEqual(['paragraph', 'image', 'paragraph']);
+  expect(insert(value, { ...image, request: 2 }, false)).toMatchObject({ request: 2, error: expect.stringContaining('read only') });
+  vi.spyOn(value, 'insertBlocks').mockImplementationOnce(() => { throw new Error('Insertion failed'); });
+  expect(insert(value, { ...image, request: 3 }, true)).toEqual({ request: 3, error: 'Insertion failed' });
+  expect(value.document.filter(block => block.type === 'image')).toHaveLength(1);
+});
 
 it('allows newly typed blocks before BlockNote assigns their IDs', () => {
   const value = editor();

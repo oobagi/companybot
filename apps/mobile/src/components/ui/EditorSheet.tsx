@@ -61,7 +61,7 @@ export function ChoicePicker({ label, options, value, onChange, multiple = false
     </View>
     <SymbolView name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }} size={sizes.icon} tintColor={compact ? colors.link : colors.muted} />
   </View>;
-  if (!multiple && !unavailable && choices.length > 0 && choices.length <= 8 && Platform.OS !== 'web') return <ChoiceMenu label={`${label}, ${text}`} presentation={presentation} options={choices} value={selected[0] ?? ''} onChange={value => { const option = choices.find(choice => choice.value === value); if (option) choose(option); }}>
+  if (!multiple && !unavailable && choices.length > 0 && choices.length <= 8 && Platform.OS !== 'web') return <ChoiceMenu label={`${label}, ${text}`} selectionLabel={text} presentation={presentation} options={choices} value={selected[0] ?? ''} onChange={value => { const option = choices.find(choice => choice.value === value); if (option) choose(option); }}>
     {trigger}
   </ChoiceMenu>;
   const filtered = choices.filter(o => o.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));

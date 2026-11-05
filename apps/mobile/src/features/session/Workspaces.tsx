@@ -18,7 +18,8 @@ export default function Workspaces() {
   const accept = useMutation(api.workspace.acceptInvite);
   const decline = useMutation(api.workspace.declineInvite);
   const [creating, setCreating] = useState(false);
-  const task = useTask();
+  // Transition tasks run their own discard check before choosing a workspace.
+  const task = useTask({ guardWorkspace: false });
   if (!mine) return <Screen><Loading /></Screen>;
   return <Screen scroll keyboard><Stack gap="xl">
     <Section title="Your workspaces"><Card>{mine.workspaces.map(w => {
@@ -36,7 +37,7 @@ export default function Workspaces() {
 
 function CreateWorkspace({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => Promise<void> }) {
   const [name, setName] = useState('');
-  const task = useTask();
+  const task = useTask({ guardWorkspace: false });
   const { confirm, dialog } = useConfirm();
   const close = async () => {
     if (task.busy) return;

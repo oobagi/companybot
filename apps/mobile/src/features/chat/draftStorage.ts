@@ -2,7 +2,7 @@ import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { mentionLabel, type MentionSpan } from './logic';
 
 export type DraftFile = { key: string; name: string; file?: Id<'_storage'>; uploadedAt?: number; error?: string };
-export type Draft = { text: string; mentions: MentionSpan[]; files: DraftFile[]; ready: boolean };
+export type Draft = { text: string; mentions: MentionSpan[]; files: DraftFile[]; ready: boolean; sending?: true; sendError?: string };
 const DAY = 86_400_000;
 export const emptyDraft: Draft = { text: '', mentions: [], files: [], ready: false };
 

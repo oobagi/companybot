@@ -15,8 +15,9 @@ import { DateInput } from '@/components/ui/native-controls/DateInput';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DirectoryExample } from './DirectoryExample';
 import { FeedbackExample } from './FeedbackExample';
+import { PendingMessageRow } from '@/features/chat/PendingMessageRow';
 
-const examples = ['Directory', 'Lists', 'Forms', 'Choices', 'Typography', 'Toolbar', 'Empty', 'Loading', 'Error'] as const;
+const examples = ['Directory', 'Lists', 'Forms', 'Choices', 'Typography', 'Sending', 'Toolbar', 'Empty', 'Loading', 'Error'] as const;
 type Example = typeof examples[number];
 
 /** Development-only reference: feature screens should compose these same building blocks. */
@@ -73,6 +74,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
   </Screen>;
   else if (example === 'Directory') content = <DirectoryExample menu={[...examples.filter(value => value !== 'Directory').map(value => ({ label: value, onPress: () => setExample(value) })), { label: appearance === 'light' ? 'Dark appearance' : 'Light appearance', onPress: onAppearance }]} />;
   else if (example === 'Empty' || example === 'Loading' || example === 'Error') content = <FeedbackExample key={example} kind={example} />;
+  else if (example === 'Sending') content = <Screen scroll padded={false}><PendingMessageRow name="Alex Morgan" text="Here is the project summary for our next review. This longer message should wrap naturally with larger text sizes." files={2} dayLabel="Today" /><PendingMessageRow name="Alex Morgan" text="" files={1} /></Screen>;
   else if (example === 'Toolbar') content = <Screen padded={false}><View style={{ flex: 1, padding: spacing.lg }}><Text>A bounded content area fills the available space.</Text><Button label={busyToolbar ? "Finish saving" : "Preview busy toolbar"} variant="secondary" onPress={() => setBusyToolbar(value => !value)} />{notice ? <Text tone="muted">{notice}</Text> : null}</View><ContentToolbar busy={busyToolbar} status={busyToolbar ? "Saving…" : "All changes saved"} actions={[
     { id: 'edit', label: 'Edit', icon: { ios: 'pencil', android: Edit }, onPress: () => setNotice('Edit selected') },
     { id: 'image', label: 'Add image (unavailable)', disabled: true, icon: { ios: 'photo.badge.plus', android: Photo }, onPress: () => setNotice('Image selected') },

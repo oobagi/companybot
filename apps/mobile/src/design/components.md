@@ -44,7 +44,9 @@ Before migrating a screen, prove its necessary components in the gallery. Valida
 - **Bounded editor:** `Screen padded={false}` + a flex body + `ContentToolbar`. The body owns editing and the toolbar receives actions/status. Native toolbars show up to three direct actions and put the rest in a native overflow menu; busy/disabled actions cannot dispatch through either path.
 - **Feedback:** `EmptyState`, `Loading` or `ErrorState layout="screen"` fills the remaining body. Use `layout="inline"` inside populated content. `FeedbackExample.tsx` exercises static, scrolling and virtualized containers with the same component.
 
-The gallery keeps demonstration state local. Its nine examples cover these recipes plus typography, button hierarchy, independent row/menu targets, long forms, busy/disabled controls and appearance switching. New feature screens should be compositions of these examples, with only domain-specific content added.
+The gallery keeps demonstration state local. Its ten examples cover these recipes plus typography, button hierarchy, independent row/menu targets, long forms, busy/disabled controls, pending messages and appearance switching. New feature screens should be compositions of these examples, with only domain-specific content added.
+
+Compact iOS choice triggers use SwiftUI text and symbols directly. Embedding a React Native label in the size-matching menu host lost its text inside a native sheet. Row presentations retain their full-width native host. Page history composes `EditorSheet` with a bounded body rather than a separate modal/header implementation.
 
 ## Native gallery verification (2026-11-04)
 

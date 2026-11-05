@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { usePreventRemove } from 'expo-router';
 import { useConfirm } from '@/components/ui/useConfirm';
 import { useUnsavedWork } from './UnsavedWork';
@@ -18,8 +18,8 @@ export function useDraftGuard({ dirty, busy = false, onClose, description = 'You
   const { confirm, dialog } = useConfirm();
   const latest = useRef({ dirty, busy, onClose });
   useLayoutEffect(() => { latest.current = { dirty, busy, onClose }; }, [dirty, busy, onClose]);
-  useEffect(() => {
-    mark(identity, !completed && (dirty || busy));
+  useLayoutEffect(() => {
+    mark(identity, !completed && dirty, !completed && busy);
     return () => mark(identity, false);
   }, [mark, identity, dirty, busy, completed]);
   const mayDiscard = async () => {

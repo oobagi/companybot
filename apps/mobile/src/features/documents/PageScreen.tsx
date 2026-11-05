@@ -4,7 +4,7 @@ import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { router, Stack as RouterStack } from 'expo-router';
 import { useState } from 'react';
 import { Modal, ScrollView } from 'react-native';
-import { Badge, Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, Stack, Text } from '@/components/ui';
+import { Badge, Button, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, Stack, Text } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
@@ -118,20 +118,18 @@ function PageHistory({ pageId, canRestore, onClose }: { pageId: Id<'pages'>; can
   const restore = useMutation(api.pages.restore);
   const task = useTask();
   const { confirm, dialog } = useDocumentConfirm();
-  const theme = useTheme();
-  return <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { if (!task.busy) onClose(); }}><Screen edges={['top', 'left', 'right', 'bottom']} contentStyle={{ gap: theme.spacing.md }}>
+  return <EditorSheet title={selected ? 'Version preview' : 'Page history'} scroll={false} busy={task.busy} onClose={onClose}>
     {dialog}
-    <Stack horizontal><Text variant="heading" style={{ flex: 1 }}>{selected ? 'Version preview' : 'Page history'}</Text><Button label="Close" variant="ghost" onPress={onClose} disabled={task.busy} /></Stack>
     {task.error && <ErrorState message={task.error} />}
     {selected ? <>
-      <Button label="Back to versions" variant="ghost" onPress={() => setSelected(undefined)} />
+      <Button label="Back to versions" variant="ghost" disabled={task.busy} onPress={() => setSelected(undefined)} />
       <HistoryPreview versionId={selected} />
       {canRestore && selected !== history.results[0]?._id && <Button label="Restore this version" loading={task.busy} onPress={() => void task.run(async () => {
         if (!await confirm({ title: 'Restore this version?', body: 'This becomes the current content. Your current version stays in history.', action: 'Restore version' })) return;
         await restore({ versionId: selected }); onClose();
       })} />}
     </> : <>
-      <Stack horizontal><Button label="Content" variant={tab === 'content' ? 'primary' : 'secondary'} onPress={() => setTab('content')} /><Button label="Moves" variant={tab === 'moves' ? 'primary' : 'secondary'} onPress={() => setTab('moves')} /></Stack>
+      <ChoicePicker label="History" presentation="compact" value={tab} options={[{ value: 'content', label: 'Content' }, { value: 'moves', label: 'Moves' }]} onChange={value => { if (value === 'content' || value === 'moves') setTab(value); }} />
       {tab === 'moves' ? <PageMoves pageId={pageId} /> : <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         {history.status === 'LoadingFirstPage' && <Loading />}
         {history.status === 'Exhausted' && !history.results.length && <EmptyState title="No edits yet" />}
@@ -139,7 +137,7 @@ function PageHistory({ pageId, canRestore, onClose }: { pageId: Id<'pages'>; can
         {(history.status === 'CanLoadMore' || history.status === 'LoadingMore') && <Button label="Older versions" variant="ghost" loading={history.status === 'LoadingMore'} onPress={() => history.loadMore(20)} />}
       </ScrollView>}
     </>}
-  </Screen></Modal>;
+  </EditorSheet>;
 }
 
 function HistoryPreview({ versionId }: { versionId: Id<'pageVersions'> }) {
