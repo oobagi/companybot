@@ -163,9 +163,9 @@ it("leaves composing keys and missing sidebar rows alone", () => {
 	const open = vi.fn();
 	render(sidebar(open));
 	for (const options of [{ code: "Digit1", isComposing: true }, { code: "Digit9" }]) {
-	const event = new KeyboardEvent("keydown", { ...options, key: "™", altKey: true, bubbles: true, cancelable: true });
-	act(() => { document.body.dispatchEvent(event); });
-	expect(event.defaultPrevented).toBe(false);
+		const event = new KeyboardEvent("keydown", { ...options, key: "™", altKey: true, bubbles: true, cancelable: true });
+		act(() => { document.body.dispatchEvent(event); });
+		expect(event.defaultPrevented).toBe(false);
 	}
 	expect(open).not.toHaveBeenCalled();
 });

@@ -75,7 +75,7 @@ export const setUp = mutation({
 		if (!userId) throw new ConvexError("Not signed in.");
 		currency = currency?.trim().toUpperCase();
 		if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
-		// Legacy setup callers may omit a name; never clear an existing profile.
+		// Legacy setup callers may send an empty name; never clear an existing profile.
 		if (displayName.trim()) await updatePreferences(ctx, userId, { displayName });
 		else await savePreferences(ctx, userId, {});
 		const workspaceId = await startOwned(ctx, userId, name, currency);

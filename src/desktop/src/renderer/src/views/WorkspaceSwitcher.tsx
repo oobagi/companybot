@@ -62,7 +62,7 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 		const w = workspaces[n - 1];
 		if (!w || w.id === current?.id) return false;
 		blurActiveEditable();
-		if (w.id !== current?.id) goTo(w.id);
+		goTo(w.id);
 	});
 
 	const others = activity?.filter((a) => a.id !== current?.id) ?? [];

@@ -1,4 +1,3 @@
-import { chatBadge } from "./views/chat/data";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -18,6 +17,7 @@ import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAlias
 import { Landing } from "./views/Landing";
 import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
+import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
 import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";

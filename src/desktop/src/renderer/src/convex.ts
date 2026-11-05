@@ -41,10 +41,10 @@ export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 // Stable between renders (like convex/react's), so effects can depend on them.
 
 /**
- * `optimistic` (define it outside the component, so it's stable) changes cached query results until
- * the server's arrive; its args include `workspaceId`, for the queries it reads and sets.
+ * `optimistic` makes the update that changes cached query results until the server's arrive; its args
+ * include `workspaceId`. It's called once per call, before Convex can replay the update, so per-call
+ * state (a temporary id) stays fixed. Define it outside the component, or the mutation changes every render.
  */
-/** A factory creates per-call optimistic state once, before Convex can replay the update. */
 export function useMutation<M extends FunctionReference<"mutation">>(mutation: M, optimistic?: () => OptimisticUpdate<FunctionArgs<M>>) {
 	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
 	const plain = useConvexMutation(mutation);
