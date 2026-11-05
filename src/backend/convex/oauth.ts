@@ -1,8 +1,8 @@
-import { type OAuthState, findConnector, finishSignIn } from "@companybot/core";
+import { type OAuthState, finishSignIn } from "@companybot/core";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { decrypt, encrypt } from "./crypto";
-import { oauthRedirectUrl } from "./connectors";
+import { fetchFor, oauthRedirectUrl } from "./connectors";
 
 /**
  * GET /oauth/callback: where a connector's sign-in page sends the person back.
@@ -16,7 +16,7 @@ export const callback = httpAction(async (ctx, request) => {
 	// Each sign-in names the membership and install it started under; older ones can't be checked, so they're refused.
 	const { workspaceId, memberId, connectorInstallId } = flow ?? {};
 	if (!state || !flow || !workspaceId || !memberId || !connectorInstallId) return page("This sign-in link expired.", "Go back to Companybot and connect again.");
-	const connector = findConnector(flow.connectorId);
+	const connector = await ctx.runQuery(internal.connectors.definition, { workspaceId, connectorId: flow.connectorId });
 	if (!connector) return page("That connector isn't available anymore.");
 	if (params.get("error")) {
 		return page(`${connector.name} didn't connect.`, params.get("error_description") ?? "Access was denied.");
@@ -25,11 +25,13 @@ export const callback = httpAction(async (ctx, request) => {
 	if (!code) return page(`${connector.name} didn't connect.`, "The sign-in didn't return a code.");
 
 	try {
-		const oauth = await finishSignIn(connector, await decrypt<OAuthState>(flow.data), oauthRedirectUrl(), {
-			code,
-			state,
-			issuer: params.get("iss") ?? undefined,
-		});
+		const oauth = await finishSignIn(
+			connector,
+			await decrypt<OAuthState>(flow.data),
+			oauthRedirectUrl(),
+			{ code, state, issuer: params.get("iss") ?? undefined },
+			fetchFor(ctx, connector),
+		);
 		// saveConnection re-checks that this person may still connect it, under that membership and install.
 		await ctx.runMutation(internal.connectors.saveConnection, {
 			userId: flow.userId,

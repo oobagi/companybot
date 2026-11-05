@@ -100,7 +100,7 @@ function checkedUrl(raw: string) {
 }
 
 /** The host's addresses, if every one is public. An IP literal is checked as is. */
-async function publicAddresses(hostname: string, deps: SafeFetchDeps) {
+export async function publicAddresses(hostname: string, deps: Pick<SafeFetchDeps, "resolve">) {
 	const literal = hostname.startsWith("[") ? hostname.slice(1, -1) : parseIPv4(hostname) !== null ? hostname : null;
 	const addresses = literal ? [literal] : await deps.resolve(hostname);
 	if (addresses.length === 0) throw new UnsafeUrlError(`Couldn't find ${hostname}.`);

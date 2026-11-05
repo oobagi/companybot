@@ -98,6 +98,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 
 		const connectorInstallId = await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "notes", roles: [await builtInRoleIn(ctx, workspaceId, "member")], installedBy: ownerId });
 		await ctx.db.insert("connectorSourceLabels", { workspaceId, installId: connectorInstallId, name: "Notes" });
+		await ctx.db.insert("customConnectors", { workspaceId, connectorId: "custom-tickets", name: "Tickets", description: "", url: "https://mcp.example.com/mcp", connection: "workspace", auth: { type: "none" }, createdBy: ownerId, updatedBy: ownerId, updatedAt: 0 });
 		const connection = { workspaceId, connectorId: "notes", credentials: "sealed" };
 		mine.push(await ctx.db.insert("connectorConnections", { ...connection, userId: memberId, connectedBy: memberId }));
 		await ctx.db.insert("connectorConnections", { ...connection, userId: ownerId, connectedBy: ownerId });
