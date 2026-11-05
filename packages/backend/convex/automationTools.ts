@@ -1,11 +1,13 @@
 import { type AutomationAudience, type AutomationSummary, type AutomationToolInput, type CustomAutomationConfig, describeTrigger } from "@companybot/core";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { internalMutation } from "./_generated/server";
+import { type QueryCtx, internalMutation } from "./_generated/server";
 import { definitionOf, installOf, runsForLabel, seenChannel, subscribersOf, visibleInstalls, webhookUrl } from "./automationOps";
 import { createAutomation, setSubscription } from "./automations";
-import { channelNamed } from "./chatOps";
-import { asToolResult, nameOf, timeZoneOf } from "./lib";
+import { chatByRef } from "./chatOps";
+import { type Member, asToolResult, nameOf, timeZoneOf } from "./lib";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 
 // ---- Agent tools (core's AutomationStore), acting as the turn's person ----
@@ -35,9 +37,19 @@ export const listFor = internalMutation({
 	},
 });
 
+/**
+ * A channel by id, or "here" (the turn's chat), that the person can see: never by #name, so a held call
+ * posts or watches where it was approved even if a rename hands the name to another channel.
+ */
+async function channelById(ctx: QueryCtx, member: Member, ref: string, here: Id<"chats">) {
+	const id = ref === "here" ? here : ctx.db.normalizeId("chats", ref.trim());
+	const chat = id && (await chatByRef(ctx, member, id));
+	return chat && chat.kind === "channel" && !chat.archived ? chat : null;
+}
+
 export const createFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), input: v.any() },
-	handler: async (ctx, { turnId, input }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any() },
+	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, member } = await runningTurn(ctx, turnId);
 		const { name, prompt, trigger: t, runsFor } = input as AutomationToolInput;
 		return asToolResult(async () => {
@@ -46,20 +58,20 @@ export const createFor = internalMutation({
 			else if (t.type === "webhook") trigger = { type: "webhook" };
 			else if (t.type === "member_joined") trigger = { type: "event", event: "member.joined" };
 			else {
-				const chat = await channelNamed(ctx, member, t.channel);
-				if (!chat) return { error: `There's no channel ${t.channel} they can see.` };
+				const chat = await channelById(ctx, member, t.channel, turn.chatId);
+				if (!chat) return { error: `There's no channel ${t.channel} they can see. Name it by its id, from channels list.` };
 				trigger = { type: "event", event: "message.posted", channelId: chat._id };
 			}
-			const who = (runsFor ?? "me").trim().toLowerCase();
+			const who = (runsFor ?? "me").trim();
 			let audience: AutomationAudience = "creator";
 			let channelId: Id<"chats"> | undefined;
-			if (who === "anyone") audience = "subscribers";
-			else if (who.startsWith("#")) {
-				const chat = await channelNamed(ctx, member, who);
-				if (!chat) return { error: `There's no channel ${runsFor} they can see.` };
+			if (who.toLowerCase() === "anyone") audience = "subscribers";
+			else if (who.toLowerCase() !== "me" && who !== "") {
+				const chat = await channelById(ctx, member, who, turn.chatId);
+				if (!chat) return { error: 'runsFor must be "me", "anyone", or a channel\'s id (from channels list) or "here".' };
 				audience = "channel";
 				channelId = chat._id;
-			} else if (who !== "me" && who !== "") return { error: 'runsFor must be "me", "anyone", or a channel like "#sales".' };
+			}
 			const timeZone = await timeZoneOf(ctx, member.userId);
 			const id = await createAutomation(ctx, member, {
 				config: { name, prompt, trigger },
@@ -79,14 +91,14 @@ export const createFor = internalMutation({
 				...(install.webhookToken && { webhookUrl: webhookUrl(install.webhookToken) }),
 			};
 		});
-	},
+	}),
 });
 
 export const setMineFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), id: v.string(), on: v.boolean() },
-	handler: async (ctx, { turnId, id, on }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), id: v.string(), on: v.boolean() },
+	handler: (ctx, { turnId, op, id, on }) => withReceipt(ctx, op, turnId, async () => {
 		const { member } = await runningTurn(ctx, turnId);
 		const problem = await setSubscription(ctx, member, id, on);
 		return problem ? { error: problem } : { id, on };
-	},
+	}),
 });

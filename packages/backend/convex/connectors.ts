@@ -15,9 +15,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
-import { type Member, UNSEEDED_MEMBER, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
+import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
+import { allowedRoles } from "./connectorAccess";
 import { cascading, startCascade } from "./cascade";
-import { readArtifact } from "./replySources";
+import { inheritPlaces, readArtifact } from "./replySources";
 import { runningTurn } from "./turns";
 import { builtInId } from "./roles";
 
@@ -47,14 +48,6 @@ async function connectionFor(ctx: QueryCtx, connector: Connector, member: Member
 		.first();
 }
 
-/** The role ids an install allows. Owners always can, so they're never listed. */
-export function allowedRoles(member: Member, install: Doc<"connectorInstalls">): Id<"roles">[] {
-	// COMPAT(0.1.0-alpha.10): installs list "owner"/"member" until migrations.customRolesConnectors
-	// runs; read "member" as the Member role so nobody loses a connector mid-migration. Delete with it.
-	const memberRole = member.workspaceRoles.find((r) => r.builtIn === "member")?.id;
-	return install.roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? (memberRole ? [memberRole] : member.workspaceRoles.length ? [] : [UNSEEDED_MEMBER]) : member.workspaceRoles.some((role) => role.id === r) ? [r] : []));
-}
-
 /** Where each installed connector stands for this person. Feeds `describeToolAccess`. */
 export async function connectorStates(ctx: QueryCtx, member: Member): Promise<ConnectorState[]> {
 	const installs = await ctx.db
@@ -82,6 +75,7 @@ export const list = query({
 			connectorCatalog.map(async (connector) => {
 				const state = states.find((s) => s.id === connector.id);
 				const connection = state ? await connectionFor(ctx, connector, member) : null;
+				const roleIds = state?.roles ?? defaultRoles(connector, memberRole);
 				return {
 					id: connector.id,
 					name: connector.name,
@@ -94,7 +88,9 @@ export const list = query({
 					auth: connector.auth,
 					installed: !!state,
 					/** Ids of the roles allowed to use it; before it's installed, the ones that would be. */
-					roles: state?.roles ?? defaultRoles(connector, memberRole),
+					roleIds,
+					// COMPAT(0.1.0-alpha.10): alpha.9 apps read `roles.includes("member")` for "Everyone" vs "Owners only"; delete this.
+					roles: (memberRole && roleIds.includes(memberRole) ? ["owner", "member"] : ["owner"]) as ("owner" | "member")[],
 					canUse: !!state && canUseConnector(member, state.roles),
 					connected: state?.connected ?? false,
 					error: connection?.error ?? null,
@@ -123,6 +119,7 @@ export const setInstalled = mutation({
 			});
 		}
 		if (!installed && existing) {
+			if (connector.connection === "workspace") await ctx.db.insert("connectorSourceLabels", { workspaceId: member.workspaceId, installId: existing._id, name: connector.name });
 			await ctx.db.delete(existing._id);
 			// Its accounts, rules, locks and tool list go too (lifecycle.ts): reinstalling starts strict again.
 			await startCascade(ctx, "connectorInstall", { ...old, connectorInstallId: existing._id });
@@ -135,7 +132,7 @@ const defaultRoles = (connector: Connector, memberRole: Id<"roles"> | undefined)
 
 /** Which of the workspace's roles may use an installed connector. Owners always can. Applies at once, including mid-reply. */
 export const setRoles = mutation({
-	// COMPAT(0.1.0-alpha.10): alpha.9 apps send "owner" or "member"; narrow this to role ids and delete the mapping below.
+	// COMPAT(0.1.0-alpha.10): alpha.9 apps send "owner" or "member"; narrow this to role ids and delete `legacy` below.
 	args: { connectorId: v.string(), roles: v.array(v.union(v.id("roles"), v.literal("owner"), v.literal("member"))), expectedRoles: v.optional(v.array(v.string())) },
 	handler: async (ctx, { connectorId, roles, expectedRoles }) => {
 		const member = await requirePermission(ctx, "connectors.manage");
@@ -148,8 +145,11 @@ export const setRoles = mutation({
 			if (key(allowedRoles(member, install)) !== key(expectedRoles)) throw new ConvexError("This connector's access changed. Reload it before saving.");
 		}
 		const memberRole = await builtInId(ctx, member.workspaceId, "member");
-		const ids = roles.flatMap((r) => (r === "owner" ? [] : r === "member" ? [memberRole] : [r]));
 		const here = new Set((await rolesOf(ctx, member.workspaceId)).map((r) => r._id));
+		// alpha.9 apps only know Owner and Member: their save adds or removes Member and keeps every other role's grant.
+		const legacy = roles.some((r) => r === "owner" || r === "member");
+		const kept = (install.roles as string[]).filter((r): r is Id<"roles"> => r !== "owner" && r !== "member" && r !== memberRole && here.has(r as Id<"roles">));
+		const ids = legacy ? [...kept, ...(roles.includes("member") ? [memberRole] : [])] : (roles as Id<"roles">[]);
 		if (ids.some((id) => !here.has(id))) throw new ConvexError("Role not found.");
 		await ctx.db.patch(install._id, { roles: [...new Set(ids)] });
 	},
@@ -346,7 +346,7 @@ async function usableConnectors(ctx: QueryCtx, member: Member, connectorIds: str
 	return usable;
 }
 
-/** Before any personal connector result can reach the model, record its one-person audience. */
+/** Record the install's live role audience, or the personal account's one-person audience, before use. */
 export const forCall = internalMutation({
 	args: { turnId: v.id("agentTurns"), connectorId: v.string() },
 	handler: async (ctx, { turnId, connectorId }) => {
@@ -354,6 +354,7 @@ export const forCall = internalMutation({
 		const connection = (await usableConnectors(ctx, member, [connectorId]))[0];
 		if (!connection) return null;
 		if (findConnector(connectorId)?.connection === "personal") await readArtifact(ctx, member, {}, member.userId);
+		else await inheritPlaces(ctx, member, [connection.installId]);
 		return { connectionId: connection.connectionId };
 	},
 });

@@ -8,7 +8,7 @@ import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, use
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
-import { type ChatDetails, type Mentions, chatTitle, showSending, useDirectory } from "./data";
+import { type ChatDetails, type Mentions, chatTitle, showSending, useDirectory, useMessages } from "./data";
 import { ChannelDetails } from "./dialogs";
 import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
@@ -42,7 +42,7 @@ export function ChatView({
 }
 
 function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWith: SendWith; focus?: ChatFocus; onLeft: () => void }) {
-	const messages = useQuery(api.messages.list, { chatId: chat._id });
+	const { messages, more, all } = useMessages(chat._id);
 	const sendMessage = useMutation(api.messages.send, showSending);
 	const markRead = useMutation(api.chats.markRead);
 	const directory = useDirectory();
@@ -56,14 +56,20 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const openThread = (id?: Id<"chatMessages">) => navigate(...(id ? ["chat", chat._id, "thread", id] : ["chat", chat._id]));
 	const focusMessage = focus && "message" in focus ? focus.message : undefined;
 	const loaded = !!messages;
+	const found = !!focusMessage && !!messages?.some((m) => m._id === focusMessage);
+	// Not in the pages loaded yet: load older ones, as far back as the old single list went.
+	const seek = loaded && !!focusMessage && !found && !!more && messages.length < 500;
 	useEffect(() => {
-		const el = loaded && focusMessage && document.getElementById(`message-${focusMessage}`);
+		if (seek) more?.();
+	}, [seek, more]);
+	useEffect(() => {
+		const el = found && document.getElementById(`message-${focusMessage}`);
 		if (!el) return;
 		el.scrollIntoView({ block: "center" });
 		el.classList.add("bg-amber-50");
 		const timer = setTimeout(() => el.classList.remove("bg-amber-50"), 2000);
 		return () => clearTimeout(timer);
-	}, [loaded, focusMessage]);
+	}, [found, focusMessage]);
 
 	// Reading the open chat clears its unread state, including for messages that arrive while it's open.
 	const unread = chat.unread || chat.mentioned;
@@ -157,13 +163,14 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					<MessageList
 						chatId={chat._id}
 						messages={messages}
+						onLoadMore={more}
 						tokens={directory.tokens}
 						summaryLabel={agent?.name ?? "Agents"}
 						onOpenThread={openThread}
 						// A channel they can only view: no reacting or editing (the server refuses those too).
 						readOnly={!chat.canPost}
 						onError={fail}
-						intro={messages.length < 200 && <Intro title={title} channel={chat.kind === "channel"} />}
+						intro={all && <Intro title={title} channel={chat.kind === "channel"} />}
 						header={bar}
 						footer={footer}
 					/>

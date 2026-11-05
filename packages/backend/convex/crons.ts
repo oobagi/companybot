@@ -9,6 +9,8 @@ crons.interval("automations", { minutes: 5 }, internal.automationRuns.tick, {});
 crons.interval("automation webhooks", { hours: 1 }, internal.automationRuns.forgetOldWebhooks);
 // Wakeups that fired or were cancelled a month ago (wakeups.ts).
 crons.interval("wakeups", { hours: 1 }, internal.wakeups.forgetSettled);
+// Tool-call receipts a month old: no step retries that late (approvals.ts).
+crons.interval("tool receipts", { hours: 1 }, internal.approvals.forgetReceipts);
 // Connector sign-ins nobody finished.
 crons.interval("connector sign-ins", { hours: 1 }, internal.connectors.forgetExpiredOAuth);
 // Typing rows from people who typed and never sent (typing.ts).

@@ -1,5 +1,6 @@
 import type { PlaceMessage, Skill } from "@companybot/core";
-import { QUIET_WINDOW_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, fallbackModels, replayOf, responseOf, steerNote } from "@companybot/core";
+import type { ModelMessage } from "ai";
+import { QUIET_WINDOW_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, calledTools, fallbackModels, responseOf, steerNote, stepsFor, withoutFileImages } from "@companybot/core";
 import { ConvexError, getDocumentSize, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -9,19 +10,22 @@ import { automationScope } from "./automationOps";
 import { answerAsk, handOff } from "./chains";
 import {
 	type Namer,
+	activityOf,
 	canPost,
 	canReplyAs,
 	canSee,
 	chatMembersOf,
 	countMessage,
 	label,
+	membership,
 	moveBelow,
+	type Participant,
 	requireChat,
 	namer,
 	reactOnce,
 	requireReactionAudience,
 	reactionGroups,
-	replyForModel,
+	setActivity,
 	textForModel,
 } from "./chatOps";
 import { filesForModel, turnImages } from "./files";
@@ -43,6 +47,10 @@ import { setWakeOutcome } from "./wakeups";
 export const STALE_TURN_MS = 5 * 60_000;
 /** Newest turns kept verbatim when a session is compacted. */
 export const KEEP_TOKENS = 15_000;
+/** Turns a session replays at most, newest kept: summaries that keep failing can't grow it without end. */
+const SESSION_TURNS_MAX = 200;
+/** Bytes a session's replay reads at most (turns, replies, steps): a quarter of Convex's 16 MiB, so the rest of a turn fits. */
+const REPLAY_BYTES = 4 * 1024 * 1024;
 
 type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMessages"> };
 
@@ -141,11 +149,15 @@ async function settleApproval(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 	const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
 	if (approval?.status === "approved")
 		await ctx.db.patch(approval._id, { status: "failed", error: "The reply stopped before running it. Ask again if you still want it." });
+	// A built-in's effect commits with its receipt (approvals.withReceipt): still running means it never happened.
+	// An outside service's call may have landed before the reply stopped: that's unknown until someone checks.
 	if (approval?.status === "running")
-		await ctx.db.patch(approval._id, {
-			status: "failed",
-			error: "The reply stopped while it was running, so it may or may not have happened. Check before trying again.",
-		});
+		await ctx.db.patch(
+			approval._id,
+			approval.outside
+				? { status: "failed", outcome: "unknown", error: "The reply stopped while it was running, so it may or may not have happened. Check before trying again." }
+				: { status: "failed", error: "The reply stopped before it finished, so nothing changed. Ask again if you still want it." },
+		);
 }
 
 /**
@@ -222,7 +234,20 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
 
-/** A session's finished, unsummarized turns as they replay to the model, oldest first. */
+/**
+ * What a past turn answered, as it replays: its decision as it wrote it. Without one (it failed, was
+ * stopped, or made none), what its reply showed. Pictures by file id don't show in a message;
+ * replaying them teaches the model to write more.
+ */
+function answerOf(turn: Doc<"agentTurns">, reply: Doc<"chatMessages"> | null) {
+	if (turn.decision) return JSON.stringify({ ...turn.decision, message: withoutFileImages(turn.decision.message) });
+	return withoutFileImages(reply?.text ?? "");
+}
+
+/**
+ * A session's finished, unsummarized turns as they replay to the model, oldest first. `steps` is JSON
+ * (core replay.ts): a call's input or result can have keys Convex values can't.
+ */
 async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member) {
 	const hiddenSummary = !!session.summary && (session.summaryPrivacy !== 1 || !!member && !(await canReadSources(ctx, member, session.summaryPlaces)));
 	const query = ctx.db.query("agentTurns").withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", hiddenSummary ? 0 : session.summarizedUpTo ?? 0));
@@ -230,29 +255,41 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 	let tokens = 0;
 	let bytes = 0;
 	let scanned = 0;
-	// Newest first for the bounded fallback. Bound reads too when many hidden turns fill the tail.
-	for await (const turn of query.order(hiddenSummary ? "desc" : "asc")) {
+	// Newest first, so a cap keeps the newest. Reads are bounded on both paths: summaries that keep
+	// failing, or many hidden turns filling the tail, can't grow it without end.
+	// A turn that doesn't fit whole ends the replay there: it and everything older are left out.
+	for await (const turn of query.order("desc")) {
 		bytes += getDocumentSize(turn);
-		if (hiddenSummary && (++scanned > 200 || bytes > 4 * 1024 * 1024)) break;
+		if (++scanned > SESSION_TURNS_MAX || bytes > REPLAY_BYTES) break;
 		if ((turn.status !== "done" && turn.status !== "error") || turn.prompt === undefined) continue;
 		const reply = turn.replyId ? await ctx.db.get(turn.replyId) : null;
 		bytes += reply ? getDocumentSize(reply) : 0;
-		if (hiddenSummary && bytes > 4 * 1024 * 1024) break;
+		if (bytes > REPLAY_BYTES) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
 		const details = !member || await canReadReplyDetails(ctx, member, reply);
-		const text = replayOf(reply ? replyForModel(reply, details) : "", turn.triggerId ? responseOf(turn.decision).emoji : null);
+		// Read one step at a time against the budget: a turn's steps can be many near-1 MiB rows.
+		const kept: Doc<"turnSteps">[] = [];
+		for await (const step of ctx.db.query("turnSteps").withIndex("by_turn", (q) => q.eq("turnId", turn._id))) {
+			bytes += getDocumentSize(step);
+			if (bytes > REPLAY_BYTES) break;
+			kept.push(step);
+		}
+		if (bytes > REPLAY_BYTES) break;
+		const steps = kept.flatMap((s) => JSON.parse(s.messages) as ModelMessage[]);
+		const shown = JSON.stringify(member ? stepsFor(steps, { details, results: turn.actorId === member.userId }) : steps);
+		const answer = answerOf(turn, reply);
 		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) ? turn.prompt : "";
-		const size = approxTokens(prompt + text);
+		const size = approxTokens(prompt + shown + answer);
 		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
 		if (member && reply) {
 			if (details) await readReplyDetails(ctx, member, reply);
 			else await readReply(ctx, member, reply);
 		}
 		if (member && prompt) await inheritPlaces(ctx, member, turn.promptPlaces);
-		replay.push({ prompt, reply: text, time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(details ? reply?.usedPlaces ?? [] : [])])] });
+		replay.push({ prompt, steps: shown, answer, ...(reply?.stoppedBy && { stopped: true as const }), calls: calledTools(steps), time: turn._creationTime, usedPlaces: [...new Set([...(prompt ? turn.promptPlaces ?? [] : []), ...(details ? reply?.usedPlaces ?? [] : [])])] });
 		tokens += size;
 	}
-	return hiddenSummary ? replay.reverse() : replay;
+	return replay.reverse();
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -306,7 +343,7 @@ export const turnContext = internalMutation({
 		}
 
 		// Finished turns only, so never this (running) one.
-		const turns = (foreign ? [] : await sessionTurns(ctx, session, member)).map(({ prompt, reply }) => ({ prompt, reply }));
+		const turns = (foreign ? [] : await sessionTurns(ctx, session, member)).map(({ prompt, steps, answer, stopped }) => ({ prompt, steps, answer, ...(stopped && { stopped }) }));
 
 		// What's new: everything in the place after the last turn's reply started.
 		const last = (
@@ -326,12 +363,12 @@ export const turnContext = internalMutation({
 		const window = foreign && (!trigger || turn.threadId !== trigger._id) ? (trigger ? [trigger] : []) : (
 			await ctx.db
 				.query("chatMessages")
-				.withIndex("by_chat_thread", (q) =>
-					q.eq("chatId", chat._id).eq("threadId", turn.threadId).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
+				// Not quiet: replies not shown (yet), and asks.
+				.withIndex("by_chat_thread_quiet", (q) =>
+					q.eq("chatId", chat._id).eq("threadId", turn.threadId).eq("quiet", undefined).gt("_creationTime", since).lt("_creationTime", reply._creationTime),
 				)
 				.order("desc")
-				// Quiet: replies not shown (yet), and asks.
-				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("quiet"), true)))
+				.filter((q) => q.neq(q.field("deleted"), true))
 				// The prompt shows PROMPT_MESSAGE_CAP; one more says there are earlier ones, one more for the trigger.
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
@@ -365,7 +402,6 @@ export const turnContext = internalMutation({
 		const asked = [...recent, parent, origin].filter(own).map((m) => m.text);
 		/** A thread's first turn starts with its parent. */
 		const first = turns.length === 0 && (foreign || !summary);
-		const rows = await chatMembersOf(ctx, chat._id);
 		const { models } = await catalogModels(ctx);
 		const vision = [models, fallbackModels].some((list) => list.find((m) => m.id === agent.model)?.vision);
 		const user = await ctx.db.get(member.userId);
@@ -394,7 +430,7 @@ export const turnContext = internalMutation({
 				thread: parent
 					? { parent: await toPlaceMessage(ctx, parent, names, agent._id), first }
 					: null,
-				members: await Promise.all(rows.map(async (r) => ({ ...(await names.of(r)), ...(r.agentId && { role: (await ctx.db.get(r.agentId))?.description }) }))),
+				...(await placeMembers(ctx, chat, [member.userId, ...[parent, ...recent].flatMap((m) => (m ? [m.authorUserId, m.actingFor] : []))], names)),
 			},
 			messages,
 			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, agent._id))),
@@ -508,6 +544,17 @@ export const savePrompt = internalMutation({
 	handler: async (ctx, { turnId, prompt }) => {
 		const { member } = await runningTurn(ctx, turnId);
 		await ctx.db.patch(turnId, { prompt, promptPlaces: await turnSources(ctx, member) });
+	},
+});
+
+/** One finished step of a running turn (agent.ts), kept for later turns to replay (core replay.ts keptStep). */
+export const keepStep = internalMutation({
+	args: { turnId: v.id("agentTurns"), messages: v.string() },
+	handler: async (ctx, { turnId, messages }) => {
+		const turn = await ctx.db.get(turnId);
+		// Not into a workspace being deleted: its cascade may be past this table.
+		if (!turn || turn.status !== "running" || !(await liveWorkspace(ctx, turn.workspaceId))) return;
+		await ctx.db.insert("turnSteps", { workspaceId: turn.workspaceId, turnId, actorId: turn.actorId, messages });
 	},
 });
 
@@ -746,9 +793,16 @@ async function endStream(ctx: MutationCtx, reply: Doc<"chatMessages">, end: Part
 	if (stream) await ctx.db.delete(stream._id);
 }
 
-/** The running cost on a place: the thread parent, or the chat. */
+/** The running cost on a place: the thread parent, or the chat's activity. */
 async function addPlaceCost(ctx: MutationCtx, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, cost: number) {
-	const place = threadId ? await ctx.db.get(threadId) : await ctx.db.get(chatId);
+	if (!threadId) {
+		const chat = await ctx.db.get(chatId);
+		if (!chat) return cost;
+		const costUsd = (await activityOf(ctx, chat)).costUsd + cost;
+		await setActivity(ctx, chat, { costUsd });
+		return costUsd;
+	}
+	const place = await ctx.db.get(threadId);
 	const costUsd = (place?.costUsd ?? 0) + cost;
 	if (place) await ctx.db.patch(place._id, { costUsd });
 	return costUsd;
@@ -799,10 +853,11 @@ async function saveTurnUsage(ctx: MutationCtx, turn: Doc<"agentTurns">, usage: I
 
 /** A reply's stats: its model calls, its pictures and searches apart (already in `usage` as their own kinds), and its place's total. */
 async function statsOf(ctx: QueryCtx, turn: Doc<"agentTurns">, usage: SavedUsage): Promise<Infer<typeof replyStats>> {
-	const place = turn.threadId ? await ctx.db.get(turn.threadId) : await ctx.db.get(turn.chatId);
+	const chat = turn.threadId ? null : await ctx.db.get(turn.chatId);
+	const place = turn.threadId ? (await ctx.db.get(turn.threadId))?.costUsd : chat ? (await activityOf(ctx, chat)).costUsd : 0;
 	return {
 		...usage,
-		conversationCostUsd: place?.costUsd ?? 0,
+		conversationCostUsd: place ?? 0,
 		...(turn.imageCostUsd && { imageCostUsd: turn.imageCostUsd }),
 		...(turn.searchCostUsd && { searchCostUsd: turn.searchCostUsd }),
 		...(turn.dispatch && { dispatch: pickOf(turn.dispatch) }),
@@ -904,14 +959,14 @@ export const startCompaction = internalMutation({
 		let keep = 0;
 		let tokens = 0;
 		for (const t of turns.toReversed()) {
-			tokens += approxTokens(t.prompt + t.reply);
+			tokens += approxTokens(t.prompt + t.steps + t.answer);
 			if (keep > 0 && tokens > keepTokens) break;
 			keep++;
 		}
 		const old = turns.slice(0, turns.length - keep);
 		if (old.length === 0) return null;
 		await ctx.db.patch(sessionId, { compacting: true, compactingPrivacy: 1, compactingPlaces: [...new Set([...(session.summaryPlaces ?? []), ...old.flatMap((t) => t.usedPlaces)])] });
-		return { summary: session.summaryPrivacy === 1 ? session.summary ?? null : null, turns: old.map(({ prompt, reply }) => ({ prompt, reply })), upTo: old.at(-1)!.time };
+		return { summary: session.summaryPrivacy === 1 ? session.summary ?? null : null, turns: old.map(({ prompt, calls, answer }) => ({ prompt, calls, answer })), upTo: old.at(-1)!.time };
 	},
 });
 
@@ -940,3 +995,21 @@ export const finishCompaction = internalMutation({
 		await recordUsage(ctx, { workspaceId: session.workspaceId, userId: turn ? turn.actorId : undefined, agentId: session.agentId, kind: "summary", model: result.model, costUsd: result.costUsd });
 	},
 });
+
+/**
+ * Who a turn's prompt names in its chat: its live agents, and `people` still in it (the asker, the
+ * authors in view), with the rest counted. A few indexed reads, however big the channel is.
+ */
+async function placeMembers(ctx: QueryCtx, chat: Doc<"chats">, people: (Id<"users"> | undefined)[], names: Namer) {
+	const members: (Participant & { role?: string })[] = [];
+	for (const id of new Set(people)) if (id && (await membership(ctx, chat._id, id))) members.push(await names.user(id));
+	let seated = members.length;
+	// Archived agents keep their seats: counted, not named.
+	for (const agent of await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect()) {
+		if (!(await ctx.db.query("chatMembers").withIndex("by_agent", (q) => q.eq("agentId", agent._id).eq("chatId", chat._id)).first())) continue;
+		seated++;
+		if (!agent.archived) members.push({ ...(await names.agent(agent._id)), role: agent.description });
+	}
+	// COMPAT(0.1.0-alpha.10): an uncounted chat (before migrations.chatMemberCounts) counts none; drop `?? 0` with it.
+	return { members, others: Math.max((chat.memberCount ?? 0) - seated, 0) };
+}

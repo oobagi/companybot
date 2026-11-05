@@ -3,11 +3,11 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, checkPermission, getMember, requireMember, requirePermission } from "./lib";
-import { accessInfo, reach, savedAccess } from "./placeAccess";
+import { type Member, checkPermission, getMember, requireInWorkspace, requireMember, requirePermission } from "./lib";
+import { accessInfo, reach, requireAccess, savedAccess } from "./placeAccess";
 import { createType, fieldsOf, fieldsShown, requireType, typesOf, updateType } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
-import { writeSources } from "./replySources";
+import { changeAccessSources } from "./replySources";
 import { accessArg, databaseDisplay } from "./schema";
 
 // Databases: the workspace's data model. People with `fields.edit` add types; fields
@@ -73,9 +73,11 @@ export const setAccess = mutation({
 	handler: async (ctx, { typeId, access }) => {
 		const member = await requireMember(ctx);
 		checkPermission(member, "fields.edit");
-		const type = await requireType(ctx, member, typeId, "edit");
+		const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
+		requireAccess(member, "database", type.plural, type.access, "edit");
+		if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 		const list = await savedAccess(ctx, member, access);
-		await writeSources(ctx, member, { access: list }, type);
+		await changeAccessSources(ctx, member, type, { access: list });
 		// Everyone at Edit is the default: store nothing.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
 		await ctx.db.patch(type._id, { access: open ? undefined : list, version: (type.version ?? 0) + 1, updatedAt: Date.now() });

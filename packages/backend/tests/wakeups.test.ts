@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
-import { type As, addMember, agentTurn, agentsOf, finishTurn, generalOf, ownerAndMember } from "./helpers";
+import { savePreferences } from "../convex/preferences";
+import { type As, addMember, agentTurn, agentsOf, finishTurn, generalOf, ownerAndMember, messagesIn } from "./helpers";
 
 // Wakeups (wakeups.ts): follow-ups an agent sets, and the one path from a wakeup to a turn.
 // See wiki/architecture.md (Automations).
@@ -38,7 +39,7 @@ async function fire(t: T, id: string) {
 	const row = (await rowOf(t, id))!;
 	await t.mutation(internal.wakeups.fire, { id: row._id, at: row.at! });
 }
-const shown = async (as: As, chatId: Id<"chats">) => (await as.query(api.messages.list, { chatId })).map((m) => [m.author.type, m.text]);
+const shown = async (as: As, chatId: Id<"chats">) => (await messagesIn(as, { chatId })).map((m) => [m.author.type, m.text]);
 
 it.each([{ms: 7 * 86_400_000, repeat: {days: 7}}, {ms: 6 * 3_600_000, repeat: {hours: 6}}])("migrates numeric intervals once: $ms", async ({ms, repeat}) => {
 	const {t, turnId} = await setup();
@@ -73,8 +74,7 @@ it("fires an unmigrated legacy row and carries on repeating", async () => {
  migrationsTest.register(t);
  await t.run(async ctx => {
   for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
-  const prefs = await ctx.db.query("preferences").withIndex("by_user", q => q.eq("userId", after.actorId)).unique();
-  await ctx.db.patch(prefs!._id, {timeZone: "Asia/Tokyo"});
+  await savePreferences(ctx, after.actorId, {timeZone: "Asia/Tokyo"});
  });
  await t.mutation(internal.migrations.runAll);
  await t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -93,7 +93,7 @@ it("repeats in its original zone after the person changes zones", async () => {
 	const {created} = await create(t, turnId, {note: "ET", at: {year: 2027, month: 1, day: 31, hour: 9, timeZone: "America/New_York"}, every: {months: 1}}) as {created: string};
 	const before = (await rowOf(t, created))!;
 	expect(before.anchor).toEqual({local: "2027-01-31T09:00:00", timeZone: "America/New_York"});
-	await t.run(async ctx => { const prefs = await ctx.db.query("preferences").withIndex("by_user", q => q.eq("userId", before.actorId)).unique(); await ctx.db.patch(prefs!._id, {timeZone: "Asia/Tokyo"}); });
+	await t.run((ctx) => savePreferences(ctx, before.actorId, {timeZone: "Asia/Tokyo"}));
 	await fire(t, created);
 	expect((await rowOf(t, created))!.at).toBe(Date.UTC(2027, 1, 28, 14));
 	// Feb 28 lands on the same instant either way; Mar 31 at 9:00 EDT tells the original zone apart.

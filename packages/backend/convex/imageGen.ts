@@ -19,6 +19,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
+import { opArg } from "./schema";
 import { visibleFile } from "./files";
 import { workspaceImageModel } from "./modelCatalog";
 import { addTurnCost, runningTurn } from "./turns";
@@ -128,46 +129,55 @@ export const generateFor = internalAction({
 		prompt: v.string(),
 		aspectRatio: v.optional(v.union(...aspectRatios.map((r) => v.literal(r)))),
 		editFiles: v.optional(v.array(v.string())),
+		op: v.optional(opArg),
 	},
-	handler: async (ctx, { turnId, prompt, aspectRatio, editFiles = [] }): ReturnType<ImageStore["generate"]> => {
+	handler: async (ctx, { turnId, prompt, aspectRatio, editFiles = [], op }): ReturnType<ImageStore["generate"]> => {
 		if (editFiles.length > EDIT_FILES_MAX) return { error: `Edit up to ${EDIT_FILES_MAX} pictures at once.` };
-		const ready = await ctx.runMutation(internal.imageGen.prepareFor, { turnId, editFiles });
-		if ("error" in ready) return { error: ready.error };
-		const { model, files, holdId } = ready;
-		let made: Uint8Array[] = [];
-		let settled = false;
-		try {
-			const edits: Picture[] = [];
-			for (const f of files) {
-				const blob = await ctx.storage.get(f.storageId);
-				if (!blob) return { error: "A picture to edit was deleted." };
-				edits.push({ data: new Uint8Array(await blob.arrayBuffer()), type: f.type });
+		// Claimed before anything is spent or attached: the same call never makes and attaches pictures twice.
+		const ran = op && (await ctx.runMutation(internal.approvals.startOp, { turnId, op }));
+		if (ran) return { error: ran };
+		const out = await (async (): ReturnType<ImageStore["generate"]> => {
+			const ready = await ctx.runMutation(internal.imageGen.prepareFor, { turnId, editFiles });
+			if ("error" in ready) return { error: ready.error };
+			const { model, files, holdId } = ready;
+			let made: Uint8Array[] = [];
+			let settled = false;
+			try {
+				const edits: Picture[] = [];
+				for (const f of files) {
+					const blob = await ctx.storage.get(f.storageId);
+					if (!blob) return { error: "A picture to edit was deleted." };
+					edits.push({ data: new Uint8Array(await blob.arrayBuffer()), type: f.type });
+				}
+				const result = await makePictures(model, prompt, aspectRatio, edits);
+				made = result.made;
+				// Paid for whether or not it can be attached.
+				await ctx.runMutation(internal.imageGen.settle, { holdId, turnId, model: model.id, costUsd: result.costUsd });
+				settled = true;
+			} finally {
+				// A failed call frees its hold now; a crash frees it after HOLD_MS.
+				if (!settled) await ctx.runMutation(internal.imageGen.release, { holdId });
 			}
-			const result = await makePictures(model, prompt, aspectRatio, edits);
-			made = result.made;
-			// Paid for whether or not it can be attached.
-			await ctx.runMutation(internal.imageGen.settle, { holdId, turnId, model: model.id, costUsd: result.costUsd });
-			settled = true;
-		} finally {
-			// A failed call frees its hold now; a crash frees it after HOLD_MS.
-			if (!settled) await ctx.runMutation(internal.imageGen.release, { holdId });
-		}
-		const attached: { id: string; name: string }[] = [];
-		let refused: string | undefined;
-		for (const data of made) {
-			// The type comes from the bytes, never the provider's label; anything else (SVG) isn't kept.
-			const type = sniffImage(data);
-			if (!type) continue;
-			const name = `picture${attached.length ? `-${attached.length + 1}` : ""}.${type.slice("image/".length).replace("jpeg", "jpg")}`;
-			const storageId = await ctx.storage.store(new Blob([data as Uint8Array<ArrayBuffer>], { type }));
-			const result = await ctx.runMutation(internal.files.attachToReply, { turnId, storageId, name, ...imageSize(data, type) });
-			if ("error" in result) {
-				refused = result.error;
-				break;
+			const attached: { id: string; name: string }[] = [];
+			let refused: string | undefined;
+			for (const data of made) {
+				// The type comes from the bytes, never the provider's label; anything else (SVG) isn't kept.
+				const type = sniffImage(data);
+				if (!type) continue;
+				const name = `picture${attached.length ? `-${attached.length + 1}` : ""}.${type.slice("image/".length).replace("jpeg", "jpg")}`;
+				const storageId = await ctx.storage.store(new Blob([data as Uint8Array<ArrayBuffer>], { type }));
+				const result = await ctx.runMutation(internal.files.attachToReply, { turnId, storageId, name, ...imageSize(data, type) });
+				if ("error" in result) {
+					refused = result.error;
+					break;
+				}
+				attached.push({ id: result.id, name });
 			}
-			attached.push({ id: result.id, name });
-		}
-		if (attached.length === 0) return { error: refused ?? `${model.id} made no picture this time. Try again, or reword the prompt.` };
-		return { attached, model: model.id, ...(refused && { note: `Not all were attached: ${refused}` }) };
+			if (attached.length === 0) return { error: refused ?? `${model.id} made no picture this time. Try again, or reword the prompt.` };
+			return { attached, model: model.id, ...(refused && { note: `Not all were attached: ${refused}` }) };
+		})();
+		// Thrown partway, it stays claimed: whether pictures were made and attached is unknown.
+		if (op) await ctx.runMutation(internal.approvals.finishOp, { turnId, op });
+		return out;
 	},
 });

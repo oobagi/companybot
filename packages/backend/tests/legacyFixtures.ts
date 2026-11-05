@@ -1,3 +1,4 @@
+import { triggerIndexes } from "../convex/automationOps";
 import { api } from "../convex/_generated/api";
 import { agentsOf, workspaceOf, type As, type newTest } from "./helpers";
 import { type Field, NAME_KEY, defineAutomation, defineSkill, keyOf } from "@companybot/core";
@@ -114,7 +115,7 @@ export async function seedAutomation(t: ReturnType<typeof newTest>, as: As, auto
 	const agentId = (await agentsOf(as)).companybot._id;
 	const definition = retainedAutomations[automationId];
 	await t.run(async (ctx) => {
-		const installId = await ctx.db.insert("automationInstalls", { workspaceId, automationId, definition, installedBy, agentId, timeZone, enabled: true, audience: "subscribers", webhookToken: definition.trigger.type === "webhook" ? "a".repeat(48) : undefined });
+		const installId = await ctx.db.insert("automationInstalls", { workspaceId, automationId, definition, installedBy, agentId, timeZone, ...triggerIndexes({ definition, enabled: true, timeZone }, 0), enabled: true, audience: "subscribers", webhookToken: definition.trigger.type === "webhook" ? "a".repeat(48) : undefined });
 		await ctx.db.insert("automationSubscriptions", { installId, userId: installedBy });
 	});
 }

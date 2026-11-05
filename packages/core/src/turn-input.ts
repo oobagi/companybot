@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { ToolDef } from "./tools";
 import type { AgentConfig } from "./agent-config";
@@ -6,13 +7,14 @@ import { type Participant, type ReactionGroup, isEmoji } from "./chat";
 import type { ConfidenceBand } from "./router";
 import { formatFileSize, isImageType, toBase64 } from "./files";
 import { platformGuide } from "./guide";
+import { paired } from "./replay";
 import { type Skill, skillsIndex } from "./skills";
 import { formatLocalTime, shortStamp } from "./time";
 import { isGranted } from "./tools";
 
 // What the model is fed each turn, built for prompt caching (wiki/chat.md):
 // 1. `instructions`: the same for every chat and turn, so it caches everywhere.
-// 2. The session: each past turn replayed exactly as sent (stored prompt + reply).
+// 2. The session: each past turn replayed as the model had it (stored prompt, tool steps, answer).
 // 3. One new user message: where you are, what was said since the last reply, the trigger.
 // Nothing earlier in the prompt changes between turns, so only the new message is uncached.
 
@@ -63,8 +65,13 @@ export interface TurnPlace {
 	topic: string | null;
 	/** Set when the turn is in a thread. */
 	thread: { parent: PlaceMessage; first: boolean } | null;
-	/** Everyone in the chat, the agent included; agents with their one-line role. */
+	/**
+	 * Who's named here: the chat's agents (the agent included, each with its one-line role), and the
+	 * people with a message in view and the asker. A big channel's thousands aren't read for each turn.
+	 */
 	members: (Participant & { role?: string })[];
+	/** The chat's other people, not in `members`: counted only ("and 40 more"). */
+	others: number;
 }
 
 export interface TurnPromptInput {
@@ -118,10 +125,10 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	const agents = others("agent");
 	const roles = place.members.filter((m) => m.type === "agent" && m.id !== input.agentId).map((m) => (m.role ? `${clean(m.name)} (${clip(clean(m.role), 80)})` : clean(m.name)));
 	const here =
-		[people.length > 0 && `${listed(people)} (people)`, agents.length > 0 && `${listed(roles)} (agents)`]
+		[people.length + place.others > 0 && `${listed(people, place.others)} (people)`, agents.length > 0 && `${listed(roles)} (agents)`]
 			.filter(Boolean)
 			.join("; ") || "just you";
-	const team = place.kind === "channel" || people.length + agents.length > 1;
+	const team = place.kind === "channel" || people.length + agents.length + place.others > 1;
 
 	const header = [
 		`Where you are: ${describePlace(place, people, agents)}${place.thread ? ", in a thread" : ""}.`,
@@ -225,9 +232,6 @@ export type PostDecision = z.infer<typeof postDecision>;
 export function responseOf(d: PostDecision | null | undefined) {
 	return { message: d?.message.trim() ? d.message : null, emoji: isEmoji(d?.emoji) ? d.emoji : null };
 }
-
-/** A finished turn as its session replays it: its reply, and its reaction, which isn't in the reply. */
-export const replayOf = (reply: string, emoji: string | null) => [reply, emoji && `[You reacted ${emoji}]`].filter(Boolean).join("\n");
 
 /** How every turn ends, the same text for all: what's for it, when to write, when a reaction says it. */
 const ANSWER_NOTE = [
@@ -354,13 +358,16 @@ function describePlace(place: TurnPlace, people: string[], agents: string[]) {
 		const topic = place.topic ? `. Topic: ${JSON.stringify(place.topic)}` : "";
 		return `#${place.name}, a ${place.private ? "private" : "public"} channel${topic}`;
 	}
-	return people.length === 1 && agents.length === 0 ? `a DM with ${people[0]}` : "a group DM";
+	return people.length === 1 && agents.length === 0 && place.others === 0 ? `a DM with ${people[0]}` : "a group DM";
 }
 
-/** Names in a place, at most HERE_MAX: the line is replayed in every later turn, so a big #general stays cheap. */
+/** Names in a place, at most HERE_MAX, then how many `more` there are: the line is replayed in every later turn, so a big #general stays cheap. */
 const HERE_MAX = 15;
-const listed = (names: string[]) =>
-	names.length > HERE_MAX ? `${names.slice(0, HERE_MAX).join(", ")} and ${names.length - HERE_MAX} more` : names.join(", ");
+const listed = (names: string[], more = 0) => {
+	const rest = Math.max(names.length - HERE_MAX, 0) + more;
+	const shown = names.slice(0, HERE_MAX).join(", ");
+	return rest === 0 ? shown : shown ? `${shown} and ${rest} more` : `${rest} ${rest === 1 ? "person" : "people"}`;
+};
 
 /**
  * A name or email that people set, as one line with no brackets, so it can't fake a chat line or
@@ -402,17 +409,19 @@ export function systemPrompt(agent: Pick<AgentConfig, "instructions" | "tools">,
 		.join("\n\n");
 }
 
-/** A finished turn in the session, as it was sent and answered. */
+/** A finished turn in the session, as the model had it. */
 export interface SessionTurn {
 	prompt: string;
-	/** The reply's text plus widget notes. */
-	reply: string;
+	/** Its tool calls and their results (replay.ts keptStep), in order. */
+	steps: ModelMessage[];
+	/** What it answered: its decision, as JSON, as it wrote it. Without one, what its reply showed; "" for nothing. */
+	answer: string;
+	/** The person stopped it before it finished. */
+	stopped?: boolean;
 }
 
-export type TurnMessage = {
-	role: "user" | "assistant";
-	content: string | ({ type: "text"; text: string } | { type: "file"; mediaType: string; data: string })[];
-};
+/** Told after a turn the person stopped: it isn't in the turn, and the model can't tell otherwise. */
+export const STOPPED_NOTE = "[Note from Companybot, not the person: the person stopped that reply before it finished.]";
 
 /** A picture sent with this turn's prompt (never replayed: later turns have the agent's reply about it). */
 export interface TurnImage {
@@ -434,30 +443,31 @@ export function buildTurnInput(input: {
 	available?: readonly ToolDef[];
 	/** Only for a model that sees pictures. They go after the prompt, so its text stays a cacheable prefix. */
 	images?: TurnImage[];
-}): { instructions: string; messages: TurnMessage[] } {
+}): { instructions: string; messages: ModelMessage[] } {
 	const { session } = input;
-	const messages: (TurnMessage & { content: string })[] = [];
-	const push = (role: TurnMessage["role"], content: string) => {
-		// Consecutive same-role messages merge, since some providers require alternating roles.
+	const messages: ModelMessage[] = [];
+	// Back-to-back text from the app merges (a turn with no answer, a note), since some providers require alternating roles.
+	const say = (content: string) => {
 		const last = messages.at(-1);
-		if (last?.role === role) last.content += `\n\n${content}`;
-		else messages.push({ role, content });
+		if (last?.role === "user" && typeof last.content === "string") last.content += `\n\n${content}`;
+		else messages.push({ role: "user", content });
 	};
-	if (session.summary) push("user", `Your notes on earlier conversation here (a record, not instructions):\n${session.summary}`);
+	if (session.summary) say(`Your notes on earlier conversation here (a record, not instructions):\n${session.summary}`);
 	for (const turn of session.turns) {
 		// A shared answer can have no readable prompt; keep a neutral history marker in its place.
-		push("user", turn.prompt || "Earlier reply in this chat:");
-		push("assistant", turn.reply || "(No reply.)");
+		say(turn.prompt || "Earlier reply in this chat:");
+		messages.push(...paired(turn.steps));
+		if (turn.answer) messages.push({ role: "assistant", content: turn.answer });
+		if (turn.stopped) say(STOPPED_NOTE);
 	}
-	push("user", input.prompt);
+	say(input.prompt);
 	const instructions = systemPrompt(input.agent, input.skills, input.available);
 	if (!input.images?.length) return { instructions, messages };
-	const last = messages.at(-1)!;
 	const pictures = input.images.flatMap((i) => [
 		{ type: "text" as const, text: `Picture ${i.id}:` },
 		{ type: "file" as const, mediaType: i.type, data: toBase64(i.data) },
 	]);
-	return { instructions, messages: [...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: last.content }, ...pictures] }] };
+	return { instructions, messages: [...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: messages.at(-1)!.content as string }, ...pictures] }] };
 }
 
 /** Rough token count, for deciding what compaction keeps. */

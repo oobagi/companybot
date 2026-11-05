@@ -141,7 +141,7 @@ it("gives agents database and view parity, names both actors, and rechecks roles
 		await ctx.db.patch(membership!._id, { roles: [await builtInRoleIn(ctx, membership!.workspaceId, "member")] });
 	});
 	expect(await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Others" } })).toEqual({ error: expect.stringContaining("Only people with the Owner role") });
-	const mine = await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "Deals", name: "My won deals", filters: [{ field: "Stage", in: ["Won"] }, { field: "Owner", eq: "me" }] } });
+	const mine = await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "deal", name: "My won deals", filters: [{ field: "stage", in: ["Won"] }, { field: "owner", eq: "me" }] } });
 	expect(mine).toMatchObject({ filters: [{ field: "stage", in: ["won"] }, { field: "owner", eq: owner.userId }] });
 });
 
@@ -199,10 +199,10 @@ it("saves board views grouped by a single choice field, for people, agents and a
 
 	const { companybot } = await agentsOf(owner);
 	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
-	const save = (patch: Record<string, unknown>) => t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: "Jobs", id, ...patch } });
-	expect(await save({ version: 4, layout: "board", groupBy: "Status" })).toMatchObject({ layout: "board", groupBy: "status", version: 5 });
+	const save = (patch: Record<string, unknown>) => t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: typeId, id, ...patch } });
+	expect(await save({ version: 4, layout: "board", groupBy: "status" })).toMatchObject({ layout: "board", groupBy: "status", version: 5 });
 	expect(await save({ version: 5, name: "Renamed" })).toMatchObject({ layout: "board", groupBy: "status", version: 6 });
-	expect(await save({ version: 6, groupBy: "Tags" })).toEqual({ error: expect.stringContaining("choice field") });
+	expect(await save({ version: 6, groupBy: "tags" })).toEqual({ error: expect.stringContaining("choice field") });
 	expect(await save({ version: 6, groupBy: null })).toMatchObject({ layout: "board", version: 7 });
 	expect(await view()).not.toHaveProperty("groupBy");
 	const history = await member.query(api.records.activity, { paginationOpts: page });

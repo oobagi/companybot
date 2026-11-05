@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { docx, pngOf } from "../../core/test/files";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { type As, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, settle, sideWorkspace, workspaceOf } from "./helpers";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, settle, sideWorkspace, workspaceOf, messagesIn } from "./helpers";
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -69,7 +69,7 @@ describe("attaching files to messages", () => {
 		const raw = await t.run((ctx) => ctx.storage.store(new Blob([text("x")], { type: "text/plain" })));
 		await expect(send(owner, [raw])).rejects.toThrow("isn't available");
 
-		const listed = (await owner.query(api.messages.list, { chatId: (await generalOf(owner))._id })).find((m) => m._id === messageId)!;
+		const listed = (await messagesIn(owner, { chatId: (await generalOf(owner))._id })).find((m) => m._id === messageId)!;
 		expect(listed.attachments).toEqual([{ name: "plan.docx", type: DOCX, size: docx("Hi").length, url: expect.any(String) }]);
 		expect(listed.text).toBe("");
 		await expect(send(member, [])).rejects.toThrow("Write something");

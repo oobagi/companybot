@@ -42,7 +42,7 @@ function ConnectorEditor({ connector, owner, onClose }: { connector: Connector; 
     })} />}
     {connector.installed && <>
       <Text variant="label">Roles that can use it</Text>
-      {!workspaceRoles?.length ? <Loading layout="inline" label="Workspace roles are being set up…" /> : <RoleChoices roles={workspaceRoles.filter(role => role.builtIn !== 'owner')} value={workspaceRoles.filter(role => connector.roles.includes(role.id)).map(role => role.id)} disabled={!owner || task.busy} onChange={value => void task.run(() => roles({ connectorId: connector.id, roles: value, expectedRoles: connector.roles }))} />}
+      {!workspaceRoles?.length ? <Loading layout="inline" label="Workspace roles are being set up…" /> : <RoleChoices roles={workspaceRoles.filter(role => role.builtIn !== 'owner')} value={workspaceRoles.filter(role => connector.roleIds.includes(role.id)).map(role => role.id)} disabled={!owner || task.busy} onChange={value => void task.run(() => roles({ connectorId: connector.id, roles: value, expectedRoles: connector.roleIds }))} />}
       <Text variant="caption" tone="muted">Owners always have access. People with any selected role can use this connector.</Text>
       {connector.auth.type === 'none' ? <Text>Ready. No account needed.</Text> : connector.connected ? <>
         <Badge label="Connected" tone="success" />{connector.canConnect && <Button label="Disconnect" variant="danger" disabled={task.busy} onPress={() => void task.run(async () => { if (!await confirm({ title: `Disconnect ${connector.name}?`, body: 'This deletes the saved connection. Connect again before agents can use it.', action: 'Disconnect', danger: true })) return; await disconnect({ connectorId: connector.id }); })} />}

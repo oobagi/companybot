@@ -6,11 +6,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 let settingsTabs: readonly { id: string; label: string }[];
 let sections: string[];
 
+// Settings pulls in most of the screens, a slow first import on a busy machine: give it time.
 beforeAll(async () => {
 	vi.stubGlobal("window", { location: { hash: "" }, addEventListener() {}, removeEventListener() {} });
 	settingsTabs = (await import("./views/Settings")).settingsTabs;
-	sections = [...(await import("./App")).views];
-});
+	sections = [...(await import("./router")).views];
+}, 60_000);
 
 const docs = helpPages.map((p) => p.text).join("\n");
 

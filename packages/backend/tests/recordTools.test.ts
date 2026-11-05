@@ -52,14 +52,17 @@ describe("records tools", () => {
 		expect(deal.fields.find((f) => f.key === "client")).toMatchObject({ key: "client", label: "Client", kind: "link", linksTo: "client" });
 	});
 
-	it("create and change records as the person, named the way people say things, with history naming both", async () => {
+	it("create and change records as the person, by key and id, with history naming both", async () => {
 		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
-		const client = await tools.save({ type: "Clients", values: { Name: "Acme Roofing", status: "lead" } });
+		// Writes name databases, fields and linked records by key or id: names can change before a held call runs.
+		expect(await tools.save({ type: "Clients", values: { name: "Acme Roofing" } })).toEqual({ error: expect.stringContaining("by its key or id") });
+		expect(await tools.save({ type: "deal", values: { name: "x", "Close date": "2026-10-30" } })).toEqual({ error: expect.stringContaining("by key") });
+		const client = await tools.save({ type: "client", values: { name: "Acme Roofing", status: "lead" } });
 		expect(client).toMatchObject({ type: "client", typeName: "Client", name: "Acme Roofing", values: { name: "Acme Roofing", status: "Lead" } });
 		const deal = await tools.save({
 			type: "deal",
-			values: { name: "Acme roof", client: "acme roofing", stage: "Proposal", value: 12000, owner: "me", close_date: "2026-10-30" },
+			values: { name: "Acme roof", client: client.id, stage: "Proposal", value: 12000, owner: "me", close_date: "2026-10-30" },
 		});
 		expect(deal.values).toEqual({
 			name: "Acme roof",
@@ -69,7 +72,8 @@ describe("records tools", () => {
 			close_date: "Oct 30, 2026",
 			owner: "member@co.com",
 		});
-		const won = await tools.save({ id: deal.id, values: { Stage: "won" } });
+		expect(await tools.save({ id: deal.id, values: { client: "Acme Roofing" } })).toEqual({ error: expect.stringContaining("by record id") });
+		const won = await tools.save({ id: deal.id, values: { stage: "won" } });
 		expect(won.values.stage).toBe("Won");
 		const history = await member.query(api.records.history, { recordId: deal.id, paginationOpts: { numItems: 10, cursor: null } });
 		expect(history.page.map((e) => [e.action, e.user, e.agent])).toEqual([
@@ -96,14 +100,37 @@ describe("records tools", () => {
 		expect((await tools.find({ type: "deal", filters: [{ field: "value", gte: "EUR 1000" }] })).rows.map((r) => r.name)).toEqual(["Berlin"]);
 	});
 
+	it("refuse a teammate whose name is someone else's email, as for two names", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await member.mutation(api.preferences.update, { displayName: "owner@co.com" });
+		const tools = await turnFor(t, owner);
+		expect(await tools.find({ type: "deal", filters: [{ field: "owner", eq: "owner@co.com" }] })).toEqual({ error: expect.stringContaining("Several teammates") });
+		// Writes take an email as that person's, never a name.
+		expect(await tools.save({ type: "deal", values: { name: "x", owner: "owner@co.com" } })).toMatchObject({ values: { owner: "owner@co.com" } });
+	});
+
+	// COMPAT(0.1.0-alpha.10): delete with migrations.memberProfiles.
+	it("find a teammate by name before their membership has a copy of it", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		await member.mutation(api.preferences.update, { displayName: "Mia", timeZone: "Asia/Tokyo" });
+		await t.run(async (ctx) => {
+			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { name: undefined, image: undefined, timeZone: undefined });
+		});
+		const tools = await turnFor(t, owner);
+		await tools.save({ type: "deal", values: { name: "Mia's deal", owner: "member@co.com" } });
+		expect((await tools.find({ type: "deal", filters: [{ field: "owner", eq: "mia" }] })).rows.map((r) => [r.name, r.owner])).toEqual([["Mia's deal", "Mia"]]);
+		const team = (await owner.query(api.workspace.team))!;
+		expect(team.members.find((m) => m.email === "member@co.com")).toMatchObject({ name: "Mia", timeZone: "Asia/Tokyo" });
+	});
+
 	it("explain what's wrong instead of failing the reply", async () => {
 		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
-		expect(await tools.save({ type: "job", values: { name: "x" } })).toEqual({ error: expect.stringContaining("no database “job”") });
-		expect(await tools.save({ type: "deal", values: { name: "x", client: "Nobody" } })).toEqual({ error: expect.stringContaining("No client named “Nobody”.") });
-		expect(await tools.save({ type: "deal", values: { name: "x", owner: "Bob" } })).toEqual({ error: expect.stringContaining("No teammate “Bob”") });
+		expect(await tools.save({ type: "job", values: { name: "x" } })).toEqual({ error: expect.stringContaining("by its key or id") });
+		expect(await tools.save({ type: "deal", values: { name: "x", client: "Nobody" } })).toEqual({ error: expect.stringContaining("by record id") });
+		expect(await tools.save({ type: "deal", values: { name: "x", owner: "Bob" } })).toEqual({ error: expect.stringContaining("Name teammates by id, email") });
 		expect(await tools.save({ type: "deal", values: { name: "x", stage: "Maybe" } })).toEqual({ error: expect.stringContaining("is one of") });
-		expect(await tools.save({ type: "deal", values: { name: "x", color: "red" } })).toEqual({ error: expect.stringContaining("no field “color”") });
+		expect(await tools.save({ type: "deal", values: { name: "x", color: "red" } })).toEqual({ error: expect.stringContaining("fields by key") });
 		expect(await tools.get("nope")).toEqual({ error: "Record not found." });
 	});
 
@@ -144,7 +171,7 @@ describe("records tools", () => {
 		expect(app.page.map((r) => r.title)).toEqual(["Deal 4", "Deal 3", "Deal 2", "Deal 1"]);
 	});
 
-	it("resolve exact keys before labels, and refuse names that could mean two things", async () => {
+	it("resolve exact keys before labels in reads, and refuse names that could mean two things", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
@@ -159,7 +186,7 @@ describe("records tools", () => {
 			const { _id, _creationTime, ...tier } = (await ctx.db.query("recordFields").collect()).find((f) => f.key === "tier_level")!;
 			await ctx.db.insert("recordFields", { ...tier, key: "tier_level_2", position: 99 });
 		});
-		expect(await tools.save({ id: acme.id, values: { "TIER LEVEL": "Gold" } })).toEqual({
+		expect(await tools.find({ type: "client", filters: [{ field: "TIER LEVEL", eq: "Gold" }] })).toEqual({
 			error: "“TIER LEVEL” could be Tier level (tier_level) or Tier level (tier_level_2). Use the exact key.",
 		});
 		expect((await tools.save({ id: acme.id, values: { tier_level_2: "Gold" } })).values).toMatchObject({ tier_level_2: "Gold" });
@@ -170,30 +197,31 @@ describe("records tools", () => {
 			await ctx.db.patch(type._id, { name: "deal", plural: "Deals" });
 		});
 		expect((await tools.save({ type: "deal", values: { name: "x" } })).type).toBe("deal");
-		expect(await tools.save({ type: "DEALS", values: { name: "x" } })).toEqual({
+		expect(await tools.find({ type: "DEALS" })).toEqual({
 			error: "“DEALS” could be Deals (deal) or Deals (pipeline). Use the exact key.",
 		});
 	});
 
-	it("find linked records by exact name, refusing duplicates beyond any search window", async () => {
+	it("find linked records by exact name in reads, refusing duplicates beyond any search window", async () => {
 		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);
+		const byClient = (name: string) => tools.find({ type: "deal", filters: [{ field: "client", eq: name }] });
 		// 25 near-misses that search ranks alike, and two exact duplicates after them.
 		for (let i = 0; i < 25; i++) await tools.save({ type: "client", values: { name: `Acme Roofing ${i}` } });
 		const one = await tools.save({ type: "client", values: { name: "Acme Roofing" } });
-		expect((await tools.save({ type: "deal", values: { name: "Roof", client: "ACME roofing" } })).values.client).toBe("Acme Roofing");
+		const roof = await tools.save({ type: "deal", values: { name: "Roof", client: one.id } });
+		expect((await byClient("ACME roofing")).rows.map((r) => r._id)).toEqual([roof.id]);
 		await tools.save({ type: "client", values: { name: "acme roofing" } });
-		expect(await tools.save({ type: "deal", values: { name: "Roof", client: "Acme Roofing" } })).toEqual({
-			error: expect.stringContaining("Several clients are named “Acme Roofing”"),
-		});
+		expect(await byClient("Acme Roofing")).toEqual({ error: expect.stringContaining("Several clients are named “Acme Roofing”") });
 		// Archived ones don't count.
 		await tools.save({ id: one.id, trash: true });
-		expect((await tools.save({ type: "deal", values: { name: "Roof", client: "Acme Roofing" } })).values.client).toBe("acme roofing");
+		expect((await byClient("Acme Roofing")).rows).toEqual([]);
 		// Long names (indexed by prefix + hash) still match exactly.
 		const long = `Northwest ${"Roofing ".repeat(20)}LLC`;
-		await tools.save({ type: "client", values: { name: long } });
-		expect((await tools.save({ type: "deal", values: { name: "Big", client: long.toUpperCase() } })).values.client).toBe(long);
-		expect(await tools.save({ type: "deal", values: { name: "Big", client: `${long}!` } })).toEqual({ error: expect.stringContaining("No client named") });
+		const northwest = await tools.save({ type: "client", values: { name: long } });
+		const big = await tools.save({ type: "deal", values: { name: "Big", client: northwest.id } });
+		expect((await byClient(long.toUpperCase())).rows.map((r) => r._id)).toEqual([big.id]);
+		expect(await byClient(`${long}!`)).toEqual({ error: expect.stringContaining("No client named") });
 	});
 
 	it("bound name lookups: list limits first, repeats looked up once, a cap on distinct names", async () => {
@@ -201,11 +229,11 @@ describe("records tools", () => {
 		await setMemberSwitch(owner, "fields.edit", true);
 		const tools = await turnFor(t, member);
 		await tools.saveField({ type: "deal", label: "Partners", kind: "link", linksTo: "client", multiple: true });
-		await tools.save({ type: "client", values: { name: "Acme" } });
+		const acme = await tools.save({ type: "client", values: { name: "Acme" } });
 		const many = Array.from({ length: 51 }, (_, i) => `Client ${i}`);
 		expect(await tools.save({ type: "deal", values: { name: "x", partners: many } })).toEqual({ error: "“Partners” takes up to 50 values." });
 		expect(await tools.save({ type: "deal", values: { name: "x", client: ["Acme"] } })).toEqual({ error: "“Client” holds one value." });
-		const repeated = await tools.save({ type: "deal", values: { name: "x", partners: Array(50).fill("Acme") } });
+		const repeated = await tools.save({ type: "deal", values: { name: "x", partners: Array(50).fill(acme.id) } });
 		expect(repeated.values.partners).toBe("Acme");
 		// 101 distinct names in one call: refused at the cap, before reading the rest.
 		const clients = (await member.query(api.recordTypes.list)).find((x) => x.key === "client")!;
@@ -265,19 +293,20 @@ describe("records tools", () => {
 		const tools = await turnFor(t, member);
 		const roof = await tools.saveField({ type: "client", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
 		expect(roof).toMatchObject({ type: "client", typePlural: "Clients", key: "roof_type", label: "Roof type", kind: "choice", options: ["Shingle", "Metal"] });
-		const acme = await tools.save({ type: "client", values: { name: "Acme", "Roof type": "metal" } });
+		const acme = await tools.save({ type: "client", values: { name: "Acme", roof_type: "metal" } });
 		expect(acme.values.roof_type).toBe("Metal");
-		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle", "Metal", "Tile"] })).toMatchObject({ options: ["Shingle", "Metal", "Tile"] });
-		const stages = { type: "deal", field: "Stage", options: ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"] };
+		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle"] })).toEqual({ error: expect.stringContaining("by key") });
+		expect(await tools.saveField({ type: "client", field: "roof_type", options: ["Shingle", "Metal", "Tile"] })).toMatchObject({ options: ["Shingle", "Metal", "Tile"] });
+		const stages = { type: "deal", field: "stage", options: ["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"] };
 		await setMemberSwitch(owner, "fields.edit", false);
 		expect(await tools.saveField(stages)).toEqual({ error: "Only people with the Owner role can add and change databases and fields. Ask someone who has it." });
-		expect(await tools.saveField({ type: "client", field: "roof type", options: ["Shingle"] })).toHaveProperty("error");
+		expect(await tools.saveField({ type: "client", field: "roof_type", options: ["Shingle"] })).toHaveProperty("error");
 		const row = await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first());
 		const ownerRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "owner")!.id;
 		await owner.mutation(api.workspace.setRoles, { id: row!._id, roles: [ownerRole] });
 		expect(await tools.saveField(stages)).toMatchObject({ options: stages.options });
 		expect(await tools.saveField({ type: "deal", field: "stage", kind: "text" })).toEqual({ error: expect.stringContaining("Only a field's name and options") });
-		const linked = await tools.saveField({ type: "task", label: "Call", kind: "link", linksTo: "Calls" });
+		const linked = await tools.saveField({ type: "task", label: "Call", kind: "link", linksTo: "call" });
 		expect(linked).toMatchObject({ key: "call", kind: "link", linksTo: "call" });
 	});
 

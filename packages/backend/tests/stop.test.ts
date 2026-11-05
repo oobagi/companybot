@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, turnsOf, messagesIn } from "./helpers";
 
 // No network: the runner's model call is stubbed with a scripted stream that honors the abort signal
 // and the stop conditions, as the AI SDK's loop does.
@@ -65,11 +65,11 @@ describe("stopping an agent mid-reply", () => {
 		expect(aborted).toBe(true);
 		expect(await turnOf(t, turnId)).toMatchObject({ status: "done", stopping: { by: owner.userId } });
 		expect(await replyOf(t, turnId)).toMatchObject({ status: "done", text: "Hello there", stoppedBy: owner.userId });
-		const listed = (await owner.query(api.messages.list, { chatId: general })).at(-1)!;
+		const listed = (await messagesIn(owner, { chatId: general })).at(-1)!;
 		expect(listed).toMatchObject({ status: "done", error: null, stoppedBy: "owner@co.com" });
 		// Later turns know it was cut short.
 		const next = await agentTurn(t, owner, general, companybot._id);
-		expect((await t.mutation(internal.turns.turnContext, { turnId: next })).session.turns.at(-1)!.reply).toBe("Hello there\n[Stopped by the person before you finished]");
+		expect((await t.mutation(internal.turns.turnContext, { turnId: next })).session.turns.at(-1)).toMatchObject({ answer: "Hello there", stopped: true });
 	});
 
 	it("mid-tool: the running call finishes and its cost is kept, but no later step or tool runs", async () => {
@@ -116,7 +116,7 @@ describe("stopping an agent mid-reply", () => {
 			yield words(" the same day");
 		});
 		await t.action(internal.agent.respond, { turnId });
-		expect((await owner.query(api.messages.list, { chatId: general })).at(-1)).toMatchObject({ text: "Log every call the same day", stoppedBy: "owner@co.com" });
+		expect((await messagesIn(owner, { chatId: general })).at(-1)).toMatchObject({ text: "Log every call the same day", stoppedBy: "owner@co.com" });
 	});
 
 	it("starts the next queued turn in the place", async () => {

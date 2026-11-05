@@ -24,6 +24,7 @@ import type * as chains from "../chains.js";
 import type * as chatOps from "../chatOps.js";
 import type * as chatTools from "../chatTools.js";
 import type * as chats from "../chats.js";
+import type * as connectorAccess from "../connectorAccess.js";
 import type * as connectorTools from "../connectorTools.js";
 import type * as connectors from "../connectors.js";
 import type * as crons from "../crons.js";
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   chatOps: typeof chatOps;
   chatTools: typeof chatTools;
   chats: typeof chats;
+  connectorAccess: typeof connectorAccess;
   connectorTools: typeof connectorTools;
   connectors: typeof connectors;
   crons: typeof crons;

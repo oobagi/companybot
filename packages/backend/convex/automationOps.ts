@@ -1,4 +1,4 @@
-import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditAutomation, customAutomation, isRestricted, normalizeTrigger } from "@companybot/core";
+import { type Automation, type AutomationAudience, type CustomAutomationConfig, canEditAutomation, customAutomation, isRestricted, normalizeTrigger, nextRuns, scheduleCron } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type Member, checkPermission, requireMember } from "./lib";
@@ -129,7 +129,7 @@ export const runsForLabel = (audience: AutomationAudience, channel: Doc<"chats">
  * its trigger watches) for `outcomeText` to name to each reader. Never a channel's name: the last run's
  * line shows to everyone who can see the automation, and not all of them can see its channels.
  */
-export type RunOutcome = { text: string; channelId?: Id<"chats">; watchedId?: Id<"chats"> };
+export type RunOutcome = { text: string; failed?: boolean; channelId?: Id<"chats">; watchedId?: Id<"chats"> };
 
 /** A run's line for `viewer` (null: someone outside, like a webhook's sender): a channel by name only to someone who can see it. */
 export async function outcomeText(ctx: QueryCtx, outcome: RunOutcome, viewer: Member | null) {
@@ -152,3 +152,15 @@ export async function postingProblem(ctx: QueryCtx, trigger: CustomAutomationCon
 	// Same for one only some roles can see: posting elsewhere would show its messages to people they're kept from.
 	return source && isRestricted(source.access) ? { text: "It watches {watched}, which only some roles can see, so it can only post there or to people who turn it on.", watchedId: source._id } : null;
 }
+
+/** Derived trigger indexes. All install writes and the backfill use this same calculation. */
+export function triggerIndexes(install: Pick<Doc<"automationInstalls">, "custom" | "definition" | "enabled" | "archived" | "timeZone">, after: number) {
+	const trigger = install.custom?.trigger ?? install.definition?.trigger;
+	return {
+		nextRunAt: install.enabled && !install.archived && trigger?.type === "schedule" ? nextRuns(scheduleCron(trigger), install.timeZone, after, 1)[0] : undefined,
+		eventKey: install.enabled && !install.archived && trigger?.type === "event" ? eventKeyFor(trigger.event, trigger.event === "message.posted" ? trigger.channelId : undefined) : undefined,
+	};
+}
+
+/** The editor requires a channel; legacy channel-less triggers remain inactive. */
+export const eventKeyFor = (event: string, channelId?: string) => event === "message.posted" ? (channelId ? `${event}:${channelId}` : undefined) : event;

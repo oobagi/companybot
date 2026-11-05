@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { STEER_WINDOW_MS } from "../convex/agent";
-import { type As, agentTurn, agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, turnsOf } from "./helpers";
+import { type As, agentTurn, agentsOf, finishTurn, generalOf, noMentions, ownerAndMember, turnsOf, messagesIn } from "./helpers";
 
 // Your message steers the running turn (#189, wiki/chat.md "Steering"). No network: the runner's model
 // call is a scripted stream that honors the abort signal, and calls the run's prepareStep and stop
@@ -257,7 +257,7 @@ describe("steering a running turn", () => {
 		expect((await turnsOf(t)).filter((x) => x.status === "queued" || x.status === "running")).toHaveLength(0);
 		expect(await agentMessages(t, chatId)).toHaveLength(1);
 		// The reply shows below everything it read, though it began before them.
-		expect((await owner.query(api.messages.list, { chatId })).map((m) => m.text)).toEqual(["do X", "with something?", "pl;llllease?", ":)", "Sure, what do you need help with?"]);
+		expect((await messagesIn(owner, { chatId })).map((m) => m.text)).toEqual(["do X", "with something?", "pl;llllease?", ":)", "Sure, what do you need help with?"]);
 	});
 
 	it("Stop pressed while it waits for the person to pause ends the turn", async () => {
@@ -416,7 +416,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 			await later();
 			yield { type: "text-delta", text: " 10" };
 			const replyId = (await turnOf(t, turnId))!.replyId;
-			shownBefore = (await owner.query(api.messages.list, { chatId })).find((m) => m._id === replyId);
+			shownBefore = (await messagesIn(owner, { chatId })).find((m) => m._id === replyId);
 			nvm = await say(owner, chatId, "nvm, what's 6 / 3?");
 			await later();
 			// The next part's check hears it and cuts the step off.
@@ -444,7 +444,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 		// The partial message was dropped before the new run began, and only the new answer is left.
 		expect(streamAtRestart).toBe("");
 		expect(await replyOf(t, turnId)).toMatchObject({ status: "done", text: "6 ÷ 3 = 2.", parts: [{ type: "text", text: "6 ÷ 3 = 2." }] });
-		expect((await owner.query(api.messages.list, { chatId })).map((m) => m.text).slice(-2)).toEqual(["nvm, what's 6 / 3?", "6 ÷ 3 = 2."]);
+		expect((await messagesIn(owner, { chatId })).map((m) => m.text).slice(-2)).toEqual(["nvm, what's 6 / 3?", "6 ÷ 3 = 2."]);
 		expect(await turnFor(t, nvm)).toMatchObject({ status: "done", mergedInto: turnId });
 	});
 
@@ -468,7 +468,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 		}, quietly);
 		await t.action(internal.agent.respond, { turnId });
 		expect(await replyOf(t, turnId)).toMatchObject({ status: "done", quiet: true, parts: [] });
-		expect((await owner.query(api.messages.list, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
+		expect((await messagesIn(owner, { chatId })).filter((m) => m.author.type === "agent")).toEqual([]);
 	});
 
 	it("an @mention of another agent reaches it too, and that agent still answers", async () => {
@@ -511,7 +511,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 		}, posts);
 		await t.action(internal.agent.respond, { turnId });
 
-		const texts = (await owner.query(api.messages.list, { chatId })).map((m) => m.text);
+		const texts = (await messagesIn(owner, { chatId })).map((m) => m.text);
 		expect(texts.slice(-2)).toEqual(["with something?", "Sure, what do you need help with?"]);
 	});
 

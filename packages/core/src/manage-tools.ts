@@ -7,9 +7,11 @@ import { FILES_PER_MESSAGE } from "./files";
 import { pictureLimits } from "./images";
 import { replyModes } from "./router";
 import { SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX, SKILL_NAME_MAX } from "./skills";
-import { defineTool, type ToolDef } from "./tools";
+import { type Bound, defineTool, type ToolDef } from "./tools";
 
 const id = z.string().min(1);
+/** A chat a write changes: by id, or "here", never a #name that a rename could hand to another channel. */
+const chatRef = id.describe('Chat id (from list_chats or channels list), or "here" for this chat');
 const ids = z.array(id).max(50);
 const userIds = ids.describe("User ids from find_people");
 const agentIds = ids.describe("Agent ids from find_people with kind \"agents\"");
@@ -32,14 +34,14 @@ export const manageInputs = {
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("find_people"), kind: z.enum(["people", "agents", "invites"]).optional(), ...page }),
 			z.strictObject({ action: z.literal("list_chats"), ...page }),
-			z.strictObject({ action: z.literal("mark_read"), chat: id }),
+			z.strictObject({ action: z.literal("mark_read"), chat: chatRef }),
 			z.strictObject({ action: z.literal("edit"), messageId: id, text: z.string().min(1).max(20_000) }),
 			z.strictObject({ action: z.literal("delete"), messageId: id }),
 			z.strictObject({ action: z.literal("hide_preview"), messageId: id, url: z.string().min(1).max(2048).describe("The link whose preview card to take down") }),
 			z.strictObject({ action: z.literal("open_dm"), userIds: userIds.describe("Others in the DM; your person is always added. With nobody else, it's your own DM with them"), agentIds }),
 			z.strictObject({
 				action: z.literal("send"),
-				chat: id.describe("Chat id or #channel, this one too: \"post X here for me\" is a send here, since your reply would be from you, not them"),
+				chat: chatRef.describe('Chat id, or "here" for this one: "post X here for me" is a send here, since your reply would be from you, not them'),
 				threadId: id.optional().describe("Top-level message id, to reply in its thread"),
 				text: z.string().max(20_000).optional().describe("Can be left out when sending files"),
 				files: z.array(fileRef).min(1).max(FILES_PER_MESSAGE).optional().describe("Files from the chat to attach, by file id; each is copied"),
@@ -51,18 +53,18 @@ export const manageInputs = {
 	"channels.manage": z.object({
 		request: z.discriminatedUnion("action", [
 			z.strictObject({ action: z.literal("list"), ...page }),
-			z.strictObject({ action: z.literal("get"), chat: id, ...page }),
+			z.strictObject({ action: z.literal("get"), chat: id.describe("Chat id or #name"), ...page }),
 			z.strictObject({ action: z.literal("create"), name: z.string().min(1).max(80), topic: z.string().max(TOPIC_MAX).optional().describe(`At most ${TOPIC_MAX} characters`), private: z.boolean() }),
-			z.strictObject({ action: z.literal("rename"), chat: id, name: z.string().min(1).max(80) }),
-			z.strictObject({ action: z.literal("set_topic"), chat: id, topic: z.string().max(TOPIC_MAX).describe(`At most ${TOPIC_MAX} characters; empty clears it`) }),
-			z.strictObject({ action: z.literal("set_replies"), chat: id, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer messages that look meant for them') }),
-			z.strictObject({ action: z.literal("add_members"), chat: id, userIds, agentIds }),
+			z.strictObject({ action: z.literal("rename"), chat: chatRef, name: z.string().min(1).max(80) }),
+			z.strictObject({ action: z.literal("set_topic"), chat: chatRef, topic: z.string().max(TOPIC_MAX).describe(`At most ${TOPIC_MAX} characters; empty clears it`) }),
+			z.strictObject({ action: z.literal("set_replies"), chat: chatRef, replies: z.enum(replyModes).describe('"mentions": agents answer only @mentions. "relevant": they also answer messages that look meant for them') }),
+			z.strictObject({ action: z.literal("add_members"), chat: chatRef, userIds, agentIds }),
 			z
-				.strictObject({ action: z.literal("remove_member"), chat: id, userId: id.optional(), agentId: id.optional() })
+				.strictObject({ action: z.literal("remove_member"), chat: chatRef, userId: id.optional(), agentId: id.optional() })
 				.refine((x) => !!x.userId !== !!x.agentId, "Choose one person or agent"),
-			z.strictObject({ action: z.literal("join"), chat: id }),
-			z.strictObject({ action: z.literal("leave"), chat: id }),
-			z.strictObject({ action: z.literal("delete"), chat: id }),
+			z.strictObject({ action: z.literal("join"), chat: chatRef }),
+			z.strictObject({ action: z.literal("leave"), chat: chatRef }),
+			z.strictObject({ action: z.literal("delete"), chat: chatRef }),
 			z.strictObject({ action: z.literal("restore"), chat: id.describe("Exact id of the deleted channel") }),
 		]),
 	}),
@@ -149,7 +151,7 @@ export interface ManageStore {
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
 	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, post a message (and files from the chat, by file id) for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
-	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. Use chat ids or #names. Creating, changing, removing members, deleting and restoring take the person's channel switch; everyone stays in general. Delete moves a channel to Archive and waits for approval. Restore by its exact id. Never deletes forever." },
+	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. get takes a chat id or #name; changes take its id (or \"here\"), since names can change. Creating, changing, removing members, deleting and restoring take the person's channel switch; everyone stays in general. Delete moves a channel to Archive and waits for approval. Restore by its exact id. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Archive an automation", description: "Move an automation to Archive, including retained library installs. It stops running; opt-ins and grants stay for restoration. Whoever can change it can restore it. The exact call waits for approval." },
 	"skills.manage": { title: "Manage skills", description: "List workspace skills and read their full instructions and current version. Editing is a separate tool that asks first." },
@@ -165,7 +167,7 @@ function manageLabel(input: unknown): string | undefined {
 	const r = (input as { request?: Record<string, unknown> } | undefined)?.request;
 	const at = (key: string) => (typeof r?.[key] === "string" ? (r[key] as string) : "");
 	// A chat is a #name or an id; ids aren't words, so they read as "a chat".
-	const chat = /^[a-z0-9]{31,}$/.test(at("chat")) ? "a chat" : `#${at("chat").replace(/^#/, "")}`;
+	const chat = at("chat") === "here" ? "this chat" : /^[a-z0-9]{31,}$/.test(at("chat")) ? "a chat" : `#${at("chat").replace(/^#/, "")}`;
 	switch (r?.action) {
 		case "invite":
 			return `Invite ${at("email")} to the workspace`;
@@ -184,6 +186,17 @@ function manageLabel(input: unknown): string | undefined {
 		case "add_members":
 			return `Add people to ${chat}`;
 	}
+}
+
+/** What a call's effect depends on as it is now (ToolDef.binds): the message it edits or deletes, the thing it archives. */
+function manageBinds(tool: ManageTool, input: unknown): Bound[] {
+	const r = manageInputs[tool].safeParse(input).data?.request as { action: string; id?: string; messageId?: string } | undefined;
+	if (!r) return [];
+	if (tool === "chat.manage" && (r.action === "edit" || r.action === "delete") && r.messageId) return [{ kind: "message", id: r.messageId }];
+	if (tool === "agents.manage" && r.action === "delete" && r.id) return [{ kind: "agent", id: r.id }];
+	if (tool === "skills.remove" && r.id) return [{ kind: "skill", id: r.id }];
+	if (tool === "automations.remove" && r.id) return [{ kind: "automation", id: r.id }];
+	return [];
 }
 
 function sentMessage(output: unknown): { chatId: string; messageId: string; kind?: "message" } | undefined {
@@ -207,6 +220,7 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 				return locked ? "locked" as const : "inside" as const;
 			},
 		}),
+		binds: (input: unknown) => manageBinds(id, input),
 		execute: (input, { manage }) => manage.run(id, input),
 		label: manageLabel,
 		// A sent message: its line jumps to it (in its thread, when it went in one).

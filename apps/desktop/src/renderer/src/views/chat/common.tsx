@@ -100,6 +100,8 @@ type Open = { close: () => void; node: () => HTMLElement | null; returnTo: () =>
  * side by side.
  */
 const layers: Open[] = [];
+/** Whether a popover or dialog is open: app-wide shortcuts (`shortcuts.ts`) wait till it closes. */
+export const anyLayerOpen = () => layers.length > 0;
 const escape = (e: KeyboardEvent) => e.key === "Escape" && !e.isComposing && layers.at(-1)?.close();
 /** Who hears when `layers` changes: each layer, to know whether it's still on top. */
 const listeners = new Set<() => void>();

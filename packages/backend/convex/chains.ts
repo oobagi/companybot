@@ -20,6 +20,8 @@ import { automationScope } from "./automationOps";
 import { addToChat, addUserMentions, chatMembersOf, insertMessage, requireChat } from "./chatOps";
 import { asToolResult, nameOf, requireMember } from "./lib";
 import { writeSources } from "./replySources";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
 import { createWakeup, wake } from "./wakeups";
 
@@ -76,9 +78,9 @@ async function reachable(ctx: QueryCtx, chat: Doc<"chats">, self: Id<"agents">) 
 async function agentPostsIn(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined) {
 	const recent = await ctx.db
 		.query("chatMessages")
-		.withIndex("by_chat_thread", (q) => q.eq("chatId", chatId).eq("threadId", threadId))
+		.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
 		.order("desc")
-		.filter((q) => q.and(q.neq(q.field("quiet"), true), q.eq(q.field("pause"), undefined), q.neq(q.field("deleted"), true)))
+		.filter((q) => q.and(q.eq(q.field("pause"), undefined), q.neq(q.field("deleted"), true)))
 		.take(20);
 	const posts = recent.findIndex((m) => !!m.authorUserId);
 	return posts === -1 ? recent.length : posts;
@@ -248,8 +250,8 @@ export const decide = mutation({
  * (`answerAsk`), whose wake turn finishes the original reply where it was.
  */
 export const askFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), agent: v.string(), message: v.string() },
-	handler: async (ctx, { turnId, agent: name, message }) => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), agent: v.string(), message: v.string() },
+	handler: (ctx, { turnId, op, agent: name, message }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, chat, member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
 			if (!(await personAsked(ctx, turn)))
@@ -314,7 +316,7 @@ export const askFor = internalMutation({
 				note: `${to.name} is answering, out of the chat. Its answer comes back to you in a new message here: say you asked, and stop until then.`,
 			};
 		});
-	},
+	}),
 });
 
 /** An asked agent's turn ended (turns.ts): its answer, or why there's none, goes back to the asker. */

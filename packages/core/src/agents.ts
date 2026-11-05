@@ -1,7 +1,7 @@
 import { type ModelMessage, type ToolSet, asSchema, isStepCount, tool } from "ai";
 import { callEnd } from "./activity";
 import { type AgentConfig, agentNameError, reasonings } from "./agent-config";
-import { type PermissionDecision, deniedReason, heldReason, permissionFor, toolRisk } from "./action-rules";
+import { type PermissionDecision, deniedReason, heldReason, permissionFor, readsOnly, toolRisk } from "./action-rules";
 import { builtinTools } from "./builtin-tools";
 import { type ModelInfo, fallbackModels } from "./models";
 import { can, canUseConnector } from "./permissions";
@@ -156,13 +156,27 @@ export function buildToolSet(
 	services: ConnectorService[] = [],
 ): ToolSet {
 	const tools: ToolSet = {};
-	const run = (t: ToolDef, input: unknown) => (t.returnsData ? withRef(t.execute(input, ctx), ctx) : t.execute(input, ctx));
+	// Every call runs with its own call id: built-ins write under it once (`forCall`), and a connector that takes an
+	// idempotency key gets it, so a retry can't do the same thing twice at the service either.
+	// A connector write whose tool takes no key is claimed by call id instead (`calls`), so it's never sent twice.
+	const run = async (t: ToolDef, input: unknown, callId: string) => {
+		const c = ctx.forCall ? { ...ctx, ...ctx.forCall(callId) } : ctx;
+		const keyed = await withIdempotencyKey(t, input, callId);
+		const claims = !!ctx.calls && t.source.type === "connector" && !readsOnly(t) && !(await idempotencyField(t));
+		if (claims) {
+			const instead = await ctx.calls!.start(callId);
+			if (instead) return instead;
+		}
+		const output = await (t.returnsData ? withRef(t.execute(keyed, c), c) : t.execute(keyed, c));
+		if (claims) await ctx.calls!.finish(callId, output);
+		return output;
+	};
 	const resolved = resolveTools(agent, available);
 	for (const t of resolved.filter((t) => t.source.type === "builtin")) {
 		tools[modelToolName(t.id)] = tool({
 			description: t.description,
 			inputSchema: t.input,
-			execute: (input) => run(t, input),
+			execute: (input, { toolCallId }) => run(t, input, toolCallId),
 			...(t.toModelOutput && { toModelOutput: t.toModelOutput }),
 		});
 	}
@@ -203,6 +217,28 @@ export async function actionOf(modelName: string, input: unknown, tools: ToolDef
 	return t ? { tool: t.riskFor ? { ...t, risk: t.riskFor(input) } : t, input } : null;
 }
 
+/** Input property names services use for an idempotency key (Night Owl's `idempotency_key`, Stripe-style `idempotencyKey`). */
+const IDEMPOTENCY_KEYS = ["idempotency_key", "idempotencyKey"];
+
+/** The input property a connector tool takes an idempotency key in, if it has one. */
+export async function idempotencyField(tool: ToolDef): Promise<string | undefined> {
+	if (tool.source.type !== "connector") return undefined;
+	const schema = (await asSchema(tool.input).jsonSchema) as { properties?: Record<string, unknown> };
+	return IDEMPOTENCY_KEYS.find((k) => schema.properties && k in schema.properties);
+}
+
+/**
+ * A connector call's input with `key` as its idempotency key, when the tool's schema takes one and the
+ * model left it out: a retry, or a call that may have happened, can't then happen twice at the service.
+ * Built-ins and other inputs come back as they are.
+ */
+export async function withIdempotencyKey(tool: ToolDef, input: unknown, key: string): Promise<unknown> {
+	if (tool.source.type !== "connector" || !input || typeof input !== "object" || Array.isArray(input)) return input;
+	const name = await idempotencyField(tool);
+	if (!name || (input as Record<string, unknown>)[name] !== undefined) return input;
+	return { ...input, [name]: key };
+}
+
 /**
  * Decides one call from the rules in force right now (see action-rules.permissionFor).
  * The runner reads them fresh for every call. Default: the tool's risk alone.
@@ -216,13 +252,14 @@ const byRiskOnly: PermissionCheck = async (t) => permissionFor({ risk: toolRisk(
  * unexecuted, except in automation runs (`waitFor`): there the model is told the call is
  * waiting and goes on, and the runner holds it. Blocked ones never run and the model is told
  * why. Built-ins with no risk skip the check (rules and locks only cover actions that can ask, plus
- * connector reads), unless they need a permission: that's checked per call too.
+ * connector reads), unless they need a permission or send their input out (`sendsOut`, which asks once the
+ * turn has read something more private than its chat): those are checked per call too.
  */
 export const toolApprovalPolicy =
 	(tools: ToolDef[], check: PermissionCheck = byRiskOnly) =>
 	async ({ toolCall }: { toolCall: { toolCallId: string; toolName: string; input: unknown } }) => {
 		const action = await actionOf(toolCall.toolName, toolCall.input, tools);
-		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none" && !action.tool.permission)) return undefined;
+		if (!action || (action.tool.source.type === "builtin" && toolRisk(action.tool) === "none" && !action.tool.permission && !action.tool.sendsOut)) return undefined;
 		const decision = await check(action.tool, toolCall.toolCallId);
 		if (decision.type === "ask")
 			return decision.waitFor ? { type: "denied" as const, reason: heldReason(decision.waitFor, action.tool.id) } : ("user-approval" as const);

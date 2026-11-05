@@ -11,7 +11,9 @@ import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { Agent, fetch } from "undici";
 import { internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { type ActionCtx, internalAction } from "./_generated/server";
+import { opArg } from "./schema";
 
 // web.fetch's network side (and link previews', linkUnfurl.ts). Node, for DNS: safeFetch (core)
 // checks every address a link resolves to, and undici then connects only to those, so a link can't
@@ -46,8 +48,20 @@ function failure(e: unknown, what: string) {
  * can use it by file id. Its type comes from its bytes, as for an upload; anything a message can't take is refused.
  */
 export const saveFile = internalAction({
-	args: { turnId: v.id("agentTurns"), url: v.string() },
-	handler: async (ctx, { turnId, url }): Promise<SavedFile | { error: string }> => {
+	args: { turnId: v.id("agentTurns"), url: v.string(), op: v.optional(opArg) },
+	handler: async (ctx, { turnId, url, op }): Promise<SavedFile | { error: string }> => {
+		// Claimed before it downloads or stores anything: the same call never saves it twice.
+		const ran = op && (await ctx.runMutation(internal.approvals.startOp, { turnId, op }));
+		if (ran) return { error: ran };
+		const saved = await saveFrom(ctx, turnId, url);
+		// Thrown partway, it stays claimed: whether it was saved is unknown.
+		if (op) await ctx.runMutation(internal.approvals.finishOp, { turnId, op });
+		return saved;
+	},
+});
+
+async function saveFrom(ctx: ActionCtx, turnId: Id<"agentTurns">, url: string): Promise<SavedFile | { error: string }> {
+	{
 		let body: FetchedBody;
 		try {
 			body = await fetchBody(url, { timeoutMs: 15_000, maxBytes: FILE_MAX_BYTES, accept: "image/png, image/jpeg, image/webp, image/gif, application/pdf, */*;q=0.5" });
@@ -60,8 +74,8 @@ export const saveFile = internalAction({
 		const storageId = await ctx.storage.store(new Blob([new Uint8Array(body.bytes)], { type }));
 		const attached = await ctx.runMutation(internal.files.attachToReply, { turnId, storageId, name, ...(isImageType(type) && imageSize(body.bytes, type)) });
 		return "error" in attached ? attached : { id: attached.id, name, type };
-	},
-});
+	}
+}
 
 /** What web.save keeps of a download: its type by its bytes and a name with a matching extension, or why not. */
 export function savedFrom(body: FetchedBody): { name: string; type: FileType } | { error: string } {

@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { APPROVAL_TTL_MS, approvalHash, canonicalJson } from "@companybot/core";
 
-import { type As, workspaceOf, inWorkspace, sideWorkspace, agentsOf, ownerAndMember, generalOf, turnsOf } from "./helpers";
+import { type As, workspaceOf, inWorkspace, sideWorkspace, agentsOf, ownerAndMember, generalOf, turnsOf, messagesIn } from "./helpers";
 import "./connectorFixtures";
 
 // The tests drive turns themselves; keep scheduled model replies back.
@@ -34,6 +34,8 @@ describe("approvals", () => {
 			input: canonicalJson(call.input),
 			risk: "outside",
 		});
+		// The step as the runner keeps it: the call, with no result (it's held).
+		await t.mutation(internal.turns.keepStep, { turnId: turn._id, messages: JSON.stringify([{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "crm_send_sms", input: call.input }] }]) });
 		const parts = [{ type: "approval" as const, id: "c1", approvalId, tool: call.tool }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: "", parts });
 		if (finish) await t.mutation(internal.turns.finishReply, { turnId: turn._id });
@@ -57,7 +59,7 @@ describe("approvals", () => {
 		const [theirs] = await owner.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(theirs).toMatchObject({ canDecide: false, input: card.input });
 
-		const reply = (await owner.query(api.messages.list, { chatId })).find((m) => m._id === turn.replyId)!;
+		const reply = (await messagesIn(owner, { chatId })).find((m) => m._id === turn.replyId)!;
 		expect(reply.parts).toMatchObject([{ type: "approval", tool: call.tool }]);
 
 		// Owners can't approve for someone else: the call would run as them.
@@ -134,12 +136,12 @@ describe("approvals", () => {
 		const context = await t.mutation(internal.turns.turnContext, { turnId: next._id });
 		expect(context.approval).toMatchObject({ id: approvalId, tool: call.tool, status: "approved", by: "member@co.com" });
 		// The held call replays the same way whatever happens to it (prompt caching), and no message is re-asked.
-		expect(context.session.turns.at(-1)?.reply).toBe("[Held for approval: crm.send_sms]");
+		expect(context.session.turns.at(-1)).toEqual({ prompt: "Reply to this message: text Bob", steps: JSON.stringify([{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "crm_send_sms", input: call.input }] }]), answer: "" });
 		expect(context.messages.some((m) => m.id === turn.triggerId)).toBe(false);
 
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
-		await t.mutation(internal.approvals.finish, { approvalId, result: '{"sent":true}' });
+		await t.mutation(internal.approvals.finish, { approvalId, turnId: next._id, result: '{"sent":true}' });
 		const [mine] = await member.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(mine).toMatchObject({ status: "done", result: '{"sent":true}' });
 	});
@@ -196,9 +198,19 @@ describe("approvals", () => {
 		const second = await holdCall(t, member, chatId);
 		await member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
-		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id });
+		// An outside service's call (a connector's) may have landed: failed, with an unknown outcome (older apps show the error).
+		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id, outside: true });
 		await t.mutation(internal.turns.finishReply, { turnId: next._id, error: "Timed out" });
-		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("may or may not have happened") });
+		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", outcome: "unknown", error: expect.stringContaining("may or may not have happened") });
+		expect((await member.query(api.approvals.forReply, { replyId: second.turn.replyId! }))[0]).toMatchObject({ status: "failed", outcome: "unknown" });
+
+		// A built-in's effect commits with its receipt, so one still running when its turn ends never happened.
+		const third = await holdCall(t, member, chatId);
+		await member.mutation(api.approvals.decide, { approvalId: third.approvalId, hash: third.card.hash, approve: true, always: false });
+		const last = (await turnsOf(t)).at(-1)!;
+		await t.mutation(internal.approvals.claim, { approvalId: third.approvalId, turnId: last._id });
+		await t.mutation(internal.turns.finishReply, { turnId: last._id, error: "Timed out" });
+		expect(await t.run((ctx) => ctx.db.get(third.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("nothing changed") });
 	});
 
 	it("tells the agent about a denial and runs nothing", async () => {

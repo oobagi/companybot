@@ -1,12 +1,13 @@
 import { fromLegacy } from "./wakeups";
+import { v } from "convex/values";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
 import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
-import { type RunOutcome, scheduleCursor } from "./automationOps";
-import { rolesOf, timeZoneOf } from "./lib";
+import { type RunOutcome, triggerIndexes, scheduleCursor } from "./automationOps";
+import { memberProfile, rolesOf, timeZoneOf } from "./lib";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
 
@@ -313,6 +314,101 @@ export const dropChatReactLocks = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): retire after existing installs have their trigger indexes backfilled.
+export const automationTriggerIndexes = migrations.define({
+	table: "automationInstalls",
+	batchSize: 50,
+	migrateOne: async (ctx, install) => {
+		await ctx.db.patch(install._id, triggerIndexes(install, scheduleCursor(install)));
+	},
+});
+
+// A chat's last message time and running cost moved to its own `chatActivity` row, so a message no longer
+// re-runs every query that reads the chat. This moves each chat's onto that row (one the app made since
+// already started from the chat's, so it's newer and stays) and clears them from the chat.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, the two
+// legacy fields (schema.ts) and the fallback in chatOps `activityOf`.
+export const chatActivity = migrations.define({
+	table: "chats",
+	batchSize: 50,
+	migrateOne: async (ctx, chat) => {
+		if (chat.lastMessageAt === undefined && chat.costUsd === undefined) return;
+		const row = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).unique();
+		if (!row) await ctx.db.insert("chatActivity", { chatId: chat._id, lastMessageAt: chat.lastMessageAt ?? chat._creationTime, ...(chat.costUsd ? { costUsd: chat.costUsd } : {}) });
+		await ctx.db.patch(chat._id, { lastMessageAt: undefined, costUsd: undefined });
+	},
+});
+
+// Lists page by when each message was shown (`publishedAt`, index by_chat_shown), so a reply shown late is on the
+// newest page. New messages get it when sent or shown; this gives older ones theirs: where they sit now (shownAt).
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test.
+export const messageShownAt = migrations.define({
+	table: "chatMessages",
+	batchSize: 100,
+	migrateOne: async (ctx, m) => {
+		if (m.publishedAt === undefined && !m.quiet) await ctx.db.patch(m._id, { publishedAt: m._creationTime });
+	},
+});
+
+// COMPAT(0.1.0-alpha.10): member lists read only `members` (workspace.team), so each row copies its person's
+// profile. Once these have run on prod, delete them, their entries in `all` and their test, make
+// `members.name`, `members.timeZone` and `chats.memberCount` required, and drop `preferences.workspaceId` (schema.ts).
+export const memberProfiles = migrations.define({
+	table: "members",
+	batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		const profile = await memberProfile(ctx, row.userId);
+		if (row.name !== profile.name || row.image !== profile.image || row.timeZone !== profile.timeZone) await ctx.db.patch(row._id, profile);
+	},
+});
+
+// The last used workspace moved out of `preferences`, so switching touches nothing member lists read.
+// One saved since (`lastWorkspaces`) is newer and stays.
+export const lastWorkspaces = migrations.define({
+	table: "preferences",
+	batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		if (row.workspaceId === undefined) return;
+		const saved = await ctx.db.query("lastWorkspaces").withIndex("by_user", (q) => q.eq("userId", row.userId)).first();
+		if (!saved && (await ctx.db.get(row.workspaceId))) await ctx.db.insert("lastWorkspaces", { userId: row.userId, workspaceId: row.workspaceId });
+		await ctx.db.patch(row._id, { workspaceId: undefined });
+	},
+});
+
+// Each chat counts its seats, so channel browsing doesn't read them. Chats made since start at 0 and count live.
+// A big chat is counted SEAT_COUNT_STEP seats a transaction, oldest first, its progress on the chat (`seatCount`):
+// seats added meanwhile are newer, so a later step reads them; one removed that was already counted comes off
+// (chatOps.countSeats).
+const SEAT_COUNT_STEP = 4_000;
+export const chatMemberCounts = migrations.define({
+	table: "chats",
+	batchSize: 1,
+	migrateOne: async (ctx, chat) => {
+		if (!(await countSeatsStep(ctx, chat._id))) await ctx.scheduler.runAfter(0, internal.migrations.continueSeatCount, { chatId: chat._id });
+	},
+});
+
+/** Counts the next seats of a chat still being counted. True once it has its `memberCount`. */
+async function countSeatsStep(ctx: MutationCtx, chatId: Id<"chats">) {
+	const chat = await ctx.db.get(chatId);
+	if (!chat || chat.memberCount !== undefined) return true;
+	const { counted, after } = chat.seatCount ?? { counted: 0, after: 0 };
+	const seats = await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", chatId).gt("_creationTime", after)).take(SEAT_COUNT_STEP);
+	if (seats.length < SEAT_COUNT_STEP) {
+		await ctx.db.patch(chatId, { memberCount: counted + seats.length, seatCount: undefined });
+		return true;
+	}
+	await ctx.db.patch(chatId, { seatCount: { counted: counted + seats.length, after: seats.at(-1)!._creationTime } });
+	return false;
+}
+
+export const continueSeatCount = internalMutation({
+	args: { chatId: v.id("chats") },
+	handler: async (ctx, { chatId }) => {
+		if (!(await countSeatsStep(ctx, chatId))) await ctx.scheduler.runAfter(0, internal.migrations.continueSeatCount, { chatId });
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
@@ -338,6 +434,12 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.dropChatReactRules,
 	internal.migrations.dropChatReactLocks,
 	internal.migrations.channelTopics,
+	internal.migrations.automationTriggerIndexes,
+	internal.migrations.chatActivity,
+	internal.migrations.messageShownAt,
+	internal.migrations.memberProfiles,
+	internal.migrations.lastWorkspaces,
+	internal.migrations.chatMemberCounts,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

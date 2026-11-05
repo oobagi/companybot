@@ -16,6 +16,8 @@ import { chatAccess } from "./placeAccess";
 import { updatePreferences } from "./preferences";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { requirePersonalSkillChat, installOf as skillInstallOf, removeSkill, saveSkill } from "./skills";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
@@ -29,10 +31,20 @@ function rowId<T extends TableNames>(ctx: MutationCtx, table: T, raw: string): I
 	if (!id) throw new ConvexError("Invalid id.");
 	return id;
 }
+/** A chat to read: by id or #name. */
 async function chatId(ctx: MutationCtx, member: Member, ref: string) {
 	const chat = await chatByRef(ctx, member, ref);
 	if (!chat) throw new ConvexError("Chat not found.");
 	return chat._id;
+}
+/**
+ * A chat a write changes: by id, or "here" (the turn's chat), never by #name, so a held call runs where it
+ * was approved even if that channel is renamed and another takes its name meanwhile.
+ */
+async function chatToChange(ctx: MutationCtx, member: Member, ref: string, here: Id<"chats">) {
+	if (ref === "here") return here;
+	if (!ctx.db.normalizeId("chats", ref)) throw new ConvexError(`Name the chat by its id or "here", not “${ref}”: names can change. channels list and list_chats give ids.`);
+	return chatId(ctx, member, ref);
 }
 const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: string[] }) => ({
 	userIds: (r.userIds ?? []).map((i) => rowId(ctx, "users", i)),
@@ -40,8 +52,8 @@ const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: stri
 });
 
 export const runFor = internalMutation({
-	args: { turnId: v.id("agentTurns"), tool: v.string(), input: v.any(), uploads: v.optional(v.record(v.string(), v.id("_storage"))) },
-	handler: async (ctx, { turnId, tool, input, uploads = {} }): Promise<unknown> => {
+	args: { turnId: v.id("agentTurns"), op: v.optional(opArg), tool: v.string(), input: v.any(), uploads: v.optional(v.record(v.string(), v.id("_storage"))) },
+	handler: (ctx, { turnId, op, tool, input, uploads = {} }): Promise<unknown> => withReceipt(ctx, op, turnId, async () => {
 		/** The copy of a chat file this call made. */
 		const copyOf = (id: string) => {
 			const copy = uploads[id];
@@ -99,7 +111,7 @@ export const runFor = internalMutation({
 						return { ...result, page };
 					}
 					if (r.action === "mark_read") {
-						await markReadAs(ctx, member, await chatId(ctx, member, r.chat));
+						await markReadAs(ctx, member, await chatToChange(ctx, member, r.chat, chat._id));
 						return { done: r.action };
 					}
 					if (r.action === "edit" || r.action === "delete" || r.action === "hide_preview") {
@@ -116,7 +128,7 @@ export const runFor = internalMutation({
 						const alone = others.agentIds.length === 0 && others.userIds.every((id) => id === member.userId);
 						return { chatId: await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others) };
 					}
-					const to = { chatId: await chatId(ctx, member, r.chat), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
+					const to = { chatId: await chatToChange(ctx, member, r.chat, chat._id), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
 					const messageId = await sendMessage(ctx, who, { ...to, text: r.text ?? "", mentions: participants(ctx, r), attachments: r.files?.map(copyOf) });
 					// Posted right where the agent is replying: its reply shouldn't say it again.
 					const here = to.chatId === turn.chatId && to.threadId === turn.threadId;
@@ -137,7 +149,7 @@ export const runFor = internalMutation({
 						return { ...result, page };
 					}
 					if (r.action === "create") return { chatId: await createChannelAs(ctx, member, r) };
-					const id = await chatId(ctx, member, r.chat);
+					const id = r.action === "get" ? await chatId(ctx, member, r.chat) : await chatToChange(ctx, member, r.chat, chat._id);
 					if (r.action === "get") {
 						const chat = await requireChat(ctx, member, id);
 						const result = await ctx.db
@@ -317,7 +329,7 @@ export const runFor = internalMutation({
 				}
 			}
 		});
-	},
+	}),
 });
 
 /** Role ids as their names, for agents: what people call them. */

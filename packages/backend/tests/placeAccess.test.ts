@@ -1,3 +1,4 @@
+import { automationJobs } from "./automationJobs";
 import { Transform } from "@tiptap/pm/transform";
 import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest } from "convex-test";
@@ -6,7 +7,7 @@ import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { pageSchema } from "../convex/pageOps";
 import { wake } from "../convex/wakeups";
-import { type As, agentsOf, finishTurn, identityOf, ownerAndMember, sideWorkspace, signIn, settle, setMemberSwitch } from "./helpers";
+import { type As, agentsOf, finishTurn, identityOf, ownerAndMember, sideWorkspace, signIn, settle, setMemberSwitch, messagesIn } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
 // follows the list, and refusals name the roles that have access.
@@ -96,7 +97,8 @@ describe("who can access a database", () => {
 		expect((await tools.get(deal)).error).toBe("Only Office and Owners can see this database.");
 		expect(((await tools.find({ search: "Big roof" })).rows as { _id: string }[]).map((r) => r._id)).not.toContain(deal);
 		expect((await tools.get(call)).values).toMatchObject({ deal: "Locked record" });
-		expect((await tools.save({ type: "Deals", values: { name: "Sneaky" } })).error).toBe("Only Office and Owners can see Deals.");
+		// Writes take its key, never its name, and still refuse naming who can.
+		expect((await tools.save({ type: "deal", values: { name: "Sneaky" } })).error).toBe("Only Office and Owners can see deal.");
 	});
 
 	it("lets View read but not change, and Edit change", async () => {
@@ -148,7 +150,7 @@ describe("who can access a channel", () => {
 		const posted = await office.mutation(api.messages.send, { chatId: news, text: "Big news", mentions: { userIds: [], agentIds: [] } });
 		await expect(crew.mutation(api.messages.send, { chatId: news, text: "Me too", mentions: { userIds: [], agentIds: [] } })).rejects.toThrow("Only Office and Owners can post in #news.");
 		await expect(crew.mutation(api.messages.react, { messageId: posted, emoji: "👍" })).rejects.toThrow("Only Office and Owners can post in #news.");
-		expect((await crew.query(api.messages.list, { chatId: news })).map((m) => m.text)).toEqual(["Big news"]);
+		expect((await messagesIn(crew, { chatId: news })).map((m) => m.text)).toEqual(["Big news"]);
 		expect(await crew.query(api.chats.get, { chatId: news })).toMatchObject({ canPost: false, canManage: false, lock: { who: "Office and Owners", edit: true } });
 		expect((await office.query(api.chats.get, { chatId: news }))!.canPost).toBe(true);
 		// #general stays open to everyone, at least to read.
@@ -167,7 +169,7 @@ describe("who can access a channel", () => {
 		expect((await crew.query(api.chats.list))!.channels.map((c) => c.name)).not.toContain("deals");
 		expect((await crew.query(api.chats.browse)).map((c) => c.name)).not.toContain("deals");
 		expect(await crew.query(api.chats.get, { chatId: deals })).toBeNull();
-		expect(await crew.query(api.messages.list, { chatId: deals })).toEqual([]);
+		expect(await messagesIn(crew, { chatId: deals })).toEqual([]);
 		expect((await crew.query(api.chats.alerts))!.some((a) => a.chatId === deals)).toBe(false);
 		await expect(crew.mutation(api.messages.send, { chatId: deals, text: "hi", mentions: { userIds: [], agentIds: [] } })).rejects.toThrow("Only Office and Owners can see this channel.");
 		expect((await office.query(api.chats.browse)).map((c) => c.name)).toContain("deals");
@@ -273,7 +275,7 @@ describe("restored, woken, queued and background paths", () => {
 		await owner.mutation(api.chats.setAccess, { chatId: general, access: [{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }] });
 		await expect(t.mutation(internal.turns.turnContext, { turnId: running._id })).rejects.toThrow("This person can no longer post in this chat.");
 		await finishTurn(t, running._id, "Posting anyway");
-		expect((await crew.query(api.messages.list, { chatId: general })).map((m) => m.text)).not.toContain("Posting anyway");
+		expect((await messagesIn(crew, { chatId: general })).map((m) => m.text)).not.toContain("Posting anyway");
 		expect((await turnOfWake(t, second))!.status).toBe("error");
 		// A new one stops before any turn.
 		const third = await wakeIn(t, crew, general);
@@ -298,7 +300,7 @@ describe("restored, woken, queued and background paths", () => {
 		expect(turn.status).toBe("error");
 		expect(reply).toMatchObject({ status: "error", error: "This person can no longer post in this chat." });
 		expect(JSON.stringify(reply)).not.toContain("After the change");
-		expect(JSON.stringify(await crew.query(api.messages.list, { chatId: general }))).not.toContain("After the change");
+		expect(JSON.stringify(await messagesIn(crew, { chatId: general }))).not.toContain("After the change");
 	});
 
 	it("cancels a follow-up whose record's database was hidden since, without naming it in Activity", async () => {
@@ -443,6 +445,7 @@ describe("restored, woken, queued and background paths", () => {
 		// Last runs naming a channel: one that posted there, and one refused for watching it. Its turn never runs.
 		vi.useFakeTimers();
 		await t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		await automationJobs(t);
 		await t.run(async (ctx) => {
 			const install = (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === watcher)!;
 			await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastOutcome: { text: "Didn't run: It watches {watched}, which is private.", watchedId: vault } });
@@ -601,7 +604,7 @@ describe("restored, woken, queued and background paths", () => {
 		await owner.mutation(api.trash.move, { kind: "database", id: deals });
 		const tools = await turnFor(t, crew);
 		const restored = await tools.saveDatabase({ type: "Nope", trash: false });
-		expect(restored.error).toMatch(/^There's no database “Nope”/);
+		expect(restored.error).toMatch(/^Name the database by its key or id/);
 		expect(restored.error).not.toMatch(/deal/i);
 		expect((await tools.find({ type: "Nope" })).error).not.toMatch(/deal/i);
 	});
@@ -652,6 +655,7 @@ describe("a restricted place, as someone not on its list", () => {
 		await t.mutation(internal.activity.log, { turnId: ownersTurn._id, callId: "c1", tool: "records.find", changes: false, input: JSON.stringify({ type: "Vaultbids" }), output: "Vaultbid quartz" });
 		await owner.mutation(api.automations.create, { config: { name: "Poster", prompt: "Sum it up.", trigger: { type: "schedule", cron: "0 9 * * *" } }, agentId: companybot._id, audience: "channel", channelId: room, timeZone: "UTC" });
 		await t.mutation(internal.automationRuns.tick, { now: Date.now() + 2 * 86_400_000 });
+		await automationJobs(t);
 		expect((await owner.query(api.automations.list)).find((a) => a.name === "Poster")!.lastResult).toBe("Posted in #vaultroom.");
 		await owner.mutation(api.typing.ping, { chatId: room });
 		const lobby = await owner.mutation(api.pages.create, { title: "Lobby" });

@@ -84,7 +84,13 @@ export async function ownerAndMember() {
 }
 
 export type As = ReturnType<typeof person>;
+/** A chat's or a thread's messages as the app first shows them: its newest page, in the order shown. */
+export const messagesIn = async (as: Pick<As, "query">, args: Omit<FunctionArgs<typeof api.messages.page>, "paginationOpts">) =>
+	(await as.query(api.messages.page, { ...args, paginationOpts: { numItems: 200, cursor: null } })).page;
 export const noMentions = { userIds: [], agentIds: [] };
+/** A chat's activity row: its last message time and running cost (chatOps `activityOf`). */
+export const chatActivityOf = (t: ReturnType<typeof newTest>, chatId: Id<"chats">) =>
+	t.run(async (ctx) => (await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).unique())!);
 /** Read times are in ms; let the clock move so "after" means after. */
 export const tick = () => new Promise((r) => setTimeout(r, 3));
 /** #general with its members (chats.get: the list leaves channel members out). */
@@ -113,6 +119,15 @@ export async function finishTurn(
 	await t.mutation(internal.turns.updateReply, { turnId, text: say, parts: [...parts, ...(say ? [{ type: "text" as const, text: say }] : [])] });
 	await t.mutation(internal.turns.finishReply, { turnId, usage, decision: decided });
 }
+/** Chats whose `memberCount` isn't their number of seats: none, wherever seats were made. */
+export const miscounted = (t: ReturnType<typeof convexTest>) =>
+	t.run(async (ctx) => {
+		const seats = new Map<string, number>();
+		for (const row of await ctx.db.query("chatMembers").collect()) seats.set(row.chatId, (seats.get(row.chatId) ?? 0) + 1);
+		return (await ctx.db.query("chats").collect())
+			.filter((chat) => chat.memberCount !== (seats.get(chat._id) ?? 0))
+			.map((chat) => ({ chat: chat.name ?? chat.kind, memberCount: chat.memberCount, seats: seats.get(chat._id) ?? 0 }));
+	});
 /** Runs everything scheduled (cascades, cleanups) until nothing is left. */
 export async function settle(t: ReturnType<typeof convexTest>) {
 	const fake = vi.isFakeTimers();
@@ -141,9 +156,13 @@ export async function builtInRoleIn(ctx: MutationCtx, workspaceId: Id<"workspace
 	return ids[which];
 }
 
-/** A membership row holding one built-in role. */
-export async function addMember(ctx: MutationCtx, { role, ...row }: { workspaceId: Id<"workspaces">; userId: Id<"users">; role: "owner" | "member"; email?: string }) {
-	return ctx.db.insert("members", { ...row, roles: [await builtInRoleIn(ctx, row.workspaceId, role)] });
+/**
+ * A membership row holding one built-in role, with the profile joining writes for someone with no preferences yet
+ * (named by `email`). No reads but the cached roles, so thousands fit one transaction: pass the email they signed in with.
+ */
+export async function addMember(ctx: MutationCtx, { role, email = "", ...row }: { workspaceId: Id<"workspaces">; userId: Id<"users">; role: "owner" | "member"; email?: string }) {
+	const normalized = email.trim().toLowerCase();
+	return ctx.db.insert("members", { ...row, email: normalized, name: normalized || "Former member", timeZone: "UTC", roles: [await builtInRoleIn(ctx, row.workspaceId, role)] });
 }
 
 /** Turns one of the Member role's switches on or off, as an owner (roles.setPermission). */

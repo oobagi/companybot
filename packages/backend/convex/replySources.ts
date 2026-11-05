@@ -7,7 +7,7 @@ import { chatAccess, reach, type AccessList } from "./placeAccess";
 import { canReadSources, opensSource, writeSourceReader } from "./replyPrivacy";
 
 type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
-export type UsedPlace = Place | Id<"users">;
+export type UsedPlace = Place | Id<"users"> | Id<"connectorInstalls">;
 const writes = new WeakMap<Member, Promise<void>>();
 
 /** Reads in a turn are mutations: the source commits before its result can reach the model or stream. */
@@ -49,7 +49,7 @@ export function chatSources(chat: Doc<"chats">): UsedPlace[] {
 }
 
 export type Sourced = { usedPlaces?: UsedPlace[] };
-export type Audience = Place | { place?: Place; access?: AccessList; users?: Id<"users">[] } | { places: UsedPlace[] } | { filtered: true; preserveOwn?: true };
+export type Audience = Place | { place?: Place; access?: AccessList; users?: Id<"users">[]; settings?: true; skip?: UsedPlace } | { places: UsedPlace[] } | { filtered: true; preserveOwn?: true };
 
 /** The same provenance applies when an artifact is read by a turn or copied into a scheduled trigger. */
 export const artifactSources = (artifact: Sourced, personalTo?: Id<"users"> | null): UsedPlace[] => [...new Set([...(artifact.usedPlaces ?? []), ...(personalTo ? [personalTo] : [])])];
@@ -62,21 +62,70 @@ export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sour
 	return true;
 }
 
+/** Direct Owner access changes may release deleted installs, only on the place being deliberately re-shared. */
+export async function changeAccessSources(ctx: MutationCtx, member: Member, place: Doc<"recordTypes"> | Doc<"chats"> | Doc<"pages">, audience: { access?: AccessList; users?: Id<"users">[] }) {
+	const retained: UsedPlace[] = [];
+	for (const id of place.usedPlaces ?? []) {
+		if (id === place._id) continue;
+		const connector = ctx.db.normalizeId("connectorInstalls", id);
+		if (member.owner && !member.replyId && connector && !(await ctx.db.get(connector))) continue;
+		retained.push(id);
+	}
+	const saved = await writeSources(ctx, member, { ...audience, settings: true }, { usedPlaces: retained });
+	if (saved.length !== (place.usedPlaces?.length ?? 0) || saved.some((id) => !place.usedPlaces?.includes(id))) {
+		await ctx.db.patch(place._id, { usedPlaces: saved.length ? saved : undefined });
+	}
+}
+
 /**
  * Only the asker's own turn in their agent DM may publish their one-person data. Every other source must fit the
  * destination audience. The original reply keeps all sources for display and context privacy.
  */
 export async function writeSources(ctx: MutationCtx, member: Member, audience?: Audience, artifact: Sourced = {}): Promise<UsedPlace[]> {
+	const { usedPlaces, place } = await fitSources(ctx, member, audience, artifact);
+	if (place) {
+		const saved = usedPlaces.filter((id) => id !== place._id);
+		if (saved.length !== (place.usedPlaces?.length ?? 0) || saved.some((id) => !place.usedPlaces?.includes(id))) await ctx.db.patch(place._id, { usedPlaces: saved.length ? saved : undefined });
+	}
+	return usedPlaces;
+}
+
+/**
+ * Whether anything this turn has read is restricted: then what it sends outside the workspace (a web search's
+ * query, a link it opens, a connector call) asks first (permissions.check). Outside has a wider audience than
+ * any chat, so the chat it runs in counts too (a private channel, a group DM), and so does a role-limited
+ * connector it read (#234), except for a read-only call to that same connector (`target`). The one exception is #210's
+ * own-data rule: in the asker's own 1:1 agent DM, their one-person data (that DM, personal memory, skills and
+ * connector data) doesn't count; anyone else's restricted place still does.
+ */
+export async function turnIsRestricted(ctx: QueryCtx, member: Member, target?: Id<"connectorInstalls">) {
+	if (!member.replyId) return false;
+	// The same check as a write to a place open to the whole workspace: a source that wouldn't fit it is restricted.
+	// Reading more from the workspace connector the data came from (`target`, read-only calls only) stays within its audience.
+	try {
+		await fitSources(ctx, member, { access: [{ role: EVERYONE, level: "view" }], skip: target });
+		return false;
+	} catch (e) {
+		if (e instanceof ConvexError) return true;
+		throw e;
+	}
+}
+
+/** `writeSources` without saving anything: the sources a write keeps, or a refusal if they don't fit `audience`. */
+async function fitSources(ctx: QueryCtx, member: Member, audience?: Audience, artifact: Sourced = {}) {
 	const placeId = typeof audience === "string" ? audience : audience && "place" in audience ? audience.place : undefined;
 	const place = placeId ? await ctx.db.get(placeId) : null;
 	const all = [...new Set([...(artifact.usedPlaces ?? []), ...(place?.usedPlaces ?? []), ...await turnSources(ctx, member)])];
-	if (audience && typeof audience === "object" && "filtered" in audience && audience.preserveOwn) return all;
+	if (audience && typeof audience === "object" && "filtered" in audience && audience.preserveOwn) return { usedPlaces: all, place };
 	const readSource = writeSourceReader(ctx, member);
 	const sources = await Promise.all(all.map(async (id) => ({ id, policy: await readSource(id) })));
 	const retained = sources.filter(({ policy }) => !member.ownWrites || !policy.visible || policy.exclusiveTo !== member.userId);
 	const usedPlaces = retained.map(({ id }) => id);
-	if (audience && typeof audience === "object" && "filtered" in audience) return usedPlaces;
+	if (audience && typeof audience === "object" && "filtered" in audience) return { usedPlaces, place };
 	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience];
+	// Content edits keep the destination's saved sources, which can narrow its audience beyond its access list.
+	// Proposed access changes still have to fit every source on their own.
+	if (typeof audience === "string") policies.push(...await Promise.all((place?.usedPlaces ?? []).map(readSource)));
 	const memberships = policies.flatMap((p) => p?.users ? [p.users] : []);
 	const users = memberships[0]?.filter((id) => memberships.every((list) => list.includes(id)));
 	// Load memberships and roles once per write, not once per source and destination member.
@@ -94,6 +143,7 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 	for (const { id, policy: from } of retained) {
 		// The place being changed will use the proposed policy itself. Other sources must still fit.
 		if (id === placeId) continue;
+		if (audience && typeof audience === "object" && "skip" in audience && audience.skip === id) continue;
 		if (audience && typeof audience === "object" && "places" in audience && audience.places.includes(id)) continue;
 		let allowed: boolean;
 		if (users) allowed = viewers.every((viewer) => opensSource(viewer, from));
@@ -105,12 +155,12 @@ export async function writeSources(ctx: MutationCtx, member: Member, audience?: 
 		}
 		if (!allowed || !from.visible) {
 			const who = from.person ?? (from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles));
+			if (audience && typeof audience === "object" && "settings" in audience && audience.settings) {
+				const name = from.visible || from.deletedConnector ? from.name : "a restricted source";
+				throw new ConvexError(`Can't change access: ${name} is restricted. Only ${who} can open this source.${from.deletedConnector ? " An Owner can re-share its saved work after uninstall." : " Choose roles that can open every source."}`);
+			}
 			throw new ConvexError(`This reply uses restricted places. Only ${who} can see this. It can't save it for a wider audience.`);
 		}
 	}
-	if (place) {
-		const saved = usedPlaces.filter((id) => id !== place._id);
-		if (saved.length !== (place.usedPlaces?.length ?? 0) || saved.some((id) => !place.usedPlaces?.includes(id))) await ctx.db.patch(place._id, { usedPlaces: saved.length ? saved : undefined });
-	}
-	return usedPlaces;
+	return { usedPlaces, place };
 }
