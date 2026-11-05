@@ -27,13 +27,15 @@ export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boole
 	return <PageOrFolder key={pageId} pageId={pageId as Id<"pages">} />;
 }
 
-/** The top level of Drive: what's there, with New and Upload. No title: the sidebar beside it already says Drive. */
+/**
+ * The top level of Drive: what's there, taking dropped files. No title and no New: the sidebar beside it
+ * already says Drive and has the +, as Databases with nothing open.
+ */
 function DriveRoot({ canEdit }: { canEdit: boolean }) {
-	const folder = useFolderActions(undefined, canEdit);
+	const uploads = useDriveUploads();
 	return (
-		<Page title="" wide actions={folder.actions}>
-			{folder.dialogs}
-			<DriveListing parentId={undefined} uploads={folder.uploads} onDismissUpload={folder.dismissUpload} onDrop={canEdit ? folder.drop : undefined} empty={<DriveEmpty canEdit={canEdit} />} />
+		<Page title="" wide>
+			<DriveListing parentId={undefined} uploads={uploads.into(undefined)} onDismissUpload={uploads.dismiss} onDrop={canEdit ? (files) => uploads.start(files) : undefined} empty={<DriveEmpty canEdit={canEdit} root />} />
 		</Page>
 	);
 }

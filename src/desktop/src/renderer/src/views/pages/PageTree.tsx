@@ -162,10 +162,52 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
 }
 
 /**
- * One level of Drive: folders first, then pages (both in the level's shared order; drag to reorder with
- * `sortable`), then files by name. A page's level has no files. `last` tells each row whether anything follows it.
+ * One level of Drive, loaded a page at a time: folders first, then pages (both in the level's shared
+ * order), then files by name. A page's level has no files. `empty` once it's known there's nothing.
  */
-export function DriveLevel({ parentId, parentKind, sortable = false, renderPage, renderFile, empty }: {
+export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder") {
+	const pages = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
+	const withFiles = parentKind !== "page";
+	const files = usePaginatedQuery(api.driveFiles.children, withFiles ? { parentId } : "skip", { initialNumItems: 30 });
+	const { sorted, drag } = useSortable("pages", pages.results, rowId, "y", parentId);
+	const rows = [...sorted.filter((p) => p.kind === "folder"), ...sorted.filter((p) => p.kind !== "folder")];
+	const fileRows = withFiles ? files.results : [];
+	const exhausted = pages.status === "Exhausted" && (!withFiles || files.status === "Exhausted");
+	return {
+		pages: rows,
+		files: fileRows,
+		drag,
+		pagesStatus: pages.status,
+		filesStatus: withFiles ? files.status : undefined,
+		loadPages: () => pages.loadMore(30),
+		loadFiles: () => files.loadMore(30),
+		empty: exhausted && !rows.length && !fileRows.length,
+	};
+}
+export type DriveLevelData = ReturnType<typeof useDriveLevel>;
+
+/** A level's rows. With `sortable`, drag folders and pages to reorder them. `last` tells each row whether anything follows it. */
+export function DriveRows({ level, sortable = false, renderPage, renderFile }: {
+	level: DriveLevelData;
+	sortable?: boolean;
+	renderPage: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode;
+	renderFile: (row: FileRow, last: boolean) => React.ReactNode;
+}) {
+	const { pages, files, drag, pagesStatus, filesStatus } = level;
+	const morePages = pagesStatus === "CanLoadMore";
+	const moreFiles = filesStatus === "CanLoadMore";
+	return (
+		<>
+			{pages.map((p, i) => renderPage(p, sortable ? drag(p._id) : undefined, i === pages.length - 1 && !morePages && !files.length && !moreFiles))}
+			<LoadMore status={pagesStatus} onMore={level.loadPages} />
+			{files.map((f, i) => renderFile(f, i === files.length - 1 && !moreFiles))}
+			{filesStatus && <LoadMore status={filesStatus} onMore={level.loadFiles} />}
+		</>
+	);
+}
+
+/** One level, loaded and rendered in one go: the sidebar's tree and the Move dialog. */
+export function DriveLevel({ parentId, parentKind, sortable, renderPage, renderFile, empty }: {
 	parentId?: PageId;
 	parentKind?: "page" | "folder";
 	sortable?: boolean;
@@ -173,22 +215,11 @@ export function DriveLevel({ parentId, parentKind, sortable = false, renderPage,
 	renderFile: (row: FileRow, last: boolean) => React.ReactNode;
 	empty?: React.ReactNode;
 }) {
-	const pages = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
-	const withFiles = parentKind !== "page";
-	const files = usePaginatedQuery(api.driveFiles.children, withFiles ? { parentId } : "skip", { initialNumItems: 30 });
-	const { sorted, drag } = useSortable("pages", pages.results, rowId, "y", parentId);
-	const ordered = [...sorted.filter((p) => p.kind === "folder"), ...sorted.filter((p) => p.kind !== "folder")];
-	const fileRows = withFiles ? files.results : [];
-	const morePages = pages.status === "CanLoadMore";
-	const moreFiles = withFiles && files.status === "CanLoadMore";
-	const exhausted = pages.status === "Exhausted" && (!withFiles || files.status === "Exhausted");
+	const level = useDriveLevel(parentId, parentKind);
 	return (
 		<>
-			{exhausted && !ordered.length && !fileRows.length && empty}
-			{ordered.map((p, i) => renderPage(p, sortable ? drag(p._id) : undefined, i === ordered.length - 1 && !morePages && !fileRows.length && !moreFiles))}
-			<LoadMore status={pages.status} onMore={() => pages.loadMore(30)} />
-			{fileRows.map((f, i) => renderFile(f, i === fileRows.length - 1 && !moreFiles))}
-			{withFiles && <LoadMore status={files.status} onMore={() => files.loadMore(30)} />}
+			{level.empty && empty}
+			<DriveRows level={level} sortable={sortable} renderPage={renderPage} renderFile={renderFile} />
 		</>
 	);
 }
