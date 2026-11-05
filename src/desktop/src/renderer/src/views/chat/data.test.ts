@@ -30,9 +30,24 @@ const shownIn = (local: OptimisticLocalStore, args: Record<string, unknown>, cur
 	(local.getQuery(api.messages.page, pageArgs(args, cursor) as never)?.page ?? []) as Message[];
 
 describe("showSending", () => {
+ it("keeps each send distinct and its identity stable when replayed", () => {
+ const first = showSending();
+ const second = showSending();
+ const fresh = () => store([[api.messages.page, pageArgs({}), pageOf([])], team]);
+ const local = fresh();
+ first(local, send);
+ second(local, send);
+ const ids = shownIn(local, {}).map((m) => m._id);
+ expect(new Set(ids).size).toBe(2);
+ const replay = fresh();
+ first(replay, send);
+ second(replay, send);
+ expect(shownIn(replay, {}).map((m) => m._id)).toEqual(ids);
+ });
+
 	it("adds your message, marked sending, to the end of the chat's newest page", () => {
 		const local = store([[api.messages.page, pageArgs({}), pageOf([{ _id: "m1" }])], [api.messages.page, pageArgs({}, "older"), pageOf([{ _id: "m0" }])], team]);
-		showSending(local, send);
+		showSending()(local, send);
 		const list = shownIn(local, {});
 		expect(list).toHaveLength(2);
 		expect(list[1]).toMatchObject({ text: "hi @Sam", mine: true, author: { type: "user", id: "u1", name: "Ada" }, sending: { files: 0 } });
@@ -42,21 +57,21 @@ describe("showSending", () => {
 	it("adds it to every copy of the newest page, so a page split since still shows it", () => {
 		const split = { ...pageArgs({}), paginationOpts: { numItems: 50, cursor: null, endCursor: "mid", id: 1 } };
 		const local = store([[api.messages.page, pageArgs({}), pageOf([{ _id: "m1" }])], [api.messages.page, split, pageOf([{ _id: "m1" }])], team]);
-		showSending(local, send);
+		showSending()(local, send);
 		expect(shownIn(local, {})).toHaveLength(2);
 		expect((local.getQuery(api.messages.page, split as never)!.page as Message[]).at(-1)).toMatchObject({ text: "hi @Sam", sending: { files: 0 } });
 	});
 
 	it("goes in the thread's list, not the chat's, and counts its files", () => {
 		const local = store([[api.messages.page, pageArgs({}), pageOf([])], [api.messages.page, pageArgs({ threadId }), pageOf([{ _id: threadId }])], team]);
-		showSending(local, { ...send, threadId, attachments: ["s1" as Id<"_storage">, "s2" as Id<"_storage">] });
+		showSending()(local, { ...send, threadId, attachments: ["s1" as Id<"_storage">, "s2" as Id<"_storage">] });
 		expect(shownIn(local, {})).toEqual([]);
 		expect(shownIn(local, { threadId })[1]).toMatchObject({ threadId, sending: { files: 2 } });
 	});
 
 	it("does nothing for a list that isn't loaded", () => {
 		const local = store([team]);
-		showSending(local, send);
+		showSending()(local, send);
 		expect(local.getAllQueries(api.messages.page)).toEqual([]);
 	});
 });

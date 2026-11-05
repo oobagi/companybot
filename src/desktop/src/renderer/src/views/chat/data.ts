@@ -41,16 +41,18 @@ export function useMessages(chatId: Id<"chats">, threadId?: Id<"chatMessages">) 
  * Your message shows at once, dimmed, at the end of the chat or thread until the server's list has
  * it (Discord does the same). A send that fails takes it out again; the composer gets the text back.
  */
-export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send>> = (store, { workspaceId, chatId, threadId, text, attachments = [] }) => {
+export const showSending = (): OptimisticUpdate<FunctionArgs<typeof api.messages.send>> => {
+ const now = Date.now();
+ const id = crypto.randomUUID();
+ return (store, { workspaceId, chatId, threadId, text, attachments = [] }) => {
 	// Its newest page: every one asked for with no cursor (a split page is asked for again, with its end).
 	const newest = store
 		.getAllQueries(api.messages.page)
 		.filter(({ args, value }) => value && args.workspaceId === workspaceId && args.chatId === chatId && args.threadId === threadId && args.paginationOpts.cursor === null);
 	const me = store.getQuery(api.workspace.team, { workspaceId })?.members.find((m) => m.isYou);
 	if (!newest.length || !me) return;
-	const now = Date.now();
 	const message: Message = {
-		_id: `sending:${now}` as Id<"chatMessages">,
+		_id: `sending:${id}` as Id<"chatMessages">,
 		_creationTime: now,
 		shownAt: now,
 		chatId,
@@ -77,6 +79,7 @@ export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send
 		sending: { files: attachments.length },
 	};
 	for (const { args, value } of newest) store.setQuery(api.messages.page, args, { ...value!, page: [...value!.page, message] });
+};
 };
 
 /** People, agents, channels and skills you can mention or add. `people` leaves you out. */

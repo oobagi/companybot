@@ -71,6 +71,7 @@ function PageScreen({ pageId }: { pageId: Id<"pages"> }) {
 			{page.trash && <TrashNotice trash={page.trash} />}
 			{page.archived && !page.trash && <Notice>It's in Archive with a page you can't see.</Notice>}
 			<PageEditor pageId={pageId} editable={page.canEdit} standalone={!page.recordId} focusKey={focusBody} />
+			{sharing && <PageAccess pageId={pageId} onClose={() => setSharing(false)} />}
 			{moving && <MovePage page={page} onClose={() => setMoving(false)} />}
 			{history && <PageHistory pageId={pageId} canRestore={page.canEdit} onClose={() => setHistory(false)} />}
 		</Page>

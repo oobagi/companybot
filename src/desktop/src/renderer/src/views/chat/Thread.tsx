@@ -29,7 +29,7 @@ export function ThreadPanel({
 }) {
 	const size = useStoredWidth("thread.width", 416, 280, 800);
 	const { messages, more } = useMessages(chat._id, threadId);
-	const send = useMutation(api.messages.send, showSending);
+	const send = useMutation(api.messages.send, undefined, showSending);
 	const typing = useTypingPing(chat._id, threadId);
 	const workspace = useWorkspace();
 	const files = useAttachments(draftKey(workspace?.id, chat._id, threadId));

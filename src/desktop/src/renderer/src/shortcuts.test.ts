@@ -108,7 +108,7 @@ it("opens the Nth top-level sidebar row with ⌥N, skipping folded sections, nes
 	expect(open).not.toHaveBeenCalled();
 });
 
-it("leaves ⌥N alone while typing", () => {
+it("opens sidebar rows while typing", () => {
 	const open = vi.fn();
 	render(sidebar(open));
 	const field = document.body.appendChild(document.createElement("input"));
@@ -116,7 +116,7 @@ it("leaves ⌥N alone while typing", () => {
 	const editor = document.body.appendChild(document.createElement("div"));
 	editor.contentEditable = "true";
 	press("Digit1", { altKey: true }, editor);
-	expect(open).not.toHaveBeenCalled();
+	expect(open).toHaveBeenCalledWith("sales");
 	field.remove();
 	editor.remove();
 });
@@ -132,4 +132,15 @@ it("shows Pin to rail, with its text, in an unpinned row's menu, including an ag
 		await act(async () => item!.click());
 	}
 	expect(startDm).toHaveBeenCalledOnce();
+});
+
+it("saves an active edit before keyboard navigation", () => {
+ const events: string[] = [];
+ render(rail(() => events.push("navigate")));
+ const input = document.body.appendChild(document.createElement("input"));
+ input.addEventListener("blur", () => events.push("save"));
+ input.focus();
+ press("Digit2", { metaKey: true }, input);
+ expect(events).toEqual(["save", "navigate"]);
+ input.remove();
 });

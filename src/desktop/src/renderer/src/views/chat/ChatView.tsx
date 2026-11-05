@@ -43,7 +43,7 @@ export function ChatView({
 
 function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWith: SendWith; focus?: ChatFocus; onLeft: () => void }) {
 	const { messages, more, all } = useMessages(chat._id);
-	const sendMessage = useMutation(api.messages.send, showSending);
+	const sendMessage = useMutation(api.messages.send, undefined, showSending);
 	const markRead = useMutation(api.chats.markRead);
 	const directory = useDirectory();
 	const workspace = useWorkspace();

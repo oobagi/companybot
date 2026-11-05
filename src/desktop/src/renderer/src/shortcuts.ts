@@ -5,7 +5,7 @@ import { anyLayerOpen } from "./views/chat/common";
  * The app's number shortcuts, one place for all three:
  * - ⌘1–9 open the rail's tabs in the order shown (Ctrl+1–9 off a Mac). They work while typing too,
  *   as in Slack: a digit with ⌘ types nothing.
- * - ⌥1–9 open the Nth row of the open tab's sidebar (Alt+1–9), not while typing.
+ * - ⌥1–9 open the Nth row of the open tab's sidebar (Alt+1–9), even while typing.
  * - ⌃⌘1–9 switch to the Nth workspace in the switcher (Ctrl+Shift+1–9).
  * Keys are read by position (`e.code`, Digit1): Option+1 on a Mac types ¡, so `e.key` isn't 1.
  * A key something else already handled (the editor's own shortcuts) is left alone, and none fire
@@ -27,7 +27,7 @@ export function jumpOf(e: KeyboardEvent): Jump | undefined {
 	const [tab, workspace] = isMac() ? ["M", "MC"] : ["C", "CS"];
 	if (mods === tab) return { to: "tab", n };
 	if (mods === workspace) return { to: "workspace", n };
-	if (mods === "A" && !typing(e.target)) return { to: "item", n };
+	if (mods === "A") return { to: "item", n };
 	return undefined;
 }
 
@@ -46,8 +46,9 @@ export function useJump(to: Jump["to"], go: (n: number) => boolean | void) {
 		const key = (e: KeyboardEvent) => {
 			const jump = jumpOf(e);
 			if (jump?.to !== to) return;
+			blurActiveEditable();
 			// False: nothing there (a 7th tab), so the key does what it would have.
-			if (latest.current(jump.n) !== false) e.preventDefault();
+			if (latest.current(jump.n) !== false || to === "item") e.preventDefault();
 		};
 		window.addEventListener("keydown", key);
 		return () => window.removeEventListener("keydown", key);
@@ -62,4 +63,9 @@ export function useJump(to: Jump["to"], go: (n: number) => boolean | void) {
 export function sidebarRow(list: HTMLElement | null, n: number) {
 	const rows = [...(list?.querySelectorAll<HTMLElement>("[data-sidebar-item]") ?? [])].filter((row) => !row.closest("[data-collapsed]"));
 	return rows[n - 1];
+}
+
+export function blurActiveEditable() {
+ const active = document.activeElement;
+ if (active instanceof HTMLElement && typing(active)) active.blur();
 }
