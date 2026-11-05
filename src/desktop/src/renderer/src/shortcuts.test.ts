@@ -12,7 +12,7 @@ import { Group, Item, SidebarList } from "./views/chat/Sidebar";
 const saved = vi.hoisted(() => ({ rail: [] as string[], pins: [] as string[] }));
 vi.mock("./arrangements", () => ({ useStoredIds: (list: string) => [list === "rail" ? saved.rail : [], () => {}, true] }));
 // The rail resolves pins from these; with none pinned it needs nothing back.
-vi.mock("./convex", async (real) => ({ ...(await real<typeof import("./convex")>()), useQuery: () => undefined, useWorkspace: () => undefined }));
+vi.mock("./convex", async (real) => ({ ...(await real<typeof import("./convex")>()), useQuery: () => undefined, useMutation: () => vi.fn(), useWorkspace: () => undefined }));
 vi.mock("./views/records/data", () => ({ useTypes: () => [] }));
 vi.mock("./pins", async (real) => ({ ...(await real<typeof import("./pins")>()), usePins: () => ({ pins: saved.pins, recent: [], toggle: vi.fn(), visit: vi.fn(), canSaveRecent: true }) }));
 

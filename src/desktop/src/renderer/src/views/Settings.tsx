@@ -362,7 +362,7 @@ function ProfileTab() {
 	// Edited together and saved from the top bar, like General. The draft keeps `start`, your preferences
 	// as they were when you began, so Save sends only what you changed here, never another device's change
 	// back; if they changed meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
-	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all" };
+	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true };
 	const draft = useDraft("account:preferences", { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const { error, run } = useRun();
@@ -374,6 +374,7 @@ function ProfileTab() {
 			...(value.timeZone !== start.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
 			...(value.sendWith !== start.sendWith && { sendWith: value.sendWith }),
 			...(value.notify !== start.notify && { notify: value.notify }),
+			...(value.showRecents !== start.showRecents && { showRecents: value.showRecents }),
 		};
 		run(update(changed), () => draft.discard());
 	};
@@ -420,6 +421,9 @@ function ProfileTab() {
 						]}
 						onChange={(notify) => draft.set({ ...value, notify })}
 					/>
+				</Setting>
+				<Setting label="Recents on the rail" hint="The places you opened lately, under your pins. Right-click the rail to change this too.">
+					<Toggle checked={value.showRecents} onChange={(showRecents) => draft.set({ ...value, showRecents })} />
 				</Setting>
 			</Settings>
 			<AppVersion />

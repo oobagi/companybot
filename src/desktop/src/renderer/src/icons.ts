@@ -43,6 +43,8 @@ export {
 	PlusIcon,
 	PulseIcon as ActivityIcon,
 	PuzzlePieceIcon as CustomizeIcon,
+	EyeIcon as ShowIcon,
+	EyeSlashIcon as HideIcon,
 	PushPinIcon as PinIcon,
 	PushPinSlashIcon as UnpinIcon,
 	QuestionIcon as HelpIcon,

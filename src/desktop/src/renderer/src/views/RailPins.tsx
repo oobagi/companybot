@@ -1,8 +1,9 @@
 import { CountBadge, railButton } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { useQuery, useWorkspace } from "../convex";
-import { ChannelIcon, ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
+import type { OptimisticUpdate } from "convex/browser";
+import { useMutation, useQuery, useWorkspace } from "../convex";
+import { ChannelIcon, ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon, HideIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, ShowIcon, UnpinIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { type PinKey, RECENT_SHOWN, pathOf, setRailVia, splitPin, usePins, useRailVia } from "../pins";
 import { navigate } from "../router";
@@ -74,6 +75,19 @@ function useEntries(keys: PinKey[]) {
 	return { resolve, ready };
 }
 
+/** Shows the change in the rail and Settings at once. */
+const showRecentsAtOnce = (): OptimisticUpdate<{ showRecents?: boolean }> => (store, { showRecents }) => {
+	if (showRecents === undefined) return;
+	for (const { args, value } of store.getAllQueries(api.preferences.get)) if (value) store.setQuery(api.preferences.get, args, { ...value, showRecents });
+};
+
+/** Whether the rail shows recents (your preference; on until you hide them), and a way to change it. */
+export function useShowRecents(): [boolean, (on: boolean) => void] {
+	const prefs = useQuery(api.preferences.get);
+	const update = useMutation(api.preferences.update, showRecentsAtOnce);
+	return [prefs?.showRecents ?? true, (on) => void update({ showRecents: on })];
+}
+
 /** Each workspace's recents in the order the rail last showed them, for this session. */
 const shownRecents = new Map<string, PinKey[]>();
 
@@ -113,6 +127,7 @@ export function RailPins({
 	hideTip: () => void;
 }) {
 	const { pins, recent, toggle, visit } = usePins();
+	const [showRecents, setShowRecents] = useShowRecents();
 	// The pin or recent you opened from the rail (`setRailVia`). Arriving somewhere else lets go of it.
 	const via = useRailVia();
 	const viaNow = useRef(via);
@@ -182,18 +197,20 @@ export function RailPins({
 	useEffect(() => {
 		if (ready) shownRecents.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
 	}, [ready, ws, orderKey]);
-	const lately = order.map(resolve).filter((e): e is Entry => !!e);
+	const lately = showRecents ? order.map(resolve).filter((e): e is Entry => !!e) : [];
+	const recentsMenu = <RecentsMenuItem shown={showRecents} onChange={setShowRecents} />;
 	return (
 		<>
 			{sorted.map((m, i) => {
 				const shortcut = i < 9 ? shortcutLabel("tab", i + 1) : undefined;
 				if (m.tab) return <TabButton key={m.id} tab={m.tab} active={m.id === tab && !throughRail} badge={badges[m.tab.id]} drag={drag(m.id)} onOpen={openTab} tip={tipFor(m.tab.label, shortcut)} hideTip={hideTip} />;
 				const e = m.entry!;
-				return <RailItem key={m.id} entry={e} active={e.key === via} pinned drag={drag(m.id)} onOpen={() => openEntry(e)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, shortcut)} hideTip={hideTip} />;
+				return <RailItem key={m.id} entry={e} active={e.key === via} pinned drag={drag(m.id)} onOpen={() => openEntry(e)} onToggle={() => toggle(e.key)} more={recentsMenu} tip={tipFor(e.label, shortcut)} hideTip={hideTip} />;
 			})}
-			<Divider {...divider} className={`${divider.className} ${lately.length || divider.className ? "" : "invisible"}`} />
+			{/* Hidden recents take the divider too: a pin then unpins from its menu. */}
+			{showRecents && <Divider {...divider} className={`${divider.className} ${lately.length || divider.className ? "" : "invisible"}`} />}
 			{lately.map((e) => (
-				<RailItem key={e.key} entry={e} active={e.key === via} pinned={false} drag={recentDrag(e.key)} onOpen={() => openEntry(e)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, "Recent")} hideTip={hideTip} />
+				<RailItem key={e.key} entry={e} active={e.key === via} pinned={false} drag={recentDrag(e.key)} onOpen={() => openEntry(e)} onToggle={() => toggle(e.key)} more={recentsMenu} tip={tipFor(e.label, "Recent")} hideTip={hideTip} />
 			))}
 		</>
 	);
@@ -238,6 +255,7 @@ function RailItem({
 	drag,
 	onOpen,
 	onToggle,
+	more,
 	tip,
 	hideTip,
 }: {
@@ -247,6 +265,8 @@ function RailItem({
 	drag?: DragProps;
 	onOpen: () => void;
 	onToggle: () => void;
+	/** The rail's own items, after this one's. */
+	more?: React.ReactNode;
 	tip: ReturnType<TipFor>;
 	hideTip: () => void;
 }) {
@@ -286,8 +306,18 @@ function RailItem({
 							</>
 						)}
 					</MenuItem>
+					{more && <span onClickCapture={() => setMenuAt(undefined)}>{more}</span>}
 				</PopoverPanel>
 			)}
 		</div>
+	);
+}
+
+/** Hide or show recents, from a rail item's right-click menu or the rail's own. */
+export function RecentsMenuItem({ shown, onChange }: { shown: boolean; onChange: (on: boolean) => void }) {
+	return (
+		<MenuItem onClick={() => onChange(!shown)}>
+			{shown ? <HideIcon className="text-neutral-500" /> : <ShowIcon className="text-neutral-500" />} {shown ? "Hide recents" : "Show recents"}
+		</MenuItem>
 	);
 }

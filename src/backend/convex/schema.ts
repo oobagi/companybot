@@ -423,6 +423,8 @@ export default defineSchema({
 		workspaceId: v.optional(v.id("workspaces")),
 		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
 		image: v.optional(v.id("_storage")),
+		/** Recents under their pins on the rail. Left out means shown. */
+		showRecents: v.optional(v.boolean()),
 	}).index("by_user", ["userId"]),
 
 	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
