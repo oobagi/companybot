@@ -1,5 +1,5 @@
 import { fireEvent } from "./automationRuns";
-import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, type ModelInfo, ROUTER_MODEL, THREAD_HOURS_DEFAULT, can, defaultImageModel, isCurrencyCode, isThreadWindow, routerDecisionModels, threadWindows } from "@companybot/core";
+import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, type ModelInfo, ROUTER_MODEL, THREAD_HOURS_DEFAULT, can, canGrantRole, defaultImageModel, isCurrencyCode, isThreadWindow, routerDecisionModels, threadWindows } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -17,7 +17,7 @@ import { imageSpent } from "./usage";
 import { removeWorkspace, startReset } from "./lifecycle";
 import { updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
-import { builtInId, checkRoles, seedRoles, setMemberRoles } from "./roles";
+import { builtInId, checkRoles, requireGrantable, seedRoles, setMemberRoles } from "./roles";
 import { writeSources } from "./replySources";
 
 export const me = query({
@@ -196,7 +196,7 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 	// COMPAT(0.1.0-alpha.10): a workspace migrations.customRoles hasn't reached yet gets its roles
 	// here (the migration skips it after); delete this line with that migration.
 	if ((await rolesOf(ctx, invite.workspaceId)).length === 0) await seedRoles(ctx, invite.workspaceId);
-	const roles = accessOf(await rolesOf(ctx, invite.workspaceId), invite).roles;
+	const roles = await joiningRoles(ctx, invite);
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, roles, email: invite.email, tutorial: freshTutorial(), ...(await memberProfile(ctx, userId)) });
 	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
 	await addToChat(ctx, general, { userId });
@@ -205,6 +205,25 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 	await fireEvent(ctx, invite.workspaceId, "member.joined", {
 		data: { name: await nameOf(ctx, userId), email: invite.email, roles: await roleNames(ctx, invite.workspaceId, roles) },
 	});
+}
+
+/**
+ * What an accepted invite gives, checked again against its inviter now (core `canGrantRole`): an invite sent
+ * before that rule, or by someone who has lost a role since, can't give more than they could today. Roles
+ * that don't pass become Member; an Owner's invites keep theirs. Invites from before invite emails name no
+ * inviter and keep theirs (only owners invited then).
+ */
+async function joiningRoles(ctx: MutationCtx, invite: Doc<"invites">) {
+	const all = await rolesOf(ctx, invite.workspaceId);
+	const roles = accessOf(all, invite).roles;
+	if (!invite.invitedBy) return roles;
+	const inviter = await memberOf(ctx, invite.invitedBy, invite.workspaceId);
+	const member = all.find((r) => r.builtIn === "member")!._id;
+	const kept = roles.flatMap((id) => {
+		const role = all.find((r) => r._id === id);
+		return role && inviter && canGrantRole(inviter, { id, builtIn: role.builtIn }) ? [id] : [member];
+	});
+	return [...new Set(kept.length ? kept : roles)];
 }
 
 async function rememberLastUsed(ctx: MutationCtx, userId: Id<"users">, workspaceId: Id<"workspaces">) {
@@ -397,7 +416,10 @@ export const cancelInvite = mutation({
 export async function cancelMemberInvite(ctx: MutationCtx, member: Member, { id }: Infer<typeof cancelMemberInviteArgs>) {
 	const { workspaceId } = checkPermission(member, "members.manage");
 	const invite = await ctx.db.get(id);
-	if (invite?.workspaceId === workspaceId) await ctx.db.delete(id);
+	if (invite?.workspaceId !== workspaceId) return;
+	const roles = await rolesOf(ctx, workspaceId);
+	requireGrantable(member, roles, accessOf(roles, invite).roles, "cancel an invite with it");
+	await ctx.db.delete(id);
 }
 
 const removeWorkspaceMemberArgs = v.object({ id: v.id("members") });
@@ -413,6 +435,9 @@ export async function removeWorkspaceMember(ctx: MutationCtx, member: Member, { 
 	if (!row || row.workspaceId !== owner.workspaceId) return;
 	if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
 	if (!owner.owner && (await ownsIn(ctx, row))) throw new ConvexError("Only owners can remove an owner.");
+	// Removing someone takes every role they have: only one who could take each.
+	const roles = await rolesOf(ctx, owner.workspaceId);
+	requireGrantable(owner, roles, accessOf(roles, row).roles, "remove someone who has it");
 	await dropMember(ctx, row);
 }
 

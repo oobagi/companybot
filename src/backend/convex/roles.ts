@@ -113,7 +113,7 @@ export const remove = mutation({
 /**
  * Role ids someone may hand out in place of `current`: this workspace's, at least one, no repeats. Only
  * owners give the Owner role, so `members.manage` alone can't make anyone an owner, and anyone else gives
- * or takes only roles whose switches they all hold (`canGrant`), so they can't hand out more than they have.
+ * or takes only Member and roles they hold (core `canGrantRole`), so they can't hand out more than they have.
  */
 export async function checkRoles(ctx: QueryCtx, member: Member, ids: Id<"roles">[], current: Id<"roles">[] = []) {
 	const roles = await rolesOf(ctx, member.workspaceId);
@@ -123,13 +123,15 @@ export async function checkRoles(ctx: QueryCtx, member: Member, ids: Id<"roles">
 	const owner = roles.find((r) => r.builtIn === "owner")!._id;
 	if (picked.includes(owner) && !member.owner) throw new ConvexError("Only owners can make someone an owner.");
 	const changed = [...picked.filter((id) => !current.includes(id)), ...current.filter((id) => !picked.includes(id))];
-	const beyond = roles.find((r) => changed.includes(r._id) && !canGrant(member, r));
-	if (beyond) throw new ConvexError(`Only Owners and people with every switch ${beyond.name} has can give or take it.`);
+	requireGrantable(member, roles, changed, "give or take it");
 	return picked;
 }
 
-/** core `canGrantRole`, for a stored role. */
-const canGrant = (member: Member, role: Doc<"roles">) => canGrantRole(member, { builtIn: role.builtIn, permissions: roleSwitches(role.builtIn, role.switches) });
+/** Refuses touching any of `ids` that `member` couldn't give or take (core `canGrantRole`); `doing` ends the refusal. */
+export function requireGrantable(member: Member, roles: Doc<"roles">[], ids: readonly Id<"roles">[], doing: string) {
+	const beyond = roles.find((r) => ids.includes(r._id) && !canGrantRole(member, { id: r._id, builtIn: r.builtIn }));
+	if (beyond) throw new ConvexError(`Only Owners and people who have ${beyond.name} can ${doing}.`);
+}
 
 /** The ids of one of the built-in roles, for code that hands out a default. */
 export const builtInId = async (ctx: QueryCtx, workspaceId: Id<"workspaces">, which: BuiltInRole) => (await builtInRole(ctx, workspaceId, which))._id;

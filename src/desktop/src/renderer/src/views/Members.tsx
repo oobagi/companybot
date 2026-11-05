@@ -39,6 +39,7 @@ export function MembersTab({ access }: { access: Access }) {
 	const memberRole = roles.find((r) => r.builtIn === "member")!.id;
 	const ownerRole = roles.find((r) => r.builtIn === "owner")!.id;
 	const picked = inviteRoles ?? [memberRole];
+	const takable = (ids: readonly string[]) => roles.filter((r) => ids.includes(r.id)).every((r) => canGrantRole(access, r));
 
 	return (
 		<>
@@ -74,6 +75,8 @@ export function MembersTab({ access }: { access: Access }) {
 				{team.members.map((m) => {
 					// Only owners give or take Owner, so only they change an owner's roles, or their own.
 					const editable = canManage && (access.owner || (!m.roles.includes(ownerRole) && !m.isYou));
+					// Removing someone takes all their roles: only someone who could take each (the server checks too).
+					const removable = editable && takable(m.roles);
 					return (
 						<Row key={m.id} label={m.name} detail={m.name === m.email ? undefined : m.email} you={m.isYou}>
 							{editable ? (
@@ -81,7 +84,7 @@ export function MembersTab({ access }: { access: Access }) {
 							) : (
 								<span className="text-neutral-400">{roleNames(roles, m.roles).join(", ") || "No role"}</span>
 							)}
-							{editable && !m.isYou && (
+							{removable && !m.isYou && (
 								<button type="button" onClick={() => confirm({ title: `Remove ${m.name}?`, action: "Remove member", body: "They will lose access to this workspace, and their personal workspace data will be deleted.", onConfirm: () => removeMember({ id: m.id }) })} className="hover:text-red-600">
 									Remove
 								</button>
@@ -98,9 +101,11 @@ export function MembersTab({ access }: { access: Access }) {
 								Resend
 							</button>
 						)}
-						<button type="button" onClick={() => confirm({ title: `Cancel the invitation to ${i.email}?`, action: "Cancel invitation", body: "They will no longer be able to join using this invitation.", onConfirm: () => cancelInvite({ id: i.id }) })} className="hover:text-red-600">
-							Cancel
-						</button>
+						{takable(i.roles) && (
+							<button type="button" onClick={() => confirm({ title: `Cancel the invitation to ${i.email}?`, action: "Cancel invitation", body: "They will no longer be able to join using this invitation.", onConfirm: () => cancelInvite({ id: i.id }) })} className="hover:text-red-600">
+								Cancel
+							</button>
+						)}
 					</Row>
 				))}
 			</section>
@@ -130,7 +135,7 @@ function RolePicker({ roles, value, who, onChange }: { roles: readonly Role[]; v
 				const on = value.includes(r.id);
 				const grantable = canGrantRole(who, r);
 				return (
-					<label key={r.id} title={grantable ? undefined : "Only Owners and people with all of its switches can give or take it."} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100 has-disabled:cursor-default has-disabled:text-neutral-400 has-disabled:hover:bg-transparent">
+					<label key={r.id} title={grantable ? undefined : "Only Owners and people who have this role can give or take it."} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100 has-disabled:cursor-default has-disabled:text-neutral-400 has-disabled:hover:bg-transparent">
 						<Checkbox
 							checked={on}
 							disabled={!grantable || (on && value.length === 1)}
