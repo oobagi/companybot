@@ -1,4 +1,5 @@
-import { actionLabel, findConnector, toolGroup } from "@companybot/core";
+import { actionLabel, toolGroup } from "@companybot/core";
+import { connectorIn } from "./connectorAccess";
 import type { PaginationOptions } from "convex/server";
 import { type ObjectType, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -141,7 +142,7 @@ async function visibleLabel(ctx: QueryCtx, chatId: Id<"chats">, member: Member, 
 
 async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member, names: Namer) {
 	const mine = row.actorId === member.userId;
-	const connector = row.tool.includes(".") ? findConnector(toolGroup(row.tool)) : undefined;
+	const connector = row.tool.includes(".") ? await connectorIn(ctx, member.workspaceId, toolGroup(row.tool)) : undefined;
 	return {
 		_id: row._id,
 		time: row._creationTime,

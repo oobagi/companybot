@@ -458,6 +458,28 @@ export default defineSchema({
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
+	// A workspace's own connector (#257): an MCP server someone with connectors.manage added. Once added
+	// it's installed and used like a catalog connector (`connectorsIn`, customConnectors.ts). No secrets:
+	// keys and tokens live in connectorConnections like any connector's.
+	customConnectors: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** "custom-<slug>": its tools are "<connectorId>.<tool>". Never changes, so grants and rules keep it. */
+		connectorId: v.string(),
+		name: v.string(),
+		description: v.string(),
+		url: v.string(),
+		transport: v.union(v.literal("http"), v.literal("sse")),
+		connection: v.union(v.literal("workspace"), v.literal("personal")),
+		auth: v.union(
+			v.object({ type: v.literal("none") }),
+			v.object({ type: v.literal("api_key"), header: v.string(), prefix: v.optional(v.string()), label: v.string() }),
+			v.object({ type: v.literal("oauth") }),
+		),
+		createdBy: v.id("users"),
+		updatedBy: v.id("users"),
+		updatedAt: v.number(),
+	}).index("by_workspace", ["workspaceId", "connectorId"]),
+
 	// Display labels for deleted source ids; no credentials or connector data. Kept until workspace deletion/reset.
 	connectorSourceLabels: defineTable({
 		workspaceId: v.id("workspaces"),

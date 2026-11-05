@@ -127,6 +127,8 @@ export function Detail(props: {
 	busy?: boolean;
 	canManage: boolean;
 	onToggle: () => void;
+	/** In place of the install button: a custom connector's Edit and Remove. */
+	actions?: React.ReactNode;
 	children: React.ReactNode;
 }) {
 	const [confirming, setConfirming] = useState(false);
@@ -135,7 +137,7 @@ export function Detail(props: {
 			title={props.title}
 			description={`${props.description} · ${props.meta}`}
 			crumbs={customizeCrumbs(props.tab)}
-			actions={!props.trash && (props.confirmation && props.installed ? <button type="button" className={barButton} disabled={!props.canManage || props.busy} onClick={() => setConfirming(true)}><ArchiveIcon /> Archive</button> : <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={props.onToggle} />)}
+			actions={props.actions ?? (!props.trash && (props.confirmation && props.installed ? <button type="button" className={barButton} disabled={!props.canManage || props.busy} onClick={() => setConfirming(true)}><ArchiveIcon /> Archive</button> : <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={props.onToggle} />))}
 		>
 			{confirming && <Confirm title={`Archive “${props.title}”?`} action="Archive" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
 			{props.trash && <TrashNotice trash={props.trash} />}
@@ -250,10 +252,10 @@ export function MadeItemDetail<T>({
 /** Loading while `loaded` is false; after that, the item is gone (deleted, or a stale link). */
 export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
 	const { one, icon: Icon } = customizeTabs.find((t) => t.id === tab)!;
-	// Connectors come with the app, so they're never in Trash.
+	// Connectors are never in Trash: removing one (custom or from the app) deletes it.
 	return (
 		<NotFound crumbs={customizeCrumbs(tab)} loaded={loaded} icon={<Icon />} title={`${one} not found`}>
-			{tab === "connectors" ? "It may have been removed from the app." : undefined}
+			{tab === "connectors" ? "It may have been removed." : undefined}
 		</NotFound>
 	);
 }

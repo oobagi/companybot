@@ -30,6 +30,7 @@
     "./memory": "./src/memory.ts",
     "./widgets": "./src/widgets.ts",
     "./safe-fetch": "./src/safe-fetch.ts",
+    "./connectors": "./src/connectors.ts",
     "./link-preview": "./src/link-preview.ts"
   },
   "scripts": {

@@ -5,12 +5,22 @@ export default {
 	title: "Connectors",
 	summary: "Linking outside services, such as Gmail or Calendar, for agents to use.",
 	text: `# Connectors
-A connector links an outside service so agents can use it for you. They live in [Connectors](#/settings/connectors). **None are available yet**; the list is empty until services are added.
+A connector links an outside service so agents can use it for you. They live in [Connectors](#/settings/connectors).
 
-## How they work when available
-- People whose role can install connectors add one and pick which roles can use it (owners always can).
-- A connector uses either **one shared account** for the workspace (someone who can install connectors sets it) or **each person's own account** (everyone connects theirs; an agent uses the account of the person it is helping).
-- Grant the connector to an agent in [Agents](#/settings/agents) for it to use it.
-- Anything that changes something in the other service **asks first**. On the connector's page, set each action to Ask, Always or Never for yourself. See **help: permissions**.
+## Adding your own (custom connectors)
+People whose role can install connectors add any service with an **MCP server**: **New connector** in the Connectors top bar. Fill in:
+- **Name** and an optional description.
+- **Server URL**: the server's https address. Local and private addresses (localhost, 10.x, 192.168.x, cloud metadata) are refused, when you save and again before every connection.
+- **Transport**: Streamable HTTP (most servers) or SSE.
+- **Account**: one shared account, or each person's own.
+- **Sign-in**: none, an API key (which header it goes in, an optional prefix such as "Bearer ", and what to call the key), or OAuth (sign in through the browser).
+
+Adding it installs it for the Member role. On its page, **Edit** changes it and **Remove** deletes it. Changing its server, transport, account type or sign-in disconnects everyone and resets its Ask / Always / Never settings, since the old ones were for a different server. Removing it deletes its connections and settings, and agents granted it lose its tools. Agents can't add, change or remove connectors.
+
+## How they work
+- People whose role can install connectors pick which roles can use each one (owners always can).
+- A connector uses either **one shared account** for the workspace (someone who can install connectors sets it) or **each person's own account** (everyone connects theirs with **Connect** on its page; an agent uses the account of the person it is helping).
+- Grant the connector to an agent in [Agents](#/settings/agents) for it to use it. Its tools are read from the server each time the agent works.
+- Anything the server doesn't mark read-only **asks first**, and anything it marks destructive always asks. On the connector's page, set each action to Ask, Always or Never for yourself. See **help: permissions**.
 `,
 } satisfies HelpPage;

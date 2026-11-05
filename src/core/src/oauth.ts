@@ -92,11 +92,17 @@ export class ConnectorOAuth implements OAuthClientProvider {
 	}
 }
 
+/** A custom connector's sign-in must go through a checked fetch (`connectorFetch`), like its connections. */
+function fetchFor(connector: Connector, fetchFn?: typeof fetch) {
+	if (connector.custom && !fetchFn) throw new Error(`${connector.name} can only connect through a checked fetch.`);
+	return fetchFn;
+}
+
 /** Begins sign-in. Store `state` (encrypted) under `state.state` until the callback. */
-export async function startSignIn(connector: Connector, redirectUrl: string): Promise<{ url: string; state: OAuthState }> {
+export async function startSignIn(connector: Connector, redirectUrl: string, fetchFn?: typeof fetch): Promise<{ url: string; state: OAuthState }> {
 	const provider = new ConnectorOAuth({}, redirectUrl, true);
 	const scope = connector.auth.type === "oauth" ? connector.auth.scopes?.join(" ") : undefined;
-	await auth(provider, { serverUrl: connector.mcp.url, scope });
+	await auth(provider, { serverUrl: connector.mcp.url, scope, fetchFn: fetchFor(connector, fetchFn) });
 	if (!provider.authorizationUrl || !provider.data.state) throw new Error(`${connector.name} didn't ask to sign in.`);
 	return { url: provider.authorizationUrl.href, state: provider.data };
 }
@@ -107,10 +113,12 @@ export async function finishSignIn(
 	saved: OAuthState,
 	redirectUrl: string,
 	callback: { code: string; state: string; issuer?: string },
+	fetchFn?: typeof fetch,
 ): Promise<OAuthState> {
 	const provider = new ConnectorOAuth(saved, redirectUrl, false);
 	await auth(provider, {
 		serverUrl: connector.mcp.url,
+		fetchFn: fetchFor(connector, fetchFn),
 		authorizationCode: callback.code,
 		callbackState: callback.state,
 		callbackIssuer: callback.issuer,
