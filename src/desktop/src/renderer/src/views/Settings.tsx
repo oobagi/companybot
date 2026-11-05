@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -18,7 +18,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Confirm, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
-import { MembersTab } from "./Members";
+import { MembersTab, RoleScreen, RolesTab } from "./Members";
 import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
 import { TrashView } from "./Trash";
@@ -36,7 +36,8 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Roles decide what each person can do, and changes apply right away.", icon: <MembersIcon /> },
+			{ id: "members", label: "Members", description: "Everyone in this workspace, and people you've invited. Their roles decide what they can do; changes apply right away.", icon: <MembersIcon /> },
+			{ id: "roles", label: "Roles", description: "What each role can do. People get every switch any of their roles has. Owners can do everything.", icon: <RolesIcon /> },
 			{ id: "permissions", label: "Permissions", description: "Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps.", icon: <PermissionsIcon /> },
 			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
@@ -69,11 +70,13 @@ export const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeT
 export function SettingsView({ access, tab, itemId }: { access: Access; tab: SettingsTab; itemId?: string }) {
 	if (isCustomize(tab)) return <CustomizeView access={access} tab={tab} itemId={itemId} />;
 	if (tab === "archive") return <TrashView access={access} />;
+	if (tab === "roles" && itemId) return <RoleScreen access={access} roleId={itemId} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
 		<Page title={current.label} intro={(current as { description?: string }).description}>
 			{tab === "general" && <GeneralTab access={access} />}
 			{tab === "members" && <MembersTab access={access} />}
+			{tab === "roles" && <RolesTab access={access} />}
 			{tab === "memory" && <MemoryTab access={access} />}
 			{tab === "activity" && <ActivityTab />}
 			{tab === "usage" && <UsageTab />}
