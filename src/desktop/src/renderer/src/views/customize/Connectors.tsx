@@ -7,12 +7,12 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ConnectorIcon } from "../../icons";
-import { EmptyState, Field, Form, Loading, Notice, Page, Section, barButton, barDangerButton, compactButton, compactPrimaryButton, inputClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun } from "../../ui";
+import { ConnectorIcon, EditIcon, TrashIcon } from "../../icons";
+import { EmptyState, Field, Form, Loading, Notice, Section, Setting, Settings, barButton, compactButton, compactPrimaryButton, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
 import { ConnectorActions } from "../Permissions";
-import { Card, Detail, Facts, Missing, customizeCrumbs } from "./shared";
+import { Card, Detail, Facts, Missing } from "./shared";
 
-import { Modal, useConfirm } from "../chat/common";
+import { DialogButtons, MenuItem, Modal, useConfirm } from "../chat/common";
 
 type ConnectorItem = FunctionReturnType<typeof api.connectors.list>[number];
 
@@ -61,34 +61,21 @@ function connectorStatus(p: ConnectorItem) {
 
 export function ConnectorScreen({ access, id }: { access: Access; id: string }) {
 	const connectors = useQuery(api.connectors.list);
-	const [editing, setEditing] = useState(false);
-	const canManage = can(access, "connectors.manage");
-	if (id === "new" && canManage) return <NewConnector />;
 	const connector = connectors?.find((p) => p.id === id);
 	if (!connector) return <Missing tab="connectors" loaded={!!connectors} />;
-	if (editing && connector.custom && canManage) return <EditConnector connector={connector} onDone={() => setEditing(false)} />;
-	return <ConnectorDetail connector={connector} canManage={canManage} onEdit={() => setEditing(true)} />;
+	return <ConnectorDetail connector={connector} canManage={can(access, "connectors.manage")} />;
 }
 
-function ConnectorDetail({ connector, canManage, onEdit }: { connector: ConnectorItem; canManage: boolean; onEdit: () => void }) {
+function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; canManage: boolean }) {
 	const setInstalled = useMutation(api.connectors.setInstalled);
-	const remove = useMutation(api.customConnectors.remove);
 	const { confirm, dialog } = useConfirm();
 	const setRoles = useMutation(api.connectors.setRoles);
+	const [editing, setEditing] = useState(false);
 	const { error, run } = useRun();
 	const signIn = { none: "None needed", api_key: "API key", oauth: "Sign in through your browser" }[connector.auth.type];
-	// Your workspace's own: Edit and Remove (which uninstalls it too) in place of Install.
+	// Your workspace's own: Edit opens its settings (Remove is in their ⋯), in place of Install.
 	const customActions = connector.custom && canManage && (
-		<>
-			<button type="button" className={barButton} onClick={onEdit}>Edit</button>
-			<button
-				type="button"
-				className={barDangerButton}
-				onClick={() => confirm({ title: `Remove ${connector.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes it, with its saved connections and permissions. Agents granted it lose its tools.", onConfirm: () => remove({ connectorId: connector.id }).then(() => navigate("settings", "connectors")) })}
-			>
-				Remove
-			</button>
-		</>
+		<button type="button" className={barButton} onClick={() => setEditing(true)}><EditIcon /> Edit</button>
 	);
 
 	return (
@@ -103,6 +90,7 @@ function ConnectorDetail({ connector, canManage, onEdit }: { connector: Connecto
 			onToggle={() => connector.installed ? confirm({ title: `Remove ${connector.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes its saved connections and permissions. Reinstalling will require connecting it again.", onConfirm: () => setInstalled({ connectorId: connector.id, installed: false }) }) : run(setInstalled({ connectorId: connector.id, installed: true }))}
 		>
 			{dialog}
+			{editing && <ConnectorSettingsDialog connector={connector} onClose={() => setEditing(false)} />}
 			<Notice>{error}</Notice>
 			<Facts
 				rows={[
@@ -216,10 +204,10 @@ function ConnectKeyDialog({ connector, auth, onClose }: { connector: ConnectorIt
 				<Field label={auth.label} hint={auth.help ?? "Stored encrypted. Agents use it only for people whose roles can use this connector."}>
 					<input autoFocus type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} className={inputClass} />
 				</Field>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button type="button" className={secondaryButton} onClick={onClose}>Cancel</button>
 					<button type="submit" disabled={busy || !key.trim()} className={primaryButton}>Connect</button>
-				</div>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);
@@ -242,34 +230,41 @@ const formOf = (c: ConnectorItem): ConnectorForm => ({
 /** What changes where agents connect: saving a change here starts the connector strict (customConnectors.update). */
 const serverOf = (f: ConnectorForm) => JSON.stringify([f.url.trim(), f.connection, f.auth.type, f.auth.type === "api_key" ? [f.auth.header.trim(), f.auth.prefix ?? ""] : null]);
 
-/** Name, server, whose account, and how it signs in: what someone adding an MCP server fills in. */
+const accountOptions = [{ value: "workspace" as const, label: "One shared account" }, { value: "personal" as const, label: "Each person’s own" }];
+const signInOptions = [{ value: "none" as const, label: "None" }, { value: "api_key" as const, label: "API key" }, { value: "oauth" as const, label: "OAuth (browser sign-in)" }];
+const urlHint = "Streamable HTTP only (often ends in /mcp). https, on the public internet.";
+
+/** The form's edits, shared by both dialogs: changing sign-in type starts an API key from defaults. */
+function fieldSetters(value: ConnectorForm, onChange: (value: ConnectorForm) => void) {
+	const auth = value.auth;
+	return {
+		set: (patch: Partial<ConnectorForm>) => onChange({ ...value, ...patch }),
+		setSignIn: (type: ConnectorForm["auth"]["type"]) => type !== auth.type && onChange({ ...value, auth: type === "api_key" ? apiKeyDefaults : { type } }),
+		setKey: (patch: Partial<typeof apiKeyDefaults>) => auth.type === "api_key" && onChange({ ...value, auth: { ...auth, ...patch } }),
+	};
+}
+
+/** New connector's form: name, server, whose account, and how it signs in. */
 function ConnectorFields({ value, onChange }: { value: ConnectorForm; onChange: (value: ConnectorForm) => void }) {
 	const auth = value.auth;
-	const setKey = (patch: Partial<typeof apiKeyDefaults>) => auth.type === "api_key" && onChange({ ...value, auth: { ...auth, ...patch } });
+	const { set, setSignIn, setKey } = fieldSetters(value, onChange);
 	return (
 		<>
-			<Field label="Name" hint="What people and agents see, like “Linear” or “Support desk”.">
-				<input className={inputClass} value={value.name} maxLength={CUSTOM_CONNECTOR_NAME_MAX} placeholder="e.g. Support desk" onChange={(e) => onChange({ ...value, name: e.target.value })} />
+			<Field label="Name">
+				<input autoFocus required className={inputClass} value={value.name} maxLength={CUSTOM_CONNECTOR_NAME_MAX} placeholder="e.g. Support desk" onChange={(e) => set({ name: e.target.value })} />
 			</Field>
-			<Field label="Description" hint="Optional. What it’s for; agents see it when it’s connected.">
-				<input className={inputClass} value={value.description} maxLength={CUSTOM_CONNECTOR_DESCRIPTION_MAX} placeholder="e.g. Tickets and customer conversations" onChange={(e) => onChange({ ...value, description: e.target.value })} />
+			<Field label="Description" hint="Optional. Agents see it when it’s connected.">
+				<input className={inputClass} value={value.description} maxLength={CUSTOM_CONNECTOR_DESCRIPTION_MAX} placeholder="e.g. Tickets and customer conversations" onChange={(e) => set({ description: e.target.value })} />
 			</Field>
-			<Field label="Server URL" hint="Streamable HTTP only (often ends in /mcp); SSE servers can’t be added. It must be https and on the public internet.">
-				<input className={inputClass} value={value.url} inputMode="url" spellCheck={false} placeholder="https://example.com/mcp" onChange={(e) => onChange({ ...value, url: e.target.value })} />
+			<Field label="Server URL" hint={urlHint}>
+				<input required className={inputClass} value={value.url} inputMode="url" spellCheck={false} placeholder="https://example.com/mcp" onChange={(e) => set({ url: e.target.value })} />
 			</Field>
 			<div className="flex flex-col gap-1.5">
 				<span className="text-sm font-medium">Account</span>
-				<Segmented label="Account" value={value.connection} onChange={(connection) => onChange({ ...value, connection })} options={[{ value: "workspace", label: "One shared account" }, { value: "personal", label: "Each person’s own" }]} />
-				<span className="text-xs text-neutral-500">{value.connection === "workspace" ? "Someone who can install connectors connects it once for everyone." : "Everyone connects their own; agents use the account of the person they’re helping."}</span>
+				<Segmented label="Account" value={value.connection} onChange={(connection) => set({ connection })} options={accountOptions} />
 			</div>
 			<Field label="Sign-in">
-				<Select
-					label="Sign-in"
-					className={inputClass}
-					value={auth.type}
-					options={[{ value: "none", label: "None" }, { value: "api_key", label: "API key" }, { value: "oauth", label: "OAuth (sign in through the browser)" }]}
-					onChange={(type) => type !== auth.type && onChange({ ...value, auth: type === "api_key" ? apiKeyDefaults : { type } })}
-				/>
+				<Select label="Sign-in" className={inputClass} value={auth.type} options={signInOptions} onChange={setSignIn} />
 			</Field>
 			{auth.type === "api_key" && (
 				<div className="grid grid-cols-3 gap-3">
@@ -282,69 +277,94 @@ function ConnectorFields({ value, onChange }: { value: ConnectorForm; onChange: 
 					<Field label="Key name">
 						<input className={inputClass} value={auth.label} onChange={(e) => setKey({ label: e.target.value })} />
 					</Field>
-					<p className="col-span-3 text-xs text-neutral-500">Sent as “{auth.header || "Header"}: {auth.prefix}…”. People paste the key when they connect; it’s stored encrypted.</p>
 				</div>
 			)}
 		</>
 	);
 }
 
-/** The add and edit screen: the fields, with Discard and Create (or Save) in the top bar. */
-function ConnectorFormPage({ title, action, error, onDiscard, onSubmit, children }: { title: string; action: string; error?: string; onDiscard?: () => void; onSubmit: () => void; children: React.ReactNode }) {
-	return (
-		<Page
-			title={title}
-			crumbs={customizeCrumbs("connectors")}
-			actions={
-				<>
-					{onDiscard && <button type="button" className={barButton} onClick={onDiscard}>Discard</button>}
-					<button type="button" className={compactPrimaryButton} onClick={onSubmit}>{action}</button>
-				</>
-			}
-		>
-			<Notice>{error}</Notice>
-			<div className="flex flex-col gap-5">{children}</div>
-		</Page>
-	);
-}
-
-function NewConnector() {
+/** New connector: a form dialog, opened from the Connectors top bar. Opens the new connector's page. */
+export function NewConnectorDialog({ onClose }: { onClose: () => void }) {
 	const draft = useDraft<ConnectorForm>("connectors:new", emptyForm, 0);
 	const create = useMutation(api.customConnectors.create);
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
+	const close = () => (draft.discard(), onClose());
 	return (
-		<ConnectorFormPage
-			title="New connector"
-			action="Create"
-			error={error}
-			onDiscard={draft.dirty ? draft.discard : undefined}
-			onSubmit={() => run(create({ connector: draft.value }).then((id) => { draft.discard(); navigate("settings", "connectors", id); }))}
-		>
-			<p className={metadataClass}>Agents granted it see the server’s tools and their descriptions. Anything not marked read-only asks first.</p>
-			<ConnectorFields value={draft.value} onChange={draft.set} />
-		</ConnectorFormPage>
+		<Modal title="New connector" onClose={close}>
+			<Form onSubmit={() => run(create({ connector: draft.value }).then((id) => { close(); navigate("settings", "connectors", id); }))}>
+				<Notice>{error}</Notice>
+				<ConnectorFields value={draft.value} onChange={draft.set} />
+				<DialogButtons>
+					<button type="button" onClick={close} className={secondaryButton}>Cancel</button>
+					<button type="submit" disabled={busy} className={primaryButton}>Create connector</button>
+				</DialogButtons>
+			</Form>
+		</Modal>
 	);
 }
 
-function EditConnector({ connector, onDone }: { connector: ConnectorItem; onDone: () => void }) {
+/** A custom connector's settings: one card, Discard/Save under it when changed, Remove in ⋯. */
+function ConnectorSettingsDialog({ connector, onClose }: { connector: ConnectorItem; onClose: () => void }) {
 	const saved = formOf(connector);
 	const [value, setValue] = useState(saved);
 	const update = useMutation(api.customConnectors.update);
+	const remove = useMutation(api.customConnectors.remove);
 	const { confirm, dialog } = useConfirm();
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
+	const dirty = JSON.stringify(value) !== JSON.stringify(saved);
 	const resets = connector.installed && serverOf(value) !== serverOf(saved);
+	const save = () => update({ connectorId: connector.id, connector: value });
+	const auth = value.auth;
+	const { set, setSignIn, setKey } = fieldSetters(value, setValue);
+	const removeIt = () =>
+		confirm({ title: `Remove ${connector.name}?`, action: "Remove connector", body: "This disconnects it for everyone and deletes it, with its saved connections and permissions. Agents granted it lose its tools.", onConfirm: () => remove({ connectorId: connector.id }).then(() => { onClose(); navigate("settings", "connectors"); }) });
 	return (
-		<ConnectorFormPage
-			title={`Edit ${connector.name}`}
-			action="Save"
-			error={error}
-			onDiscard={onDone}
-			onSubmit={() => resets
-				? confirm({ title: `Change how ${connector.name} connects?`, action: "Save and reset", body: "A new server, account type or sign-in disconnects everyone and deletes its saved connections and its Ask, Always and Never settings. It stays installed for the same roles.", onConfirm: () => update({ connectorId: connector.id, connector: value }).then(onDone) })
-				: run(update({ connectorId: connector.id, connector: value }).then(onDone))}
-		>
+		<Modal title={connector.name} size="lg" onClose={onClose} menu={(closeMenu) => <MenuItem danger onClick={() => (closeMenu(), removeIt())}><TrashIcon /> Remove connector</MenuItem>}>
 			{dialog}
-			<ConnectorFields value={value} onChange={setValue} />
-		</ConnectorFormPage>
+			<Form
+				className="flex flex-col gap-3"
+				onSubmit={() => resets
+					? confirm({ title: `Change how ${connector.name} connects?`, action: "Save and reset", body: "A new server, account type or sign-in disconnects everyone and deletes its saved connections and its Ask, Always and Never settings. It stays installed for the same roles.", onConfirm: save })
+					: run(save())}
+			>
+				<Settings title="Connector">
+					<Setting label="Name">
+						<input aria-label="Name" required maxLength={CUSTOM_CONNECTOR_NAME_MAX} className={wideControlClass} value={value.name} onChange={(e) => set({ name: e.target.value })} />
+					</Setting>
+					<Setting label="Description">
+						<input aria-label="Description" maxLength={CUSTOM_CONNECTOR_DESCRIPTION_MAX} className={wideControlClass} value={value.description} onChange={(e) => set({ description: e.target.value })} />
+					</Setting>
+					<Setting label="Server URL" hint={urlHint}>
+						<input aria-label="Server URL" required spellCheck={false} className={wideControlClass} value={value.url} onChange={(e) => set({ url: e.target.value })} />
+					</Setting>
+					<Setting label="Account">
+						<Segmented label="Account" value={value.connection} onChange={(connection) => set({ connection })} options={accountOptions} />
+					</Setting>
+					<Setting label="Sign-in">
+						<Select label="Sign-in" className={wideControlClass} value={auth.type} options={signInOptions} onChange={setSignIn} />
+					</Setting>
+					{auth.type === "api_key" && (
+						<>
+							<Setting label="Header">
+								<input aria-label="Header" spellCheck={false} className={wideControlClass} value={auth.header} onChange={(e) => setKey({ header: e.target.value })} />
+							</Setting>
+							<Setting label="Prefix">
+								<input aria-label="Prefix" spellCheck={false} placeholder="None" className={wideControlClass} value={auth.prefix ?? ""} onChange={(e) => setKey({ prefix: e.target.value })} />
+							</Setting>
+							<Setting label="Key name">
+								<input aria-label="Key name" className={wideControlClass} value={auth.label} onChange={(e) => setKey({ label: e.target.value })} />
+							</Setting>
+						</>
+					)}
+				</Settings>
+				<Notice>{error}</Notice>
+				{dirty && (
+					<DialogButtons>
+						<button type="button" onClick={() => setValue(saved)} className={compactButton}>Discard</button>
+						<button type="submit" disabled={busy} className={compactPrimaryButton}>Save</button>
+					</DialogButtons>
+				)}
+			</Form>
+		</Modal>
 	);
 }
