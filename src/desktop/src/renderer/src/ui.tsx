@@ -443,6 +443,23 @@ export const trailingAction =
 /** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
 export const railButton = (active: boolean) =>
 	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
+/** Text that opens what it names (a record, a channel, an archived item): underlined on hover. */
+export const linkButton = "text-left hover:underline";
+/** A title you click: folds its section, sorts its column, opens its field's settings. Darkens on hover. */
+export const titleButton = "min-w-0 text-left hover:text-neutral-900";
+/** One row in a list you pick from (a menu, versions, workspaces): lit on hover and while picked (`data-active`). */
+export const rowButton = `flex w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100 data-active:bg-neutral-100 ${disabledButtonClass}`;
+/** A row inside a `listClass` card that opens what it shows. */
+export const listRowButton = "flex w-full gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50";
+/** A square in a grid of choices (an emoji). */
+export const tileButton = "flex size-8 items-center justify-center rounded-lg hover:bg-neutral-100";
+/** A picture that opens full size. */
+export const imageButton = "overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300";
+/** An on/off pill with a count (a reaction): filled while on (`aria-pressed`). */
+export const chipButton =
+	"flex h-7 items-center gap-1.5 rounded-full border border-neutral-200 px-2.5 text-sm text-neutral-600 tabular-nums hover:border-neutral-300 aria-pressed:border-neutral-400 aria-pressed:bg-neutral-100 aria-pressed:text-neutral-900";
+/** A button whose look is what it sits in (a sidebar row, a tab's pill): none of its own. */
+export const surfaceButton = "min-w-0 text-left";
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */

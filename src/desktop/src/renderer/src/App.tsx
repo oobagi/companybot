@@ -207,8 +207,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
 
 	return (
-		// oxlint-disable-next-line shadcn/no-arbitrary-values -- the app's body size, set once at the root (no 15px step on the scale)
-		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
+		<div className="flex h-screen flex-col bg-neutral-100 text-body text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
 			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
 			<Notice>{arrangements?.error}</Notice>

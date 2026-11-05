@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { HistoryIcon } from "../../icons";
-import { compactControlClass, hintClass, metadataClass } from "../../ui";
+import { compactControlClass, hintClass, metadataClass, tileButton } from "../../ui";
 import { iconButton } from "./common";
 import { type Emoji, type EmojiIndex, groupIcons, groups, loadEmoji, loadedEmoji, recentEmoji, rememberEmoji, saveTone, savedTone, searchEmoji, withTone } from "./emoji";
 
 const tones = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
-const cell = "flex size-8 items-center justify-center rounded-lg text-xl hover:bg-neutral-100";
 
 /**
  * The full emoji picker: search, categories, recents and a skin tone, all on this computer.
@@ -31,8 +30,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 	const results = index ? searchEmoji(index, query) : [];
 	const jump = (id: string) => scroller.current?.querySelector(`[data-section="${id}"]`)?.scrollIntoView({ block: "start" });
 	const button = (e: Emoji) => (
-		// oxlint-disable-next-line ui/button-class -- a cell in the emoji grid: the emoji is the button, as in every picker
-		<button type="button" key={e.char} title={e.name} onClick={() => pick(withTone(e, tone))} onMouseEnter={() => setHover(e)} className={cell}>
+		<button type="button" key={e.char} title={e.name} onClick={() => pick(withTone(e, tone))} onMouseEnter={() => setHover(e)} className={`${tileButton} text-xl`}>
 			{withTone(e, tone)}
 		</button>
 	);
@@ -82,8 +80,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 								<p className={`px-1 py-1 ${metadataClass}`}>Recent</p>
 								<div className="flex flex-wrap">
 									{recent.map((char) => (
-										// oxlint-disable-next-line ui/button-class -- a cell in the emoji grid: the emoji is the button, as in every picker
-										<button type="button" key={char} onClick={() => pick(char)} onMouseEnter={() => setHover(index.emoji.find((e) => e.char === char || e.tones.includes(char)))} className={cell}>
+										<button type="button" key={char} onClick={() => pick(char)} onMouseEnter={() => setHover(index.emoji.find((e) => e.char === char || e.tones.includes(char)))} className={`${tileButton} text-xl`}>
 											{char}
 										</button>
 									))}

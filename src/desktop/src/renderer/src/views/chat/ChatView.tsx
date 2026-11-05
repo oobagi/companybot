@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
-import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, barButton, compactButton, iconButton, useRun, trailingAction } from "../../ui";
+import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, barButton, compactButton, iconButton, surfaceButton, trailingAction, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
@@ -246,8 +246,7 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 							{(close) => <MenuItem onClick={() => (close(), setRenaming(t.id))}><EditIcon /> Rename</MenuItem>}
 						</Popover>
 					) : (
-						// oxlint-disable-next-line ui/button-class -- a side-chat tab in the agent DM's tab strip: the pill around it is the tab's look
-						<button type="button" aria-current={t.id === chat._id ? "page" : undefined} onClick={() => navigate("chat", t.id)} onDoubleClick={t.side ? () => setRenaming(t.id) : undefined} className={label}>
+						<button type="button" aria-current={t.id === chat._id ? "page" : undefined} onClick={() => navigate("chat", t.id)} onDoubleClick={t.side ? () => setRenaming(t.id) : undefined} className={`${surfaceButton} ${label}`}>
 							{t.label}
 						</button>
 					)}

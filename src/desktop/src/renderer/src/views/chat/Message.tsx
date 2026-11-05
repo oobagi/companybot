@@ -5,7 +5,7 @@ import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, smallButton, timeAgo, useTip } from "../../ui";
+import { Notice, chipButton, smallButton, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { HeldCall } from "./Approval";
@@ -68,8 +68,7 @@ export function MessageRow({
 			>
 				<div className="flex w-9 shrink-0 items-start justify-center">
 					{grouped ? (
-						// oxlint-disable-next-line shadcn/no-arbitrary-values -- the hover time has to fit the 36px avatar gutter; text-xs overflows it
-						<span className="invisible pt-1 text-[10px] whitespace-nowrap text-neutral-400 tabular-nums group-hover:visible">
+						<span className="invisible pt-1 text-2xs whitespace-nowrap text-neutral-400 tabular-nums group-hover:visible">
 							{clock(message._creationTime)}
 						</span>
 					) : (
@@ -213,16 +212,14 @@ function Reactions({ reactions, onToggle }: { reactions: Reaction[]; onToggle?: 
 		<>
 			<div className="flex flex-wrap gap-1 pt-0.5">
 				{reactions.map((r) => (
-					// oxlint-disable-next-line ui/button-class -- a reaction pill: an on/off chip with an emoji and a count, as in Slack
 					<button
 						type="button"
 						key={r.emoji}
 						aria-label={`${r.emoji} ${whoReacted(r.people)}`}
 						{...tipFor(whoReacted(r.people))}
+						aria-pressed={r.mine}
 						onClick={onToggle && (() => onToggle(r.emoji))}
-						className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
-							r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
-						}`}
+						className={chipButton}
 					>
 						<span className="text-base leading-none">{r.emoji}</span>
 						{r.count}

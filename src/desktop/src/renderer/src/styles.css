@@ -15,6 +15,9 @@
 	--color-primary-foreground: var(--color-white);
 	/* Links in messages and replies: the same blue as @mentions (`.token`), the app's one accent, so they read as clickable. */
 	--color-link: var(--color-sky-700);
+	/* The app's body size (between text-sm and text-base), and a size under text-xs for a message's hover time. */
+	--text-body: 15px;
+	--text-2xs: 10px;
 }
 
 html,
@@ -172,4 +175,10 @@ body {
 .dialog .card-list > *,
 .dialog .card-inset {
 	padding-inline: 0;
+}
+
+/* A sidebar tree's elbow into a nested row: the guide line's 1.5px stroke, turning right. */
+.tree-elbow {
+	border-bottom: 1.5px solid var(--color-neutral-300);
+	border-left: 1.5px solid var(--color-neutral-300);
 }

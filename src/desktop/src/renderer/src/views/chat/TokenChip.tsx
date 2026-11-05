@@ -3,7 +3,7 @@ import { useQuery } from "../../convex";
 import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { compactButton } from "../../ui";
+import { compactButton, linkButton } from "../../ui";
 import { Popover } from "./common";
 import type { SkillRef } from "./data";
 import { ProfileLink } from "./Profile";
@@ -16,7 +16,7 @@ import type { Token } from "./tokens";
 export function TokenChip({ token }: { token: Token }) {
 	if (token.kind === "person")
 		return (
-			<ProfileLink who={token.ref} className="token hover:underline">
+			<ProfileLink who={token.ref} className={`token ${linkButton}`}>
 				{token.text}
 			</ProfileLink>
 		);
@@ -30,8 +30,7 @@ export function TokenChip({ token }: { token: Token }) {
 	}
 	const { id } = token.ref;
 	return (
-		// oxlint-disable-next-line ui/button-class -- a #channel chip inside message text: a link in a sentence, styled by .token
-		<button type="button" onClick={() => navigate("chat", id)} className="token hover:underline">
+		<button type="button" onClick={() => navigate("chat", id)} className={`token ${linkButton}`}>
 			{token.text}
 		</button>
 	);

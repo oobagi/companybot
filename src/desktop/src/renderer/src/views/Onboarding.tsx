@@ -218,8 +218,7 @@ function Preview({ name, company, invites }: { name: string; company: string; in
 	return (
 		// Laid out at 100/78 % of the frame and scaled by 0.78, so it fills the frame exactly at app size.
 		<div aria-hidden className="pointer-events-none absolute top-0 left-0 h-[128.2%] w-[128.2%] origin-top-left scale-[0.78] select-none">
-			{/* oxlint-disable-next-line shadcn/no-arbitrary-values -- 15px is the app's body size (App.tsx's root); the preview mirrors it */}
-			<div className="flex h-full flex-col bg-neutral-100 text-[15px] text-neutral-900">
+			<div className="flex h-full flex-col bg-neutral-100 text-body text-neutral-900">
 				<div className="h-8 shrink-0" />
 				<div className="flex min-h-0 flex-1">
 					{/* The app rail: this workspace's logo, the app's parts with Chat open, and you. */}

@@ -21,6 +21,14 @@ const buttonClasses = new Set([
 	"trailingAction",
 	"railButton",
 	"cardButton",
+	"linkButton",
+	"titleButton",
+	"rowButton",
+	"listRowButton",
+	"tileButton",
+	"imageButton",
+	"chipButton",
+	"surfaceButton",
 ]);
 
 /** Dialog-sized buttons: they belong in a dialog's `DialogButtons`, bottom right. */
@@ -123,7 +131,7 @@ const rules = {
 		{
 			text: "Text-only button. No text-only buttons: use `iconButton` (an icon, with an aria-label and title) or a bordered button (`compactButton`, `smallButton`); a row's several actions go in its ⋯ menu (`MoreMenu`). Plain links only inside sentences.",
 			oneOff:
-				"One-off button look. Use a shared class (`iconButton`, `compactButton`, `smallButton`, `barButton`, `primaryButton`/`secondaryButton` in `DialogButtons`) or a primitive (`NewButton`, `IconButton`, `MenuItem`, `MoreMenu`, `Toggle`). If it's a new kind, add a named class to ui.tsx and import it.",
+				"One-off button look. Use a shared class (`iconButton`, `compactButton`, `smallButton`, `barButton`, `primaryButton`/`secondaryButton` in `DialogButtons`) or a primitive (`NewButton`, `IconButton`, `MenuItem`, `MoreMenu`, `Toggle`). Clickable text: `linkButton` (opens what it names) or `titleButton` (folds, sorts). Rows: `rowButton`, `listRowButton`. If it's a new kind, add a named class to ui.tsx and import it.",
 			placed: "`{{cls}}` places this button by hand. Dialog buttons go in `DialogButtons` (bottom right); screen actions go in the top bar (`SaveBar`, `PageActions`).",
 		},
 		(context) => ({

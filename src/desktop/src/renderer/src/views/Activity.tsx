@@ -8,7 +8,7 @@ import { api } from "../api";
 import { usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon } from "../icons";
-import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo, toolbarClass } from "../ui";
+import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo, titleButton, toolbarClass } from "../ui";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
@@ -79,8 +79,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className={`flex flex-col gap-2 text-sm ${cardClass}`}>
-			{/* oxlint-disable-next-line ui/button-class -- a clickable fold title: the entry's header opens its call details */}
-			<button type="button" onClick={() => setOpen(!open)} className="flex items-baseline gap-2 text-left">
+			<button type="button" onClick={() => setOpen(!open)} className={`${titleButton} flex items-baseline gap-2`}>
 				<span className="font-medium">{entry.agent}</span>
 				<span className="text-neutral-600">{entry.label}</span>
 				{entry.status === "error" && <span className="text-xs text-red-600">failed</span>}

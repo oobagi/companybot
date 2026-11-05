@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, compactButton, compactControlClass, iconButton, primaryButton, secondaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, compactButton, compactControlClass, iconButton, primaryButton, secondaryButton, timeAgo, titleButton, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -323,8 +323,7 @@ function RecordResults({
 		return (
 			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
 				{canSort ? (
-					// oxlint-disable-next-line ui/button-class -- a table's sort header: the column title is the button
-					<button type="button" onClick={() => onSort(next())} className={`flex items-center gap-1 ${on ? "text-neutral-900" : "hover:text-neutral-900"}`}>
+					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex items-center gap-1 ${on ? "text-neutral-900" : ""}`}>
 						{label}
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
 					</button>

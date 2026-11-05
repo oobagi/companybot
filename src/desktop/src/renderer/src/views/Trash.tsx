@@ -7,7 +7,7 @@ import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
 import { ArchiveIcon, RestoreIcon, TrashIcon } from "../icons";
 import { useConfirm } from "./chat/common";
-import { EmptyState, LoadMore, NoMatches, Notice, Page, compactButton, iconDangerButton, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
+import { EmptyState, LoadMore, NoMatches, Notice, Page, compactButton, iconDangerButton, linkButton, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
 // Archive keeps content indefinitely. Roles with trash.manage can explicitly delete forever.
@@ -70,8 +70,7 @@ export function TrashView({ access }: { access: Access }) {
 								<span className="w-24 shrink-0 text-neutral-500">{kinds.find((k) => k.id === e.kind)!.one}</span>
 								<span className="min-w-0 truncate">
 									{to ? (
-										// oxlint-disable-next-line ui/button-class -- the archived item's name opens it: a title link in a list row, beside its Restore button
-									<button type="button" onClick={() => navigate(...to)} className="font-medium hover:underline">{e.name}</button>
+									<button type="button" onClick={() => navigate(...to)} className={`${linkButton} font-medium`}>{e.name}</button>
 									) : (
 										<span className="font-medium">{e.name}</span>
 									)}
