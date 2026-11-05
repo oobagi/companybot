@@ -15,7 +15,8 @@ export function RecordsView({ typeKey, recordId, access }: { typeKey?: string; r
 	// Databases are opened from the sidebar; /records alone (Databases with none open, or none yet) says so.
 	if (!typeKey)
 		return (
-			<Page title="Databases">
+			// No title: the sidebar beside it already says Databases, as Chat with nothing open.
+			<Page title="">
 				<EmptyState icon={<DatabaseIcon />} title={types?.length === 0 ? "No databases yet" : "No database open"}>
 					{types?.length === 0 ? "People whose role can add databases make one with + beside Databases in the sidebar." : "Open a database from the sidebar."}
 				</EmptyState>

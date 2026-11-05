@@ -21,7 +21,8 @@ export { PagesNav } from "./pages/PageTree";
 export function PagesView({ pageId }: { pageId?: string }) {
 	if (!pageId)
 		return (
-			<Page title="Drive">
+			// No title: the sidebar beside it already says Drive, as Chat with nothing open.
+			<Page title="">
 				<EmptyState icon={<DriveIcon />} title="No page open">
 					Open a page from the sidebar, or press + beside Drive to write one.
 				</EmptyState>
