@@ -38,7 +38,7 @@ export function ConnectorsTab({ access }: { access: Access }) {
 				<Card
 					key={p.id}
 					title={p.name}
-					meta={`${p.publisher} · v${p.version}`}
+					meta={metaOf(p)}
 					description={p.description}
 					status={p.installed ? connectorStatus(p) : undefined}
 					install={{ installed: p.installed, canManage: canManage, onToggle: () => toggle(p) }}
@@ -48,6 +48,9 @@ export function ConnectorsTab({ access }: { access: Access }) {
 		</>
 	);
 }
+
+/** Who made it: the catalog's publisher and version, or "Custom" for your workspace's own. */
+const metaOf = (p: ConnectorItem) => (p.custom ? "Custom" : `${p.publisher} · v${p.version}`);
 
 function connectorStatus(p: ConnectorItem) {
 	if (!p.canUse) return "None of your roles can use it";
@@ -92,7 +95,7 @@ function ConnectorDetail({ connector, canManage, onEdit }: { connector: Connecto
 		<Detail
 			tab="connectors"
 			title={connector.name}
-			meta={`${connector.publisher} · v${connector.version}`}
+			meta={metaOf(connector)}
 			description={connector.description}
 			installed={connector.installed}
 			canManage={canManage}
