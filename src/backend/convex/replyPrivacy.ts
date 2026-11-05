@@ -1,11 +1,11 @@
-import { EVERYONE, findConnector, whoCan } from "@companybot/core";
+import { EVERYONE, whoCan } from "@companybot/core";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { canPost, reachOf } from "./chatOps";
 import { type Member, nameOf } from "./lib";
 import { pageStates } from "./pageTree";
 import { type AccessList, chatAccess, reach } from "./placeAccess";
-import { allowedRoles } from "./connectorAccess";
+import { allowedRoles, connectorIn } from "./connectorAccess";
 import { inheritPlaces, type UsedPlace } from "./replySources";
 
 export type Source = { deletedConnector?: boolean; exclusiveTo?: Id<"users">; membersOnly: boolean; users?: Id<"users">[]; person?: string; where: string; access: AccessList; visible: boolean; name: string; why: string };
@@ -49,7 +49,7 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 		const install = await ctx.db.get(connectorId);
 		const removed = !install ? await ctx.db.query("connectorSourceLabels").withIndex("by_install", (q) => q.eq("installId", connectorId)).first() : null;
 		const access: AccessList = install ? allowedRoles(member, install).map((role) => ({ role, level: "view" })) : [];
-		const label = install ? findConnector(install.connectorId)?.name ?? install.connectorId : removed?.workspaceId === member.workspaceId ? removed.name : undefined;
+		const label = install ? (await connectorIn(ctx, install.workspaceId, install.connectorId))?.name ?? install.connectorId : removed?.workspaceId === member.workspaceId ? removed.name : undefined;
 		const name = label ? `${label} connector${install ? "" : " (deleted)"}` : "a deleted connector";
 		const workspaceId = (install ?? removed)?.workspaceId;
 		// Keep the install id after uninstall, with the empty list's Owners-only policy so saved work stays recoverable.

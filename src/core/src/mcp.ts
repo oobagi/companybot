@@ -17,12 +17,14 @@ export interface ConnectorSession {
  *
  * Pass `transport` to talk to a server in-process (tests); otherwise it uses the
  * connector's URL with the connection's credentials. OAuth connectors also need an
- * `authProvider` (a ConnectorOAuth), which sends the token and refreshes it.
+ * `authProvider` (a ConnectorOAuth), which sends the token and refreshes it. Custom connectors
+ * must pass `fetch` (a `connectorFetch`), so nothing reaches a private or local address.
  */
 export async function openConnector(
 	connector: Connector,
-	connection: { credentials: ConnectorCredentials; authProvider?: OAuthClientProvider } | { transport: MCPTransport },
+	connection: { credentials: ConnectorCredentials; authProvider?: OAuthClientProvider; fetch?: typeof fetch } | { transport: MCPTransport },
 ): Promise<ConnectorSession> {
+	if (connector.custom && !("transport" in connection) && !connection.fetch) throw new Error(`${connector.name} can only connect through a checked fetch.`);
 	const client = await createMCPClient({
 		transport:
 			"transport" in connection
@@ -32,6 +34,7 @@ export async function openConnector(
 						url: connector.mcp.url,
 						headers: connectorHeaders(connector, connection.credentials),
 						authProvider: connection.authProvider,
+						...(connection.fetch && { fetch: connection.fetch }),
 					},
 	});
 	try {

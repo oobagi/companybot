@@ -3,8 +3,7 @@ import {
 	type ConnectorState,
 	can,
 	canUseConnector,
-	findConnector,
-	connectorCatalog,
+	connectorFetch,
 	startSignIn,
 	validateCredentials,
 } from "@companybot/core";
@@ -12,11 +11,11 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
+import { type ActionCtx, type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { action, mutation, query } from "./functions";
 import { encrypt } from "./crypto";
 import { type Member, checkPermission, getMember, memberFor, memberOf, requireMember, requirePermission, rolesOf, sweepExpired } from "./lib";
-import { allowedRoles } from "./connectorAccess";
+import { allowedRoles, connectorIn, connectorsIn } from "./connectorAccess";
 import { cascading, startCascade } from "./cascade";
 import { inheritPlaces, readArtifact } from "./replySources";
 import { runningTurn } from "./turns";
@@ -25,11 +24,27 @@ import { builtInId } from "./roles";
 // Install → choose roles (owners always can) → connect an account → agents granted "<connector>.*" use it.
 // Credentials are encrypted in actions (crypto.ts) and only decrypted by the agent runner.
 
-function requireConnector(connectorId: string): Connector {
-	const connector = findConnector(connectorId);
+/** A connector this workspace can see: the catalog's or its own (custom). */
+async function requireConnector(ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string): Promise<Connector> {
+	const connector = await connectorIn(ctx, workspaceId, connectorId);
 	if (!connector) throw new ConvexError("Unknown connector.");
 	return connector;
 }
+
+/**
+ * Its old install's accounts, rules and tool list are still being deleted (an uninstall, or an edit
+ * to a custom connector's server or sign-in: customConnectors.update). Nothing connects or loads
+ * until that's done, so old credentials never reach a new server and new accounts aren't swept up.
+ */
+const resetting = (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string) => cascading(ctx, "connectorInstall", { workspaceId, connectorId });
+
+/**
+ * The fetch an action connects to `connector` with: undefined (the runtime's) for catalog
+ * connectors, a checked one (core `connectorFetch`) for custom ones, which resolves each host
+ * and refuses private or local addresses before every connection.
+ */
+export const fetchFor = (ctx: Pick<ActionCtx, "runAction">, connector: Connector) =>
+	connector.custom ? connectorFetch((hostname) => ctx.runAction(internal.connectorNetwork.addresses, { hostname })) : undefined;
 
 export const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string) =>
 	ctx.db
@@ -55,8 +70,9 @@ export async function connectorStates(ctx: QueryCtx, member: Member): Promise<Co
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
 		.collect();
 	const states: ConnectorState[] = [];
+	const connectors = await connectorsIn(ctx, member.workspaceId);
 	for (const install of installs) {
-		const connector = findConnector(install.connectorId);
+		const connector = connectors.find((c) => c.id === install.connectorId);
 		if (!connector) continue;
 		const connected = connector.auth.type === "none" || !!(await connectionFor(ctx, connector, member));
 		states.push({ id: connector.id, roles: allowedRoles(member, install), connected });
@@ -72,7 +88,7 @@ export const list = query({
 		const states = await connectorStates(ctx, member);
 		const memberRole = member.workspaceRoles.find((r) => r.builtIn === "member")?.id;
 		return Promise.all(
-			connectorCatalog.map(async (connector) => {
+			(await connectorsIn(ctx, member.workspaceId)).map(async (connector) => {
 				const state = states.find((s) => s.id === connector.id);
 				const connection = state ? await connectionFor(ctx, connector, member) : null;
 				const roleIds = state?.roles ?? defaultRoles(connector, memberRole);
@@ -84,6 +100,9 @@ export const list = query({
 					publisher: connector.publisher,
 					connection: connector.connection,
 					server: connector.mcp.url,
+					transport: connector.mcp.transport,
+					/** Added by this workspace: people with connectors.manage edit or remove it (customConnectors.ts). */
+					custom: !!connector.custom,
 					// Labels only; nothing secret lives in the catalog.
 					auth: connector.auth,
 					installed: !!state,
@@ -106,26 +125,30 @@ export const setInstalled = mutation({
 	args: { connectorId: v.string(), installed: v.boolean() },
 	handler: async (ctx, { connectorId, installed }) => {
 		const member = await requirePermission(ctx, "connectors.manage");
-		const connector = requireConnector(connectorId);
+		const connector = await requireConnector(ctx, member.workspaceId, connectorId);
 		const existing = await installOf(ctx, member.workspaceId, connectorId);
-		const old = { workspaceId: member.workspaceId, connectorId };
-		if (installed && !existing) {
-			if (await cascading(ctx, "connectorInstall", old)) throw new ConvexError("It's still being uninstalled. Try again in a minute.");
-			await ctx.db.insert("connectorInstalls", {
-				workspaceId: member.workspaceId,
-				connectorId,
-				roles: defaultRoles(connector, await builtInId(ctx, member.workspaceId, "member")),
-				installedBy: member.userId,
-			});
-		}
-		if (!installed && existing) {
-			if (connector.connection === "workspace") await ctx.db.insert("connectorSourceLabels", { workspaceId: member.workspaceId, installId: existing._id, name: connector.name });
-			await ctx.db.delete(existing._id);
-			// Its accounts, rules, locks and tool list go too (lifecycle.ts): reinstalling starts strict again.
-			await startCascade(ctx, "connectorInstall", { ...old, connectorInstallId: existing._id });
-		}
+		if (installed && !existing) await install(ctx, member, connector);
+		if (!installed && existing) await uninstall(ctx, connector, existing);
 	},
 });
+
+/** Installs a connector here, for its default roles. Waits out an uninstall still deleting the old one's rows. */
+export async function install(ctx: MutationCtx, member: Member, connector: Connector, roles?: Id<"roles">[]) {
+	if (await resetting(ctx, member.workspaceId, connector.id)) throw new ConvexError("It's still being uninstalled. Try again in a minute.");
+	return ctx.db.insert("connectorInstalls", {
+		workspaceId: member.workspaceId,
+		connectorId: connector.id,
+		roles: roles ?? defaultRoles(connector, await builtInId(ctx, member.workspaceId, "member")),
+		installedBy: member.userId,
+	});
+}
+
+/** Ends access at once, then deletes its accounts, rules, locks and tool list (lifecycle.ts): reinstalling starts strict again. */
+export async function uninstall(ctx: MutationCtx, connector: Connector, existing: Doc<"connectorInstalls">) {
+	if (connector.connection === "workspace") await ctx.db.insert("connectorSourceLabels", { workspaceId: existing.workspaceId, installId: existing._id, name: connector.name });
+	await ctx.db.delete(existing._id);
+	await startCascade(ctx, "connectorInstall", { workspaceId: existing.workspaceId, connectorId: connector.id, connectorInstallId: existing._id });
+}
 
 /** Who may use a connector when it's installed: Member's people, unless it's for owners only. Owners always can. */
 const defaultRoles = (connector: Connector, memberRole: Id<"roles"> | undefined): Id<"roles">[] => (connector.ownersOnly || !memberRole ? [] : [memberRole]);
@@ -164,12 +187,12 @@ export const startOAuth = action({
 	handler: async (ctx, { connectorId }): Promise<string> => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
-		const connector = requireConnector(connectorId);
-		if (connector.auth.type !== "oauth") throw new ConvexError("This connector doesn't sign in through the browser.");
 		const target = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId });
+		const connector = await requireDefinition(ctx, target.workspaceId, connectorId);
+		if (connector.auth.type !== "oauth") throw new ConvexError("This connector doesn't sign in through the browser.");
 		let started: Awaited<ReturnType<typeof startSignIn>>;
 		try {
-			started = await startSignIn(connector, oauthRedirectUrl());
+			started = await startSignIn(connector, oauthRedirectUrl(), fetchFor(ctx, connector));
 		} catch (e) {
 			throw new ConvexError(`Couldn't start signing in to ${connector.name}: ${e instanceof Error ? e.message : e}`);
 		}
@@ -230,11 +253,11 @@ export const connect = action({
 	handler: async (ctx, args) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
-		const connector = requireConnector(args.connectorId);
+		// Check permission before encrypting, then again when saving.
+		const target = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId: args.connectorId });
+		const connector = await requireDefinition(ctx, target.workspaceId, args.connectorId);
 		const problem = validateCredentials(connector, args.credentials);
 		if (problem) throw new ConvexError(problem);
-		// Check permission before encrypting, then again when saving.
-		const target = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId: connector.id });
 		const sealed = await encrypt(args.credentials);
 		await ctx.runMutation(internal.connectors.saveConnection, { userId, ...target, connectorId: connector.id, credentials: sealed });
 	},
@@ -254,15 +277,28 @@ async function requireConnectTarget(
 ) {
 	const member = await memberFor(ctx, userId, workspaceId);
 	if (!member) throw new ConvexError("Sign in to a workspace first.");
-	const connector = requireConnector(connectorId);
+	const connector = await requireConnector(ctx, member.workspaceId, connectorId);
 	const install = await installOf(ctx, member.workspaceId, connectorId);
 	if (!install) throw new ConvexError("Install the connector first.");
+	if (await resetting(ctx, member.workspaceId, connectorId)) throw new ConvexError(`${connector.name} changed and its old connections are still being deleted. Try again in a minute.`);
 	if (!canUseConnector(member, allowedRoles(member, install))) throw new ConvexError("None of your roles can use this connector. Ask someone who installs connectors to allow one.");
 	const permission = connector.connection === "workspace" ? "connectors.manage" : "connectors.connect";
 	checkPermission(member, permission);
 	if (bound && (bound.memberId !== member.id || bound.connectorInstallId !== install._id))
 		throw new ConvexError(`This sign-in started before ${connector.name} or your membership changed. Connect again.`);
 	return { member, connector, userId: connector.connection === "personal" ? member.userId : null, memberId: member.id, connectorInstallId: install._id };
+}
+
+/** A connector's definition in a workspace (no secrets): the catalog's or its own. For the OAuth callback. */
+export const definition = internalQuery({
+	args: { workspaceId: v.id("workspaces"), connectorId: v.string() },
+	handler: async (ctx, { workspaceId, connectorId }) => (await connectorIn(ctx, workspaceId, connectorId)) ?? null,
+});
+
+async function requireDefinition(ctx: Pick<ActionCtx, "runQuery">, workspaceId: Id<"workspaces">, connectorId: string): Promise<Connector> {
+	const connector = await ctx.runQuery(internal.connectors.definition, { workspaceId, connectorId });
+	if (!connector) throw new ConvexError("Unknown connector.");
+	return connector;
 }
 
 export const connectTarget = internalQuery({
@@ -302,7 +338,7 @@ export const disconnect = mutation({
 	args: { connectorId: v.string() },
 	handler: async (ctx, { connectorId }) => {
 		const member = await requireMember(ctx);
-		const connector = requireConnector(connectorId);
+		const connector = await requireConnector(ctx, member.workspaceId, connectorId);
 		if (connector.connection === "workspace") checkPermission(member, "connectors.manage");
 		const connection = await connectionFor(ctx, connector, member);
 		if (connection) await ctx.db.delete(connection._id);
@@ -325,17 +361,19 @@ export const forTurn = internalQuery({
 });
 
 async function usableConnectors(ctx: QueryCtx, member: Member, connectorIds: string[]) {
-	const usable: { connectorId: string; installId: Id<"connectorInstalls">; connectionId: Id<"connectorConnections"> | null; credentials: string | null }[] = [];
+	/** `connector`: its definition (no secrets), the workspace's own for custom ones, so the runner needs no lookup. */
+	const usable: { connectorId: string; connector: Connector; installId: Id<"connectorInstalls">; connectionId: Id<"connectorConnections"> | null; credentials: string | null }[] = [];
 	for (const connectorId of connectorIds) {
-		const connector = findConnector(connectorId);
+		const connector = await connectorIn(ctx, member.workspaceId, connectorId);
 		const install = connector && (await installOf(ctx, member.workspaceId, connectorId));
 		if (!connector || !install || !canUseConnector(member, allowedRoles(member, install))) continue;
+		if (await resetting(ctx, member.workspaceId, connectorId)) continue;
 		if (connector.auth.type === "none") {
-			usable.push({ connectorId, installId: install._id, connectionId: null, credentials: null });
+			usable.push({ connectorId, connector, installId: install._id, connectionId: null, credentials: null });
 			continue;
 		}
 		const connection: Doc<"connectorConnections"> | null = await connectionFor(ctx, connector, member);
-		if (connection) usable.push({ connectorId, installId: install._id, connectionId: connection._id, credentials: connection.credentials });
+		if (connection) usable.push({ connectorId, connector, installId: install._id, connectionId: connection._id, credentials: connection.credentials });
 	}
 	return usable;
 }
@@ -347,7 +385,7 @@ export const forCall = internalMutation({
 		const { member } = await runningTurn(ctx, turnId);
 		const connection = (await usableConnectors(ctx, member, [connectorId]))[0];
 		if (!connection) return null;
-		if (findConnector(connectorId)?.connection === "personal") await readArtifact(ctx, member, {}, member.userId);
+		if (connection.connector.connection === "personal") await readArtifact(ctx, member, {}, member.userId);
 		else await inheritPlaces(ctx, member, [connection.installId]);
 		return { connectionId: connection.connectionId };
 	},

@@ -10,6 +10,7 @@ import {
 	canUseTool,
 	deniedMessage,
 	findConnector,
+	isConnectorTool,
 	permissionFor,
 	readOnlyRisk,
 	toolGroup,
@@ -22,7 +23,7 @@ import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { riskOf, titleOf, toolsOf } from "./connectorTools";
 import { installOf } from "./connectors";
-import { allowedRoles } from "./connectorAccess";
+import { allowedRoles, connectorsIn } from "./connectorAccess";
 import { type Member, getMember, memberFor, nameOf, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { risk } from "./schema";
 import { turnIsRestricted } from "./replySources";
@@ -36,11 +37,13 @@ import { runningTurn } from "./turns";
 // Rules key on the person and the action only, never on a snapshot of content: an
 // unrelated change (an edited prompt, a new message) can't void or block one.
 
-/** The connector install an action belongs to. Undefined: a built-in. Null: its connector isn't installed. */
+/**
+ * The connector install an action belongs to. Undefined: a built-in. Null: its connector (the
+ * catalog's or the workspace's own) isn't installed here, or is gone.
+ */
 async function connectorInstallOf(ctx: QueryCtx, workspaceId: Id<"workspaces">, action: string) {
-	const connectorId = toolGroup(action);
-	if (!findConnector(connectorId)) return undefined;
-	return (await installOf(ctx, workspaceId, connectorId)) ?? null;
+	if (!isConnectorTool(action)) return undefined;
+	return (await installOf(ctx, workspaceId, toolGroup(action))) ?? null;
 }
 
 /** The workspace's locks on one action, on any install. */
@@ -242,15 +245,16 @@ async function actionsFor(ctx: QueryCtx, member: Member): Promise<Action[]> {
 	const defs: { action: string; title?: string; description: string; risk: Risk; install?: Doc<"connectorInstalls"> }[] = builtinTools
 		.filter((t) => canUseTool(member, t) && toolRisk(t) !== "none" && toolRisk(t) !== "inside")
 		.map((t) => ({ action: t.id, title: t.title, description: t.description, risk: toolRisk(t) }));
+	const connectors = await connectorsIn(ctx, member.workspaceId);
 	for (const install of installs) {
-		if (!findConnector(install.connectorId)) continue;
+		if (!findConnector(install.connectorId, connectors)) continue;
 		for (const t of await toolsOf(ctx, member.workspaceId, install.connectorId))
 			defs.push({ action: `${install.connectorId}.${t.name}`, title: t.title, description: t.description, risk: t.risk, install });
 	}
 	const settings = await settingsOf(ctx, member);
 	return Promise.all(
 		defs.map(async ({ install, ...d }) => {
-			const connector = findConnector(toolGroup(d.action)) ?? null;
+			const connector = findConnector(toolGroup(d.action), connectors) ?? null;
 			const { decision, lock, own } = await decideWith(ctx, member, install, { action: d.action, risk: d.risk }, settings);
 			const forced = lock === "ask" || lock === "block" || (d.risk === "locked" && lock !== "none");
 			const action: Action = {
@@ -293,9 +297,10 @@ export const mine = query({
 				.withIndex("by_user", (q) => q.eq("userId", member.userId))
 				.collect()
 		).filter((r) => r.workspaceId === member.workspaceId);
+		const connectors = await connectorsIn(ctx, member.workspaceId);
 		return Promise.all(
 			rows.map(async (r) => {
-				const connector = findConnector(toolGroup(r.action)) ?? null;
+				const connector = findConnector(toolGroup(r.action), connectors) ?? null;
 				const automation = r.automationInstallId ? await ctx.db.get(r.automationInstallId) : null;
 				const name = automation ? automationName(automation) : undefined;
 				const title = await titleOf(ctx, member.workspaceId, r.action);

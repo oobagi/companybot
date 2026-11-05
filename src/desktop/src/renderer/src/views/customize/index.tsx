@@ -26,7 +26,7 @@ export function CustomizeView({ access, tab, itemId }: { access: Access; tab: Cu
 	return (
 		<Page title={current.label} description={current.description} actions={{
 			agents: can(access, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
-			connectors: null,
+			connectors: can(access, "connectors.manage") && <NewButton label="New connector" onClick={() => navigate("settings", "connectors", "new")} />,
 			skills: <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,
 			// Everyone: a personal one needs no switch (the form offers sharing only to those who can).
 			automations: <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,
