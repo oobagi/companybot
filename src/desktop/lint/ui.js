@@ -104,9 +104,9 @@ const rule = (description, messages, create) => ({ meta: { type: "suggestion", d
 
 const rules = {
 	"no-stacked-form": rule(
-		"`Field` and `inputClass` are the old stacked form: forms are settings cards.",
+		"`Field` and `inputClass` are the old hand-made form: forms are `Settings`/`Setting`, which stack by themselves in dialogs.",
 		{
-			field: "`Field` is the old stacked form. Put each input in a `Setting` row inside `Settings` (label and hint left, a compact control right); long text gets a full-width row (`Setting wide`). Dialogs keep `DialogButtons`; screens keep `SaveBar`.",
+			field: "`Field` is the old hand-made form. Put each input in a `Setting` inside `Settings`: a row in a card on a screen, stacked (label over a full-width control) in a dialog or on sign-in (`Stacked`). Dialogs keep `DialogButtons`; screens keep `SaveBar`.",
 			input: "`inputClass` is the old big input. Use `wideControlClass` (or `compactControlClass`) in a `Setting` row; a textarea in a `Setting wide` row takes `compactControlClass w-full`.",
 		},
 		(context) => ({

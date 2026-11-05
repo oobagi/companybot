@@ -1,7 +1,7 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
-import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
+import { Notice, Stacked, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
@@ -216,7 +216,7 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 					<CloseIcon />
 				</IconButton>
 			</header>
-			{children}
+			<Stacked>{children}</Stacked>
 		</Layer>
 	);
 }

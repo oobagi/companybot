@@ -76,7 +76,7 @@ export function AddField({
 						</Setting>
 					)}
 					{severalKinds.includes(kind) && (
-						<Setting label="Holds several" hint="More than one value per record.">
+						<Setting inline label="Holds several" hint="More than one value per record.">
 							<Checkbox label="Holds several" checked={multiple} onChange={setMultiple} />
 						</Setting>
 					)}

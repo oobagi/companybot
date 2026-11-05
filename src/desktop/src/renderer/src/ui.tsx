@@ -336,11 +336,12 @@ export function Tabs<T extends string>({
  * that needs one, is a small footnote under its content, as in macOS settings.
  */
 export function Section({ title, note, flush, action, children }: { title: string; note?: string; flush?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
+	const edge = flush || useContext(StackedContext);
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} flush={flush} action={action} />
+			<Heading title={title} flush={edge} action={action} />
 			{children}
-			<Note text={note} flush={flush} />
+			<Note text={note} flush={edge} />
 		</section>
 	);
 }
@@ -360,16 +361,26 @@ function Note({ text, flush }: { text?: string; flush?: boolean }) {
 	return text ? <p className={`text-xs text-neutral-500 ${flush ? "" : insetClass}`}>{text}</p> : null;
 }
 
+/** Inside a dialog (and on sign-in), forms stack: each label over its control, full width, no card. */
+const StackedContext = createContext(false);
+
+/** Makes the `Settings` forms under it stack (`Modal` does this for every dialog). */
+export function Stacked({ children }: { children: React.ReactNode }) {
+	return <StackedContext.Provider value>{children}</StackedContext.Provider>;
+}
+
 /**
  * Settings, one per row in a card: what it is and a one-line hint on the left, its
  * control on the right. Every settings screen uses it, so labels and controls line up.
+ * In a dialog (`Stacked`) the same rows stack: label and hint over a full-width control.
  */
 export function Settings({ title, note, action, children }: { title?: string; note?: string; action?: React.ReactNode; children: React.ReactNode }) {
+	const stacked = useContext(StackedContext);
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} action={action} />
-			<div className={listClass}>{children}</div>
-			<Note text={note} />
+			<Heading title={title} action={action} flush={stacked} />
+			<div className={stacked ? "flex flex-col gap-4" : listClass}>{children}</div>
+			<Note text={note} flush={stacked} />
 		</section>
 	);
 }
@@ -377,11 +388,24 @@ export function Settings({ title, note, action, children }: { title?: string; no
 /**
  * One setting in a `Settings` card. Every form uses these rows, on a screen or in a dialog.
  * `wide` is for long text (a textarea, instructions): the label and hint on top, the control
- * across the card under them (give it `compactControlClass w-full`).
+ * across the card under them (give it `compactControlClass w-full`). `inline` keeps a checkbox
+ * or switch beside its label even where forms stack.
  */
-export function Setting({ label, hint, wide, children }: { label: string; hint?: string; wide?: boolean; children: React.ReactNode }) {
+export function Setting({ label, hint, wide, inline, children }: { label: string; hint?: string; wide?: boolean; inline?: boolean; children: React.ReactNode }) {
+	const stacked = useContext(StackedContext);
+	if (stacked && !inline) {
+		return (
+			<div className="flex flex-col gap-1.5">
+				<div className="flex min-w-0 flex-col gap-0.5">
+					<p className="text-sm font-medium">{label}</p>
+					{hint && <p className="text-xs text-neutral-500">{hint}</p>}
+				</div>
+				<div className="stacked-control flex gap-2">{children}</div>
+			</div>
+		);
+	}
 	return (
-		<div className={`flex px-4 py-3 ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
+		<div className={`flex ${stacked ? "" : "px-4 py-3"} ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
 			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<p className="text-sm font-medium">{label}</p>
 				{hint && <p className="text-xs text-neutral-500">{hint}</p>}

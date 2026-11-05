@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Form, Notice, Setting, Settings, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Form, Notice, Setting, Settings, Stacked, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
 import { Mark, Split } from "./Landing";
 
 /**
@@ -42,7 +42,7 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 					<h1 className="text-xl font-semibold tracking-tight text-neutral-900">{sentTo ? "Check your email" : "Sign in to Companybot"}</h1>
 					{sentTo && <p className={descriptionClass}>We sent a 6-digit code to {sentTo}.</p>}
 				</div>
-				<Settings>
+				<Stacked><Settings>
 					{sentTo ? (
 						<Setting label="Code">
 							<input
@@ -61,7 +61,7 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={wideControlClass} />
 						</Setting>
 					)}
-				</Settings>
+				</Settings></Stacked>
 				<Notice>{error}</Notice>
 				<div className="flex flex-col gap-4">
 					<button type="submit" disabled={busy} className={`${primaryButton} py-2.5`}>

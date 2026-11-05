@@ -185,3 +185,13 @@ body {
 	border-bottom: 1.5px solid var(--color-neutral-300);
 	border-left: 1.5px solid var(--color-neutral-300);
 }
+
+/* A stacked field's control (`Setting` in a dialog or on sign-in): full width and a size up, so a form reads at a glance. */
+.stacked-control > * {
+	width: 100%;
+}
+.stacked-control :is(input:not([type="checkbox"]), textarea, button[aria-haspopup]) {
+	min-height: 2.5rem;
+	border-color: var(--color-neutral-300);
+	font-size: var(--text-body);
+}
