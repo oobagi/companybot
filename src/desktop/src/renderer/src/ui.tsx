@@ -474,7 +474,7 @@ export function NewButton({ label, onClick }: { label: string; onClick: () => vo
 export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
 	return (
 		<div className="flex min-h-[60vh] flex-1 flex-col items-center pt-24">
-			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
+			<div className="sticky top-1/2 flex max-w-xs -translate-y-1/2 flex-col items-center gap-2 py-8 text-center text-balance">
 				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
 				<h2 className="text-base font-medium">{title}</h2>
 				<p className={descriptionClass}>{children}</p>
