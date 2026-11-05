@@ -1,5 +1,5 @@
 import { seedLegacyRecords } from "./legacyFixtures";
-import { addMember, newTest, identityOf } from "./helpers";
+import { addMember, newTest, identityOf, messagesIn } from "./helpers";
 import { connectorCatalog, defineConnector } from "@companybot/core";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -33,7 +33,7 @@ async function setup() {
 	await t.run((ctx) => seedLegacyRecords(ctx, a, userId));
 	const b = await t.run(async (ctx) => {
 		const id = await ctx.db.insert("workspaces", { name: "B", version: 1 });
-		await addMember(ctx, { userId, workspaceId: id, role: "owner" });
+		await addMember(ctx, { userId, workspaceId: id, role: "owner", email: "two@co.com" });
 		return id;
 	});
 	return { t, userId, a, b, A: as.in(a), B: as.in(b) };
@@ -55,7 +55,7 @@ const removeFromA = ({ t, userId, a }: Setup) =>
 const deputyIn = ({ t }: Setup, workspaceId: Id<"workspaces">) =>
 	t.run(async (ctx) => {
 		const deputy = await ctx.db.insert("users", { email: "deputy@co.com" });
-		await addMember(ctx, { userId: deputy, workspaceId, role: "owner" });
+		await addMember(ctx, { userId: deputy, workspaceId, role: "owner", email: "deputy@co.com" });
 	});
 
 describe("requests naming a workspace", () => {
@@ -146,7 +146,7 @@ describe("requests naming a workspace", () => {
 		expect(after.members.map((m) => m.id)).toContain(deputy.id);
 		// Reads show nothing.
 		expect(await B.query(api.chats.get, { chatId: general })).toBeNull();
-		expect(await B.query(api.messages.list, { chatId: general })).toEqual([]);
+		expect(await messagesIn(B, { chatId: general })).toEqual([]);
 		expect(await B.query(api.records.get, { recordId })).toBeNull();
 		await expect(B.query(api.agents.history, { agentId })).rejects.toThrow("Agent not found");
 		// And nothing in A changed.
@@ -160,7 +160,7 @@ describe("unread mentions", () => {
 		const { t, userId, a, A, B } = await setup();
 		const otherId = await t.run(async (ctx) => {
 			const id = await ctx.db.insert("users", { email: "other@co.com" });
-			await addMember(ctx, { userId: id, workspaceId: a, role: "owner" });
+			await addMember(ctx, { userId: id, workspaceId: a, role: "owner", email: "other@co.com" });
 			return id;
 		});
 		const other = person(identityOf(t, otherId)).in(a);
@@ -179,7 +179,7 @@ describe("unread mentions", () => {
 		await A.mutation(api.chats.leave, { chatId });
 		expect(await A.query(api.chats.alerts)).toEqual([]);
 		expect(await A.query(api.chats.get, { chatId })).toBeNull();
-		expect(await A.query(api.messages.list, { chatId })).toEqual([]);
+		expect(await messagesIn(A, { chatId })).toEqual([]);
 		await A.mutation(api.workspace.leave);
 		expect(await A.query(api.chats.alerts)).toBeNull();
 		expect(await B.query(api.chats.alerts)).toEqual([]);
@@ -215,7 +215,7 @@ it("refuses ids from the other workspace in reads, restores and nested ids", asy
 	await expect(B.mutation(api.chats.openDm, { userIds: [], agentIds: [agent._id] })).rejects.toThrow(/available/);
 
 	const bChat = await B.mutation(api.chats.createChannel, { name: "b-chat", private: false });
-	expect(await B.query(api.messages.list, { chatId: bChat, threadId: message })).toEqual([]);
+	expect(await messagesIn(B, { chatId: bChat, threadId: message })).toEqual([]);
 	expect(await B.query(api.chats.place, { chatId: bChat, threadId: message })).toBeNull();
 	await expect(
 		B.mutation(api.messages.send, { chatId: bChat, threadId: message, text: "x", mentions: { userIds: [], agentIds: [] } }),
@@ -256,7 +256,7 @@ describe("the rail's activity", () => {
 		const { t, userId, a, b, A } = await setup();
 		const otherId = await t.run(async (ctx) => {
 			const id = await ctx.db.insert("users", { email: "other@co.com" });
-			await addMember(ctx, { userId: id, workspaceId: a, role: "owner" });
+			await addMember(ctx, { userId: id, workspaceId: a, role: "owner", email: "other@co.com" });
 			return id;
 		});
 		const other = person(t.withIdentity({ subject: `${otherId}|session` })).in(a);

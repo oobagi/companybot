@@ -6,6 +6,7 @@ import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
 import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
+import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type DragProps, useSortable } from "../../sortable";
 import { Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
@@ -171,7 +172,8 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 					<Fragment key={d.key}>
 				<Item
 					drag={drag(d.key)}
-					pin={d.dmId ? `chat:${d.dmId}` : undefined}
+					// No DM with this agent yet: pinning starts it (it's what the pin opens).
+					pin={d.dmId ? `chat:${d.dmId}` : () => openDm({ userIds: [], agentIds: [d.agentId!] }).then((id) => `chat:${id}` as const, (e) => (onError(e), Promise.reject(e)))}
 					icon={<Avatar name={d.name} image={d.image} agent={d.agent} size="row" />}
 					label={d.name}
 					active={!!d.dmId && d.dmId === openId}
@@ -247,7 +249,8 @@ export type SectionProps = { collapsed: boolean; onToggle: () => void; drag: Dra
 export function Group({ title, section, add, children }: { title: string; section?: SectionProps; add?: React.ReactNode; children: React.ReactNode }) {
 	const { draggable, onDragStart, onDragEnd, className = "", ...target } = section?.drag ?? {};
 	return (
-		<section {...target} className={`group/section relative flex flex-col gap-px ${className}`}>
+		// Folded, ⌥1–9 skip its rows (`sidebarRow`).
+		<section {...target} data-collapsed={section?.collapsed || undefined} className={`group/section relative flex flex-col gap-px ${className}`}>
 			<div draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} className="flex items-center justify-between px-2 pb-1">
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500">
 					{section ? (
@@ -263,6 +266,25 @@ export function Group({ title, section, add, children }: { title: string; sectio
 			</div>
 			{children}
 		</section>
+	);
+}
+
+/**
+ * The open tab's sidebar list. ⌥1–9 (Alt+1–9 off a Mac) open its Nth top-level row as shown,
+ * unless you're typing (`shortcuts.ts`).
+ */
+export function SidebarList({ children }: { children: React.ReactNode }) {
+	const list = useRef<HTMLDivElement>(null);
+	useJump("item", (n) => {
+		const row = sidebarRow(list.current, n);
+		if (!row) return false;
+		blurActiveEditable();
+		row.click();
+	});
+	return (
+		<div ref={list} className="flex flex-col gap-4 px-3 pb-2">
+			{children}
+		</div>
 	);
 }
 
@@ -292,6 +314,7 @@ export function Item({
 	mentioned,
 	draft,
 	muted,
+	create,
 	title,
 	guides = [],
 	expanded,
@@ -314,6 +337,8 @@ export function Item({
 	/** Something typed in it and not sent; shown unless the chat is open, where the composer has it. */
 	draft?: boolean;
 	muted?: boolean;
+	/** A "New …" row: not one of the list's things, so ⌥1–9 skip it. */
+	create?: boolean;
 	title?: string;
 	/**
 	 * A nested row: one entry per level above it, true where that level's line continues below
@@ -332,13 +357,17 @@ export function Item({
 	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
 	/** From `useSortable`: makes the row draggable within its list. */
 	drag?: DragProps;
-	/** What it is as a pin: its menu gets Pin to rail / Unpin from rail. */
-	pin?: PinKey;
+	/**
+	 * What it is as a pin: its menu gets Pin to rail / Unpin from rail. A function makes the thing
+	 * first (an agent you haven't written to has no DM yet) and returns its key.
+	 */
+	pin?: PinKey | (() => Promise<PinKey>);
 	onClick: () => void;
 	children: React.ReactNode;
 }) {
 	const pins = usePins();
-	const pinned = !!pin && pins.pins.includes(pin);
+	const pinned = typeof pin === "string" && pins.pins.includes(pin);
+	const togglePin = (key: PinKey | (() => Promise<PinKey>)) => (typeof key === "string" ? pins.toggle(key) : void key().then(pins.toggle, () => {}));
 	// Open from its ⋯ button, or at the point you right-clicked.
 	const [menuAt, setMenuAt] = useState<"button" | { x: number; y: number }>();
 	const [renaming, setRenaming] = useState(false);
@@ -349,7 +378,7 @@ export function Item({
 			? (close: () => void) => (
 					<>
 						{rename && <MenuItem onClick={() => (close(), setRenaming(true))}><EditIcon /> Rename</MenuItem>}
-						{pin && <MenuItem onClick={() => (close(), pins.toggle(pin))}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
+						{pin && <MenuItem onClick={() => (close(), togglePin(pin))}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
 						{menu?.(close)}
 					</>
 				)
@@ -394,6 +423,8 @@ export function Item({
 					ref={row}
 					type="button"
 					title={title}
+					// ⌥1–9 count the list's top-level rows (`sidebarRow`).
+					data-sidebar-item={!guides.length && !create ? "" : undefined}
 					onClick={onClick}
 					onDoubleClick={rename && (() => setRenaming(true))}
 					onKeyDown={rename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(true)))}

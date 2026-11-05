@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { useQuery } from "../convex";
+import { useQuery, useWorkspace } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, FolderIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
 import { FileKindIcon } from "./drive/FileIcon";
 import { type PinKey, RECENT_SHOWN, pathOf, splitPin, usePins } from "../pins";
@@ -17,7 +17,7 @@ type Entry = { key: PinKey; label: string; icon: React.ReactNode; path: string[]
 
 const entryKey = (e: Entry) => e.key;
 
-/** Turns pins into what they are now, so renames show and deleted things drop out. */
+/** Turns pins into what they are now, so renames show and deleted things drop out. `ready` once all have loaded. */
 function useEntries(keys: PinKey[]) {
 	const chats = useQuery(api.chats.list);
 	const pages = useQuery(api.pages.list);
@@ -26,38 +26,55 @@ function useEntries(keys: PinKey[]) {
 	const records = useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip");
 	const fileIds = keys.flatMap((k) => (k.startsWith("file:") ? [splitPin(k)[1]] : []));
 	const files = useQuery(api.driveFiles.titles, fileIds.length ? { ids: fileIds } : "skip");
-	return (key: PinKey): Entry | undefined => {
+	const ready = !!chats && !!pages && !!types && (!recordIds.length || !!records) && (!fileIds.length || !!files);
+	const resolve = (key: PinKey): Entry | undefined => {
 		const [kind, id] = splitPin(key);
 		const plain = { key, path: pathOf(key), unread: false, mentioned: false };
 		if (kind === "rec") {
 			const record = records?.find((r) => r._id === id);
-			return record && { ...plain, path: pathOf(key, record.typeKey), label: record.title || "Untitled", icon: <RecordIcon size={20} /> };
+			return record && { ...plain, path: pathOf(key, record.typeKey), label: record.title || "Untitled", icon: <RecordIcon size={22} /> };
 		}
 		if (kind === "page") {
 			const page = pages?.find((p) => p._id === id);
-			return page && { ...plain, label: page.title || "Untitled", icon: page.kind === "folder" ? <FolderIcon size={20} /> : <PageIcon size={20} /> };
+			return page && { ...plain, label: page.title || "Untitled", icon: page.kind === "folder" ? <FolderIcon size={22} /> : <PageIcon size={22} /> };
 		}
 		if (kind === "file") {
 			const file = files?.find((f) => f._id === id);
-			return file && { ...plain, label: file.name, icon: <FileKindIcon type={file.type} name={file.name} size={20} /> };
+			return file && { ...plain, label: file.name, icon: <FileKindIcon type={file.type} name={file.name} size={22} /> };
 		}
 		if (kind === "db") {
 			const type = types?.find((t) => t.key === id);
-			return type && { ...plain, label: type.plural, icon: <DatabaseIcon size={20} /> };
+			return type && { ...plain, label: type.plural, icon: <DatabaseIcon size={22} /> };
 		}
 		if (!chats) return undefined;
 		const channel = chats.channels.find((c) => c._id === id);
-		if (channel) return { ...plain, label: `#${channel.name}`, icon: channel.private ? <PrivateIcon size={20} /> : <ChannelIcon size={20} />, unread: channel.unread, mentioned: channel.mentioned };
+		if (channel) return { ...plain, label: `#${channel.name}`, icon: channel.private ? <PrivateIcon size={22} /> : <ChannelIcon size={22} />, unread: channel.unread, mentioned: channel.mentioned };
 		const agent = chats.agents.find((a) => a.dmId === id);
-		if (agent) return { ...plain, label: agent.name, icon: <Avatar name={agent.name} image={agent.image} agent size="sm" />, unread: agent.unread, mentioned: agent.mentioned };
+		if (agent) return { ...plain, label: agent.name, icon: <Avatar name={agent.name} image={agent.image} agent size="pair" />, unread: agent.unread, mentioned: agent.mentioned };
 		const dm = chats.dms.find((d) => d._id === id);
 		if (!dm) return undefined;
 		const state = { unread: dm.unread, mentioned: dm.mentioned };
 		// A side chat with an agent, under its DM.
-		if (dm.parentId) return { ...plain, ...state, label: dm.label ?? "New chat", icon: <ChatIcon size={20} /> };
+		if (dm.parentId) return { ...plain, ...state, label: dm.label ?? "New chat", icon: <ChatIcon size={22} /> };
 		const others = dm.members.filter((m) => m.id !== chats.me);
-		return { ...plain, ...state, label: dm.title, icon: <Avatar name={dm.title} image={others.length === 1 ? others[0]!.image : undefined} size="sm" /> };
+		return { ...plain, ...state, label: dm.title, icon: <Avatar name={dm.title} image={others.length === 1 ? others[0]!.image : undefined} size="pair" /> };
 	};
+	return { resolve, ready };
+}
+
+/** Each workspace's recents in the order the rail last showed them, for this session. */
+const railOrder = new Map<string, PinKey[]>();
+
+/**
+ * Recents in a steady order, from the order last shown (`before`): one already on the rail keeps its
+ * place when you open it again (the saved list moves it to the front), and one new to the list comes in
+ * at the top. Which ones show is still the latest RECENT_SHOWN, so the one you used longest ago is what
+ * drops off. Pure: RailPins stores the result only once it's on screen, so a render React throws away
+ * can't reorder anything.
+ */
+export function steadyOrder(before: readonly PinKey[], latest: readonly PinKey[]): PinKey[] {
+	const kept = before.filter((k) => latest.includes(k));
+	return [...latest.filter((k) => !kept.includes(k)), ...kept];
 }
 
 /**
@@ -67,16 +84,32 @@ function useEntries(keys: PinKey[]) {
  */
 export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; tipFor: TipFor; hideTip: () => void }) {
 	const { pins, recent, toggle } = usePins();
-	const resolve = useEntries([...pins, ...recent]);
+	const workspace = useWorkspace();
+	const { resolve, ready } = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
 	const { sorted, drag } = useSortable("pinsOrder", pinned, entryKey);
-	const lately = recent
-		.filter((k) => !pins.includes(k))
-		.map(resolve)
-		.filter((e): e is Entry => !!e)
-		.slice(0, RECENT_SHOWN);
+	// The RECENT_SHOWN you opened last, in the order they came in (`steadyOrder`). While some are
+	// still loading, the rail keeps what it showed: one arriving late would look new and jump to the top.
+	const ws = workspace?.id ?? "";
+	const latest = recent.filter((k) => !pins.includes(k)).map(resolve).filter((e): e is Entry => !!e).slice(0, RECENT_SHOWN);
+	const before = railOrder.get(ws) ?? [];
+	const order = ready ? steadyOrder(before, latest.map(entryKey)) : before;
+	const orderKey = order.join(" ");
+	useEffect(() => {
+		if (ready) railOrder.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
+	}, [ready, ws, orderKey]);
+	const lately = order.map(resolve).filter((e): e is Entry => !!e);
 	const row = (e: Entry, isPinned: boolean, d?: DragProps) => (
-		<RailItem key={e.key} entry={e} active={e.key === open} pinned={isPinned} drag={d} onToggle={() => toggle(e.key)} tip={tipFor(e.label, isPinned ? undefined : "Recent")} hideTip={hideTip} />
+		<RailItem
+			key={e.key}
+			entry={e}
+			active={e.key === open}
+			pinned={isPinned}
+			drag={d}
+			onToggle={() => toggle(e.key)}
+			tip={tipFor(e.label, isPinned ? undefined : "Recent")}
+			hideTip={hideTip}
+		/>
 	);
 	return (
 		<>
@@ -123,7 +156,7 @@ function RailItem({
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
 					onClick={() => (hideTip(), navigate(...entry.path))}
-					className={`no-drag flex size-9 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+					className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
 				>
 					{entry.icon}
 				</button>

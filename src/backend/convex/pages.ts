@@ -17,9 +17,9 @@ import {
 	requirePage,
 	restoreVersion,
 } from "./pageOps";
-import { accessInfo, savedAccess } from "./placeAccess";
+import { accessInfo, requireKeepsEdit, savedAccess } from "./placeAccess";
 import { withoutPageTitles } from "./pageBlocks";
-import { writeSources } from "./replySources";
+import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { can } from "@companybot/core";
 import { kindOf, movePage, pageRow, pageState, pageStates } from "./pageTree";
@@ -260,12 +260,13 @@ export const setAccess = mutation({
 		await requireEditable(ctx, member, page);
 		const next = access ? await savedAccess(ctx, member, access) : undefined;
 		const inherited = page.parentId ? (await pageState(ctx, (await ctx.db.get(page.parentId))!)).access : undefined;
+		requireKeepsEdit(member, "page", next ?? inherited);
 		// A child following this list can retain facts from another source too. Check before widening.
 		const queue = [page];
 		let scanned = 0;
 		for (let i = 0; i < queue.length; i++) {
 			const row = queue[i]!;
-			await writeSources(ctx, member, { access: next ?? inherited }, row);
+			await changeAccessSources(ctx, member, row, { access: next ?? inherited });
 			const children = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", row._id)).take(AUDIENCE_SCAN_MAX - scanned + 1);
 			scanned += children.length;
 			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");
@@ -274,7 +275,7 @@ export const setAccess = mutation({
 			const files = await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", row._id)).take(AUDIENCE_SCAN_MAX - scanned + 1);
 			scanned += files.length;
 			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");
-			for (const f of files) if (!f.access) await writeSources(ctx, member, { access: next ?? inherited }, f);
+			for (const f of files) if (!f.access) await changeAccessSources(ctx, member, f, { access: next ?? inherited });
 		}
 		await ctx.db.patch(page._id, { access: next });
 	},

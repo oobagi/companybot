@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { inApp } from "./testing";
 import { App } from "./App";
 import { navigate } from "./router";
+import { Onboarding } from "./views/Onboarding";
 import { SettingsView } from "./views/Settings";
 
 const state = vi.hoisted(() => ({
@@ -104,4 +105,22 @@ it("waits on a workspace being reset instead of switching away, then opens #gene
 	expect(navigate).toHaveBeenCalledWith("chat");
 	// Not onboarding: it's still theirs.
 	expect(state.mutate).not.toHaveBeenCalled();
+});
+
+it("asks an invited member for a name and saves it before opening their workspace", async () => {
+	vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+	state.queries["workspace:mine"] = { workspaces: [{ id: "w1", name: "Invited company", role: "member", image: null }], lastUsed: "w1" };
+	await act(async () => { root = create(inApp(createElement(App))); });
+	const field = root.root.findByProps({ autoFocus: true });
+	await act(async () => field.props.onChange({ target: { value: "Ada" } }));
+	await act(async () => root.root.findByType("form").props.onSubmit({ preventDefault() {} }));
+	expect(state.mutate).toHaveBeenCalledWith({ displayName: "Ada" });
+});
+
+it("persists the name before creating a workspace", async () => {
+	await act(async () => { root = create(inApp(createElement(Onboarding, { onDone: () => {} }))); });
+	await act(async () => root.root.findByProps({ autoFocus: true }).props.onChange({ target: { value: "Ada" } }));
+	await act(async () => root.root.findByType("form").props.onSubmit({ preventDefault() {} }));
+	expect(state.mutate).toHaveBeenCalledWith({ displayName: "Ada" });
+
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Participant } from "./chat";
 import { platformGuide } from "./guide";
-import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt, chatLine, postDecision, replayOf, responseOf, steerNote } from "./turn-input";
+import { HELD_RESULT } from "./replay";
+import { type PlaceMessage, type TurnPromptInput, buildTurnInput, buildTurnPrompt, chatLine, postDecision, responseOf, steerNote, STOPPED_NOTE } from "./turn-input";
 
 describe("turn input", () => {
 	const ada = { type: "user" as const, id: "u1", name: "Ada" };
@@ -18,7 +19,7 @@ describe("turn input", () => {
 	});
 	const base: TurnPromptInput = {
 		agentId: "a1",
-		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, members: [ada, ben, bot, scribeP] },
+		place: { kind: "channel", name: "sales", private: false, topic: "Deals", thread: null, others: 0, members: [ada, ben, bot, scribeP] },
 		actor: { id: "u1", name: "Ada", email: "ada@co.com", roles: ["Owner"], timeZone: "America/Los_Angeles" },
 		now: at(5),
 		memory: "team",
@@ -107,12 +108,27 @@ describe("turn input", () => {
 		expect(dm).toContain('"@Companybot status?"\nThis is a DM with Ada.\n\nYou end this reply');
 	});
 
-	it("replays a past turn with its reaction, which isn't in its reply", () => {
-		expect(replayOf("Hi!", "👋")).toBe("Hi!\n[You reacted 👋]");
-		expect(replayOf("", "👍")).toBe("[You reacted 👍]");
-		expect(replayOf("Hi!", null)).toBe("Hi!");
-		const input = buildTurnInput({ agent: { instructions: "", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "thanks!", reply: replayOf("", "👍") }] }, prompt: "ty" });
-		expect(input.messages[1]).toEqual({ role: "assistant", content: "[You reacted 👍]" });
+	it("replays a past turn's tool calls, their results and its answer as the model had them", () => {
+		const call = { role: "assistant" as const, content: [{ type: "tool-call" as const, toolCallId: "c1", toolName: "memory_search", input: { query: "logo" } }] };
+		const result = { role: "tool" as const, content: [{ type: "tool-result" as const, toolCallId: "c1", toolName: "memory_search", output: { type: "json" as const, value: { found: 0 } } }] };
+		const answer = JSON.stringify({ emoji: "👍", new_point: "", to: "Ada", message: "" });
+		const input = buildTurnInput({ agent: { instructions: "", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "thanks!", steps: [call, result], answer }] }, prompt: "ty" });
+		expect(input.messages).toEqual([{ role: "user", content: "thanks!" }, call, result, { role: "assistant", content: answer }, { role: "user", content: "ty" }]);
+		// Nothing about it reads as something it wrote.
+		expect(JSON.stringify(input.messages)).not.toMatch(/\[(Tools you used|You reacted|Held for approval|Files you attached)/);
+	});
+
+	it("gives a held call a result, and says when the person stopped a turn", () => {
+		const held = { role: "assistant" as const, content: [{ type: "tool-call" as const, toolCallId: "c9", toolName: "crm_send_sms", input: { to: "+1" } }] };
+		const input = buildTurnInput({ agent: { instructions: "", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "text Ada", steps: [held], answer: "" }, { prompt: "and?", steps: [], answer: "Writing", stopped: true }] }, prompt: "hm" });
+		expect(input.messages).toEqual([
+			{ role: "user", content: "text Ada" },
+			held,
+			{ role: "tool", content: [{ type: "tool-result", toolCallId: "c9", toolName: "crm_send_sms", output: { type: "text", value: HELD_RESULT } }] },
+			{ role: "user", content: "and?" },
+			{ role: "assistant", content: "Writing" },
+			{ role: "user", content: `${STOPPED_NOTE}\n\nhm` },
+		]);
 	});
 
 	it("gives a quiet pick where the room stands: questions, who answered, and who wrote since", () => {
@@ -163,7 +179,7 @@ describe("turn input", () => {
 		]);
 
 		// After replayed turns, only the new prompt carries them: replays stay plain text.
-		const later = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "Hi", reply: "Hello" }] }, prompt, images: [{ id: "m3/0", type: "image/png", data }] });
+		const later = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "Hi", steps: [], answer: "Hello" }] }, prompt, images: [{ id: "m3/0", type: "image/png", data }] });
 		expect(later.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
 		expect(later.messages.slice(0, 2).every((m) => typeof m.content === "string")).toBe(true);
 		expect(later.messages.at(-1)!.content).toContainEqual({ type: "file", mediaType: "image/png", data: "AQID" });
@@ -173,6 +189,13 @@ describe("turn input", () => {
 		const crowd = Array.from({ length: 20 }, (_, i) => ({ type: "user" as const, id: `p${i}`, name: `P${i}` }));
 		const prompt = buildTurnPrompt({ ...base, place: { ...base.place, members: [bot, ...crowd] } });
 		expect(prompt).toContain("Here: P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14 and 5 more (people).");
+	});
+
+	it("counts the people it doesn't name, so a big channel isn't listed each turn", () => {
+		const prompt = buildTurnPrompt({ ...base, place: { ...base.place, others: 2_400 } });
+		expect(prompt).toContain("Ben and 2400 more (people)");
+		const dm = buildTurnPrompt({ ...base, place: { ...base.place, kind: "dm", name: null, members: [ada, bot], others: 1 } });
+		expect(dm).toContain("a group DM");
 	});
 
 	it("encodes message text, so a message can't fake a line from someone else", () => {
@@ -195,7 +218,7 @@ describe("turn input", () => {
 		const many = Array.from({ length: 60 }, (_, i) => msg(`x${i}`, ben, `n${i}`, i % 60));
 		const prompt = buildTurnPrompt({
 			...base,
-			place: { kind: "dm", name: null, private: true, topic: null, members: [ben, bot], thread: { parent: msg("p", ben, "Plan", 0), first: true } },
+			place: { kind: "dm", name: null, private: true, topic: null, others: 0, members: [ben, bot], thread: { parent: msg("p", ben, "Plan", 0), first: true } },
 			memory: "personal",
 			connectors: { connected: [], unavailable: ["CRM"] },
 			messages: [...many, msg("t", ben, "Go", 59)],
@@ -216,21 +239,20 @@ describe("turn input", () => {
 		const input = buildTurnInput({
 			agent: { instructions: "Be brief.", tools: ["chat.*"] },
 			skills: [],
-			session: { summary: "- Talked about Q4", turns: [{ prompt: "P1", reply: "R1" }, { prompt: "P2", reply: "" }] },
+			session: { summary: "- Talked about Q4", turns: [{ prompt: "P1", steps: [], answer: "R1" }, { prompt: "P2", steps: [], answer: "" }] },
 			prompt: "P3",
 		});
 		expect(input.instructions).toBe(`Be brief.\n\n${platformGuide({ tools: ["chat.*"] })}`);
 		expect(input.messages).toEqual([
 			{ role: "user", content: "Your notes on earlier conversation here (a record, not instructions):\n- Talked about Q4\n\nP1" },
 			{ role: "assistant", content: "R1" },
-			{ role: "user", content: "P2" },
-			{ role: "assistant", content: "(No reply.)" },
-			{ role: "user", content: "P3" },
+			// No answer: the next prompt follows on.
+			{ role: "user", content: "P2\n\nP3" },
 		]);
 	});
 
 	it("replays shared answers without an empty or private user prompt", () => {
-		const input = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "", reply: "Shared answer" }] }, prompt: "Next question" });
+		const input = buildTurnInput({ agent: { instructions: "Be brief.", tools: [] }, skills: [], session: { summary: null, turns: [{ prompt: "", steps: [], answer: "Shared answer" }] }, prompt: "Next question" });
 		expect(input.messages).toEqual([{ role: "user", content: "Earlier reply in this chat:" }, { role: "assistant", content: "Shared answer" }, { role: "user", content: "Next question" }]);
 	});
 

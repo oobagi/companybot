@@ -1,8 +1,10 @@
-import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { api } from "./api";
+import { useQuery, useWorkspace } from "./convex";
+import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
-import { PlusIcon } from "./icons";
+import { CaretDownIcon, PlusIcon } from "./icons";
 import { navigate } from "./router";
 import type { DragProps } from "./sortable";
 import { Popover } from "./views/chat/common";
@@ -237,13 +239,15 @@ const actionSlot = createContext<HTMLElement | null>(null);
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
- * `description` sits next to the title in the top bar; `actions` go on its right. `wide` for tables.
+ * `description` sits next to the title in the top bar (short: it truncates); `intro`, a sentence or
+ * two about the screen, opens its content in full. `actions` go on the top bar's right. `wide` for tables.
  */
 export function Page({
 	title,
 	crumbs,
 	heading,
 	description,
+	intro,
 	actions,
 	wide,
 	children,
@@ -252,6 +256,7 @@ export function Page({
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
 	description?: string;
+	intro?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
 	children: React.ReactNode;
@@ -276,6 +281,8 @@ export function Page({
 					}`}
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
+					{/* Inset like section headings, so it lines up with the text in the cards below. */}
+					{intro && <p className={`${descriptionClass} ${insetClass}`}>{intro}</p>}
 					{children}
 				</div>
 			</actionSlot.Provider>
@@ -400,6 +407,10 @@ export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
 export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): the same box, smaller. */
+export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+/** `compactButton` for a destructive action (Leave channel): the same box, red text. */
+export const compactDangerButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 ${disabledButtonClass}`;
 /** Submits a row of compact controls (Invite, Add, Save): their box, filled. */
 export const compactPrimaryButton = `rounded-lg border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
@@ -407,6 +418,9 @@ export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white 
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
 export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+/** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
+export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
 const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const descriptionClass = "text-sm text-neutral-500";
@@ -439,13 +453,14 @@ export function NewButton({ label, onClick }: { label: string; onClick: () => vo
 
 /**
  * A screen with nothing in it yet: no button, since the top bar's create action is how you start.
- * In the middle of the space under the top bar on every screen, however much sits above it:
- * sticky `top-1/2` brings it down to the middle; when the controls above reach past that,
- * it stays just below them.
+ * In the middle of the space under the top bar on every screen: sticky `top-1/2` holds it at the
+ * middle of the scrolling area. `min-h-[60vh]` makes its box reach past the middle even when what
+ * wraps it doesn't fill the screen (that left it high on some screens). When controls above reach
+ * past the middle, it sits just below them.
  */
 export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
 	return (
-		<div className="flex flex-1 flex-col items-center pt-24">
+		<div className="flex min-h-[60vh] flex-1 flex-col items-center pt-24">
 			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
 				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
 				<h2 className="text-base font-medium">{title}</h2>
@@ -488,7 +503,7 @@ export function Notice({ children }: { children: React.ReactNode }) {
 
 /**
  * A name edited in place, where it's shown (a sidebar row, a tab), as in Finder or Figma: it opens
- * with the text selected; Enter or clicking away saves, Escape puts it back. A blank or unchanged
+ * with the text selected; Enter, clicking away, a navigation shortcut or a rail click saves; Escape puts it back. A blank or unchanged
  * name saves nothing. While a save runs it shows the new name as plain text, and `onDone` closes it
  * once the save settles: Convex resolves a mutation after the screen's queries include it, so the
  * new name never flashes back to the old one. `className` sizes and pads it so its text sits where
@@ -651,13 +666,35 @@ export function useDebounced<T>(value: T, ms = 250) {
  * updating underneath. If someone else saves while you're editing, `stale` turns true so
  * the form can ask whose change wins. Saves send `base`, and the server refuses stale ones.
  */
-export function useDraft<T>(saved: T, version: number) {
-	const [draft, setDraft] = useState<{ value: T; base: number } | null>(null);
+const formDrafts = new Map<string, { value: unknown; base: number }>();
+const draftListeners = new Set<() => void>();
+let draftPerson: string | null = null;
+/** Called at the app boundary, including when no form is open. */
+export function setFormDraftPerson(person: string | null) {
+	if (person === draftPerson) return;
+	draftPerson = person;
+	formDrafts.clear();
+	draftListeners.forEach((listener) => listener());
+}
+const subscribeDrafts = (listener: () => void) => {
+	draftListeners.add(listener);
+	return () => { draftListeners.delete(listener); };
+};
+export function useDraft<T>(key: string, saved: T, version: number) {
+	const me = useQuery(api.workspace.me);
+	const workspace = useWorkspace();
+	const scoped = me ? JSON.stringify([me.userId, workspace?.id, key]) : null;
+	const draft = useSyncExternalStore(subscribeDrafts, () => scoped ? formDrafts.get(scoped) : undefined) as { value: T; base: number } | undefined;
+	const setDraft = (next: { value: T; base: number } | null) => {
+		if (!scoped) return;
+		if (next) formDrafts.set(scoped, next); else formDrafts.delete(scoped);
+		draftListeners.forEach((listener) => listener());
+	};
 	return {
-		value: draft?.value ?? saved,
+		value: draft ? draft.value : saved,
 		set: (value: T) => setDraft({ value, base: draft?.base ?? version }),
-		dirty: draft !== null,
-		stale: draft !== null && draft.base !== version,
+		dirty: draft !== undefined,
+		stale: draft !== undefined && draft.base !== version,
 		base: draft?.base ?? version,
 		discard: () => setDraft(null),
 		/** Overwrite their change on the next save. */
@@ -671,10 +708,10 @@ export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discar
 	return (
 		<div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 			<p className="flex-1">{who || "Someone"} saved a change while you were editing.</p>
-			<button type="button" onClick={draft.discard} className="font-medium hover:underline">
+			<button type="button" onClick={draft.discard} className={`${compactButton} bg-white`}>
 				Use theirs
 			</button>
-			<button type="button" onClick={draft.keepMine} className="font-medium hover:underline">
+			<button type="button" onClick={draft.keepMine} className={`${compactButton} bg-white`}>
 				Keep mine
 			</button>
 		</div>
@@ -687,14 +724,14 @@ export function PageActions({ children }: { children: React.ReactNode }) {
 	return slot ? createPortal(children, slot) : null;
 }
 
-/** Discard and Save in the page's top bar; both off until something changed. */
-export function SaveBar({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => void; onDiscard: () => void }) {
+/** Discard and Save in the page's top bar; both off until something changed. `canSave` false holds Save (an unresolved conflict). */
+export function SaveBar({ dirty, canSave = true, onSave, onDiscard }: { dirty: boolean; canSave?: boolean; onSave: () => void; onDiscard: () => void }) {
 	return (
 		<PageActions>
-			<button type="button" disabled={!dirty} onClick={onDiscard} className={barButton}>
+			<button type="button" disabled={!dirty} onClick={onDiscard} className={compactButton}>
 				Discard
 			</button>
-			<button type="button" disabled={!dirty} onClick={onSave} className={compactPrimaryButton}>
+			<button type="button" disabled={!dirty || !canSave} onClick={onSave} className={compactPrimaryButton}>
 				Save
 			</button>
 		</PageActions>
@@ -719,8 +756,8 @@ export function LoadMore({ status, onMore }: { status: string; onMore: () => voi
 	if (status === "LoadingMore") return <p className={`text-center ${metadataClass}`}>Loading…</p>;
 	if (status !== "CanLoadMore") return null;
 	return (
-		<button type="button" onClick={onMore} className={`self-center ${metadataClass} hover:text-neutral-700`}>
-			Load more
+		<button type="button" onClick={onMore} className={`self-center ${compactButton}`}>
+			<CaretDownIcon /> Load more
 		</button>
 	);
 }

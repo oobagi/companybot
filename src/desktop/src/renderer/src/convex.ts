@@ -3,7 +3,7 @@ import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuer
 import type { OptimisticUpdate } from "convex/browser";
 import { type PaginatedQueryReference, useAction as useConvexAction, useMutation as useConvexMutation } from "convex/react";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
-import { createContext, useCallback, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext } from "react";
 
 // The app's Convex hooks. Use these, not convex/react's: each call carries the workspace this
 // window has open, so a request always acts where it was made, whatever another device opened
@@ -41,16 +41,17 @@ export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 // Stable between renders (like convex/react's), so effects can depend on them.
 
 /**
- * `optimistic` (define it outside the component, so it's stable) changes cached query results until
- * the server's arrive; its args include `workspaceId`, for the queries it reads and sets.
+ * `optimistic` makes the update that changes cached query results until the server's arrive; its args
+ * include `workspaceId`. It's called once per call, before Convex can replay the update, so per-call
+ * state (a temporary id) stays fixed. Define it outside the component, or the mutation changes every render.
  */
-export function useMutation<M extends FunctionReference<"mutation">>(mutation: M, optimistic?: OptimisticUpdate<FunctionArgs<M>>) {
+export function useMutation<M extends FunctionReference<"mutation">>(mutation: M, optimistic?: () => OptimisticUpdate<FunctionArgs<M>>) {
 	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
 	const plain = useConvexMutation(mutation);
-	const mutate = useMemo(() => (optimistic ? plain.withOptimisticUpdate(optimistic) : plain), [plain, optimistic]);
+
 	return useCallback(
-		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => mutate(withWorkspace(args as Args, workspaceId)),
-		[mutate, workspaceId],
+		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => (optimistic ? plain.withOptimisticUpdate(optimistic()) : plain)(withWorkspace(args as Args, workspaceId)),
+		[plain, optimistic, workspaceId],
 	);
 }
 

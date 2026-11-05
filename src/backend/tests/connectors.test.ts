@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { decrypt } from "../convex/crypto";
 
-import { workspaceOf, agentTurn, generalOf, agentsOf, ownerAndMember, settle } from "./helpers";
+import { workspaceOf, agentTurn, generalOf, agentsOf, ownerAndMember, settle, messagesIn } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -92,7 +92,7 @@ it("personal connector data records a one-person source before results or metada
 	expect(await t.mutation(internal.connectors.forCall, { turnId, connectorId: "notes" })).not.toBeNull();
 	expect((await t.run((ctx) => ctx.db.get("chatMessages", replyId)))!.usedPlaces).toContain(owner.userId);
 	await t.mutation(internal.turns.updateReply, { turnId, text: "PERSONAL_NOTES_SECRET", parts: [{ type: "text", text: "PERSONAL_NOTES_SECRET" }] });
-	const shown = (await member.query(api.messages.list, { chatId: chat._id })).find((m) => m._id === replyId)!;
+	const shown = (await messagesIn(member, { chatId: chat._id })).find((m) => m._id === replyId)!;
 	expect(shown.privacy?.hidden).toBe(true);
 	expect(JSON.stringify(shown)).not.toContain("PERSONAL_NOTES_SECRET");
 	await expect(t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: "PERSONAL_NOTES_SECRET" })).rejects.toThrow("wider audience");

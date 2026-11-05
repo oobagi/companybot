@@ -4,7 +4,8 @@ import { type FieldKind, fieldKinds } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
-import { Field, Form, Notice, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
+import { Field, Form, Notice, iconDangerButton, inputClass, metadataClass, primaryButton, secondaryButton, useRun } from "../../ui";
+import { TrashIcon } from "../../icons";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
@@ -124,8 +125,8 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 										onChange={(e) => setOptions(options.map((p, j) => (j === i ? { ...p, label: e.target.value } : p)))}
 										className={`${inputClass} flex-1 py-1.5`}
 									/>
-									<button type="button" onClick={() => setOptions(options.filter((_, j) => j !== i))} className="text-sm text-neutral-400 hover:text-neutral-700">
-										Remove
+									<button type="button" onClick={() => setOptions(options.filter((_, j) => j !== i))} aria-label="Remove" title="Remove option" className={iconDangerButton}>
+										<TrashIcon size={16} />
 									</button>
 								</span>
 							))}
@@ -142,7 +143,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 						<button
 							type="button"
 							onClick={() => confirm(archiveQuestion(field.label, () => remove({ kind: "field", id: fieldId }).then(onClose), "The field will be hidden; its saved values are kept."))}
-							className="text-sm text-neutral-500 hover:text-neutral-900"
+							className={secondaryButton}
 						>
 							Archive field
 						</button>

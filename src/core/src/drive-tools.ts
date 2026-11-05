@@ -31,9 +31,9 @@ export type FileReadInput = z.infer<typeof fileReadInput>;
 export const FILE_TEXT_MAX = 500_000;
 
 export const fileWriteInput = z.object({
-	file: z.string().optional().describe("The file to change: its id or exact name"),
+	file: z.string().optional().describe("The file to change, by its id (files_find gives it): never its name, which can change"),
 	name: z.string().optional().describe("A new file's name, with its extension (notes.md, leads.csv), or a new name for a file"),
-	folder: z.string().nullable().optional().describe("Where a new file goes, or where to move one: a folder's id or exact name; null is the top level of Drive"),
+	folder: z.string().nullable().optional().describe("Where a new file goes, or where to move one: a folder's id (pages_find gives it), not its title; null is the top level of Drive"),
 	from: z.string().optional().describe('Save a copy of a file from the chat, by its file id ("<message id>/<n>"): a document someone attached, or one you made'),
 	text: z.string().max(FILE_TEXT_MAX).optional().describe("Make a text file with this content: .txt, .md, .csv or .json by name"),
 	trash: z.boolean().optional().describe("true archives a file (to Archive, kept until restored or explicitly deleted forever); false restores it. On its own."),
@@ -79,11 +79,10 @@ export const driveTools: ToolDef[] = [
 		id: "files.write",
 		title: "Save a file",
 		description:
-			"Put a file in Drive: a copy of one from the chat (from, by file id) or a new text file (text and name), in a folder or at the top level. Or rename a file (file and name), move it (file and folder; null for the top level), archive it (trash true) or restore it. Archiving waits for confirmation; other changes run right away as you acting for the person.",
+			"Put a file in Drive: a copy of one from the chat (from, by file id) or a new text file (text and name), in a folder or at the top level. Or rename a file (file and name), move it (file and folder; null for the top level), archive it (trash true) or restore it. Name files by id (files_find gives them). Archiving waits for confirmation; other changes run right away in the person's own chats, as you acting for the person.",
 		input: fileWriteInput,
-		risk: "none",
-		// A file from the chat can come from the person's private chats: like pages_write with a picture, that asks in runs following someone else's words.
-		riskFor: (input) => (input.trash === true ? "locked" : input.from ? "inside" : "none"),
+		risk: "inside",
+		riskFor: (input) => (input.trash === true ? "locked" : "inside"),
 		execute: (input, { files }) => files.write(input),
 		label: writeLabel,
 	}),

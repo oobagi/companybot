@@ -11,7 +11,7 @@ import { useMutation, useQuery } from "../../convex";
 import { AutomationIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Page, Section, descriptionClass, inputClass, secondaryButton, timeAgo, useRun } from "../../ui";
+import { Field, Loading, Notice, Page, Section, descriptionClass, inputClass, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { useTurnOn } from "../Permissions";
 import { PendingWakeups } from "../Wakeups";
 import { deviceTimeZone, useConfirm } from "../chat/common";
@@ -245,11 +245,17 @@ function NewAutomation({ team }: { team: boolean }) {
 	const agents = useQuery(api.agents.list)?.filter((x) => !x.archived);
 	const channels = useQuery(api.chats.list)?.channels ?? [];
 	const { error, run } = useRun();
-	const [config, setConfig] = useState<CustomAutomationConfig>({ name: "", prompt: "", trigger: defaultSchedule });
-	const [agentId, setAgentId] = useState<string>("");
-	const [audience, setAudience] = useState<{ audience: Audience; channelId?: Id<"chats"> }>({ audience: "creator" });
+	const draft = useDraft<{ config: CustomAutomationConfig; agentId: string; audience: { audience: Audience; channelId?: Id<"chats"> } }>("automations:new", { config: { name: "", prompt: "", trigger: defaultSchedule }, agentId: "", audience: { audience: "creator" } }, 0);
+	const { config: restoredConfig, agentId, audience: restoredAudience } = draft.value;
+	const audience = restoredAudience.audience === "channel" && !channels.some((c) => c._id === restoredAudience.channelId) ? { audience: "creator" as const } : restoredAudience;
+	const trigger = restoredConfig.trigger;
+	const config = trigger.type === "event" && trigger.event === "message.posted" && !channels.some((c) => c._id === trigger.channelId) ? { ...restoredConfig, trigger: { type: "event" as const, event: "member.joined" as const } } : restoredConfig;
+	const setConfig = (config: CustomAutomationConfig) => draft.set({ ...draft.value, config });
+	const setAgentId = (agentId: string) => draft.set({ ...draft.value, agentId });
+	const setAudience = (audience: typeof draft.value.audience) => draft.set({ ...draft.value, audience });
+
 	if (!agents) return <Missing tab="automations" loaded={false} />;
-	const agent = agentId || agents[0]?._id || "";
+	const agent = agents.find((a) => a._id === agentId)?._id || agents[0]?._id || "";
 	if (!agent)
 		return (
 			<Page title="New automation" crumbs={customizeCrumbs("automations")}>
@@ -259,12 +265,13 @@ function NewAutomation({ team }: { team: boolean }) {
 
 	return (
 		<NewItem
+			onDiscard={draft.dirty ? draft.discard : undefined}
 			tab="automations"
 			noun="automation"
 			error={error}
 			// Schedules run in the installer's time zone.
 			onCreate={() =>
-				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone: deviceTimeZone() }).then((id) => navigate("settings", "automations", id)))
+				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone: deviceTimeZone() }).then((id) => { draft.discard(); navigate("settings", "automations", id); }))
 			}
 		>
 			<AutomationFields value={config} onChange={setConfig} channels={channels} timeZone={deviceTimeZone()} />
@@ -300,6 +307,7 @@ function CustomAutomationDetail({ automation: a, custom, team }: { automation: A
 	return (
 		<MadeItemDetail<CustomAutomationConfig>
 			tab="automations"
+			id={a.id}
 			name={a.name}
 			createdByName={a.createdByName}
 			canEdit={a.canEdit}

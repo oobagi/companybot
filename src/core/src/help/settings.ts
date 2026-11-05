@@ -16,7 +16,8 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 | Tab | What | Who can change |
 |---|---|---|
 | [General](#/settings/general) | Logo, name, currency, memory on/off, picture model and monthly image budget, reset or delete workspace | Roles that can change workspace settings (everyone can look); owners reset or delete it |
-| [Members](#/settings/members) | Invite, roles, remove | Roles that can invite and change people's roles; owners edit the roles themselves |
+| [Members](#/settings/members) | Invite, give people roles, remove | Roles that can invite and change people's roles |
+| [Roles](#/settings/roles) | What each role can do; new roles | Everyone can look; owners change them |
 | [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); roles that can lock (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |
 | [Activity](#/settings/activity) | Database changes and agent activity | Read only |
@@ -27,7 +28,7 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 | [Skills](#/settings/skills) | Personal or team instructions | Everyone for Just me; roles that can make and change team skills do the rest |
 | [Automations](#/settings/automations) | Jobs on a schedule or event | Anyone makes personal ones; roles that can make and change team automations do the rest |
 
-Shared settings (agents, workspace name and the like) are edited then saved. If someone saved first, you are asked whether to use theirs or keep yours.
+Shared settings (agents, workspace name and the like) are edited then saved. Unsaved edits stay when you leave a screen and come back, until you quit, sign out, save or discard them. Closing a database dialog cancels its edits. If someone saved first, you are asked whether to use theirs or keep yours.
 
 Topics: **help: general**, **help: account-settings**, **help: members**, **help: permissions**, **help: memory**, **help: activity**, **help: trash**, **help: agents**, **help: connectors**, **help: skills**, **help: automations**.
 `,

@@ -41,6 +41,7 @@ export const imageTools: ToolDef[] = [
 	defineTool({
 		id: "images.generate",
 		title: "Make a picture",
+		untransacted: true,
 		description:
 			"Make a picture from a prompt, or edit pictures from the chat (editFiles: their file ids). It's attached to your reply. Costs money from the workspace's monthly image budget, so make one only when asked, and don't remake it unasked.",
 		input: z.object({

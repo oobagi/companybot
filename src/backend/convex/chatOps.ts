@@ -1,7 +1,9 @@
-import { type ReactionGroup, describeWidget, emojiOf, withoutFileImages } from "@companybot/core";
+import { type ReactionGroup, describeWidget, emojiOf } from "@companybot/core";
 import { ConvexError } from "convex/values";
+import type { WithoutSystemFields } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { publicSearchChat, touchSeats, refreshAudience, ensureSeatActivity } from "./chatDiscovery";
 import { imageUrls } from "./images";
 import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
 import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
@@ -146,13 +148,34 @@ export async function addToChat(ctx: MutationCtx, chat: Doc<"chats">, who: { use
 				.query("chatMembers")
 				.withIndex("by_agent", (q) => q.eq("agentId", who.agentId).eq("chatId", chat._id))
 				.first();
-	if (existing) return;
-	await ctx.db.insert("chatMembers", {
+	if (existing) { await ensureSeatActivity(ctx, chat, existing); return; }
+	const seatId = await ctx.db.insert("chatMembers", {
 		chatId: chat._id,
 		workspaceId: chat.workspaceId,
 		...who,
 		...(who.userId && { lastReadAt: Date.now() }),
 	});
+	await ensureSeatActivity(ctx, chat, { _id: seatId, userId: who.userId });
+	await countSeats(ctx, chat._id, 1);
+}
+
+/** Takes a person or agent out of a chat. */
+export async function dropSeat(ctx: MutationCtx, row: Doc<"chatMembers">) {
+	const activity = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", row._id)).first();
+	if (activity) await ctx.db.delete(activity._id);
+	await ctx.db.delete(row._id);
+	await countSeats(ctx, row.chatId, -1, row._creationTime);
+}
+
+/** Keeps `chats.memberCount` in step with its seats. Read fresh: one mutation can add several. `seatAt`: a removed seat's _creationTime. */
+export async function countSeats(ctx: MutationCtx, chatId: Id<"chats">, by: 1 | -1, seatAt?: number) {
+	const chat = await ctx.db.get(chatId);
+	if (!chat) return;
+	if (chat.memberCount !== undefined) return await ctx.db.patch(chatId, { memberCount: Math.max(chat.memberCount + by, 0) });
+	// COMPAT(0.1.0-alpha.10): not counted yet (migrations.chatMemberCounts), so the count will read new seats.
+	// While it's partway, a removed seat it already counted comes off. Drop this with `seatCount`.
+	if (chat.seatCount && by === -1 && seatAt !== undefined && seatAt <= chat.seatCount.after)
+		await ctx.db.patch(chatId, { seatCount: { ...chat.seatCount, counted: chat.seatCount.counted - 1 } });
 }
 
 /** Sets the person's `lastReadAt` to now, if they're in the chat. */
@@ -169,16 +192,17 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 		.filter((q) => q.eq(q.field("isDefault"), true))
 		.first();
 	if (existing) return existing;
-	const id = await ctx.db.insert("chats", {
+	const id = await insertChat(ctx, {
 		workspaceId,
 		kind: "channel",
 		name: "general",
+		searchPublic: true,
 		topic: "Everyone in the workspace.",
 		private: false,
 		isDefault: true,
 		archived: false,
 		createdBy,
-		lastMessageAt: Date.now(),
+		memberCount: 0,
 	});
 	return (await ctx.db.get(id))!;
 }
@@ -223,6 +247,7 @@ export async function setChannelTrashed(ctx: MutationCtx, who: Who, chatId: Id<"
 		await takeFromTrash(ctx, who, chatId);
 	}
 	await ctx.db.patch(chatId, { archived });
+	await refreshAudience(ctx, { ...chat, archived });
 }
 
 /** A side chat's label: its title, or a stand-in until its first message names it. */
@@ -265,14 +290,15 @@ export async function findOrCreateDm(
 		.filter((q) => q.eq(q.field("parentId"), undefined))
 		.first();
 	if (existing) return existing._id;
-	const chatId = await ctx.db.insert("chats", {
+	const chatId = await insertChat(ctx, {
 		workspaceId,
 		kind: "dm",
+		searchPublic: false,
 		private: true,
 		dmKey,
 		archived: false,
 		createdBy,
-		lastMessageAt: Date.now(),
+		memberCount: 0,
 	});
 	const chat = (await ctx.db.get(chatId))!;
 	for (const userId of userIds) await addToChat(ctx, chat, { userId });
@@ -280,8 +306,31 @@ export async function findOrCreateDm(
 	return chatId;
 }
 
+/** A new chat, with its activity (`chatActivity`). */
+export async function insertChat(ctx: MutationCtx, chat: WithoutSystemFields<Doc<"chats">>) {
+	const chatId = await ctx.db.insert("chats", chat);
+	await ctx.db.insert("chatActivity", { chatId, workspaceId: chat.workspaceId, kind: chat.kind, searchPublic: publicSearchChat(chat), lastMessageAt: Date.now() });
+	return chatId;
+}
+
+/** What changes with every message in a chat (`chatActivity`): its newest main-timeline message, and what agents spent there. */
+export async function activityOf(ctx: QueryCtx, chat: Doc<"chats">) {
+	const row = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).unique();
+	// COMPAT(0.1.0-alpha.10): a chat migrations.chatActivity hasn't reached keeps its own.
+	return { row, lastMessageAt: row?.lastMessageAt ?? chat.lastMessageAt ?? chat._creationTime, costUsd: row?.costUsd ?? chat.costUsd ?? 0 };
+}
+
+/** Moves a chat's activity on, never the chat itself, so nothing reading the chat re-runs. */
+export async function setActivity(ctx: MutationCtx, chat: Doc<"chats">, change: { lastMessageAt?: number; costUsd?: number }) {
+	const { row, lastMessageAt, costUsd } = await activityOf(ctx, chat);
+	const fields = { workspaceId: chat.workspaceId, kind: chat.kind, searchPublic: publicSearchChat(chat), ...change };
+	const id = row ? row._id : await ctx.db.insert("chatActivity", { chatId: chat._id, lastMessageAt, ...(costUsd ? { costUsd } : {}), ...fields });
+	if (row) await ctx.db.patch(id, fields);
+	if (change.lastMessageAt !== undefined) await touchSeats(ctx, chat, { _id: id, lastMessageAt: change.lastMessageAt, pendingAt: row?.pendingAt });
+}
+
 /**
- * Stores a message and updates its place: the chat's `lastMessageAt` for the main
+ * Stores a message and updates its place: the chat's `lastMessageAt` (its activity) for the main
  * timeline, the parent's reply count for a thread. A quiet parent (an ask, chains.ts) is never
  * shown, so its thread stays out of the sidebar's active threads.
  */
@@ -290,7 +339,8 @@ export async function insertMessage(
 	chat: Doc<"chats">,
 	message: Omit<Doc<"chatMessages">, "_id" | "_creationTime" | "chatId" | "workspaceId">,
 ) {
-	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...message });
+	// Shown as it's sent: placed by now in the timeline's order (`by_chat_shown`).
+	const id = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...(!message.quiet && { publishedAt: Date.now() }), ...message, searchPublic: publicSearchChat(chat) });
 	await countMessage(ctx, chat, message);
 	return id;
 }
@@ -305,7 +355,7 @@ export async function countMessage(ctx: MutationCtx, chat: Doc<"chats">, message
 			const others = (await replyAuthorsOf(ctx, parent)).filter((a) => a.userId !== author.userId || a.agentId !== author.agentId);
 			await ctx.db.patch(parent._id, { replyCount: (parent.replyCount ?? 0) + 1, lastReplyAt: now, replyAuthors: [author, ...others].slice(0, 3) });
 		}
-	} else await ctx.db.patch(chat._id, { lastMessageAt: now });
+	} else await setActivity(ctx, chat, { lastMessageAt: now });
 }
 
 /**
@@ -324,7 +374,7 @@ export const shownAt = (m: Pick<Doc<"chatMessages">, "_creationTime" | "publishe
 export async function moveBelow(ctx: MutationCtx, chat: Doc<"chats">, reply: Doc<"chatMessages">) {
 	const now = Date.now();
 	await ctx.db.patch(reply._id, { publishedAt: now });
-	if (!reply.threadId) return ctx.db.patch(chat._id, { lastMessageAt: now });
+	if (!reply.threadId) return setActivity(ctx, chat, { lastMessageAt: now });
 	const parent = await ctx.db.get(reply.threadId);
 	if (parent && !parent.quiet) await ctx.db.patch(parent._id, { lastReplyAt: now });
 }
@@ -338,7 +388,7 @@ export async function replyAuthorsOf(ctx: QueryCtx, parent: Doc<"chatMessages">)
 	if (parent.replyAuthors || !parent.replyCount) return parent.replyAuthors ?? [];
 	const replies = await ctx.db
 		.query("chatMessages")
-		.withIndex("by_chat_thread", (q) => q.eq("chatId", parent.chatId).eq("threadId", parent._id))
+		.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", parent.chatId).eq("threadId", parent._id).eq("quiet", undefined))
 		.order("desc")
 		.take(30);
 	const authors: ReplyAuthor[] = [];
@@ -464,29 +514,34 @@ export async function chatLabel(ctx: QueryCtx, chat: Doc<"chats">, names: Namer,
 	return `DM with ${others.join(", ") || "yourself"}`;
 }
 
-/**
- * An agent's own past reply as it replays in its session: the text, widget notes, and
- * the tools it used. Without the tools, the agent can't tell later that it really did act.
- */
-export function replyForModel(m: Doc<"chatMessages">, details = true) {
-	const tools = (details ? m.parts : []).flatMap((p) => (p.type === "tool" ? [`${p.name} (${p.status === "error" ? "failed" : "done"})`] : []));
-	// Held calls are noted without their outcome, so this text never changes once the reply is done (prompt caching).
-	const held = (details ? m.parts : []).flatMap((p) => (p.type === "approval" ? [p.why ? `${p.tool} (the card said: ${JSON.stringify(p.why)})` : p.tool] : []));
-	return [
-		withoutFileImages(textForModel(m)),
-		!details && m.parts.some((p) => p.type === "tool" || p.type === "approval") && `[Used ${new Set(m.parts.flatMap((p) => p.type === "tool" || p.type === "approval" ? [p.id] : [])).size} tools]`,
-		tools.length > 0 && `[Tools you used: ${tools.join(", ")}]`,
-		held.length > 0 && `[Held for approval: ${held.join(", ")}]`,
-		m.stoppedBy && "[Stopped by the person before you finished]",
-		// With ids, so a later turn can use a picture it made or saved (set it as a logo, put it in a page).
-		m.attachments?.length && `[Files you attached: ${m.attachments.map((f, i) => `${JSON.stringify(f.name)} (${m._id}/${i})`).join(", ")}]`,
-	]
-		.filter(Boolean)
-		.join("\n");
-}
-
 /** A message's text plus a note for each widget it showed, for agents. */
 export function textForModel(m: Doc<"chatMessages">, who = "You") {
 	const widgets = m.parts.flatMap((p) => (p.type === "widget" ? [describeWidget(p.widget, who)] : []));
 	return [m.text, ...widgets].filter(Boolean).join("\n");
+}
+
+/** Bounded activity-ordered discovery; checking permissions never scans every seat. */
+export async function recentVisibleChats(ctx: QueryCtx, member: Member, limit = 50, restrictedOnly = false) {
+	const seats = await (restrictedOnly
+		? ctx.db.query("seatActivity").withIndex("by_private_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId).eq("restricted", true))
+		: ctx.db.query("seatActivity").withIndex("by_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId))
+	).order("desc").take(limit + 1);
+	// Role-limited channels may be readable without joining them. Public channels need no discovery for search.
+	const channels = await ctx.db.query("chatActivity").withIndex("by_search_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel").eq("searchPublic", false)).order("desc").take(limit + 1);
+	if (!restrictedOnly) channels.push(...await ctx.db.query("chatActivity").withIndex("by_search_activity", (q) => q.eq("workspaceId", member.workspaceId).eq("kind", "channel").eq("searchPublic", true)).order("desc").take(limit + 1));
+	const candidates = new Map<Id<"chats">, { chat: Doc<"chats">; at: number }>();
+	for (const activity of channels) {
+		const chat = await ctx.db.get(activity.chatId);
+		if (chat) candidates.set(chat._id, { chat, at: activity.lastMessageAt });
+	}
+	for (const seat of seats.slice(0, limit)) {
+		const chat = await ctx.db.get(seat.chatId);
+		if (chat) candidates.set(chat._id, { chat, at: seat.activityAt ?? 0 });
+	}
+	const visible = [];
+	for (const { chat, at } of candidates.values()) {
+		if (!chat.archived && (!restrictedOnly || !publicSearchChat(chat)) && await canSee(ctx, chat, { ...member, replyId: undefined })) visible.push({ chat, at });
+	}
+	visible.sort((a, b) => b.at - a.at);
+	return { chats: visible.slice(0, limit).map((c) => c.chat), truncated: seats.length > limit || channels.length > limit || visible.length > limit };
 }

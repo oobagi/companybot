@@ -47,6 +47,8 @@ const optimisticDisplay: OptimisticUpdate<FunctionArgs<typeof api.recordTypes.se
 	const types = store.getQuery(api.recordTypes.list, queryArgs);
 	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: { layout: args.display.layout ?? type.display?.layout ?? "table", groupBy: args.display.groupBy ?? type.display?.groupBy } } : type));
 };
+/** Module-level, so `useMutation` stays stable between renders. */
+const displayUpdate = () => optimisticDisplay;
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
@@ -62,7 +64,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
 	// "All" follows the workspace display; saved views keep their own settings.
 	const [storedColumns, changeColumns, writable] = useStoredIds("columns", type._id);
-	const setDisplay = useMutation(api.recordTypes.setDisplay, optimisticDisplay);
+	const setDisplay = useMutation(api.recordTypes.setDisplay, displayUpdate);
 	const display = type.display ?? { layout: "table" as const };
 	const saved: Settings | undefined = selected && {
 		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
@@ -71,7 +73,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		layout: selected.layout ?? "table",
 		groupBy: selected.groupBy,
 	};
-	const draft = useDraft<Settings>(
+	const draft = useDraft<Settings>(`view:${type._id}:${viewId}`,
 		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
 		selected?.version ?? 0,
 	);
@@ -92,12 +94,12 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			for (const id of columns.filter((k) => !shown.includes(k))) changeColumns({ op: "remove", id, seed });
 		}
 		// Send only what changed, so someone else's layout or grouping change isn't overwritten.
-		if (!selected && writable && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
+		if (!selected && type.canSetDisplay && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
 	};
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
-	const open = (id: string) => (setViewId(id), draft.discard());
+	const open = (id: string) => setViewId(id);
 	// Someone deleted the open view.
 	useEffect(() => {
 		if (views && viewId !== "all" && !selected) open("all");
@@ -207,19 +209,20 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					onChange={setColumns}
 					onNewField={type.canManage ? () => setAddingField("text") : undefined}
 				/>}
-				{(selected || writable) && layout === "board" && group && (
+				{(selected || type.canSetDisplay) && layout === "board" && group && (
 					<label className="flex items-center gap-2 text-neutral-600">
 						Group by
 						<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
 					</label>
 				)}
-				{(selected || writable) && <span className="ml-auto">
+				{(selected || type.canSetDisplay) && <span className="ml-auto">
 					<Segmented
 						label="Layout"
 						value={layout}
 						options={[
 							{ value: "table", label: "Table" },
-							{ value: "board", label: "Board" },
+							// A board groups cards by a choice field: none, no board (the server refuses it too).
+							...(groupFields.length || layout === "board" ? [{ value: "board" as const, label: "Board" }] : []),
 						]}
 						onChange={(l) => change({ layout: l })}
 					/>

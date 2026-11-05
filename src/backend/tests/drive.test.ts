@@ -202,17 +202,19 @@ describe("file tools", () => {
 		const fromChat = await tools.write({ from: `${messageId}/0`, name: "Q3 plan.md" }, copied.copies[`${messageId}/0`]);
 		expect(fromChat).toMatchObject({ name: "Q3 plan.md", folderId: null });
 		expect(await filesIn(owner)).toEqual([expect.objectContaining({ name: "Q3 plan.md", type: "text/markdown" })]);
-		// Rename, move, archive and restore by name or id.
-		expect(await tools.write({ file: "Q3 plan.md", name: "Plan.md", folder: "Contracts" })).toMatchObject({ name: "Plan.md", folderId: folder });
+		// Rename, move, archive and restore by id only: a name could point at another file by the time a held call runs.
+		expect(await tools.write({ file: "Q3 plan.md", name: "Plan.md" })).toMatchObject({ error: expect.stringContaining("by its id") });
+		expect(await tools.write({ file: fromChat.id as string, name: "Plan.md", folder: "Contracts" })).toMatchObject({ error: expect.stringContaining("by its id") });
+		expect(await tools.write({ file: fromChat.id as string, name: "Plan.md", folder })).toMatchObject({ name: "Plan.md", folderId: folder });
 		expect(await tools.write({ file: fileId, folder: null })).toMatchObject({ name: "msa.docx", folderId: null });
-		expect(await tools.write({ file: "msa.docx", trash: true })).toMatchObject({ name: "msa.docx" });
+		expect(await tools.write({ file: fileId, trash: true })).toMatchObject({ name: "msa.docx" });
 		expect(await tools.find({ trashed: true })).toMatchObject({ rows: [{ id: fileId }] });
-		expect(await tools.write({ file: "msa.docx", trash: false })).toMatchObject({ name: "msa.docx" });
-		expect(await tools.write({ file: "msa.docx" })).toMatchObject({ error: expect.stringContaining("new name") });
+		expect(await tools.write({ file: fileId, trash: false })).toMatchObject({ name: "msa.docx" });
+		expect(await tools.write({ file: fileId })).toMatchObject({ error: expect.stringContaining("new name") });
 		expect(await tools.write({ name: "x.txt" })).toMatchObject({ error: expect.stringContaining("Say what to do") });
 		// A refused save drops the copy, so no upload lingers.
 		const extra = (await t.action(internal.driveTools.saveText, { turnId: tools.turnId, name: "notes.txt", text: "hi" })) as { storageId: Id<"_storage"> };
-		expect(await tools.write({ text: "hi", name: "notes.txt", folder: "Nowhere" }, extra.storageId)).toMatchObject({ error: expect.stringContaining("No folder named") });
+		expect(await tools.write({ text: "hi", name: "notes.txt", folder: "Nowhere" }, extra.storageId)).toMatchObject({ error: expect.stringContaining("by its id") });
 		await t.mutation(internal.files.dropCopies, { turnId: tools.turnId, storageIds: [extra.storageId] });
 		expect(await exists(t, extra.storageId)).toBe(false);
 	});
@@ -240,12 +242,12 @@ describe("file tools", () => {
 		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
 		const made = (await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Vendors", kind: "folder" } })) as { id: Id<"pages">; kind: string };
 		expect(made).toMatchObject({ kind: "folder", title: "Vendors" });
-		const page = (await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Notes", parent: "Vendors" } })) as { id: Id<"pages"> };
+		const page = (await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Notes", parent: made.id } })) as { id: Id<"pages"> };
 		const fileId = await owner.mutation(api.driveFiles.add, { file: await upload(owner), parentId: made.id });
 		expect(await t.mutation(internal.pageTools.readFor, { turnId, page: "Vendors" })).toMatchObject({ kind: "folder", doc: null, subpages: [{ id: page.id, kind: "page", title: "Notes" }], files: [{ id: fileId, name: "notes.txt", type: "text/plain" }] });
 		const blocks = JSON.stringify([{ type: "blockContainer", attrs: { id: crypto.randomUUID() }, content: [{ type: "paragraph", content: [{ type: "text", text: "hi" }] }] }]);
-		expect(await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: "Vendors", markdown: "hi" }, blocks })).toMatchObject({ error: expect.stringContaining("A folder has no content") });
+		expect(await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: made.id, markdown: "hi" }, blocks })).toMatchObject({ error: expect.stringContaining("A folder has no content") });
 		expect(await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: null } })).toMatchObject({ rows: [{ id: made.id, kind: "folder", title: "Vendors" }] });
-		expect(await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: "Notes", kind: "folder" } })).toMatchObject({ error: expect.stringContaining("kind only makes a new folder") });
+		expect(await t.mutation(internal.pageTools.writeFor, { turnId, input: { page: page.id, kind: "folder" } })).toMatchObject({ error: expect.stringContaining("kind only makes a new folder") });
 	});
 });

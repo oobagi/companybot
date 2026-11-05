@@ -1,14 +1,16 @@
+import { MESSAGE_PAGE } from "@companybot/core/chat";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { useMemo } from "react";
 import { api } from "../../api";
-import { useQuery } from "../../convex";
+import { usePaginatedQuery, useQuery } from "../../convex";
 
 export type ChatList = NonNullable<FunctionReturnType<typeof api.chats.list>>;
 type ChatItem = ChatList["channels"][number];
 export type ChatDetails = NonNullable<FunctionReturnType<typeof api.chats.get>>;
 /** `sending`: only on your message shown while it sends (`showSending`), before the server has it. */
-export type Message = FunctionReturnType<typeof api.messages.list>[number] & { sending?: { files: number } };
+export type Message = FunctionReturnType<typeof api.messages.page>["page"][number] & { sending?: { files: number } };
 export type Participant = Message["author"];
 export type Mentions = { userIds: Id<"users">[]; agentIds: Id<"agents">[]; skillIds: string[] };
 
@@ -20,43 +22,64 @@ export type SkillRef = { id: string; name: string; description: string };
 /** What messages show as chips, each clickable: @names (profile card), #channels (opens it), /skills (opens it). */
 export type TokenNames = { people: Participant[]; channels: { name: string; id: Id<"chats"> }[]; skills: SkillRef[] };
 
+/** Pages put together in the order shown: a thread's parent first, then by when each was shown. */
+export const inOrder = (messages: Message[], threadId?: Id<"chatMessages">) =>
+	[...messages].sort((a, b) => Number(b._id === threadId) - Number(a._id === threadId) || a.shownAt - b.shownAt);
+
+/**
+ * A chat's or thread's messages, newest page first: `more` loads the page before the oldest shown, until
+ * there's none (then it's unset). Undefined until the first page arrives.
+ */
+export function useMessages(chatId: Id<"chats">, threadId?: Id<"chatMessages">) {
+	const { results, status, loadMore } = usePaginatedQuery(api.messages.page, { chatId, ...(threadId && { threadId }) }, { initialNumItems: MESSAGE_PAGE });
+	const messages = useMemo(() => (status === "LoadingFirstPage" ? undefined : inOrder(results, threadId)), [results, status, threadId]);
+	const more = useMemo(() => (status === "CanLoadMore" ? () => loadMore(MESSAGE_PAGE) : undefined), [status, loadMore]);
+	return { messages, more, all: status === "Exhausted" };
+}
+
 /**
  * Your message shows at once, dimmed, at the end of the chat or thread until the server's list has
  * it (Discord does the same). A send that fails takes it out again; the composer gets the text back.
  */
-export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send>> = (store, { workspaceId, chatId, threadId, text, attachments = [] }) => {
-	const args = { workspaceId, chatId, ...(threadId && { threadId }) };
-	const list = store.getQuery(api.messages.list, args);
-	const me = store.getQuery(api.workspace.team, { workspaceId })?.members.find((m) => m.isYou);
-	if (!list || !me) return;
+export const showSending = (): OptimisticUpdate<FunctionArgs<typeof api.messages.send>> => {
 	const now = Date.now();
-	const message: Message = {
-		_id: `sending:${now}` as Id<"chatMessages">,
-		_creationTime: now,
-		chatId,
-		threadId: threadId ?? null,
-		author: { type: "user", id: me.userId, name: me.name || me.email, image: me.image },
-		text: text.trim(),
-		parts: [],
-		status: "done",
-		error: null,
-		stoppedBy: null,
-		stats: null,
-		editedAt: null,
-		deleted: false,
-		mine: true,
-		replyCount: 0,
-		lastReplyAt: null,
-		replyAuthors: [],
-		reactions: [],
-		automation: null,
-		attachments: [],
-		linkPreviews: [],
-		pause: null,
-		ask: null,
-		sending: { files: attachments.length },
+	const id = crypto.randomUUID();
+	return (store, { workspaceId, chatId, threadId, text, attachments = [] }) => {
+		// Its newest page: every one asked for with no cursor (a split page is asked for again, with its end).
+		const newest = store
+			.getAllQueries(api.messages.page)
+			.filter(({ args, value }) => value && args.workspaceId === workspaceId && args.chatId === chatId && args.threadId === threadId && args.paginationOpts.cursor === null);
+		const me = store.getQuery(api.workspace.team, { workspaceId })?.members.find((m) => m.isYou);
+		if (!newest.length || !me) return;
+		const message: Message = {
+			_id: `sending:${id}` as Id<"chatMessages">,
+			_creationTime: now,
+			shownAt: now,
+			chatId,
+			threadId: threadId ?? null,
+			author: { type: "user", id: me.userId, name: me.name || me.email, image: me.image },
+			text: text.trim(),
+			parts: [],
+			status: "done",
+			error: null,
+			stoppedBy: null,
+			stats: null,
+			editedAt: null,
+			deleted: false,
+			mine: true,
+			replyCount: 0,
+			lastReplyAt: null,
+			replyAuthors: [],
+			reactions: [],
+			automation: null,
+			attachments: [],
+			linkPreviews: [],
+			pause: null,
+			ask: null,
+			sending: { files: attachments.length },
+		};
+		for (const { args, value } of newest) store.setQuery(api.messages.page, args, { ...value!, page: [...value!.page, message] });
 	};
-	store.setQuery(api.messages.list, args, [...list, message]);
 };
 
 /** People, agents, channels and skills you can mention or add. `people` leaves you out. */
@@ -88,3 +111,9 @@ export function useDirectory() {
 
 export const chatTitle = (chat: Pick<ChatItem, "kind" | "name" | "title">) =>
 	chat.kind === "channel" ? `#${chat.name}` : chat.title;
+
+/** Count each chat once; agent sidebar rows copy their DM activity. */
+export function chatBadge(chats: { channels: { kind: string; mentioned: boolean; unread: boolean }[]; dms: { kind: string; mentioned: boolean; unread: boolean }[] }) {
+	const waiting = [...chats.channels, ...chats.dms];
+	return { mentions: waiting.filter((c) => c.mentioned || (c.kind === "dm" && c.unread)).length, unread: waiting.some((c) => c.unread) };
+}

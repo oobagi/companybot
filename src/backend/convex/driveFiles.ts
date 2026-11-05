@@ -9,8 +9,8 @@ import { deleteFile, uploadOf } from "./images";
 import { type Member, type Who, capped, checkPermission, emptyPage, getMember, requireInWorkspace, requireMember } from "./lib";
 import { cleanTitle, pageReach } from "./pageOps";
 import { type FileState, fileState, fileStates, keptAccess, kindOf, pageRow, pageState, parentFor } from "./pageTree";
-import { accessInfo, reach, requireAccess, savedAccess } from "./placeAccess";
-import { notePlace, readArtifact, writeSources } from "./replySources";
+import { accessInfo, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
+import { changeAccessSources, notePlace, readArtifact, writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { toggleTrash, trashInfo } from "./trashOps";
 
@@ -272,8 +272,9 @@ export const setAccess = mutation({
 		await requireFileEditable(ctx, member, file);
 		const next = access ? await savedAccess(ctx, member, access) : undefined;
 		const inherited = file.parentId ? (await pageState(ctx, (await ctx.db.get(file.parentId))!)).access : undefined;
+		requireKeepsEdit(member, "page", next ?? inherited);
 		// It can retain facts from another source: check before widening.
-		await writeSources(ctx, member, { access: next ?? inherited }, file);
+		await changeAccessSources(ctx, member, file, { access: next ?? inherited });
 		await ctx.db.patch(file._id, { access: next });
 	},
 });

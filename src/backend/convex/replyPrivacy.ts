@@ -1,13 +1,14 @@
-import { EVERYONE, whoCan } from "@companybot/core";
+import { EVERYONE, findConnector, whoCan } from "@companybot/core";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { canPost, reachOf } from "./chatOps";
 import { type Member, nameOf } from "./lib";
 import { fileStates, pageStates } from "./pageTree";
 import { type AccessList, chatAccess, reach } from "./placeAccess";
+import { allowedRoles } from "./connectorAccess";
 import { inheritPlaces, type UsedPlace } from "./replySources";
 
-export type Source = { exclusiveTo?: Id<"users">; membersOnly: boolean; users?: Id<"users">[]; person?: string; where: string; access: AccessList; visible: boolean; name: string; why: string };
+export type Source = { deletedConnector?: boolean; exclusiveTo?: Id<"users">; membersOnly: boolean; users?: Id<"users">[]; person?: string; where: string; access: AccessList; visible: boolean; name: string; why: string };
 type SourceReader = { pages: ReturnType<typeof pageStates>; sources: Map<string, Promise<Source>> };
 const readers = new WeakMap<QueryCtx, SourceReader>();
 
@@ -43,6 +44,17 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 		const person = await nameOf(ctx, userId);
 		return { person, exclusiveTo: userId, membersOnly: true, users: [userId], where: "", access: [], visible: userId === member.userId, name: `personal information for ${person}`, why: `personal information for ${person}` };
 	}
+	const connectorId = ctx.db.normalizeId("connectorInstalls", id);
+	if (connectorId) {
+		const install = await ctx.db.get(connectorId);
+		const removed = !install ? await ctx.db.query("connectorSourceLabels").withIndex("by_install", (q) => q.eq("installId", connectorId)).first() : null;
+		const access: AccessList = install ? allowedRoles(member, install).map((role) => ({ role, level: "view" })) : [];
+		const label = install ? findConnector(install.connectorId)?.name ?? install.connectorId : removed?.workspaceId === member.workspaceId ? removed.name : undefined;
+		const name = label ? `${label} connector${install ? "" : " (deleted)"}` : "a deleted connector";
+		const workspaceId = (install ?? removed)?.workspaceId;
+		// Keep the install id after uninstall, with the empty list's Owners-only policy so saved work stays recoverable.
+		return { deletedConnector: !install, membersOnly: false, where: "", access, visible: (!workspaceId || workspaceId === member.workspaceId) && !!reach(member, access), name, why: `the ${name}` };
+	}
 	const databaseId = ctx.db.normalizeId("recordTypes", id);
 	if (databaseId) {
 		const db = await ctx.db.get(databaseId);
@@ -73,8 +85,15 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 
 /** Current access, never a saved audience: gaining a role makes old replies readable too. */
 export async function canReadSources(ctx: QueryCtx, member: Member, sources: UsedPlace[] = []) {
-	for (const id of sources) if (!(await source(ctx, member, id)).visible) return false;
-	return true;
+	return !(await blockedSource(ctx, member, sources));
+}
+
+/** The first unreadable source, for a server-written refusal that does not expose artifact content. */
+export async function blockedSource(ctx: QueryCtx, member: Member, sources: UsedPlace[] = []) {
+	for (const id of sources) {
+		const policy = await source(ctx, member, id);
+		if (!policy.visible) return policy;
+	}
 }
 
 /** A pure viewer check: filtering a row must not change the reply being written. */
@@ -141,7 +160,7 @@ export async function replyPrivacy(ctx: QueryCtx, member: Member, message: Doc<"
 		hidden,
 		label: hidden ? `Replied to ${asker ? await nameOf(ctx, asker) : "someone"}. ${label}.` : label,
 		why: hidden ? null : `Uses ${sources.map((s) => s.why).join(", ")}`,
-		share: hidden || !chat || !canPost(member, chat) ? null : `Not everyone in ${chat?.kind === "channel" ? `#${chat.name}` : "this chat"} can see ${sources.map((s) => s.name).join(", ")}. Share just the answer? Tool inputs, outputs and approval reasons stay private.`,
+		share: hidden || !chat || !canPost(member, chat) ? null : `Only ${audience} can see ${sources.map((s) => s.name).join(", ")}. Share just the answer? Tool inputs, outputs and approval reasons stay private.`,
 		sharedBy: null,
 	};
 }

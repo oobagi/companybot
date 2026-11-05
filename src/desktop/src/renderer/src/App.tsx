@@ -1,3 +1,4 @@
+import { setFormDraftPerson } from "./ui";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -8,15 +9,16 @@ import { LoadedArrangements, useArrangementState, useStoredIds } from "./arrange
 import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
-import { navigate, useRoute } from "./router";
-import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { navigate, useRoute, views } from "./router";
+import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
-import { Onboarding } from "./views/Onboarding";
+import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
+import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
 import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
@@ -26,22 +28,27 @@ import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps } from "./views/chat/Sidebar";
+import { AddButton, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
-import { DriveNav, PagesView } from "./views/Pages";
+import { DriveNav, NewMenu, PagesView } from "./views/Pages";
+import { useDriveUploads } from "./views/drive/upload";
 import { FileView } from "./views/Files";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
 import { recordPath } from "./views/records/logic";
 
-export const views = ["chat", "records", "pages", "files", "settings"] as const;
 // The first databases used to have their own screens (#/clients …). Links to them in old messages still open.
 const oldRecordTabs: Record<string, string> = { clients: "client", deals: "deal", tasks: "task", calls: "call" };
 type View = (typeof views)[number];
 
 export function App() {
 	const { isLoading, isAuthenticated } = useConvexAuth();
+	const draftMe = useQuery(api.workspace.me);
+	useEffect(() => {
+		if (!isLoading && !isAuthenticated) setFormDraftPerson(null);
+		else if (draftMe !== undefined) setFormDraftPerson(draftMe?.userId ?? null);
+	}, [isLoading, isAuthenticated, draftMe?.userId]);
 	// Signed out, the landing comes first; Get started opens sign-in.
 	const [started, setStarted] = useState(false);
 	if (isLoading) return null;
@@ -63,6 +70,7 @@ function Workspace() {
 	const ensure = useMutation(api.workspace.ensure);
 	const remember = useMutation(api.workspace.switchTo);
 	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
+	const profile = useQuery(api.preferences.get);
 	// Whether invites have been checked, so onboarding doesn't flash before they're joined.
 	const [ensured, setEnsured] = useState(false);
 	const { error, fail } = useRun();
@@ -112,9 +120,10 @@ function Workspace() {
 	if (error) return <div className="flex h-screen items-center justify-center p-8"><Notice>{error}</Notice></div>;
 	// The new workspace opens once `mine` lists it.
 	if (mine && ids.length === 0) return ensured ? <Onboarding onDone={(next) => (localStorage.setItem(OPEN_KEY, next), setChosen(next))} /> : null;
-	if (!workspace) return null;
+	if (!workspace || !profile) return null;
 	if (resetting)
 		return <div className="drag flex h-screen items-center justify-center p-8 text-sm text-neutral-500">Resetting {resetting.name}…</div>;
+	if (!profile.displayName.trim()) return <NameOnboarding />;
 	// Keyed by workspace: switching starts every screen fresh.
 	return (
 		<WorkspaceContext.Provider value={workspace}>
@@ -172,6 +181,8 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
+	const createPage = useMutation(api.pages.create);
+	const driveUploads = useDriveUploads();
 	const { status: update } = useUpdates();
 
 	const chatId = view === "chat" ? (route[1] as Id<"chats"> | undefined) : undefined;
@@ -188,8 +199,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		if (here && canSaveRecent) visit(here);
 	}, [here, visit, canSaveRecent]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
-	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
-	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
+	const badges: Partial<Record<AppTab, TabBadge>> = { chat: chats ? chatBadge(chats) : { mentions: 0, unread: false } };
 	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
 	const sections = useSortable("sections", sectionIds, sectionKey);
 	const [folded, changeFolded] = useStoredIds("folded");
@@ -221,7 +231,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							email={email}
 							access={access}
 							onSettings={() => navigate("settings", "preferences")}
-							onSignOut={() => void signOut()}
+							onSignOut={() => { setFormDraftPerson(null); void signOut(); }}
 						/>
 					}
 				/>
@@ -236,7 +246,20 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									// pt-2.5: its name sits on the same line as the top bar's title.
 									<div className="drag px-3 pt-2.5 pb-4">
 										{tab ? (
-											<h1 className="truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+											<div className="flex items-center gap-1 pr-2">
+												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+												{/* A tab with one list (Drive, Databases) has its + here, with no heading repeating the name; Chat's lists each have their own. */}
+												{tab === "drive" && can(access, "pages.edit") && (
+													<span className="no-drag flex">
+														<NewMenu onPage={() => createPage({ title: "Untitled" }).then((id) => navigate("pages", id), fail)} onFolder={() => createPage({ title: "New folder", kind: "folder" }).then((id) => navigate("pages", id), fail)} onUpload={(files) => driveUploads.start(files)} />
+													</span>
+												)}
+												{tab === "databases" && can(access, "fields.edit") && (
+													<span className="no-drag flex">
+														<AddButton label="New database" onClick={() => setNewDatabase(true)} />
+													</span>
+												)}
+											</div>
 										) : (
 											<div className="no-drag flex flex-col">
 												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
@@ -259,7 +282,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									</>
 								}
 							>
-								<div className="flex flex-col gap-4 px-3 pb-2">
+								<SidebarList>
 									{!tab && <SettingsNav tab={settingsTab} />}
 									{tab === "chat" &&
 										chats &&
@@ -269,9 +292,9 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
 										})}
 									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
-								</div>
+								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
 						</aside>
@@ -308,30 +331,23 @@ const sectionIds = ["channels", "dms"];
 const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { _id: string }) => t._id;
 
-/** Databases' sidebar: your databases, in your order. `canCreate` (fields.edit) also edits and deletes. */
+/** Databases' sidebar: your databases, in your order. New ones come from the + by the tab's name. */
 function DatabasesNav({
 	types,
 	openKey,
-	canCreate,
-	onCreate,
-	section,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
-	canCreate: boolean;
-	onCreate: () => void;
-	section?: SectionProps;
 }) {
 	const { sorted, drag } = useSortable("databases", types, typeKeyOf);
-	const shown = section?.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
 	const [editing, setEditing] = useState<RecordType>();
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	return (
-		<Group title="Databases" section={section} add={canCreate && <AddButton label="New database" onClick={onCreate} />}>
-			{shown.map((type) => (
+		<div className="flex flex-col gap-px">
+			{sorted.map((type) => (
 				<Item
 					key={type._id}
 					drag={drag(type._id)}
@@ -361,12 +377,7 @@ function DatabasesNav({
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
-			{!types.length && canCreate && !section?.collapsed && (
-				<Item icon={<PlusIcon />} muted onClick={onCreate}>
-					New database
-				</Item>
-			)}
-		</Group>
+		</div>
 	);
 }
 

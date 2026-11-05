@@ -2,7 +2,7 @@ import type { ChatLine, ChatResult } from "@companybot/core";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
-import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionGroups, shownAt, textForModel } from "./chatOps";
+import { type Namer, canSee, label as authorLabel, chatByRef, chatLabel, namer, reactionGroups, recentVisibleChats, shownAt, textForModel } from "./chatOps";
 import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { chatAccess } from "./placeAccess";
@@ -57,11 +57,10 @@ export const readFor = internalMutation({
 		const docs = (
 			await ctx.db
 				.query("chatMessages")
-				.withIndex("by_chat_thread", (q) => q.eq("chatId", chat._id).eq("threadId", threadId).lt("_creationTime", before))
+				.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chat._id).eq("threadId", threadId).eq("quiet", undefined).lt("_creationTime", before))
 				.order("desc")
 				// Replies still being written (this one included) aren't history yet.
-				// Quiet: replies never shown, and asks: never said in the chat.
-				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming"), q.neq(q.field("quiet"), true)))
+				.filter((q) => q.and(q.neq(q.field("deleted"), true), q.neq(q.field("status"), "streaming")))
 				.take(limit)
 		).sort((a, b) => shownAt(a) - shownAt(b));
 		const parent = threadId && (await ctx.db.get(threadId));
@@ -86,18 +85,31 @@ export const searchFor = internalMutation({
 			if (!chat) return { error: `No channel "${args.chat}" you can see.` };
 			chatId = chat._id;
 		}
-		const found = await ctx.db
-			.query("chatMessages")
-			.withSearchIndex("search_text", (q) => {
-				const s = q.search("text", args.query).eq("workspaceId", member.workspaceId);
-				return chatId ? s.eq("chatId", chatId) : s;
-			})
-			.take(60);
+		const discovery = chatId ? { chats: [], truncated: false } : await recentVisibleChats(ctx, member, 50, true);
+		// At most 600 message reads, sharing 500 private candidates across discovered chats.
+		const privateHits = Math.min(100, Math.floor(500 / Math.max(1, discovery.chats.length)));
+		const streams = chatId
+			? [await ctx.db.query("chatMessages").withSearchIndex("search_text", (q) => q.search("text", args.query).eq("workspaceId", member.workspaceId).eq("chatId", chatId!)).take(100)]
+			: await Promise.all([
+				ctx.db.query("chatMessages").withSearchIndex("search_text", (q) => q.search("text", args.query).eq("workspaceId", member.workspaceId).eq("searchPublic", true)).take(100),
+				...discovery.chats.map((chat) => ctx.db.query("chatMessages").withSearchIndex("search_text", (q) => q.search("text", args.query).eq("workspaceId", member.workspaceId).eq("chatId", chat._id)).take(privateHits)),
+			]);
+		const terms = args.query.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+		// Search indexes rank within each stream; compare lexical relevance across streams,
+		// using exact terms/phrases before prefixes, with only a small current-chat tie boost.
+		const score = (m: Doc<"chatMessages">) => {
+			const text = m.text.toLocaleLowerCase();
+			const words: string[] = text.match(/[\p{L}\p{N}]+/gu) ?? [];
+			const exact = terms.filter((term) => words.includes(term)).length;
+			const prefix = terms.filter((term) => words.some((word) => word.startsWith(term))).length;
+			return exact * 10 + prefix + (text.includes(terms.join(" ")) ? 5 : 0) + 1 / (words.length + 1) + (m.chatId === turn.chatId ? 0.01 : 0);
+		};
+		const found = streams.flat().sort((a, b) => score(b) - score(a));
 		const names = namer(ctx);
 		/** Each chat's label, or null if the person can't see it. */
 		const labels = new Map<Id<"chats">, string | null>();
 		const lines: ChatLine[] = [];
-		for (const m of found) {
+		for (const m of found.slice(0, 100)) {
 			if (lines.length >= 20) break;
 			if (m.deleted || m.quiet) continue;
 			if (!labels.has(m.chatId)) {
@@ -112,7 +124,7 @@ export const searchFor = internalMutation({
 			await readReply(ctx, member, m);
 			lines.push(await toLine(ctx, m, names, label));
 		}
-		return { messages: lines };
+		return { messages: lines, ...(chatId && found.length >= 100 && { notice: "Searched the first 100 matching messages in this chat; search read limits may omit other matches." }), ...(!chatId && (discovery.truncated || found.length > 100 || streams.some((stream, i) => stream.length >= (i === 0 ? 100 : privateHits))) && { notice: `Searched public channels and your ${discovery.chats.length} most recent private chats. Search read limits may omit older matches; specify a chat to search its history.` }) };
 		});
 	},
 });

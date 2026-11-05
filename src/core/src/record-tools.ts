@@ -63,7 +63,7 @@ const value = z
 		z.object({ amount: z.union([z.string(), z.number()]), currency: z.string().optional() }),
 	])
 	.describe(
-		'Text, number, "YYYY-MM-DD" date, true/false, a choice\'s label, a teammate ("me", a name or email), a linked record\'s exact name or id, an amount (1250.50 in the workspace\'s currency, or "EUR 1250.50"), a list for fields holding several, or null to clear',
+		'Text, number, "YYYY-MM-DD" date, true/false, a choice\'s label, a teammate ("me", their id or email), a linked record\'s id (from records_find), an amount (1250.50 in the workspace\'s currency, or "EUR 1250.50"), a list for fields holding several, or null to clear',
 	);
 
 const filter = z.object({
@@ -94,14 +94,14 @@ export type RecordFindInput = z.infer<typeof findInput>;
 const saveInput = z.object({
 	id: z.string().optional().describe("The record to change. Omit to create one."),
 	type: z.string().optional().describe('Database key from records_types for a new record'),
-	values: z.record(z.string(), value).optional().describe("Field key or label → value. Only the fields given change. New records need a name."),
+	values: z.record(z.string(), value).optional().describe("Field key (from records_types, not its label) → value. Only the fields given change. New records need a name."),
 	trash: z.boolean().optional().describe("true archives the record: it goes to Archive, kept until restored or explicitly deleted forever. false restores it from Archive. On its own, without values."),
 });
 export type RecordSaveInput = z.infer<typeof saveInput>;
 
 export const fieldInput = z.object({
-	type: z.string().describe('Database key or name from records_types'),
-	field: z.string().optional().describe("An existing field's key or label, to rename it or change its options. Omit to add a field."),
+	type: z.string().describe("Database key or id from records_types (not its name)"),
+	field: z.string().optional().describe("An existing field's key (not its label), to rename it or change its options. Omit to add a field."),
 	label: z.string().optional().describe('The field\'s name, e.g. "Roof type". Required when adding.'),
 	kind: z.enum(fieldKinds).optional().describe("Required when adding; can't change later. user = a teammate; link = another record."),
 	options: z
@@ -109,7 +109,7 @@ export const fieldInput = z.object({
 		.optional()
 		.describe("Choice fields: every option, in order. Use {id,label} from records_types choices to rename without changing stored values. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
 	position: z.number().int().min(1).max(100).optional().describe("Move an existing field to this display position, starting at 1 after Name."),
-	linksTo: z.string().optional().describe("Link fields: the database it points at"),
+	linksTo: z.string().optional().describe("Link fields: the key or id of the database it points at"),
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
 	trash: z.boolean().optional().describe("true archives `field` (to Archive: records keep its values until it's gone for good); false restores it. On its own."),
 });
@@ -130,11 +130,11 @@ export const viewInput = z.object({
 	version: z.number().int().optional().describe("Current version from records_views; required when changing or deleting"),
 	remove: z.boolean().optional().describe("Delete this saved view"),
 	name: z.string().max(120).optional(),
-	filters: z.array(filter).max(10).optional().describe("All must match. Field keys or labels; choice labels, teammate names or me, linked record exact names or ids."),
+	filters: z.array(filter).max(10).optional().describe("All must match. Field keys; choice labels, teammates by id, email or me, linked records by id."),
 	sort: z.object({ field: z.string(), order: z.enum(["asc", "desc"]) }).nullable().optional().describe("null clears sorting"),
 	columns: z.array(z.string()).max(100).optional().describe("Field keys in display order, including name. On a board, the properties shown on each card."),
 	layout: z.enum(["table", "board"]).optional().describe("table (the default) or board: cards in columns, one per option of groupBy"),
-	groupBy: z.string().nullable().optional().describe("Board columns: a choice field holding one option (key or label). Moving a card is a records_save of that field. null clears it."),
+	groupBy: z.string().nullable().optional().describe("Board columns: the key of a choice field holding one option. Moving a card is a records_save of that field. null clears it."),
 });
 export type ViewSaveInput = z.infer<typeof viewInput>;
 
@@ -313,8 +313,12 @@ export const recordTools: ToolDef[] = [
 			"Create a record, change some of its fields, delete it (to Archive) or restore it from Archive. Archiving waits for confirmation; other writes run right away and are logged with your name and the person's; returns a change id records_undo takes. Find first so you don't create a duplicate.",
 		input: saveInput,
 		riskFor: (input) => input.trash === true ? "locked" : "inside",
+		// Archiving or restoring depends on the record as it is; changing fields only touches the ones given.
+		binds: (input) => (input.trash !== undefined && input.id ? [{ kind: "record", id: input.id }] : []),
 		execute: (input, { records }) => records.save(input),
 		label: savedLabel,
+		action: (input) => !input.id ? "Create record" : input.trash === undefined ? "Save record" : input.trash ? "Archive record" : "Restore record",
+		actionKeys: ["trash"],
 	}),
 	defineTool({
 		id: "records.undo",
@@ -335,6 +339,8 @@ export const recordTools: ToolDef[] = [
 		riskFor: (input) => input.trash === true ? "locked" : "inside",
 		execute: (input, { records }) => records.saveField(input),
 		label: fieldLabel,
+		action: (input) => !input.field ? "Add field" : input.trash === undefined ? "Update field" : input.trash ? "Archive field" : "Restore field",
+		actionKeys: ["trash"],
 	}),
 	defineTool({
 		id: "records.save_database",
@@ -358,7 +364,7 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.save_view",
 		title: "Save a database view",
-		description: "Create, rename, change or delete a named filter, sort, columns and layout (table, or a board grouped by a choice field) for everyone in the workspace, when asked. New views need a name; default columns include Name. Changes run right away and are logged in Activity; record undo does not undo view changes. Filters accept field keys or labels, choice labels, teammates by name or me, and linked records by exact name or id.",
+		description: "Create, rename, change or delete a named filter, sort, columns and layout (table, or a board grouped by a choice field) for everyone in the workspace, when asked. New views need a name; default columns include Name. Changes run right away and are logged in Activity; record undo does not undo view changes. Name fields by key, teammates by id, email or me, and linked records by id: a view keeps them.",
 		input: viewInput,
 		riskFor: (input) => input.remove === true ? "locked" : "inside",
 		permission: "records.edit",

@@ -1,3 +1,4 @@
+import { ensureSeatActivity } from "../convex/chatDiscovery";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -5,7 +6,7 @@ import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
 import { memberOf } from "../convex/lib";
 import schema from "../convex/schema";
-import { agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf, addMember, builtInRoleIn } from "./helpers";
+import { agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf, addMember, builtInRoleIn, messagesIn } from "./helpers";
 import "./connectorFixtures";
 import { person } from "./person";
 import { defaultAgents } from "@companybot/core";
@@ -96,6 +97,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		mine.push(personal, await ctx.db.insert("memoryVersions", { memoryId: personal, version: 1, content: "Before", savedBy: memberId, savedAt: now }));
 
 		const connectorInstallId = await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "notes", roles: [await builtInRoleIn(ctx, workspaceId, "member")], installedBy: ownerId });
+		await ctx.db.insert("connectorSourceLabels", { workspaceId, installId: connectorInstallId, name: "Notes" });
 		const connection = { workspaceId, connectorId: "notes", credentials: "sealed" };
 		mine.push(await ctx.db.insert("connectorConnections", { ...connection, userId: memberId, connectedBy: memberId }));
 		await ctx.db.insert("connectorConnections", { ...connection, userId: ownerId, connectedBy: ownerId });
@@ -108,12 +110,14 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("skillInstalls", { audience: "team", workspaceId, skillId: "custom-skill", custom: { name: "Skill", createdBy: memberId, description: "d", instructions: "i", ...made } });
 
 		const chat = { workspaceId, archived: false, createdBy: ownerId, lastMessageAt: now };
-		const channel = await ctx.db.insert("chats", { ...chat, kind: "channel", name: "board", private: true });
-		const dm = await ctx.db.insert("chats", { ...chat, kind: "dm", private: true, dmKey: `u:${ownerId},u:${memberId}` });
+		const channel = await ctx.db.insert("chats", { ...chat, kind: "channel", name: "board", private: true, memberCount: 3 });
+		const dm = await ctx.db.insert("chats", { ...chat, kind: "dm", private: true, dmKey: `u:${ownerId},u:${memberId}`, memberCount: 1 });
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: ownerId });
 		mine.push(await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: memberId }));
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, agentId });
 		await ctx.db.insert("chatMembers", { chatId: dm, workspaceId, userId: memberId });
+		for (const seat of (await ctx.db.query("chatMembers").collect()).filter((r) => r.workspaceId === workspaceId)) await ensureSeatActivity(ctx, (await ctx.db.get(seat.chatId))!, seat);
+		await ctx.db.insert("chatActivity", { workspaceId, chatId: channel, lastMessageAt: now });
 		const message = { chatId: channel, workspaceId, parts: [], status: "done" as const };
 		const said = await ctx.db.insert("chatMessages", { ...message, authorUserId: memberId, text: "Hi", mentions: { userIds: [], agentIds: [] } });
 		const mention = await ctx.db.insert("chatMessages", { ...message, authorUserId: ownerId, text: "@member", mentions: { userIds: [memberId], agentIds: [] } });
@@ -132,6 +136,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const call = { workspaceId, agentId, actorId: memberId, chatId: channel, turnId, replyId: said, callId: "c1", tool: "crm.sms", input: "{}" };
 		// What the agent got back for them: only they see it.
 		await ctx.db.insert("agentActivity", { ...call, changes: true, status: "done", output: "their inbox" });
+		await ctx.db.insert("toolReceipts", { turnId, callId: "c1", actorId: memberId, state: "done", output: "their result" });
+		await ctx.db.insert("turnSteps", { workspaceId, turnId, actorId: memberId, messages: JSON.stringify([{ role: "tool", content: [{ type: "tool-result", toolCallId: "c1", toolName: "crm_sms", output: { type: "text", value: "their inbox" } }] }]) });
 		await ctx.db.insert("approvals", { ...call, hash: "h", status: "done", result: "their inbox", expiresAt: now + 60_000 });
 
 		// The workspace's bill: stays when a member goes or an account is erased, goes with the workspace.
@@ -211,7 +217,10 @@ const memberRow = (t: T, workspaceId: Id<"workspaces">, userId: Id<"users">) =>
 const seatsIn = (rows: Awaited<ReturnType<typeof dump>>, workspaceId: string, userId: string) =>
 	[...rows.values()]
 		.filter(({ table, row }) => table === "chatMembers" && row.workspaceId === workspaceId && row.userId === userId && rows.get(row.chatId as string)!.row.kind === "channel")
-		.map(({ row }) => row._id);
+		.flatMap(({ row }) => [row._id, ...[...rows.values()].filter((entry) => entry.table === "seatActivity" && entry.row.seatId === row._id).map((entry) => entry.row._id)]);
+
+/** The chats these seats are in. */
+const seatChats = (rows: Awaited<ReturnType<typeof dump>>, seats: string[]) => new Set(seats.map((id) => rows.get(id)!.row.chatId as string));
 
 /** Rows of `workspaceId`: its own, and their children (lifecycle childOf). */
 function rowsOf(rows: Awaited<ReturnType<typeof dump>>, workspaceId: string) {
@@ -245,7 +254,7 @@ describe("deleting a workspace", () => {
 			expect(await a.in(A).query(api.workspace.settings)).toBeNull();
 			expect(await a.in(A).query(api.chats.list)).toBeNull();
 			expect(await a.in(A).query(api.chats.get, { chatId: general })).toBeNull();
-			expect(await a.in(A).query(api.messages.list, { chatId: general })).toEqual([]);
+			expect(await messagesIn(a.in(A), { chatId: general })).toEqual([]);
 			expect(await a.in(A).query(api.chats.alerts)).toBeNull();
 		};
 		// Every live table has rows, so a cascade that missed one would show.
@@ -279,9 +288,9 @@ describe("deleting a workspace", () => {
 			const json = JSON.stringify(row);
 			expect([...owned].filter((id) => id !== row._id && json.includes(id)), `${table} ${row._id}`).toEqual([]);
 		}
-		// Everything else is as it was, but "last used" no longer names it.
+		// Everything else is as it was ("last used" naming it went with it).
 		const { changed } = diff(before, after);
-		expect([...changed].map((id) => before.get(id)!.table)).toEqual(["preferences"]);
+		expect(changed).toEqual(new Set());
 		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, role: "owner" });
 		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
 		// In no workspace now, nothing is made for them (onboarding will); then they start a fresh one.
@@ -346,7 +355,7 @@ describe("resetting a workspace", () => {
 		expect(chats.dms).toEqual([]);
 		const general = await generalOf(a);
 		expect(general.members.filter((x) => x.type === "user").map((x) => x.id).sort()).toEqual([owner, m.userId].sort());
-		expect(await a.query(api.messages.list, { chatId: general._id })).toHaveLength(1);
+		expect(await messagesIn(a, { chatId: general._id })).toHaveLength(1);
 		for (const who of [a, m.in(A)]) expect(await who.query(api.onboarding.tutorial)).not.toBeNull();
 		expect((await a.query(api.workspace.team))!.invites.map((i) => i.email)).toEqual(["next@co.com"]);
 		expect(await a.query(api.workspace.settings)).toMatchObject({ lastReset: { by: expect.any(String), at: expect.any(Number) } });
@@ -390,7 +399,8 @@ describe("removing a member", () => {
 		await settle(t);
 		const { deleted, changed } = diff(before, await dump(t));
 		expect([...deleted].sort()).toEqual([...new Set([row._id, ...mineIn[A]!, ...seatsIn(before, A, m.userId)])].sort());
-		expect(changed).toEqual(new Set());
+		// Only the channels they left, one seat fewer.
+		expect(changed).toEqual(seatChats(before, seatsIn(before, A, m.userId)));
 	});
 });
 
@@ -430,6 +440,11 @@ describe("erasing an account", () => {
 		await m.mutation(api.workspace.eraseAccount);
 		// At once: their sign-in acts as nobody, and their email can't sign back in to this account.
 		expect(await m.query(api.workspace.mine)).toBeNull();
+		// Memberships waiting for the cascade keep nothing that names them.
+		const waiting = await t.run(async (ctx) => (await ctx.db.query("members").collect()).filter((r) => r.userId === m.userId));
+		expect(waiting.length).toBeGreaterThan(0);
+		for (const row of waiting) expect(row).toMatchObject({ email: "", name: "Former member" });
+		expect(waiting.every((row) => row.image === undefined)).toBe(true);
 		// Their memberships go in the cascade; until then nothing (a queued reply, an automation) can act as them.
 		expect(await t.run((ctx) => memberOf(ctx, m.userId, A))).toBeNull();
 		await expect(m.mutation(api.workspace.ensure)).rejects.toThrow("erased");
@@ -439,19 +454,21 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "lastWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads", "seatActivity"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
-			if (own || child) theirs.add(id);
+			// The steps their turns took hold what agents got back for them: they go with the account.
+			const steps = table === "turnSteps" && row.actorId === m.userId;
+			if (own || child || steps) theirs.add(id);
 		}
 		for (const id of rowsOf(before, solo)) if (!keptWhenWorkspaceGoes(before.get(id)!.table)) theirs.add(id);
 		expect([...deleted].sort()).toEqual([...theirs].sort());
-		// The account row stays for history, with nothing that names them; what agents got back for them is cleared.
-		const scrubbed = [...after.values()].filter(({ table, row }) => ["agentActivity", "approvals"].includes(table) && row.actorId === m.userId).map(({ row }) => row._id);
-		expect(scrubbed).toHaveLength(4);
-		expect([...changed].sort()).toEqual([m.userId, ...scrubbed].sort());
-		for (const id of scrubbed) expect(after.get(id)!.row).not.toHaveProperty(before.get(id)!.table === "agentActivity" ? "output" : "result");
+		// The account row stays for history, with nothing that names them; what agents got back for them (Activity, approvals, call receipts) is cleared.
+		const scrubbed = [...after.values()].filter(({ table, row }) => ["agentActivity", "approvals", "toolReceipts"].includes(table) && row.actorId === m.userId).map(({ row }) => row._id);
+		expect(scrubbed).toHaveLength(6);
+		expect([...changed].sort()).toEqual([m.userId, ...scrubbed, ...seatChats(before, [...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId)])].sort());
+		for (const id of scrubbed) expect(after.get(id)!.row).not.toHaveProperty(before.get(id)!.table === "approvals" ? "result" : "output");
 		expect(after.get(m.userId)!.row).toEqual({ _id: m.userId, _creationTime: before.get(m.userId)!.row._creationTime, erasedAt: expect.any(Number) });
 		expect((await a.query(api.workspace.team))!.members.map((x) => x.email)).toEqual(["a@co.com"]);
 	});
@@ -524,7 +541,7 @@ describe("erasing an account", () => {
 		await m.mutation(api.messages.send, { chatId: general, text: "Bye", mentions: { userIds: [], agentIds: [] } });
 		await m.mutation(api.workspace.eraseAccount);
 		await settle(t);
-		const [message] = await owner.query(api.messages.list, { chatId: general });
+		const [message] = await messagesIn(owner, { chatId: general });
 		expect(message).toMatchObject({ text: "Bye", author: { type: "user", name: "Former member" } });
 		// A later sign-in with the same email is someone new, in none of the old workspaces.
 		const again = person(identityOf(t, await t.run((ctx) => ctx.db.insert("users", { email: "m@co.com" }))));
@@ -541,7 +558,7 @@ describe("a sign-in from before an account was erased", () => {
 		await member.mutation(api.messages.send, { chatId: general, text: "Bye", mentions: noMentions });
 		const workspaceId = await workspaceOf(owner);
 		await member.mutation(api.workspace.eraseAccount);
-		const authorOfBye = async () => (await owner.query(api.messages.list, { chatId: general })).find((m) => m.text === "Bye")!.author;
+		const authorOfBye = async () => (await messagesIn(owner, { chatId: general })).find((m) => m.text === "Bye")!.author;
 		const refused = async () => {
 			await expect(member.mutation(api.preferences.update, { displayName: "Back" })).rejects.toThrow("Not signed in");
 			expect(await member.query(api.preferences.get)).toMatchObject({ displayName: "" });
@@ -670,7 +687,7 @@ describe("writes that land after what they belong to went", () => {
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("cascades").first())).toBeNull();
 		await t.mutation(internal.activity.log, { turnId, callId: "c2", tool: "crm.find", changes: false, input: "{}", output: "private" });
-		await t.mutation(internal.approvals.finish, { approvalId, result: "private" });
+		await t.mutation(internal.approvals.finish, { approvalId, turnId, result: "private" });
 		const [activity] = await t.run((ctx) => ctx.db.query("agentActivity").collect());
 		expect(activity).toMatchObject({ callId: "c2", status: "done" });
 		expect(activity).not.toHaveProperty("output");

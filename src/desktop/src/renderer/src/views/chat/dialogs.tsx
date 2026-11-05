@@ -5,7 +5,8 @@ import { api } from "../../api";
 import { type ReplyMode, replyModeLabels, replyModes } from "@companybot/core/router";
 import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
-import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
+import { Field, Form, Loading, Notice, compactButton, compactDangerButton, descriptionClass, iconDangerButton, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
+import { ArchiveIcon, PlusIcon, SignOutIcon, UserMinusIcon } from "../../icons";
 import { AgentBadge, Avatar, Modal, archiveQuestion, useConfirm } from "./common";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -172,8 +173,8 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 						<div className="flex items-center justify-between">
 							<h3 className="text-sm font-medium">{chat.members.length} {chat.members.length === 1 ? "member" : "members"}</h3>
 							{isChannel && (
-								<button type="button" onClick={() => setAdding(true)} className="text-sm text-neutral-500 hover:text-neutral-900">
-									Add people or agents
+								<button type="button" onClick={() => setAdding(true)} className={compactButton}>
+									<PlusIcon /> Add people or agents
 								</button>
 							)}
 						</div>
@@ -195,9 +196,11 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 													onConfirm: () => removeMember({ chatId: chat._id, ...(m.type === "user" ? { userId: m.id as Id<"users"> } : { agentId: m.id as Id<"agents"> }) }),
 												})
 											}
-											className="text-xs text-neutral-400 hover:text-red-700"
+											aria-label="Remove from channel"
+											title="Remove from channel"
+											className={iconDangerButton}
 										>
-											Remove from channel
+											<UserMinusIcon size={16} />
 										</button>
 									)}
 								</li>
@@ -218,7 +221,7 @@ function ChannelAccess({ chat, access }: { chat: ChatDetails; access: NonNullabl
 	return (
 		<section className="flex flex-col gap-2">
 			<h3 className="text-sm font-medium">Who can access</h3>
-			<WhoCanAccess access={access} editLabel="Post" onSave={chat.canManage ? (next) => setAccess({ chatId: chat._id, access: next }) : undefined} />
+			<WhoCanAccess kind="channel" access={access} onSave={chat.canManage ? (next) => setAccess({ chatId: chat._id, access: next }) : undefined} />
 		</section>
 	);
 }
@@ -304,17 +307,17 @@ function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }
 		<>
 			<Notice>{error}</Notice>
 			{dialog}
-			<div className="flex gap-4 text-sm">
-				<button type="button" onClick={() => run(leave({ chatId: chat._id }), onLeft)} className="text-red-600 hover:text-red-800">
-					Leave channel
+			<div className="flex gap-2">
+				<button type="button" onClick={() => run(leave({ chatId: chat._id }), onLeft)} className={compactDangerButton}>
+					<SignOutIcon /> Leave channel
 				</button>
 				{chat.canManage && !chat.trash && (
 					<button
 						type="button"
 						onClick={() => confirm(archiveQuestion(`#${chat.name}`, () => remove({ kind: "channel", id: chat._id }).then(onLeft), "The channel will close to new messages. Its messages and files are kept."))}
-						className="text-neutral-600 hover:text-neutral-900"
+						className={compactButton}
 					>
-						Archive channel
+						<ArchiveIcon /> Archive channel
 					</button>
 				)}
 			</div>

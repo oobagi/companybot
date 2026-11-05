@@ -1,7 +1,8 @@
+import { automationJobs } from "./automationJobs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch } from "./helpers";
+import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch, messagesIn } from "./helpers";
 
 const usage = (costUsd: number) => ({
 	model: "anthropic/claude-haiku-5.5",
@@ -36,6 +37,7 @@ describe("agent turns", () => {
 		const id = await member.mutation(api.automations.create, { config, agentId: companybot._id, audience: "subscribers", timeZone: "UTC" });
 		await owner.mutation(api.automations.subscribe, { automationId: id, on: true });
 		await t.mutation(internal.automationRuns.tick, { now: (Math.floor(Date.now() / 86_400_000) + 2) * 86_400_000 + 10 * 3_600_000 });
+		await automationJobs(t);
 		const run = (await turnsOf(t)).find(r => r.actorId === owner.userId && r._id !== first._id)!;
 		// Model each destination while preserving a real automation's server-written provenance.
 		await t.run(async ctx => {
@@ -81,17 +83,17 @@ describe("agent turns", () => {
 		expect(turn).toMatchObject({ status: "running", triggerId: trigger, agentId: companybot._id });
 		expect((await generalOf(owner)).members.some((m) => m.id === companybot._id)).toBe(true);
 		// Not shown until it writes: the typing line says it's working.
-		expect((await owner.query(api.messages.list, { chatId })).at(-1)!._id).toBe(trigger);
+		expect((await messagesIn(owner, { chatId })).at(-1)!._id).toBe(trigger);
 
 		// Streaming writes go to the reply's own stream, not the message the timeline reads; ending moves them over.
 		const replyId = turn!.replyId!;
 		const parts = [{ type: "text" as const, text: "Hello" }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Hello", parts });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toEqual({ text: "Hello", parts });
-		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ _id: replyId, author: { type: "agent", name: "Companybot" }, status: "streaming", text: "", parts: [] });
+		expect((await messagesIn(owner, { chatId })).at(-1)).toMatchObject({ _id: replyId, author: { type: "agent", name: "Companybot" }, status: "streaming", text: "", parts: [] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toBeNull();
-		expect((await owner.query(api.messages.list, { chatId })).at(-1)).toMatchObject({ text: "Hello", parts, status: "done" });
+		expect((await messagesIn(owner, { chatId })).at(-1)).toMatchObject({ text: "Hello", parts, status: "done" });
 		expect(await t.run((ctx) => ctx.db.query("replyStreams").collect())).toEqual([]);
 	});
 
@@ -112,7 +114,7 @@ describe("agent turns", () => {
 		turns = await turnsOf(t);
 		expect(turns.map((x) => x.status)).toEqual(["done", "running"]);
 		await answer(turns[1]!, 0.02);
-		const stats = (await owner.query(api.messages.list, { chatId })).flatMap((m) => (m.stats ? [m.stats.conversationCostUsd] : []));
+		const stats = (await messagesIn(owner, { chatId })).flatMap((m) => (m.stats ? [m.stats.conversationCostUsd] : []));
 		expect(stats).toEqual([0.01, 0.03]);
 		expect((await owner.query(api.chats.place, { chatId }))?.costUsd).toBeCloseTo(0.03);
 	});
@@ -166,7 +168,7 @@ describe("agent turns", () => {
 		const [turn] = await turnsOf(t);
 		expect(turn?.threadId).toBe(parent);
 		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Ship it", parts: [{ type: "text", text: "Ship it" }] });
-		expect((await owner.query(api.messages.list, { chatId, threadId: parent })).map((m) => m.author.type)).toEqual([
+		expect((await messagesIn(owner, { chatId, threadId: parent })).map((m) => m.author.type)).toEqual([
 			"user",
 			"user",
 			"agent",
@@ -218,6 +220,11 @@ describe("agent turns", () => {
 		expect(context.memory).toBe("personal");
 		expect(context.messages.map((m) => m.text)).toEqual(["first"]);
 		await t.mutation(internal.turns.savePrompt, { turnId: turn!._id, prompt: "PROMPT 1" });
+		const steps = JSON.stringify([
+			{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "memory_search", input: { query: "q4" } }] },
+			{ role: "tool", content: [{ type: "tool-result", toolCallId: "c1", toolName: "memory_search", output: { type: "json", value: { found: [] } } }] },
+		]);
+		await t.mutation(internal.turns.keepStep, { turnId: turn!._id, messages: steps });
 		await t.mutation(internal.turns.updateReply, {
 			turnId: turn!._id,
 			text: "answer",
@@ -231,8 +238,8 @@ describe("agent turns", () => {
 		await owner.mutation(api.messages.send, { chatId, text: "second", mentions: noMentions });
 		turn = (await turnsOf(t))[1];
 		context = await t.mutation(internal.turns.turnContext, { turnId: turn!._id });
-		// Tools it used replay too, so later it knows it really acted.
-		expect(context.session.turns).toEqual([{ prompt: "PROMPT 1", reply: "answer\n[Tools you used: memory_search (done)]" }]);
+		// Its tool calls and their results replay as it had them, so later it knows it really acted.
+		expect(context.session.turns).toEqual([{ prompt: "PROMPT 1", steps, answer: "answer" }]);
 		expect(context.messages.map((m) => m.text)).toEqual(["second"]);
 		expect(context.triggerId).toBe(context.messages[0]!.id);
 	});
@@ -305,7 +312,7 @@ describe("agent turns", () => {
 			["#general", "member@co.com", "@Companybot what's on #board?"],
 		]);
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id, decision: { emoji: "👀", new_point: "On #board", to: "room", message: "I can't see #board." } });
-		const [m] = (await member.query(api.messages.list, { chatId })).filter((x) => x._id === trigger);
+		const [m] = (await messagesIn(member, { chatId })).filter((x) => x._id === trigger);
 		expect(m!.reactions).toMatchObject([{ emoji: "👀", count: 1, mine: false, people: [{ type: "agent", name: "Companybot" }] }]);
 		await member.mutation(api.messages.send, { chatId, text: "@Companybot and now?", mentions: { userIds: [], agentIds: [companybot._id] } });
 		const after = await t.mutation(internal.chatTools.readFor, { turnId: (await turnsOf(t)).at(-1)!._id });

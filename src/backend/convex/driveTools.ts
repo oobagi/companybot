@@ -3,10 +3,12 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalAction, internalMutation } from "./_generated/server";
+import { withReceipt } from "./approvals";
 import { addFile, fileVisible, moveFile, renameFile, requireFile, requireFileAccess, setFileTrashed } from "./driveFiles";
 import { type Member, asToolResult } from "./lib";
 import { requirePage } from "./pageOps";
 import { fileStates, kindOf, pageStates } from "./pageTree";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 
 // FileStore (core drive-tools.ts) as the turn's person: files in Drive, found, read and saved with
@@ -16,17 +18,17 @@ import { runningTurn } from "./turns";
 const FIND_MAX = 50;
 const SEARCH_MAX = 20;
 
-/** A file by id, else one named exactly `name`: a live one, or one in Archive (to restore it). */
-async function fileNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
+/** A live file by id, else one named exactly `name`. For reads: writes take ids (`fileById`). */
+async function fileNamed(ctx: QueryCtx, member: Member, name: string) {
 	const id = ctx.db.normalizeId("driveFiles", name);
 	if (id) return requireFile(ctx, member, id);
 	const candidates = await ctx.db
 		.query("driveFiles")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", trashed).eq("name", name.trim()))
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", false).eq("name", name.trim()))
 		.take(FIND_MAX + 1);
 	const state = fileStates(ctx);
 	const rows = [];
-	for (const f of candidates) if ((await state(f)).archived === trashed) rows.push(f);
+	for (const f of candidates) if (!(await state(f)).archived) rows.push(f);
 	if (candidates.length > FIND_MAX || rows.length > 1) throw new ConvexError(`Several files are named “${name}”. Find them with files_find and use an id.`);
 	if (!rows[0]) throw new ConvexError(`No file named “${name}”. Find it with files_find, or use its id.`);
 	// Found by name but kept from them: say who can see it, so the agent can tell its person whom to ask.
@@ -34,7 +36,26 @@ async function fileNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 	return rows[0];
 }
 
-/** A live folder by id, else one titled exactly `name`. */
+/**
+ * A file by id, for writes: never by name, so a held call changes the file it was approved for even if a file
+ * is renamed and another takes its name meanwhile (core page-tools `writeTarget` has the same rule). Archived too, to restore it.
+ */
+async function fileById(ctx: QueryCtx, member: Member, raw: string) {
+	const id = ctx.db.normalizeId("driveFiles", raw.trim());
+	if (!id) throw new ConvexError(`Name the file by its id, not “${raw}”: names can change. files_find gives ids.`);
+	return requireFile(ctx, member, id);
+}
+
+/** A folder by id, for writes (`folderNamed` for reads). */
+async function folderById(ctx: QueryCtx, member: Member, raw: string) {
+	const id = ctx.db.normalizeId("pages", raw.trim());
+	if (!id) throw new ConvexError(`Name the folder by its id, not “${raw}”: titles can change. pages_find gives ids.`);
+	const page = await requirePage(ctx, member, id);
+	if (kindOf(page) !== "folder") throw new ConvexError(`“${page.title}” is a page, not a folder. Files go in folders, or at the top level of Drive.`);
+	return page;
+}
+
+/** A live folder by id, else one titled exactly `name`. For reads. */
 async function folderNamed(ctx: QueryCtx, member: Member, name: string) {
 	const id = ctx.db.normalizeId("pages", name);
 	const byId = id && (await requirePage(ctx, member, id));
@@ -110,12 +131,14 @@ export const saveText = internalAction({
 	},
 });
 
-const writeArgs = { turnId: v.id("agentTurns"), input: v.any(), upload: v.optional(v.id("_storage")) };
+/** `op`: an approved call's operation key (approvals.withReceipt). */
+const writeArgs = { turnId: v.id("agentTurns"), op: v.optional(opArg), input: v.any(), upload: v.optional(v.id("_storage")) };
 
 // Catch expected errors outside the write transaction, so a refused change saves nothing.
 export const writeFor = internalMutation({
 	args: writeArgs,
-	handler: async (ctx, args): Promise<unknown> => asToolResult(() => ctx.runMutation(internal.driveTools.writeChecked, args)),
+	// The approval's receipt commits with the file change (or the refusal), in this one transaction.
+	handler: (ctx, { op, ...args }): Promise<unknown> => withReceipt(ctx, op, args.turnId, () => asToolResult(() => ctx.runMutation(internal.driveTools.writeChecked, args))),
 });
 
 /** `upload`: the file to put in Drive, already the person's upload (a copy of a chat file, or text they had written). */
@@ -124,11 +147,11 @@ export const writeChecked = internalMutation({
 	handler: async (ctx, { turnId, input, upload }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		const { file: name, name: newName, folder, from, text, trash } = fileWriteInput.parse(input);
-		const folderId = folder ? (await folderNamed(ctx, member, folder))._id : undefined;
+		const folderId = folder ? (await folderById(ctx, member, folder))._id : undefined;
 		const changes = [newName, folder, from, text].filter((x) => x !== undefined).length;
 		if (trash !== undefined) {
 			if (!name || changes) throw new ConvexError("Archive or restore a file on its own: file and trash only.");
-			const file = await fileNamed(ctx, member, name, trash === false);
+			const file = await fileById(ctx, member, name);
 			await setFileTrashed(ctx, who, file, trash);
 			return { id: file._id, name: file.name };
 		}
@@ -141,7 +164,7 @@ export const writeChecked = internalMutation({
 		}
 		if (!name) throw new ConvexError("Say what to do: from or text saves a new file; file with name, folder or trash changes one.");
 		if (newName === undefined && folder === undefined) throw new ConvexError("Give the file a new name (name), a folder to move to (folder), or trash.");
-		const file = await fileNamed(ctx, member, name);
+		const file = await fileById(ctx, member, name);
 		if (newName !== undefined) await renameFile(ctx, who, file, newName);
 		if (folder !== undefined) await moveFile(ctx, who, file, folderId);
 		const after = (await ctx.db.get(file._id))!;

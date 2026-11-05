@@ -24,7 +24,7 @@ export function CustomizeView({ access, tab, itemId }: { access: Access; tab: Cu
 		return <AutomationScreen access={access} id={itemId} />;
 	}
 	return (
-		<Page title={current.label} description={current.description} actions={{
+		<Page title={current.label} intro={current.description} actions={{
 			agents: can(access, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
 			connectors: null,
 			skills: <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,

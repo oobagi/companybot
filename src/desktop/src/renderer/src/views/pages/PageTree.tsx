@@ -9,13 +9,14 @@ import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, useSortable } from "../../sortable";
 import { LoadMore, Notice, inputClass, metadataClass, useDebounced, useRun } from "../../ui";
-import { Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
+import { Item, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { FileKindIcon } from "../drive/FileIcon";
 import { type DriveUpload, useDriveUploads } from "../drive/upload";
 
 // Drive's sidebar: a tree of folders, pages and files (wiki/drive.md). Folders hold all three;
-// pages hold sub-pages; files sit in folders or at the top level. Each expanded level loads on its own.
+// pages hold sub-pages; files sit in folders or at the top level. Each expanded level loads on its
+// own. The + beside the tab's name (App.tsx) makes a page or folder at the top level, or uploads there.
 
 type PageId = Id<"pages">;
 type FileId = Id<"driveFiles">;
@@ -25,11 +26,11 @@ export type FileRow = { _id: FileId; name: string; type: string; size: number; p
 /** Something that can be moved: a page or folder (pages rows), or a file. */
 export type Movable = { kind: "page" | "folder" | "file"; _id: string; title: string; parentId?: PageId | null };
 
-export function DriveNav({ openId, openFileId, canEdit, section }: { openId: string | undefined; openFileId: string | undefined; canEdit: boolean; section?: SectionProps }) {
+export function DriveNav({ openId, openFileId, canEdit }: { openId: string | undefined; openFileId: string | undefined; canEdit: boolean }) {
 	const workspace = useWorkspace();
-	return <DriveNavTree key={workspace?.id} openId={openId} openFileId={openFileId} canEdit={canEdit} section={section} />;
+	return <DriveNavTree key={workspace?.id} openId={openId} openFileId={openFileId} canEdit={canEdit} />;
 }
-function DriveNavTree({ openId, openFileId, canEdit, section }: { openId?: string; openFileId?: string; canEdit: boolean; section?: SectionProps }) {
+function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFileId?: string; canEdit: boolean }) {
 	const [expandedIds, changeExpanded] = useStoredIds("expanded");
 	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
 	const batches = useMemo(() => {
@@ -61,7 +62,6 @@ function DriveNavTree({ openId, openFileId, canEdit, section }: { openId?: strin
 				parentId={parentId}
 				parentKind={parent ? (parent.kind ?? "page") : undefined}
 				sortable
-				empty={!above.length && canEdit && <Item icon={<PlusIcon />} onClick={() => add("page")} muted>New page</Item>}
 				renderPage={(p, drag, last) => {
 					const open = p.hasChildren && expanded.has(p._id);
 					const guides = guidesFor(last);
@@ -78,7 +78,7 @@ function DriveNavTree({ openId, openFileId, canEdit, section }: { openId?: strin
 									<MenuItem onClick={() => { close(); setSharing({ pageId: p._id }); }}><PrivateIcon /> Who can access</MenuItem>
 									<MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: p.kind ?? "page", id: p._id }), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>
 								</> : undefined}
-								actions={p.canEdit ? <button type="button" title={folder ? "Add a page inside" : "Add a page inside"} aria-label={`Add a page inside ${p.title}`} onClick={() => add("page", p._id)} className={trailingAction}><PlusIcon /></button> : undefined}>
+								actions={p.canEdit ? <button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add("page", p._id)} className={trailingAction}><PlusIcon /></button> : undefined}>
 								<span className="truncate">{p.title}</span>
 								<AccessLock lock={p.lock ?? null} />
 							</Item>
@@ -102,30 +102,34 @@ function DriveNavTree({ openId, openFileId, canEdit, section }: { openId?: strin
 		);
 	};
 	return (
-		<Group title="Drive" section={section} add={canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={() => picker.open(undefined)} />}>
+		<div className="flex flex-col gap-px">
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
-			{!section?.collapsed && level()}
-			{!section?.collapsed && <UploadRows uploads={uploads.pending} onDismiss={uploads.dismiss} />}
+			{level()}
+			<UploadRows uploads={uploads.pending} onDismiss={uploads.dismiss} />
 			{picker.input}
 			{dialog}
 			<Notice>{error}</Notice>
 			{moving && <MoveItem item={moving} onClose={() => setMoving(undefined)} />}
 			{sharing && "pageId" in sharing && <PageAccess pageId={sharing.pageId} onClose={() => setSharing(undefined)} />}
 			{sharing && "fileId" in sharing && <FileAccess fileId={sharing.fileId} onClose={() => setSharing(undefined)} />}
-		</Group>
+		</div>
 	);
 }
 
-/** The + on Drive's header and screens: a new page or folder here, or files to upload here. */
-export function NewMenu({ onPage, onFolder, onUpload, className = trailingAction, trigger = <PlusIcon /> }: { onPage: () => void; onFolder: () => void; onUpload: () => void; className?: string; trigger?: React.ReactNode }) {
+/** The + beside Drive's name and on its screens: a new page or folder here, or files to upload here (it asks for them). */
+export function NewMenu({ onPage, onFolder, onUpload, className = trailingAction, trigger = <PlusIcon /> }: { onPage: () => void; onFolder: () => void; onUpload: (files: File[]) => void; className?: string; trigger?: React.ReactNode }) {
+	const picker = useFilePicker(onUpload);
 	return (
-		<Popover trigger={trigger} label="New" className={className} panelClassName="w-44 p-1 text-sm">
-			{(close) => <>
-				<MenuItem onClick={() => { close(); onPage(); }}><PageIcon /> New page</MenuItem>
-				<MenuItem onClick={() => { close(); onFolder(); }}><FolderIcon /> New folder</MenuItem>
-				<MenuItem onClick={() => { close(); onUpload(); }}><UploadIcon /> Upload files</MenuItem>
-			</>}
-		</Popover>
+		<>
+			<Popover trigger={trigger} label="New" className={className} panelClassName="w-44 p-1 text-sm">
+				{(close) => <>
+					<MenuItem onClick={() => { close(); onPage(); }}><PageIcon /> New page</MenuItem>
+					<MenuItem onClick={() => { close(); onFolder(); }}><FolderIcon /> New folder</MenuItem>
+					<MenuItem onClick={() => { close(); picker.open(); }}><UploadIcon /> Upload files</MenuItem>
+				</>}
+			</Popover>
+			{picker.input}
+		</>
 	);
 }
 
@@ -258,6 +262,7 @@ export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () =>
 	const page = useQuery(api.pages.get, { pageId });
 	const setAccess = useMutation(api.pages.setAccess);
 	const what = page?.kind === "folder" ? "folder" : "page";
+	const parent = page?.ancestors.at(-1);
 	return (
 		<Modal title={page ? `Who can access ${page.title || `this ${what}`}` : "Who can access"} onClose={onClose}>
 			{page?.recordId ? (
@@ -265,9 +270,10 @@ export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () =>
 			) : (
 				page && (
 					<WhoCanAccess
+						kind="page"
 						access={page.access}
 						onSave={page.canManageAccess ? (access) => setAccess({ pageId, access }) : undefined}
-						follow={page.canManageAccess ? { following: !page.ownAccess, onFollow: () => setAccess({ pageId, access: null }), label: page.parentId ? "Same as its parent" : "Same as Drive" } : undefined}
+						follow={page.canManageAccess ? { following: !page.ownAccess, parent: parent && (parent.kind === "folder" ? "folder" : "page"), what, onFollow: () => setAccess({ pageId, access: null }) } : undefined}
 					/>
 				)
 			)}
@@ -283,9 +289,10 @@ export function FileAccess({ fileId, onClose }: { fileId: FileId; onClose: () =>
 		<Modal title={file ? `Who can access ${file.name}` : "Who can access"} onClose={onClose}>
 			{file && (
 				<WhoCanAccess
+					kind="page"
 					access={file.access}
 					onSave={file.canManageAccess ? (access) => setAccess({ fileId, access }) : undefined}
-					follow={file.canManageAccess ? { following: !file.ownAccess, onFollow: () => setAccess({ fileId, access: null }), label: file.parentId ? "Same as its folder" : "Same as Drive" } : undefined}
+					follow={file.canManageAccess ? { following: !file.ownAccess, parent: file.parentId ? "folder" : undefined, what: "file", onFollow: () => setAccess({ fileId, access: null }) } : undefined}
 				/>
 			)}
 		</Modal>

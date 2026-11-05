@@ -5,11 +5,11 @@ import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, timeAgo, useTip } from "../../ui";
+import { Notice, smallButton, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { HeldCall } from "./Approval";
-import { AutomationIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, TrashIcon } from "../../icons";
+import { AutomationIcon, CaretDownIcon, CaretRightIcon, ChannelIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, StopIcon, TrashIcon } from "../../icons";
 import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, clock, iconButton, useConfirm } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
@@ -112,7 +112,7 @@ export function MessageRow({
 					{message.privacy && (
 						<div className="flex items-center gap-3 text-xs text-neutral-500">
 							<span title={message.privacy.why ?? undefined} className="italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
-							{message.privacy.share && message.status !== "streaming" && <button type="button" className="hover:underline" onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}>Share to channel</button>}
+							{message.privacy.share && message.status !== "streaming" && <button type="button" className={smallButton} onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}><ChannelIcon /> Share to channel</button>}
 						</div>
 					)}
 					{message.deleted ? (
@@ -475,9 +475,12 @@ function AutomationPrompt({ prompt }: { prompt: string }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className="flex flex-col gap-1">
-			<button type="button" onClick={() => setOpen(!open)} className="self-start text-sm text-neutral-500 hover:text-neutral-800">
-				Ran automatically · {open ? "Hide" : "Show"} what it asked
-			</button>
+			<span className="flex items-center gap-2 text-sm text-neutral-500">
+				Ran automatically
+				<button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={smallButton}>
+					{open ? <CaretDownIcon /> : <CaretRightIcon />} {open ? "Hide" : "Show"} what it asked
+				</button>
+			</span>
 			{open && <p className="text-sm leading-relaxed whitespace-pre-wrap text-neutral-600">{prompt}</p>}
 		</div>
 	);
@@ -494,7 +497,6 @@ function PausedLine({ message, pause, onError }: { message: Message; pause: NonN
 		setBusy(true);
 		decide({ messageId: message._id, action }).catch(onError).finally(() => setBusy(false));
 	};
-	const button = "font-medium text-neutral-700 hover:text-neutral-950 hover:underline disabled:opacity-50";
 	return (
 		<div id={`message-${message._id}`} className="flex items-center gap-3 px-5 py-1.5 text-xs text-neutral-500">
 			<span className="h-px flex-1 bg-neutral-200" />
@@ -502,14 +504,15 @@ function PausedLine({ message, pause, onError }: { message: Message; pause: NonN
 				<span>{message.text}</span>
 				{pause.canDecide ? (
 					<>
-						<span>·</span>
-						<button type="button" disabled={busy} onClick={() => act("continue")} className={button}>
-							Continue
-						</button>
-						<span>·</span>
-						<button type="button" disabled={busy} onClick={() => act("stop")} className={button}>
-							Stop
-						</button>
+						<span className="mr-0.5">·</span>
+						<span className="inline-flex gap-1.5">
+							<button type="button" disabled={busy} onClick={() => act("continue")} className={smallButton}>
+								Continue
+							</button>
+							<button type="button" disabled={busy} onClick={() => act("stop")} className={smallButton}>
+								<StopIcon /> Stop
+							</button>
+						</span>
 					</>
 				) : (
 					<span>

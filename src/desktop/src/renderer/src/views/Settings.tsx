@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -18,7 +18,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Confirm, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
-import { MembersTab } from "./Members";
+import { MembersTab, RoleScreen, RolesTab } from "./Members";
 import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
 import { TrashView } from "./Trash";
@@ -36,7 +36,8 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "We email invited people a link to get the app. They join when they sign in with that email. Roles decide what each person can do, and changes apply right away.", icon: <MembersIcon /> },
+			{ id: "members", label: "Members", description: "Everyone in this workspace, and people you've invited. Their roles decide what they can do; changes apply right away.", icon: <MembersIcon /> },
+			{ id: "roles", label: "Roles", description: "What each role can do. People get every switch any of their roles has. Owners can do everything.", icon: <RolesIcon /> },
 			{ id: "permissions", label: "Permissions", description: "Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps.", icon: <PermissionsIcon /> },
 			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
 			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
@@ -69,11 +70,13 @@ export const isCustomize = (tab: SettingsTab): tab is CustomizeTab => customizeT
 export function SettingsView({ access, tab, itemId }: { access: Access; tab: SettingsTab; itemId?: string }) {
 	if (isCustomize(tab)) return <CustomizeView access={access} tab={tab} itemId={itemId} />;
 	if (tab === "archive") return <TrashView access={access} />;
+	if (tab === "roles" && itemId) return <RoleScreen access={access} roleId={itemId} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
-		<Page title={current.label} description={(current as { description?: string }).description}>
+		<Page title={current.label} intro={(current as { description?: string }).description}>
 			{tab === "general" && <GeneralTab access={access} />}
 			{tab === "members" && <MembersTab access={access} />}
+			{tab === "roles" && <RolesTab access={access} />}
 			{tab === "memory" && <MemoryTab access={access} />}
 			{tab === "activity" && <ActivityTab />}
 			{tab === "usage" && <UsageTab />}
@@ -272,22 +275,21 @@ function GeneralForm({
 }) {
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
-	const draft = useDraft(
-		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
-		settings.version,
-	);
+	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) };
+	const draft = useDraft("settings", saved, settings.version);
+	const value = canManage ? draft.value : saved;
 	const [confirming, setConfirming] = useState(false);
 	const { error, run } = useRun();
 	const submit = () => {
-		const { imageBudget, threadHours, ...rest } = draft.value;
+		const { imageBudget, threadHours, ...rest } = value;
 		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), threadHours: Number(threadHours), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
 	};
 	const spent = settings.imageSpentUsd === null ? "" : ` ${formatUsd(settings.imageSpentUsd)} used in ${monthLabel(usageMonth(Date.now()))}.`;
-	const currencyChanged = draft.value.currency !== settings.currency;
+	const currencyChanged = value.currency !== settings.currency;
 	const ownerOnly = canManage ? undefined : "Your roles can't change workspace settings.";
 	return (
 		<>
-			<ConflictNotice draft={draft} />
+			{canManage && <ConflictNotice draft={draft} />}
 			<Notice>{error}</Notice>
 			<Settings title="Workspace" hint={ownerOnly}>
 				<Setting label="Logo" hint={`Its icon in the workspace rail at the far left. ${pictureLimits}.`}>
@@ -297,24 +299,24 @@ function GeneralForm({
 					<input
 						className={wideControlClass}
 						disabled={!canManage}
-						value={draft.value.name}
-						onChange={(e) => draft.set({ ...draft.value, name: e.target.value })}
+						value={value.name}
+						onChange={(e) => draft.set({ ...value, name: e.target.value })}
 					/>
 				</Setting>
 				<Setting label="Currency" hint="For new amounts. Existing amounts keep theirs.">
-					<CurrencySelect className={wideControlClass} disabled={!canManage} value={draft.value.currency} onChange={(currency) => draft.set({ ...draft.value, currency })} />
+					<CurrencySelect className={wideControlClass} disabled={!canManage} value={value.currency} onChange={(currency) => draft.set({ ...value, currency })} />
 				</Setting>
 				<Setting label="Threads in the sidebar" hint="How long a thread stays under its channel after its last reply. It's still there under its message either way.">
 					<Select
 						className={wideControlClass}
 						disabled={!canManage}
-						value={draft.value.threadHours}
+						value={value.threadHours}
 						options={threadWindows.map((w) => ({ value: String(w.hours), label: w.label }))}
-						onChange={(threadHours) => draft.set({ ...draft.value, threadHours })}
+						onChange={(threadHours) => draft.set({ ...value, threadHours })}
 					/>
 				</Setting>
 				<Setting label="Memory" hint="Agents remember what people tell them. Off keeps existing memories for later.">
-					<Toggle disabled={!canManage} checked={draft.value.memory} onChange={(memory) => draft.set({ ...draft.value, memory })} />
+					<Toggle disabled={!canManage} checked={value.memory} onChange={(memory) => draft.set({ ...value, memory })} />
 				</Setting>
 			</Settings>
 			<Settings title="Agents in channels" hint={ownerOnly ?? "In channels set to \"When relevant\", a quick model call decides whether each agent replies, reacts or stays quiet."}>
@@ -322,11 +324,11 @@ function GeneralForm({
 					<ModelPicker
 						models={settings.routerModels}
 						defaultModel={ROUTER_MODEL}
-						value={draft.value.routerModel}
+						value={value.routerModel}
 						note={(m) => (isDecisionModel(m.id) ? "Decision model · about 0.2s a call" : modelNote(m))}
 						disabled={!canManage}
 						className={wideControlClass}
-						onChange={(routerModel) => draft.set({ ...draft.value, routerModel })}
+						onChange={(routerModel) => draft.set({ ...value, routerModel })}
 					/>
 				</Setting>
 			</Settings>
@@ -335,11 +337,11 @@ function GeneralForm({
 					<ModelPicker
 						models={settings.imageModels}
 						defaultModel={defaultImageModel}
-						value={draft.value.imageModel}
+						value={value.imageModel}
 						note={imageModelNote}
 						disabled={!canManage}
 						className={wideControlClass}
-						onChange={(imageModel) => draft.set({ ...draft.value, imageModel })}
+						onChange={(imageModel) => draft.set({ ...value, imageModel })}
 					/>
 				</Setting>
 				<Setting label="Monthly budget" hint={`What agents may spend on pictures each month, in US dollars. $0 turns pictures off.${spent}`}>
@@ -347,15 +349,15 @@ function GeneralForm({
 						className={wideControlClass}
 						disabled={!canManage}
 						inputMode="decimal"
-						value={draft.value.imageBudget}
-						onChange={(e) => draft.set({ ...draft.value, imageBudget: e.target.value.replace(/[^\d.]/g, "") })}
+						value={value.imageBudget}
+						onChange={(e) => draft.set({ ...value, imageBudget: e.target.value.replace(/[^\d.]/g, "") })}
 					/>
 				</Setting>
 			</Settings>
 			{canManage && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />}
-			{confirming && (
+			{canManage && confirming && (
 				<Confirm title="Change currency?" action="Change currency" onConfirm={submit} onClose={() => setConfirming(false)}>
-					Existing amounts stay in {settings.currency}. New amounts will use {draft.value.currency}.
+					Existing amounts stay in {settings.currency}. New amounts will use {value.currency}.
 				</Confirm>
 			)}
 		</>
@@ -370,57 +372,62 @@ function ProfileTab() {
 	const update = useMutation(api.preferences.update);
 	const me = useQuery(api.workspace.me);
 	const erase = useMutation(api.workspace.eraseAccount);
-	const [name, setName] = useState<string>();
+	// Edited together and saved from the top bar, like General; only what changed is sent.
+	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all" };
+	const draft = useDraft("account:preferences", saved, 0);
+	const value = draft.value;
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
-	const shownName = name ?? prefs.displayName;
+	const save = () => {
+		const changed = {
+			...(value.displayName !== saved.displayName && { displayName: value.displayName }),
+			...(value.timeZone !== saved.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
+			...(value.sendWith !== saved.sendWith && { sendWith: value.sendWith }),
+			...(value.notify !== saved.notify && { notify: value.notify }),
+		};
+		run(update(changed), draft.discard);
+	};
 
 	return (
 		<>
+			<SaveBar dirty={draft.dirty} onSave={save} onDiscard={draft.discard} />
 			<Notice>{error}</Notice>
 			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
 				<Setting label="Photo" hint={`Shown to your team in every workspace. ${pictureLimits}.`}>
 					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
 				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
-					<Form className="flex gap-2" onSubmit={() => run(update({ displayName: shownName }), () => setName(undefined))}>
-						<input className={wideControlClass} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
-						{name !== undefined && name !== prefs.displayName && (
-							<button type="submit" className={compactPrimaryButton}>
-								Save
-							</button>
-						)}
-					</Form>
+					<input className={wideControlClass} value={value.displayName} placeholder="e.g. Jaden" onChange={(e) => draft.set({ ...value, displayName: e.target.value })} />
 				</Setting>
 				<Setting label="Time zone" hint="For dates and times agents give you.">
 					<Select
 						className={wideControlClass}
-						value={prefs.timeZone ?? "auto"}
+						value={value.timeZone}
 						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone())})` }, ...timeZones.map((zone) => ({ value: zone, label: zoneLabel(zone) }))]}
-						onChange={(zone) => run(update({ timeZone: zone === "auto" ? null : zone }))}
+						onChange={(timeZone) => draft.set({ ...value, timeZone })}
 					/>
 				</Setting>
-				<Setting label="Send messages with" hint={prefs.sendWith === "enter" ? "Shift+Enter adds a new line." : "Enter adds a new line."}>
+				<Setting label="Send messages with" hint={value.sendWith === "enter" ? "Shift+Enter adds a new line." : "Enter adds a new line."}>
 					<Select
 						className={wideControlClass}
-						value={prefs.sendWith}
+						value={value.sendWith}
 						options={[
 							{ value: "enter", label: "Enter" },
 							{ value: "mod-enter", label: "⌘ Enter" },
 						]}
-						onChange={(sendWith) => run(update({ sendWith }))}
+						onChange={(sendWith) => draft.set({ ...value, sendWith })}
 					/>
 				</Setting>
 				<Setting label="Notifications" hint="When Companybot isn't in front, and the dock count.">
 					<Select
 						className={wideControlClass}
-						value={prefs.notify}
+						value={value.notify}
 						options={[
 							{ value: "all", label: "DMs and mentions" },
 							{ value: "mentions", label: "Mentions only" },
 							{ value: "off", label: "Off" },
 						]}
-						onChange={(notify) => run(update({ notify }))}
+						onChange={(notify) => draft.set({ ...value, notify })}
 					/>
 				</Setting>
 			</Settings>

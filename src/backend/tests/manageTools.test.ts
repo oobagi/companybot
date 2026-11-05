@@ -2,7 +2,7 @@ import { seedSkill } from "./legacyFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch, messagesIn } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
@@ -67,7 +67,9 @@ describe("messaging and channels as the person", () => {
 		expect(await call("chat.manage", r)).toEqual({ chatId });
 		const before = await t.run((ctx) => ctx.db.query("agentTurns").collect());
 		const parent = await owner.mutation(api.messages.send, { chatId: chat._id, text: "Parent", mentions: noMentions });
-		for (const destination of [{ chat: "#general" }, { chat: chat._id, threadId: parent }, { chat: chatId }]) {
+		// A write names its chat by id or "here", never by #name: a rename can hand a name to another channel.
+		expect(await call("chat.manage", { action: "send", chat: "#general", text: "Delivered" })).toEqual({ error: expect.stringContaining("by its id or \"here\"") });
+		for (const destination of [{ chat: chat._id }, { chat: chat._id, threadId: parent }, { chat: chatId }]) {
 			const { messageId } = await call("chat.manage", {
 				action: "send",
 				...destination,
@@ -82,7 +84,7 @@ describe("messaging and channels as the person", () => {
 			});
 		}
 		expect(await t.run((ctx) => ctx.db.query("agentTurns").collect())).toHaveLength(before.length);
-		const lines = await owner.query(api.messages.list, { chatId });
+		const lines = await messagesIn(owner, { chatId });
 		expect(lines.at(-1)!.author).toMatchObject({ name: "Companybot", for: { type: "user", id: owner.userId } });
 		// "DM me": with nobody but the person, it's the agent's own DM with them, not a DM with themselves.
 		for (const userIds of [[], [owner.userId]]) {
@@ -100,7 +102,7 @@ describe("messaging and channels as the person", () => {
 		expect(sent).toMatchObject({ authorAgentId: companybot._id, text: "Surprise" });
 		expect(sent!.actingFor).toBeUndefined();
 		expect(await fromGeneral({ action: "edit", messageId: toYou, text: "Surprise!" })).toMatchObject({ done: "edit" });
-		expect((await owner.query(api.messages.list, { chatId: own.chatId as Id<"chats"> })).at(-1)!.author).toEqual(expect.not.objectContaining({ for: expect.anything() }));
+		expect((await messagesIn(owner, { chatId: own.chatId as Id<"chats"> })).at(-1)!.author).toEqual(expect.not.objectContaining({ for: expect.anything() }));
 		expect(await t.mutation(internal.chatTools.readFor, { turnId, chat: chatId })).toHaveProperty("messages");
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "Wrong parent" })).toHaveProperty("error");
 	});

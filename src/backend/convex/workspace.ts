@@ -1,5 +1,5 @@
 import { fireEvent } from "./automationRuns";
-import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, type ModelInfo, ROUTER_MODEL, THREAD_HOURS_DEFAULT, can, defaultImageModel, isCurrencyCode, isThreadWindow, routerDecisionModels, threadWindows } from "@companybot/core";
+import { DEFAULT_CURRENCY, IMAGE_BUDGET_DEFAULT_USD, IMAGE_BUDGET_MAX_USD, type ModelInfo, ROUTER_MODEL, THREAD_HOURS_DEFAULT, can, canGrantRole, defaultImageModel, isCurrencyCode, isThreadWindow, routerDecisionModels, threadWindows } from "@companybot/core";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -7,17 +7,17 @@ import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { seedAgents } from "./agents";
 import { fieldsOf, typesOf } from "./recordOps";
-import { addToChat, canSee, ensureGeneral, latestMentionSince } from "./chatOps";
+import { activityOf, addToChat, canSee, ensureGeneral, latestMentionSince } from "./chatOps";
 import { sendInviteEmail } from "./invites";
-import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, keptWorkspace, liveWorkspace, memberOf, nameOf, normalizeEmail, personOf, preferencesOf, requireMember, requirePermission, requireUserId, rolesOf, timeZoneOf } from "./lib";
+import { type Member, accessOf, checkPermission, authUserId, checkVersion, getMember, hasLiveOwner, keptWorkspace, liveWorkspace, FORMER_MEMBER, memberOf, memberProfile, nameOf, normalizeEmail, profileOf, requireMember, requirePermission, requireUserId, rolesOf } from "./lib";
 import { cascading, startCascade } from "./cascade";
 import { imageUrl } from "./images";
 import { catalogImageModels, catalogModels, findImageModel, workspaceImageModel } from "./modelCatalog";
 import { imageSpent } from "./usage";
 import { removeWorkspace, startReset } from "./lifecycle";
-import { updatePreferences } from "./preferences";
+import { savePreferences, updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
-import { builtInId, checkRoles, seedRoles, setMemberRoles } from "./roles";
+import { builtInId, checkRoles, requireGrantable, seedRoles, setMemberRoles } from "./roles";
 import { writeSources } from "./replySources";
 
 export const me = query({
@@ -75,7 +75,9 @@ export const setUp = mutation({
 		if (!userId) throw new ConvexError("Not signed in.");
 		currency = currency?.trim().toUpperCase();
 		if (currency !== undefined && !isCurrencyCode(currency)) throw new ConvexError("Pick a currency code like USD.");
-		await updatePreferences(ctx, userId, { displayName });
+		// Legacy setup callers may send an empty name; never clear an existing profile.
+		if (displayName.trim()) await updatePreferences(ctx, userId, { displayName });
+		else await savePreferences(ctx, userId, {});
 		const workspaceId = await startOwned(ctx, userId, name, currency);
 		const member = (await memberOf(ctx, userId, workspaceId))!;
 		for (const email of invites) await inviteMember(ctx, member, { email });
@@ -132,7 +134,7 @@ export const activity = query({
 			const since = seat.lastReadAt ?? 0;
 			const chat = await ctx.db.get(seat.chatId);
 			const entry = chat && byWorkspace.get(chat.workspaceId);
-			if (!chat || !entry || chat.archived || chat.lastMessageAt <= since || !(await canSee(ctx, chat, members.get(chat.workspaceId)!))) continue;
+			if (!chat || !entry || chat.archived || (await activityOf(ctx, chat)).lastMessageAt <= since || !(await canSee(ctx, chat, members.get(chat.workspaceId)!))) continue;
 			entry.unread = true;
 			if (chat.kind === "dm" || (await latestMentionSince(ctx, chat._id, userId, since))) entry.mentions++;
 		}
@@ -144,7 +146,7 @@ export const activity = query({
 async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: string, currency?: string) {
 	const workspaceId = await ctx.db.insert("workspaces", { name, version: 1, ...(currency && { currency }) });
 	const roles = await seedRoles(ctx, workspaceId);
-	await ctx.db.insert("members", { workspaceId, userId, roles: [roles.owner], email: normalizeEmail((await ctx.db.get(userId))?.email ?? "") });
+	await ctx.db.insert("members", { workspaceId, userId, roles: [roles.owner], email: normalizeEmail((await ctx.db.get(userId))?.email ?? ""), ...(await memberProfile(ctx, userId)) });
 	await startAgain(ctx, workspaceId, userId);
 	return workspaceId;
 }
@@ -159,11 +161,14 @@ async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: strin
 export async function startAgain(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
 	await seedAgents(ctx, workspaceId, userId);
 	const general = await ensureGeneral(ctx, workspaceId, userId);
+	let seats = 0;
 	for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))) {
 		await ctx.db.patch(row._id, { tutorial: freshTutorial() });
 		// #general is new, so nobody's in it yet (addToChat would look, a read per member).
 		await ctx.db.insert("chatMembers", { chatId: general._id, workspaceId, userId: row.userId, lastReadAt: Date.now() });
+		seats++;
 	}
+	await ctx.db.patch(general._id, { memberCount: seats });
 	await welcome(ctx, general, userId, "new_workspace");
 	await ctx.db.patch(workspaceId, { resetting: undefined });
 }
@@ -193,8 +198,8 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 	// COMPAT(0.1.0-alpha.10): a workspace migrations.customRoles hasn't reached yet gets its roles
 	// here (the migration skips it after); delete this line with that migration.
 	if ((await rolesOf(ctx, invite.workspaceId)).length === 0) await seedRoles(ctx, invite.workspaceId);
-	const roles = accessOf(await rolesOf(ctx, invite.workspaceId), invite).roles;
-	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, roles, email: invite.email, tutorial: freshTutorial() });
+	const roles = await joiningRoles(ctx, invite);
+	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, roles, email: invite.email, tutorial: freshTutorial(), ...(await memberProfile(ctx, userId)) });
 	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
 	await addToChat(ctx, general, { userId });
 	await rememberLastUsed(ctx, userId, invite.workspaceId);
@@ -204,10 +209,29 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 	});
 }
 
+/**
+ * What an accepted invite gives, checked again against its inviter now (core `canGrantRole`): an invite sent
+ * before that rule, or by someone who has lost a role since, can't give more than they could today. Roles
+ * that don't pass become Member; an Owner's invites keep theirs. Invites from before invite emails name no
+ * inviter and keep theirs (only owners invited then).
+ */
+async function joiningRoles(ctx: MutationCtx, invite: Doc<"invites">) {
+	const all = await rolesOf(ctx, invite.workspaceId);
+	const roles = accessOf(all, invite).roles;
+	if (!invite.invitedBy) return roles;
+	const inviter = await memberOf(ctx, invite.invitedBy, invite.workspaceId);
+	const member = all.find((r) => r.builtIn === "member")!._id;
+	const kept = roles.flatMap((id) => {
+		const role = all.find((r) => r._id === id);
+		return role && inviter && canGrantRole(inviter, { id, builtIn: role.builtIn }) ? [id] : [member];
+	});
+	return [...new Set(kept.length ? kept : roles)];
+}
+
 async function rememberLastUsed(ctx: MutationCtx, userId: Id<"users">, workspaceId: Id<"workspaces">) {
-	const prefs = await preferencesOf(ctx, userId);
-	if (prefs) await ctx.db.patch(prefs._id, { workspaceId });
-	else await ctx.db.insert("preferences", { userId, displayName: "", sendWith: "enter", workspaceId });
+	const last = await lastWorkspaceOf(ctx, userId);
+	if (last) await ctx.db.patch(last._id, { workspaceId });
+	else await ctx.db.insert("lastWorkspaces", { userId, workspaceId });
 }
 
 /**
@@ -247,10 +271,11 @@ export const mine = query({
 				invitedBy: invite.invitedBy ? await nameOf(ctx, invite.invitedBy) : null,
 			});
 		}
-		const prefs = await preferencesOf(ctx, userId);
-		return { workspaces: workspaces.sort((a, b) => a.name.localeCompare(b.name)), invitations, lastUsed: prefs?.workspaceId ?? null };
+		return { workspaces: workspaces.sort((a, b) => a.name.localeCompare(b.name)), invitations, lastUsed: (await lastWorkspaceOf(ctx, userId))?.workspaceId ?? null };
 	},
 });
+
+const lastWorkspaceOf = (ctx: QueryCtx, userId: Id<"users">) => ctx.db.query("lastWorkspaces").withIndex("by_user", (q) => q.eq("userId", userId)).first();
 
 /** Notes the workspace a device switched to as your last used. Other devices keep theirs. */
 export const switchTo = mutation({
@@ -295,10 +320,11 @@ export const team = query({
 		if (!member) return null;
 		const rows = await membersOf(ctx, member.workspaceId);
 		const roles = await rolesOf(ctx, member.workspaceId);
+		// Only `members` rows, which carry each person's profile: thousands of people stay one range.
 		const members = await Promise.all(
 			rows.map(async (r) => {
-				const person = await personOf(ctx, r.userId);
 				const access = accessOf(roles, r);
+				const profile = await profileOf(ctx, r);
 				return {
 					id: r._id,
 					userId: r.userId,
@@ -306,13 +332,13 @@ export const team = query({
 					roles: access.roles,
 					// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
 					role: access.owner ? ("owner" as const) : ("member" as const),
-					name: person.name,
+					name: profile.name,
 					/** Their photo's URL, or null for their initials. */
-					image: await imageUrl(ctx, person.image),
-					email: (await ctx.db.get(r.userId))?.email ?? "",
+					image: await imageUrl(ctx, profile.image),
+					email: r.email ?? "",
 					isYou: r.userId === member.userId,
 					/** For profiles: the zone they picked, else their computer's. */
-					timeZone: await timeZoneOf(ctx, r.userId),
+					timeZone: profile.timeZone,
 				};
 			}),
 		);
@@ -392,7 +418,10 @@ export const cancelInvite = mutation({
 export async function cancelMemberInvite(ctx: MutationCtx, member: Member, { id }: Infer<typeof cancelMemberInviteArgs>) {
 	const { workspaceId } = checkPermission(member, "members.manage");
 	const invite = await ctx.db.get(id);
-	if (invite?.workspaceId === workspaceId) await ctx.db.delete(id);
+	if (invite?.workspaceId !== workspaceId) return;
+	const roles = await rolesOf(ctx, workspaceId);
+	requireGrantable(member, roles, accessOf(roles, invite).roles, "cancel an invite with it");
+	await ctx.db.delete(id);
 }
 
 const removeWorkspaceMemberArgs = v.object({ id: v.id("members") });
@@ -408,6 +437,9 @@ export async function removeWorkspaceMember(ctx: MutationCtx, member: Member, { 
 	if (!row || row.workspaceId !== owner.workspaceId) return;
 	if (row.userId === owner.userId) throw new ConvexError("You can't remove yourself.");
 	if (!owner.owner && (await ownsIn(ctx, row))) throw new ConvexError("Only owners can remove an owner.");
+	// Removing someone takes every role they have: only one who could take each.
+	const roles = await rolesOf(ctx, owner.workspaceId);
+	requireGrantable(owner, roles, accessOf(roles, row).roles, "remove someone who has it");
 	await dropMember(ctx, row);
 }
 
@@ -505,6 +537,9 @@ export const eraseAccount = mutation({
 			for (const row of await ctx.db.query("localSignInCodes").withIndex("by_email", (q) => q.eq("email", email)).collect()) await ctx.db.delete(row._id);
 		}
 		await ctx.db.replace(userId, { erasedAt: Date.now() });
+		// Their memberships wait for the cascade: until then they keep nothing that names them, and show as a former member.
+		for await (const row of ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId)))
+			await ctx.db.patch(row._id, { email: "", name: FORMER_MEMBER, image: undefined });
 		await startCascade(ctx, "user", { userId });
 	},
 });

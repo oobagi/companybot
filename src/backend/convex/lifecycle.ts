@@ -6,6 +6,7 @@ import type { DataModel, Doc, Id, TableNames } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { privateTo } from "./automationOps";
 import { startCascade } from "./cascade";
+import { countSeats } from "./chatOps";
 import { deleteFile } from "./images";
 import { hasLiveOwner, keptWorkspace } from "./lib";
 import { deletePage, pageOfRecord } from "./pageOps";
@@ -161,7 +162,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keepOnReset: "Everyone stays, with their role. The reset puts them all in the new #general, with a fresh tutorial.",
 	},
 	invites: {
-		role: roleRefs<"invites">(),
+		// An invite left with no role joins as Member, as one sent without a role does.
+		role: { ...roleRefs<"invites">(), scrub: (row, _get, root) => {
+			const roles = row.roles!.filter((id) => id !== root.roleId);
+			return { roles: roles.length || !root.fallbackRoleId ? roles : [root.fallbackRoleId] };
+		} },
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Invites are for an email, not an account: they outlive the person who sent them.",
 		keepOnReset: "Pending invites still stand: they join the fresh workspace.",
@@ -190,8 +195,13 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		user: { index: "by_user", eq: ["userId"] },
 		// Their photo goes with their account.
 		files: ["image"],
+		keep: "Personal, not a workspace's: they go with the account.",
+	},
+	lastWorkspaces: {
+		user: { index: "by_user", eq: ["userId"] },
 		// "Last used" pointing at a deleted workspace: the app opens another.
-		workspace: { index: "by_workspace", eq: ["workspaceId"], scrub: () => ({ workspaceId: undefined }) },
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "Someone who left a workspace keeps it as last used: the app opens another, as for a deleted one.",
 		keepOnReset: "The workspace is still there to open.",
 	},
 
@@ -222,6 +232,10 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		role: roleRefs<"connectorInstalls">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Uninstalling deletes the row before the cascade starts, so access ends at once.",
+	},
+	connectorSourceLabels: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "A deleted install's display name explains its retained sources; no credentials or data survive uninstall.",
 	},
 	connectorConnections: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
@@ -260,15 +274,27 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		role: roleAccess<"chats">(),
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 	},
+	seatActivity: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: { index: "by_chat", eq: ["chatId"] },
+		user: { index: "by_user", eq: ["userId"] },
+		childOf: { table: "chatMembers", index: "by_seat", field: "seatId" },
+	},
+	// Goes with its chat wherever a chat row is deleted (a workspace's), and in a channel's own cascade, whose
+	// last step deletes the chat itself without its children. Archive and restore leave it, like the chat.
+	chatActivity: {
+		childOf: { table: "chats", index: "by_chat", field: "chatId" },
+		channel: { index: "by_chat", eq: ["chatId"] },
+	},
 	chatMembers: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
-		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel },
-		agent: { index: "by_agent", eq: ["agentId"], where: inChannel },
+		member: { index: "by_workspace", eq: ["workspaceId", "userId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1, row._creationTime) },
+		agent: { index: "by_agent", eq: ["agentId"], where: inChannel, onDelete: (ctx, row) => countSeats(ctx, row.chatId, -1, row._creationTime) },
 	},
 	chatMessages: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		channel: { index: "by_chat_thread", eq: ["chatId"] },
+		channel: { index: "by_chat_thread_quiet", eq: ["chatId"] },
 		// Deleting a message clears it but keeps the row (messages.remove), and deletes its files. What agents
 		// already saw of a deleted or edited message stays in their sessions: a product decision is pending.
 		keep: "Team history: what someone said stays when they leave; once their account is erased it shows as a former member's.",
@@ -306,6 +332,17 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		channel: { index: "by_chat", eq: ["chatId"] },
 		agent: { index: "by_place", eq: ["agentId"] },
+	},
+	toolReceipts: {
+		childOf: { table: "agentTurns", index: "by_turn", field: "turnId" },
+		// A connector call's result shows only to the person it acted for: erasing them clears it.
+		user: { index: "by_actor", eq: [["actorId", "userId"]], scrub: () => ({ output: undefined }) },
+		keep: "Done receipts go 30 days later (approvals.forgetReceipts); a started one, whose outcome is unknown, stays with its turn.",
+	},
+	turnSteps: {
+		childOf: { table: "agentTurns", index: "by_turn", field: "turnId" },
+		// Results show only to the person it acted for: erasing them takes their turns' steps.
+		user: { index: "by_actor", eq: [["actorId", "userId"]] },
 	},
 	agentActivity: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },

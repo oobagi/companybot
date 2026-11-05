@@ -86,6 +86,15 @@ export function can(who: Access, permission: Permission): boolean {
 	return who.owner || (!("ownerOnly" in permissions[permission]) && who.permissions.includes(permission));
 }
 
+/**
+ * Whether someone may give or take a role (inviting with it, setting it, removing a person or cancelling an
+ * invite that has it): Owners any; anyone else only Member, which everyone joins with, and roles they hold
+ * themselves. A role you hold gives nobody more than you have: its switches, the places it opens and the
+ * connectors it may use.
+ */
+export const canGrantRole = (who: Access, role: { id: string; builtIn?: BuiltInRole | null }) =>
+	who.owner || role.builtIn === "member" || (role.builtIn !== "owner" && who.roles.includes(role.id));
+
 /** Whether someone may use a connector allowed for these role ids. Owners can use every one. */
 export const canUseConnector = (who: Access, allowed: readonly string[]) => who.owner || who.roles.some((r) => allowed.includes(r));
 

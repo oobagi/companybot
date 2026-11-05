@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pngOf } from "../../core/test/files";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { type As, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, workspaceOf } from "./helpers";
+import { type As, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, workspaceOf, chatActivityOf } from "./helpers";
 
 // No network: the AI SDK's generateImage and generateText are stubbed, so nothing is billed.
 const generateImage = vi.hoisted(() => vi.fn());
@@ -166,7 +166,7 @@ describe("images.generate", () => {
 		await t.mutation(internal.turns.finishReply, { turnId, usage });
 		expect((await replyOf(t, replyId)).stats).toMatchObject({ costUsd: 0.01, imageCostUsd: 0.04, conversationCostUsd: 0.05 });
 		const generalId = (await generalOf(owner))._id;
-		expect((await t.run((ctx) => ctx.db.get(generalId)))!.costUsd).toBeCloseTo(0.05);
+		expect((await chatActivityOf(t, generalId)).costUsd).toBeCloseTo(0.05);
 		const rows = await usageRows(t);
 		expect(rows.map((r) => [r.kind, r.costUsd]).sort()).toEqual([["chat", 0.01], ["image", 0.04]]);
 	});

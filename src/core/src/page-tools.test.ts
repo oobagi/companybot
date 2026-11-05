@@ -28,24 +28,28 @@ describe("pages tools", () => {
 		expect(rest.more).toBeUndefined();
 	});
 
-	it("runs page writes, moves and restores without extra consent", async () => {
+	// Page writes act as the person, like record writes: rules, Never, owner locks and others' automations all reach them.
+	it("treats creating, replacing, moving and restoring pages as acting for the person, and always asks before archiving", async () => {
 		const tools = [tool("pages.write")];
-		for (const input of [{ title: "Guide", parent: "p1" }, { action: "move", page: "p1", parent: "p2" }, { page: "p1", trash: false }]) {
-			const call = await actionOf("pages_write", input, tools);
-			expect(toolRisk(call!.tool)).toBe("none");
-			expect(permissionFor({ risk: toolRisk(call!.tool), foreign: true })).toEqual({ type: "run" });
-			expect(await toolApprovalPolicy(tools)({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toBeUndefined();
-		}
-	});
-
-	it("asks before copying a chat picture into a page in runs following someone else's words", async () => {
-		const tools = [tool("pages.write")];
-		const id = "k57abcdefghijklmnopqrstuvwxyz123/0";
-		for (const input of [{ page: "p1", markdown: `![Logo](${id})` }, { page: "p1", blocks: JSON.stringify([{ type: "image", attrs: { url: id } }]) }]) {
+		const writes = [{ title: "Guide", parent: "p1" }, { page: "p1", markdown: "New", mode: "replace" }, { action: "move", page: "p1", parent: "p2" }, { page: "p1", trash: false }, { restore: "v1" }];
+		for (const input of writes) {
 			const call = await actionOf("pages_write", input, tools);
 			expect(toolRisk(call!.tool)).toBe("inside");
+			expect(permissionFor({ risk: toolRisk(call!.tool) })).toEqual({ type: "run" });
 			expect(permissionFor({ risk: toolRisk(call!.tool), foreign: true })).toEqual({ type: "ask", canAlways: true });
+			expect(permissionFor({ risk: toolRisk(call!.tool), rule: "never" })).toMatchObject({ type: "deny" });
+			// Checked on every call now, so a Never rule or an owner lock stops it.
+			expect(await toolApprovalPolicy(tools, async () => ({ type: "deny" as const, by: "person" as const }))({ toolCall: { toolCallId: "page", toolName: "pages_write", input } })).toMatchObject({ type: "denied" });
 		}
-		expect(toolRisk((await actionOf("pages_write", { page: "p1", markdown: "![Logo](https://acme.com/logo.png)" }, tools))!.tool)).toBe("none");
+		expect(toolRisk((await actionOf("pages_write", { page: "p1", trash: true }, tools))!.tool)).toBe("locked");
+	});
+
+	it("binds what an overwrite or archive depends on, and nothing else", () => {
+		const binds = (input: object) => tool("pages.write").binds!(input);
+		expect(binds({ page: "p1", trash: true })).toEqual([{ kind: "page", id: "p1" }]);
+		expect(binds({ page: "p1", markdown: "x", mode: "replace" })).toEqual([{ kind: "page", id: "p1" }]);
+		expect(binds({ record: "r1", markdown: "x", mode: "replace" })).toEqual([{ kind: "recordPage", id: "r1" }]);
+		expect(binds({ restore: "v1" })).toEqual([{ kind: "pageVersion", id: "v1" }]);
+		for (const input of [{ page: "p1", markdown: "x" }, { page: "p1", title: "New" }, { action: "move", page: "p1", parent: null }, { title: "New" }]) expect(binds(input)).toEqual([]);
 	});
 });

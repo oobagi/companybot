@@ -24,6 +24,19 @@ export function toolRisk(tool: { risk?: Risk; readOnly?: boolean; source: { type
 }
 
 /**
+ * Whether a risk is a read's: `none`, or `inside` (a personal connector's reads). `outside` (unlabeled or a write)
+ * and `locked` (destructive, even if it also claims read-only) are writes.
+ */
+export const readOnlyRisk = (risk: Risk) => risk === "none" || risk === "inside";
+
+/**
+ * Whether a call only reads, for the restricted-egress gate (backend permissions.check) and the call-id claim on
+ * connector writes (buildToolSet), one rule for both: the tool says read-only and nothing marks it destructive.
+ * Anything else, or unknown, is a write.
+ */
+export const readsOnly = (tool: { risk?: Risk; readOnly?: boolean; source: { type: string } }) => tool.readOnly === true && readOnlyRisk(toolRisk(tool));
+
+/**
  * A person's rule for one action: Always (runs without asking) or Never (blocked).
  * No rule means Ask, the default.
  */

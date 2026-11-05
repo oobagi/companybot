@@ -43,6 +43,20 @@ describe("nested pages", () => {
 		expect((await owner.query(api.pages.history, { pageId: child, ...opts })).page).toEqual([]);
 	});
 
+	it("gives a sub-page an agent makes exactly one block in its parent, which the server alone adds", async () => {
+		const { t, owner } = await ownerAndMember();
+		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+		const { companybot } = await agentsOf(owner);
+		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+		const made = await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Agent notes", parent: root, markdown: "Hello" } });
+		const child = (made as { id: Id<"pages"> }).id;
+		const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.flatMap((b) => b.firstChild?.type.name === "page" ? [b.firstChild.attrs.pageId] : []));
+		expect(await blocks()).toEqual([child]);
+		// Adding it again (a move to the same parent, a retried call) never makes a second.
+		await owner.mutation(api.pages.move, { pageId: child, parentId: root });
+		expect(await blocks()).toEqual([child]);
+	});
+
 	it("lets slash creation place the block at the cursor instead of appending a second copy", async () => {
 		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
@@ -241,7 +255,9 @@ describe("nested pages", () => {
 		const turnId = await agentTurn(t, member, (await generalOf(member))._id, (await agentsOf(member)).companybot._id);
 		const write = (input: object) => t.mutation(internal.pageTools.writeFor, { turnId, input });
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
-		const made = await write({ title: "Guide", parent: "Wiki" }) as { id: Id<"pages"> };
+		// Writes name parents by id: a title could belong to another page by the time a held call runs.
+		expect(await write({ title: "Guide", parent: "Wiki" })).toMatchObject({ error: expect.stringContaining("by its id") });
+		const made = await write({ title: "Guide", parent: root }) as { id: Id<"pages"> };
 		const tree = await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: root } });
 		expect(tree.rows).toEqual([expect.objectContaining({ id: made.id, parentId: root })]);
 		const read = await t.mutation(internal.pageTools.readFor, { turnId, page: root });

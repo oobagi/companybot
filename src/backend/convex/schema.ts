@@ -2,13 +2,13 @@ import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasoni
 import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { viewConfig } from "./recordValidators";
 
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
@@ -93,6 +93,13 @@ export const approvalStatus = v.union(
 	v.literal("failed"),
 	v.literal("denied"),
 );
+
+/**
+ * A tool call's operation key (approvals.withReceipt): the approval it runs from, or the model's call id. Every
+ * write a built-in makes for a call carries it, so the same call never writes twice.
+ */
+export const opArg = v.union(v.object({ approval: v.id("approvals") }), v.object({ call: v.string() }));
+export type Op = Infer<typeof opArg>;
 
 export const trashKind = oneOf(trashKinds);
 
@@ -287,6 +294,15 @@ export default defineSchema({
 		email: v.optional(v.string()),
 		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
 		tutorial: v.optional(v.object({ done: v.array(v.string()), dismissed: v.optional(v.boolean()) })),
+		/**
+		 * Copies of their profile (`memberProfile`), so lists of members read only this table. Kept in step
+		 * wherever it changes: preferences.savePreferences, joining, erasing the account.
+		 */
+		// COMPAT(0.1.0-alpha.10): once migrations.memberProfiles has run on prod, make name and timeZone required.
+		name: v.optional(v.string()),
+		image: v.optional(v.id("_storage")),
+		/** Resolved: the zone they picked, else their computer's, else UTC. */
+		timeZone: v.optional(v.string()),
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"])
@@ -359,6 +375,7 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "archived"])
 		// One person's personal memories in a workspace (team memories have no owner).
 		.index("by_owner", ["ownerId", "workspaceId"])
+		.index("by_workspace_scope", ["workspaceId", "scope", "archived"])
 		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Archive).
 		.index("by_agent_scope", ["agentId", "scope", "archived"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
@@ -400,10 +417,17 @@ export default defineSchema({
 		timeZone: v.optional(v.string()),
 		/** Their computer's time zone, reported by the app. */
 		deviceTimeZone: v.optional(v.string()),
-		/** The workspace they used last: only a hint for a device opening for the first time. Each device keeps its own. */
+		// COMPAT(0.1.0-alpha.10): moved to `lastWorkspaces`; once migrations.lastWorkspaces has run on prod, drop this field.
 		workspaceId: v.optional(v.id("workspaces")),
 		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
 		image: v.optional(v.id("_storage")),
+	}).index("by_user", ["userId"]),
+
+	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
+	// its own. Apart from `preferences` so switching workspace touches nothing member lists read.
+	lastWorkspaces: defineTable({
+		userId: v.id("users"),
+		workspaceId: v.id("workspaces"),
 	})
 		.index("by_user", ["userId"])
 		.index("by_workspace", ["workspaceId"]),
@@ -433,6 +457,13 @@ export default defineSchema({
 		roles: v.array(v.union(v.id("roles"), legacyRole)),
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
+
+	// Display labels for deleted source ids; no credentials or connector data. Kept until workspace deletion/reset.
+	connectorSourceLabels: defineTable({
+		workspaceId: v.id("workspaces"),
+		installId: v.id("connectorInstalls"),
+		name: v.string(),
+	}).index("by_install", ["installId"]).index("by_workspace", ["workspaceId"]),
 
 	// An account connected to a connector: the workspace's (userId null) or one person's.
 	// Credentials are AES-GCM encrypted with CONNECTIONS_KEY and never leave the server.
@@ -521,17 +552,46 @@ export default defineSchema({
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
-		lastMessageAt: v.number(),
-		/** USD spent on agent replies and summaries here (main timeline). */
+		// COMPAT(0.1.0-alpha.10): moved to `chatActivity`. Once migrations.chatActivity has run on prod, drop these two and the fallback in chatOps `activityOf`.
+		lastMessageAt: v.optional(v.number()),
+		/** Search discovery; maintained with chat visibility. */
+		searchPublic: v.optional(v.boolean()),
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
 		/** Channels: who can see and post (Post is `edit`), on top of a private channel's members. */
 		access,
+		/** Its `chatMembers` rows, people and agents: kept ±1 where seats change (chatOps addToChat, dropSeat). */
+		// COMPAT(0.1.0-alpha.10): once migrations.chatMemberCounts has run on prod, make this required and drop `seatCount`.
+		memberCount: v.optional(v.number()),
+		/** While migrations.chatMemberCounts counts a big chat over several transactions: seats so far, up to `after` (a seat's _creationTime). */
+		seatCount: v.optional(v.object({ counted: v.number(), after: v.number() })),
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
+
+	// Discovery activity changes independently of a seat's read state.
+	seatActivity: defineTable({
+		workspaceId: v.id("workspaces"), chatId: v.id("chats"), seatId: v.id("chatMembers"),
+		userId: v.id("users"), activityAt: v.number(), restricted: v.boolean(),
+	}).index("by_seat", ["seatId"]).index("by_chat", ["chatId"]).index("by_workspace", ["workspaceId"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_activity", ["workspaceId", "userId", "activityAt"])
+		.index("by_private_activity", ["workspaceId", "userId", "restricted", "activityAt"]),
+
+	// What changes with every message in a chat, apart from it, so the many queries that read a chat's
+	// name, members or access don't re-run on each one (chatOps `activityOf`). Made with the chat.
+	chatActivity: defineTable({
+		chatId: v.id("chats"),
+		pendingAt: v.optional(v.number()),
+		/** COMPAT(0.1.0-alpha.10): discoveryChatActivity backfills these index keys. */
+		workspaceId: v.optional(v.id("workspaces")), kind: v.optional(v.union(v.literal("channel"), v.literal("dm"))), searchPublic: v.optional(v.boolean()),
+		/** The main timeline's newest shown message. */
+		lastMessageAt: v.number(),
+		/** USD spent on agent replies and summaries here (main timeline). */
+		costUsd: v.optional(v.number()),
+	}).index("by_chat", ["chatId"]).index("by_search_activity", ["workspaceId", "kind", "searchPublic", "lastMessageAt"]),
 
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({
@@ -565,6 +625,8 @@ export default defineSchema({
 		/** A delivered message from an agent, on this person's behalf. */
 		actingFor: v.optional(v.id("users")),
 		text: v.string(),
+		/** COMPAT(0.1.0-alpha.10): old messages are backfilled by searchAudience. */
+		searchPublic: v.optional(v.boolean()),
 		parts: v.array(messagePart),
 		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
 		attachments: v.optional(v.array(attachment)),
@@ -598,8 +660,9 @@ export default defineSchema({
 		/** Not in the timeline: an agent's reply until it has something to show (turns.ts `show`), and an ask (chains.ts). */
 		quiet: v.optional(v.boolean()),
 		/**
-		 * Where it sits in the timeline, if not where it was made (chatOps `shownAt`): when an agent's reply was
-		 * shown, or when a reply took in messages sent after it began (turns.steer), so it shows below them.
+		 * When it was shown in the timeline (chatOps `shownAt`), what lists page and sort by: when it was sent, when an
+		 * agent's reply was shown, or when a reply took in messages sent after it began (turns.steer), so it shows below
+		 * them. Unset while quiet. COMPAT(0.1.0-alpha.10): older rows have none until migrations.messageShownAt.
 		 */
 		publishedAt: v.optional(v.number()),
 		/**
@@ -614,11 +677,14 @@ export default defineSchema({
 			}),
 		),
 	})
-		.index("by_chat_thread", ["chatId", "threadId"])
+		/** A timeline or thread without its quiet rows (`quiet` unset), or only them: lists never step over hidden replies. */
+		.index("by_chat_thread_quiet", ["chatId", "threadId", "quiet"])
+		/** The same, in the order shown: what the app pages by, so a reply shown late is on the newest page. */
+		.index("by_chat_shown", ["chatId", "threadId", "quiet", "publishedAt"])
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])
-		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId", "searchPublic"] }),
 
 	// What a link looked like when we fetched it (linkUnfurl.ts), one row per URL per workspace, shared
 	// by every message that posts it and refetched when a day old. The picture is our own copy.
@@ -686,9 +752,6 @@ export default defineSchema({
 		agentId: v.id("agents"),
 		/** The message that mentioned the agent (or any message, in an agent DM). Unset on old welcome turns, and the approvals that follow one. */
 		triggerId: v.optional(v.id("chatMessages")),
-		// Retired: welcomes were agent turns; now they're fixed text (onboarding.ts). migrations.clearTurnWelcome clears it.
-		// COMPAT(0.1.0-alpha.9): once that has run on prod, drop this field, the migration and its test.
-		welcome: v.optional(v.union(v.literal("new_workspace"), v.literal("joined"))),
 		/** The agent acts as this person: their roles, connector connections, and access. */
 		actorId: v.id("users"),
 		/** The streaming reply, once running. */
@@ -771,6 +834,34 @@ export default defineSchema({
 		.index("by_chat", ["chatId", "threadId", "status"])
 		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
 		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
+
+	// What a tool call did, keyed by its operation key (the model's call id, or `approval-<id>`), so a rerun
+	// of the same call never does it twice (approvals.ts). A built-in's write commits it with its effect;
+	// a connector write or a multi-step built-in claims it first (`started`) and settles it after (`done`).
+	// Done ones go 30 days later (approvals.forgetReceipts); started ones (outcome unknown) stay with their turn.
+	toolReceipts: defineTable({
+		turnId: v.id("agentTurns"),
+		callId: v.string(),
+		actorId: v.id("users"),
+		state: v.union(v.literal("started"), v.literal("done")),
+		/** A connector call's result (clipped JSON), returned to a repeat of the same call. Only its person sees it. */
+		output: v.optional(v.string()),
+	})
+		.index("by_turn", ["turnId", "callId"])
+		.index("by_state", ["state"])
+		.index("by_actor", ["actorId"]),
+
+	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
+	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
+	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
+	turnSteps: defineTable({
+		workspaceId: v.id("workspaces"),
+		turnId: v.id("agentTurns"),
+		actorId: v.id("users"),
+		messages: v.string(),
+	})
+		.index("by_turn", ["turnId"])
+		.index("by_actor", ["actorId"]),
 
 	// Agents handing work to each other for one person (chains.ts, core handoffs.ts): the budget its
 	// handoffs spend, reset when that person writes in it or presses Continue. Made at the first handoff.
@@ -858,6 +949,8 @@ export default defineSchema({
 		wake: v.optional(v.object({ wakeupId: v.id("wakeups"), outcome: wakeOutcome, reason: v.optional(v.string()) })),
 	})
 		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_actor", ["workspaceId", "actorId"])
+		.index("by_chat", ["chatId"])
 		.index("by_reply", ["replyId"])
 		.index("by_actor", ["actorId"]),
 
@@ -936,6 +1029,11 @@ export default defineSchema({
 		tool: v.string(),
 		/** Canonical JSON (approvals.canonicalJson) of the exact input. Never clipped: this is what runs. */
 		input: v.string(),
+		/**
+		 * The revisions of what the call's effect depends on when it was held (core `ToolDef.binds`), as canonical
+		 * JSON, hashed with the input; unset when it depends on nothing. `claim` refuses a call whose targets changed since.
+		 */
+		bound: v.optional(v.string()),
 		hash: v.string(),
 		status: approvalStatus,
 		expiresAt: v.number(),
@@ -949,7 +1047,15 @@ export default defineSchema({
 		automationInstallId: v.optional(v.id("automationInstalls")),
 		/** Set when the actor chose "Always allow": a rule was saved too. */
 		always: v.optional(v.boolean()),
+		/**
+		 * Running a call whose effect isn't one transaction (a connector's, an async built-in's): cut off, its
+		 * outcome is unknown, not "nothing changed".
+		 */
+		outside: v.optional(v.boolean()),
+		/** With `failed`: it may or may not have happened. A field, not a status, so older apps still show the error. */
+		outcome: v.optional(v.literal("unknown")),
 	})
+		.index("by_call", ["turnId", "callId"])
 		.index("by_reply", ["replyId"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_actor", ["actorId"]),
@@ -968,6 +1074,9 @@ export default defineSchema({
 		installedBy: v.id("users"),
 		/** The schedule run it last did, or when its schedule was set or it was resumed: runs after it are due (core `scheduleDue`). */
 		lastScheduledAt: v.optional(v.number()),
+		nextRunAt: v.optional(v.number()),
+		consecutiveFailures: v.optional(v.number()),
+		eventKey: v.optional(v.string()),
 		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
 		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
 		lastRunDate: v.optional(v.string()),
@@ -976,7 +1085,7 @@ export default defineSchema({
 		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
 		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
 		 */
-		lastOutcome: v.optional(v.object({ text: v.string(), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
+		lastOutcome: v.optional(v.object({ text: v.string(), failed: v.optional(v.boolean()), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
 		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
 		// has run on prod, drop this. Nothing reads it.
 		lastResult: v.optional(v.string()),
@@ -1003,7 +1112,8 @@ export default defineSchema({
 		archived: v.optional(v.boolean()),
 	})
 		.index("by_workspace", ["workspaceId", "automationId"])
-		.index("by_enabled", ["enabled"])
+		.index("by_due", ["nextRunAt"])
+		.index("by_event", ["workspaceId", "eventKey"])
 		.index("by_webhook", ["webhookToken"]),
 
 	// People who turned on an automation whose audience is "subscribers".
@@ -1335,6 +1445,7 @@ export default defineSchema({
 		model: v.optional(v.string()),
 		costUsd: v.number(),
 	})
+		.index("by_month_kind", ["workspaceId", "month", "kind"])
 		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
 		.index("by_user", ["workspaceId", "userId", "month"]),
 
@@ -1349,6 +1460,8 @@ export default defineSchema({
 		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("reset"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
 		root: v.object({
 			roleId: v.optional(v.id("roles")),
+			/** With `roleId`: what a pending invite left with no role gets instead (Member). */
+			fallbackRoleId: v.optional(v.id("roles")),
 			workspaceId: v.optional(v.id("workspaces")),
 			userId: v.optional(v.id("users")),
 			connectorId: v.optional(v.string()),

@@ -92,6 +92,12 @@ export async function requireLive(ctx: QueryCtx, record: Doc<"records">) {
 }
 
 /** A type's fields in display order, archived ones included. At most FIELDS_PER_TYPE_MAX. */
+/** A field a board can group cards by: a live choice field holding one option. */
+export const groupsCards = (f: Doc<"recordFields">) => !f.archived && f.kind === "choice" && !f.multiple;
+
+/** Why a database with no such field can't show as a board: it would show no cards to anyone. */
+export const NO_BOARD = "Add a choice field first: a board groups cards by one.";
+
 export async function fieldsOf(ctx: QueryCtx, typeId: Id<"recordTypes">) {
 	const rows = await ctx.db
 		.query("recordFields")

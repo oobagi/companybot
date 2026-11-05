@@ -33,10 +33,11 @@ export const toMemory = (d: Doc<"memories">) => ({
 
 /** Every memory the person can see, across all agents. For the app. */
 export async function listMemories(ctx: QueryCtx, member: Member) {
-	const docs = await ctx.db
-		.query("memories")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("archived", undefined))
-		.collect();
+	const [team, mine] = await Promise.all([
+		ctx.db.query("memories").withIndex("by_workspace_scope", (q) => q.eq("workspaceId", member.workspaceId).eq("scope", "workspace").eq("archived", undefined)).collect(),
+		ctx.db.query("memories").withIndex("by_owner", (q) => q.eq("ownerId", member.userId).eq("workspaceId", member.workspaceId)).collect(),
+	]);
+	const docs = [...team, ...mine].filter((d) => !d.archived).sort((a, b) => a._creationTime - b._creationTime);
 	const actor = toActor(member);
 	const visible = [];
 	for (const doc of docs) if (canReadMemory(actor, toMemory(doc)) && await readArtifact(ctx, member, doc, doc.ownerId)) visible.push(toMemory(doc));

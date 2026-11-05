@@ -10,8 +10,8 @@ import { type Member, getMember, liveWorkspace } from "./lib";
 // What AI has cost, by month. Every paid call goes through `recordUsage`; the Usage screen and the
 // agents' `workspace_settings` usage action read the aggregate rows (schema `usage`). See wiki/architecture.md#usage.
 
-/** More rows than a month can have: people × agents × kinds × models, a few hundred at most. */
-const MAX_ROWS = 2000;
+/** Only person-name resolution is capped. Aggregate all usage buckets before ranking people. */
+const MAX_PEOPLE = 100;
 
 export type UsageEntry = {
 	workspaceId: Id<"workspaces">;
@@ -49,8 +49,8 @@ export const record = internalMutation({
 
 /** What the workspace's agents spent on pictures in a month (default this one), for the image budget. */
 export async function imageSpent(ctx: QueryCtx, workspaceId: Id<"workspaces">, month = usageMonth(Date.now())) {
-	const rows = await ctx.db.query("usage").withIndex("by_bucket", (q) => q.eq("workspaceId", workspaceId).eq("month", month)).take(MAX_ROWS);
-	return round(rows.reduce((sum, r) => sum + (r.kind === "image" ? r.costUsd : 0), 0));
+	const rows = await ctx.db.query("usage").withIndex("by_month_kind", (q) => q.eq("workspaceId", workspaceId).eq("month", month).eq("kind", "image")).collect();
+	return round(rows.reduce((sum, r) => sum + r.costUsd, 0));
 }
 
 type Line = { id: string | null; name: string; costUsd: number };
@@ -73,19 +73,23 @@ export async function usageReport(ctx: QueryCtx, member: Member, month = usageMo
 	const rows = await (all
 		? ctx.db.query("usage").withIndex("by_bucket", (q) => q.eq("workspaceId", member.workspaceId).eq("month", month))
 		: ctx.db.query("usage").withIndex("by_user", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId).eq("month", month))
-	).take(MAX_ROWS);
+	).collect();
+	const people = all ? group(rows, (r) => r.userId ?? null) : [];
 	const names = namer(ctx);
 	const byAgent: Line[] = await Promise.all(
 		group(rows, (r) => r.agentId ?? null).map(async (l) => ({ ...l, name: l.id ? (await names.agent(l.id as Id<"agents">)).name : "Other" })),
 	);
 	const byPerson: Line[] = all
-		? await Promise.all(group(rows, (r) => r.userId ?? null).map(async (l) => ({ ...l, name: l.id ? (await names.user(l.id as Id<"users">)).name : "Other" })))
+		? await Promise.all(people.slice(0, MAX_PEOPLE).map(async (l) => ({ ...l, name: l.id ? (await names.user(l.id as Id<"users">)).name : "Other" })))
 		: [];
 	// A model the catalog no longer lists keeps its id.
 	const modelNames = new Map<string, string>([...(await catalogModels(ctx)).models, ...imageModels].map((m) => [m.id, m.name]));
 	modelNames.set(GATEWAY_SEARCH_USAGE, "Exa web search");
 	return {
 		month,
+		truncated: people.length > MAX_PEOPLE,
+		personCount: byPerson.length,
+		rowCount: rows.length,
 		scope: all ? ("workspace" as const) : ("mine" as const),
 		total: round(rows.reduce((sum, r) => sum + r.costUsd, 0)),
 		byAgent,

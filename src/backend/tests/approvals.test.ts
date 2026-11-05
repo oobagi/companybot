@@ -4,7 +4,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { APPROVAL_TTL_MS, approvalHash, canonicalJson } from "@companybot/core";
 
-import { type As, workspaceOf, inWorkspace, sideWorkspace, agentsOf, ownerAndMember, generalOf, turnsOf } from "./helpers";
+import { type As, agentTurn, workspaceOf, inWorkspace, sideWorkspace, agentsOf, ownerAndMember, generalOf, turnsOf, messagesIn } from "./helpers";
 import "./connectorFixtures";
 
 // The tests drive turns themselves; keep scheduled model replies back.
@@ -34,6 +34,8 @@ describe("approvals", () => {
 			input: canonicalJson(call.input),
 			risk: "outside",
 		});
+		// The step as the runner keeps it: the call, with no result (it's held).
+		await t.mutation(internal.turns.keepStep, { turnId: turn._id, messages: JSON.stringify([{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "crm_send_sms", input: call.input }] }]) });
 		const parts = [{ type: "approval" as const, id: "c1", approvalId, tool: call.tool }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn._id, text: "", parts });
 		if (finish) await t.mutation(internal.turns.finishReply, { turnId: turn._id });
@@ -57,7 +59,7 @@ describe("approvals", () => {
 		const [theirs] = await owner.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(theirs).toMatchObject({ canDecide: false, input: card.input });
 
-		const reply = (await owner.query(api.messages.list, { chatId })).find((m) => m._id === turn.replyId)!;
+		const reply = (await messagesIn(owner, { chatId })).find((m) => m._id === turn.replyId)!;
 		expect(reply.parts).toMatchObject([{ type: "approval", tool: call.tool }]);
 
 		// Owners can't approve for someone else: the call would run as them.
@@ -83,7 +85,7 @@ describe("approvals", () => {
 		await expect(t.mutation(internal.approvals.request, { turnId: resume._id, callId: "late", tool: call.tool, input: canonicalJson(call.input), risk: "outside" })).rejects.toThrow("no longer see this chat");
 	});
 
-	it("refuses a hash other than the stored call's, and decided or expired requests", async () => {
+	it("refuses a hash other than the stored call's and expired requests, and ignores a second answer", async () => {
 		const { t, member } = await ownerAndMember();
 		const chatId = (await generalOf(member))._id;
 		const { approvalId, card } = await holdCall(t, member, chatId);
@@ -91,8 +93,12 @@ describe("approvals", () => {
 		await expect(member.mutation(api.approvals.decide, { approvalId, hash: otherHash, approve: true, always: false })).rejects.toThrow(
 			"isn't the one you were shown",
 		);
-		await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false, always: false });
-		await expect(member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).rejects.toThrow("already decided");
+		expect(await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: false, always: false })).toEqual({ decided: true });
+		// A second answer (another device, a double click) changes nothing, and isn't an error the app would log.
+		const turns = (await turnsOf(t)).length;
+		expect(await member.mutation(api.approvals.decide, { approvalId, hash: card.hash, approve: true, always: false })).toEqual({ decided: false });
+		expect(await t.run((ctx) => ctx.db.get("approvals", approvalId))).toMatchObject({ status: "denied" });
+		expect((await turnsOf(t)).length).toBe(turns);
 		await t.mutation(internal.turns.finishReply, { turnId: (await turnsOf(t)).at(-1)!._id });
 
 		const second = await holdCall(t, member, chatId);
@@ -108,6 +114,77 @@ describe("approvals", () => {
 		} finally {
 			vi.setSystemTime(now);
 		}
+	});
+
+	it("names what a held call does and what it touches, only as the viewer may see it", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const chatId = (await generalOf(member))._id;
+		const notes = await member.mutation(api.pages.create, { title: "Old pricing notes" });
+		const secret = await owner.mutation(api.pages.create, { title: "Board minutes" });
+		await owner.mutation(api.pages.setAccess, { pageId: secret, access: [] });
+		const { companybot } = await agentsOf(member);
+		const held = async (callId: string, page: Id<"pages">) => {
+			const turnId = await agentTurn(t, member, chatId, companybot._id);
+			const input = { page, trash: true };
+			const { approvalId } = await t.mutation(internal.approvals.request, { turnId, callId, tool: "pages.write", input: canonicalJson(input), risk: "locked" });
+			await t.mutation(internal.turns.updateReply, { turnId, text: "", parts: [{ type: "approval", id: callId, approvalId, tool: "pages.write" }] });
+			await t.mutation(internal.turns.finishReply, { turnId });
+			const replyId = (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
+			return (await member.query(api.approvals.forReply, { replyId }))[0]!;
+		};
+		const card = await held("c-notes", notes);
+		expect(card).toMatchObject({ action: "Archive page", fields: [{ key: "page", value: "Old pricing notes" }] });
+		expect(card.ask).toContain("archive page Old pricing notes");
+		// An id the approver can't open says what it is, never its name; Raw keeps the exact input.
+		const hidden = await held("c-secret", secret);
+		expect(hidden.fields).toEqual([{ key: "page", value: "a page you can't see" }]);
+		expect(JSON.stringify(hidden)).not.toContain("Board minutes");
+		expect(JSON.parse(hidden.input)).toEqual({ page: secret, trash: true });
+	});
+
+	describe("naming ids on cards, bounded", () => {
+		/** `n` pages titled "Page i", inserted in bulk. */
+		const seedPages = async (t: ReturnType<typeof convexTest>, as: As & { userId: Id<"users"> }, n: number) => {
+			const workspaceId = await workspaceOf(as);
+			return t.run(async (ctx) => {
+				const ids: Id<"pages">[] = [];
+				for (let i = 0; i < n; i++) ids.push(await ctx.db.insert("pages", { workspaceId, title: `Page ${i}`, archived: false, createdBy: as.userId, updatedAt: 0, updatedBy: as.userId }));
+				return ids;
+			});
+		};
+		/** One reply holding a call per input, as the runner saves them. */
+		const holdAll = async (t: ReturnType<typeof convexTest>, as: As, inputs: object[]) => {
+			const { companybot } = await agentsOf(as);
+			const turnId = await agentTurn(t, as, (await generalOf(as))._id, companybot._id);
+			const parts = [];
+			for (const [i, input] of inputs.entries()) {
+				const { approvalId } = await t.mutation(internal.approvals.request, { turnId, callId: `c${i}`, tool: "pages.write", input: canonicalJson(input), risk: "inside" });
+				parts.push({ type: "approval" as const, id: `c${i}`, approvalId, tool: "pages.write" });
+			}
+			await t.mutation(internal.turns.updateReply, { turnId, text: "", parts });
+			await t.mutation(internal.turns.finishReply, { turnId });
+			return as.query(api.approvals.forReply, { replyId: (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId! });
+		};
+
+		it("names the first 20 ids in a long list and counts the rest", async () => {
+			const { t, member } = await ownerAndMember();
+			const pages = await seedPages(t, member, 300);
+			const [card] = await holdAll(t, member, [{ pages }]);
+			const shown = card!.fields!.find((f) => f.key === "pages")!.value as string[];
+			expect(shown).toEqual([...pages.slice(0, 20).map((_, i) => `Page ${i}`), "and 280 more"]);
+		});
+
+		it("loads a reply holding many cards, sharing one budget of names across them", async () => {
+			const { t, member } = await ownerAndMember();
+			const pages = await seedPages(t, member, 600);
+			// 60 calls naming 10 pages each: more cards than a reply shows, more ids than one query names.
+			const cards = await holdAll(t, member, Array.from({ length: 60 }, (_, i) => ({ pages: pages.slice(i * 10, i * 10 + 10) })));
+			expect(cards).toHaveLength(50);
+			const named = cards.flatMap((c) => c.fields![0]!.value as string[]).filter((v) => v.startsWith("Page "));
+			expect(named).toHaveLength(200);
+			// Past the budget, a list only says how many it left out.
+			expect(cards.at(-1)!.fields![0]!.value).toEqual(["and 10 more"]);
+		});
 	});
 
 	it("can't be decided once the person can't see the chat", async () => {
@@ -134,12 +211,12 @@ describe("approvals", () => {
 		const context = await t.mutation(internal.turns.turnContext, { turnId: next._id });
 		expect(context.approval).toMatchObject({ id: approvalId, tool: call.tool, status: "approved", by: "member@co.com" });
 		// The held call replays the same way whatever happens to it (prompt caching), and no message is re-asked.
-		expect(context.session.turns.at(-1)?.reply).toBe("[Held for approval: crm.send_sms]");
+		expect(context.session.turns.at(-1)).toEqual({ prompt: "Reply to this message: text Bob", steps: JSON.stringify([{ role: "assistant", content: [{ type: "tool-call", toolCallId: "c1", toolName: "crm_send_sms", input: call.input }] }]), answer: "" });
 		expect(context.messages.some((m) => m.id === turn.triggerId)).toBe(false);
 
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toEqual(call);
 		expect(await t.mutation(internal.approvals.claim, { approvalId, turnId: next._id })).toBeNull();
-		await t.mutation(internal.approvals.finish, { approvalId, result: '{"sent":true}' });
+		await t.mutation(internal.approvals.finish, { approvalId, turnId: next._id, result: '{"sent":true}' });
 		const [mine] = await member.query(api.approvals.forReply, { replyId: turn.replyId! });
 		expect(mine).toMatchObject({ status: "done", result: '{"sent":true}' });
 	});
@@ -196,9 +273,19 @@ describe("approvals", () => {
 		const second = await holdCall(t, member, chatId);
 		await member.mutation(api.approvals.decide, { approvalId: second.approvalId, hash: second.card.hash, approve: true, always: false });
 		const next = (await turnsOf(t)).at(-1)!;
-		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id });
+		// An outside service's call (a connector's) may have landed: failed, with an unknown outcome (older apps show the error).
+		await t.mutation(internal.approvals.claim, { approvalId: second.approvalId, turnId: next._id, outside: true });
 		await t.mutation(internal.turns.finishReply, { turnId: next._id, error: "Timed out" });
-		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("may or may not have happened") });
+		expect(await t.run((ctx) => ctx.db.get(second.approvalId))).toMatchObject({ status: "failed", outcome: "unknown", error: expect.stringContaining("may or may not have happened") });
+		expect((await member.query(api.approvals.forReply, { replyId: second.turn.replyId! }))[0]).toMatchObject({ status: "failed", outcome: "unknown" });
+
+		// A built-in's effect commits with its receipt, so one still running when its turn ends never happened.
+		const third = await holdCall(t, member, chatId);
+		await member.mutation(api.approvals.decide, { approvalId: third.approvalId, hash: third.card.hash, approve: true, always: false });
+		const last = (await turnsOf(t)).at(-1)!;
+		await t.mutation(internal.approvals.claim, { approvalId: third.approvalId, turnId: last._id });
+		await t.mutation(internal.turns.finishReply, { turnId: last._id, error: "Timed out" });
+		expect(await t.run((ctx) => ctx.db.get(third.approvalId))).toMatchObject({ status: "failed", error: expect.stringContaining("nothing changed") });
 	});
 
 	it("tells the agent about a denial and runs nothing", async () => {

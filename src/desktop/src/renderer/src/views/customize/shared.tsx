@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, ArchiveIcon } from "../../icons";
-import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
@@ -150,6 +150,7 @@ export function NewItem({
 	noun,
 	error,
 	onCreate,
+	onDiscard,
 	children,
 }: {
 	tab: MadeTab;
@@ -157,6 +158,7 @@ export function NewItem({
 	noun: string;
 	error?: string;
 	onCreate: () => void;
+	onDiscard?: () => void;
 	children: React.ReactNode;
 }) {
 	return (
@@ -164,9 +166,12 @@ export function NewItem({
 			<Notice>{error}</Notice>
 			<div className="flex flex-col gap-5">
 				{children}
-				<button type="button" className={`${primaryButton} self-start`} onClick={onCreate}>
-					Create
-				</button>
+				<div className="flex gap-2">
+					{onDiscard && <button type="button" className={secondaryButton} onClick={onDiscard}>Discard</button>}
+					<button type="button" className={primaryButton} onClick={onCreate}>
+						Create
+					</button>
+				</div>
 			</div>
 		</Page>
 	);
@@ -177,6 +182,7 @@ export function NewItem({
  * people who can't change it, or while it's in Trash), Delete (to Trash), and Save. `children` go below the fields.
  */
 export function MadeItemDetail<T>({
+	id,
 	tab,
 	name,
 	createdByName,
@@ -189,6 +195,7 @@ export function MadeItemDetail<T>({
 	fields,
 	children,
 }: {
+	id: string;
 	tab: MadeTab;
 	name: string;
 	createdByName: string | null | undefined;
@@ -204,7 +211,7 @@ export function MadeItemDetail<T>({
 	fields: (value: T, onChange: (value: T) => void) => React.ReactNode;
 	children?: React.ReactNode;
 }) {
-	const draft = useDraft(saved, custom.version);
+	const draft = useDraft(`${tab}:${id}`, saved, custom.version);
 	const { error, run } = useRun();
 	const editable = canEdit && !trash;
 	const { confirm, dialog } = useConfirm();
@@ -228,11 +235,11 @@ export function MadeItemDetail<T>({
 		>
 			{dialog}
 			{trash && <TrashNotice trash={trash} />}
-			<ConflictNotice draft={draft} who={custom.updatedByName} />
+			{editable && <ConflictNotice draft={draft} who={custom.updatedByName} />}
 			<Notice>{error}</Notice>
 			{!canEdit && <CantEdit tab={tab} />}
 			<fieldset disabled={!editable} className="flex flex-col gap-5">
-				{fields(draft.value, draft.set)}
+				{fields(editable ? draft.value : saved, draft.set)}
 			</fieldset>
 			{children}
 			{editable && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => run(onSave(draft.value, draft.base), draft.discard)} />}

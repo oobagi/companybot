@@ -24,6 +24,8 @@ import { claimUpload } from "./images";
 import { pageHistory, requireVersion, versionContent } from "./pages";
 import { inTrash, recordById } from "./recordOps";
 import { writeSources } from "./replySources";
+import { withReceipt } from "./approvals";
+import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 
 // PageStore as the turn's person; conversion runs separately in pageMarkdown.ts.
@@ -33,22 +35,32 @@ const SEARCH_MAX = 20;
 /** Versions pages_read lists, with ids `restore` takes. */
 const VERSIONS_SHOWN = 5;
 
-/** A page by id, else a page titled exactly `name`: a live one, or one in Archive (to restore it). */
-async function pageNamed(ctx: QueryCtx, member: Member, name: string, trashed = false) {
+/** A page by id, else a live page titled exactly `name`. For reads: writes take ids (`pageById`). */
+async function pageNamed(ctx: QueryCtx, member: Member, name: string) {
 	const id = ctx.db.normalizeId("pages", name);
 	if (id) return requirePage(ctx, member, id);
 	const candidates = await ctx.db
 		.query("pages")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", trashed).eq("title", name.trim()))
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("recordId", undefined).eq("archived", false).eq("title", name.trim()))
 		.take(FIND_MAX + 1);
 	const state = pageStates(ctx);
 	const rows = [];
-	for (const p of candidates) if ((await state(p)).archived === trashed) rows.push(p);
+	for (const p of candidates) if (!(await state(p)).archived) rows.push(p);
 	if (candidates.length > FIND_MAX || rows.length > 1) throw new ConvexError(`Several pages are titled “${name}”. Find them with pages_find and use an id.`);
 	if (!rows[0]) throw new ConvexError(`No page titled “${name}”. Find it with pages_find, or use its id.`);
 	// Found by title but kept from them: say who can see it, so the agent can tell its person whom to ask.
 	await requirePageAccess(ctx, member, rows[0], "view", undefined, name.trim());
 	return rows[0];
+}
+
+/**
+ * A page by id, for writes: never by title, so a held call runs on the page it was approved for even if that
+ * page is renamed and another takes its title meanwhile (core page-tools `writeTarget`).
+ */
+async function pageById(ctx: QueryCtx, member: Member, raw: string) {
+	const id = ctx.db.normalizeId("pages", raw.trim());
+	if (!id) throw new ConvexError(`Name the page by its id, not “${raw}”: titles can change. pages_find gives ids.`);
+	return requirePage(ctx, member, id);
 }
 
 const recordNamed = (ctx: QueryCtx, member: Member, id: string) => recordById(ctx, member, id, "Record not found. Use its id, from records_find.");
@@ -181,6 +193,8 @@ export const copyPictures = internalAction({
 /** `blocks`: the content to write, from the Markdown or with `pictures` (agent.ts pagePictures) pointed at their copies. */
 const writeArgs = {
 	turnId: v.id("agentTurns"),
+	/** An approved call's operation key (approvals.withReceipt). */
+	op: v.optional(opArg),
 	input: v.any(),
 	blocks: v.optional(v.string()),
 	pictures: v.optional(v.array(v.object({ storageId: v.id("_storage"), url: v.string() }))),
@@ -189,7 +203,8 @@ const writeArgs = {
 // Catch expected errors outside the write transaction, so a refused edit saves nothing.
 export const writeFor = internalMutation({
 	args: writeArgs,
-	handler: async (ctx, args): Promise<unknown> => asToolResult(() => ctx.runMutation(internal.pageTools.writeChecked, args)),
+	// The approval's receipt commits with the page write (or the refusal), in this one transaction.
+	handler: (ctx, { op, ...args }): Promise<unknown> => withReceipt(ctx, op, args.turnId, () => asToolResult(() => ctx.runMutation(internal.pageTools.writeChecked, args))),
 });
 
 export const writeChecked = internalMutation({
@@ -198,10 +213,10 @@ export const writeChecked = internalMutation({
 		const { member, who } = await runningTurn(ctx, turnId);
 		const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore, parent, action = "write", kind } = writeInput.parse(input);
 		if (record && parent !== undefined) throw new ConvexError("Record bodies can't be nested.");
-		const parentId = parent ? (await pageNamed(ctx, member, parent))._id : undefined;
+		const parentId = parent ? (await pageById(ctx, member, parent))._id : undefined;
 		if (action === "move") {
 			if (!name || parent === undefined || record || [title, markdown, rich, trash, restore].some((x) => x !== undefined)) throw new ConvexError("Move with page and parent only; parent null means top level.");
-			const page = await pageNamed(ctx, member, name);
+			const page = await pageById(ctx, member, name);
 			await movePage(ctx, who, page, parentId);
 			return { id: page._id, kind: kindOf(page), title: page.title, parentId: parentId ?? null };
 		}
@@ -216,14 +231,14 @@ export const writeChecked = internalMutation({
 			const row = versionId && (await ctx.db.get(versionId));
 			if (!row) throw new ConvexError("Version not found. Use a version id from pages_read.");
 			page = await requirePage(ctx, member, row.pageId);
-			if ((name && (await pageNamed(ctx, member, name))._id !== page._id) || (record && (await recordNamed(ctx, member, record))._id !== page.recordId))
+			if ((name && (await pageById(ctx, member, name))._id !== page._id) || (record && (await recordNamed(ctx, member, record))._id !== page.recordId))
 				throw new ConvexError("Version belongs to a different page.");
 			await restoreVersion(ctx, who, page, row);
 			return { id: page._id, title: await titleOf(ctx, page), restored: row._id };
 		}
 		if (kind && (name || record)) throw new ConvexError("kind only makes a new folder: leave page and record out.");
 		if (record) page = (await ctx.db.get(await createPage(ctx, who, { recordId: (await recordNamed(ctx, member, record))._id })))!;
-		else if (name) page = await pageNamed(ctx, member, name, trash === false);
+		else if (name) page = await pageById(ctx, member, name);
 		else {
 			if (!title) throw new ConvexError(`Give the new ${kind ?? "page"} a title.`);
 			page = (await ctx.db.get(await createPage(ctx, who, { title, parentId, kind })))!;

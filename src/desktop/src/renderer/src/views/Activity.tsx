@@ -19,7 +19,8 @@ export function ActivityTab() {
 	const database = usePaginatedQuery(api.records.activity, {}, { initialNumItems: 20 });
 	const [agentId, setAgentId] = useState<Id<"agents">>();
 	const [changesOnly, setChangesOnly] = useState(true);
-	const entries = useQuery(api.activity.list, { agentId });
+	const activity = useQuery(api.activity.recent, { agentId });
+	const entries = activity?.entries;
 	if (!entries || !agents) return <Loading />;
 	// A wake's line (an agent checking back on its own) shows with changes: it says what's running.
 	const shown = changesOnly ? entries.filter((e) => e.changes || e.wake) : entries;
@@ -27,6 +28,7 @@ export function ActivityTab() {
 	return (
 		<>
 			{(database.results.length > 0 || database.status !== "Exhausted") && <DatabaseActivity {...database} />}
+			{activity?.truncated && <p>Activity history is limited. Open a reply to see its actions.</p>}
 			<div className={toolbarClass}>
 				<Select
 					label="Agent"

@@ -42,6 +42,22 @@ export interface ToolContext {
 	web: WebTurn;
 	/** Making pictures for the reply, within the workspace's image budget (image-tools.ts). */
 	images: ImageStore;
+	/**
+	 * The stores for one model call, keyed by its call id, so the runner can make each write once per call
+	 * (a retried step doesn't write twice). buildToolSet uses them for every call when given.
+	 */
+	forCall?(callId: string): Partial<ToolContext>;
+	/** This call's operation key (backend approvals.ts), for tools whose effect takes several steps (`untransacted`). */
+	op?: object;
+	/**
+	 * Claims a connector call that changes something, by its call id, before it's sent (when its tool takes no
+	 * idempotency key): `start` returns what to answer instead if this call already went, else null; `finish` saves
+	 * its result. The runner keeps them in the database, so a retried step never sends it twice.
+	 */
+	calls?: {
+		start(callId: string): Promise<unknown>;
+		finish(callId: string, output: unknown): Promise<unknown>;
+	};
 }
 
 /**
@@ -67,6 +83,9 @@ export function createResultStore(): ResultStore {
 }
 
 export type ToolSource = { type: "builtin" } | { type: "connector"; connectorId: string };
+
+/** Something a call's effect depends on as it is now, by id (`ToolDef.binds`). */
+export type Bound = { kind: "page" | "recordPage" | "pageVersion" | "record" | "memory" | "message" | "agent" | "skill" | "automation"; id: string };
 
 /**
  * A tool an agent can call. Built-in tools are defined in code; connector tools are
@@ -95,6 +114,22 @@ export interface ToolDef<Input = any> {
 	risk?: Risk;
 	/** Per-call risk for grouped built-ins whose actions need different consent. */
 	riskFor?(input: Input): Risk;
+	/**
+	 * What this call's effect depends on as it is now (a page it overwrites or archives, a memory it
+	 * rewrites). A held call's approval binds their current revisions too (backend approvals.ts), so a
+	 * change made after the person saw the card stops it instead of running on what they didn't see.
+	 */
+	binds?(input: Input): Bound[];
+	/**
+	 * Its input leaves the workspace (a search query, a link to open): when the turn has read something not
+	 * everyone in the chat may see, the call asks first, showing exactly what goes out (backend permissions.check).
+	 */
+	sendsOut?: boolean;
+	/**
+	 * Its effects take several steps outside one transaction (a provider call, then files): cut off after it was
+	 * approved, it may or may not have happened, so the card says so rather than "nothing changed".
+	 */
+	untransacted?: boolean;
 	/** Returns data worth showing. Results get a ref widgets can point at; see ResultStore. */
 	returnsData?: boolean;
 	source: ToolSource;
@@ -106,6 +141,12 @@ export interface ToolDef<Input = any> {
 	 * finished, its result (a data tool's `data`; `{ error }` results included). Undefined: `title`.
 	 */
 	label?(input: Input, output?: unknown): string | undefined;
+	/**
+	 * What a call does, from its input alone, for an approval card ("Archive page" for `pages.write` with
+	 * `trash`). `actionKeys` are the inputs it already says, left off the card's fields. Undefined: `title`.
+	 */
+	action?(input: Input): string | undefined;
+	actionKeys?: readonly string[];
 	/** A thread a finished call made, for its tool line to open (chat.ask_agent's). */
 	opens?(output: unknown): { chatId: string; messageId: string; kind?: "message" } | undefined;
 }

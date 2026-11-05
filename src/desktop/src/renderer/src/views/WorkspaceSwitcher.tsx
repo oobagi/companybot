@@ -4,15 +4,14 @@ import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
+import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { Field, Form, MenuDivider, Notice, inputClass, primaryButton, useRun } from "../ui";
+import { Field, Form, MenuDivider, Notice, compactButton, compactPrimaryButton, inputClass, primaryButton, useRun } from "../ui";
 import { Avatar, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
 
 const none: never[] = [];
 const workspaceKey = (w: { id: string }) => w.id;
 
-/** ⌘1–9 (Ctrl elsewhere) opens the workspace at that place in the list. */
-const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
 
 /** A red count of chats with an unread @mention or DM. */
 function Mentions({ count }: { count: number }) {
@@ -33,7 +32,7 @@ const dot = <span className="size-1.5 shrink-0 rounded-full bg-sky-500" />;
 
 /**
  * The open workspace's logo, at the top of the app rail (as in Slack). Its menu lists every workspace
- * you're in, in your order (drag to reorder; ⌘1–9 follow it), with what's waiting in each, then
+ * you're in, in your order (drag to reorder; ⌃⌘1–9 follow it), with what's waiting in each, then
  * invites to join or decline, New workspace, and this workspace's settings or Leave. While closed the
  * logo shows a red count when other workspaces have mentions or DMs, else a dot when one is unread or
  * invites wait.
@@ -58,17 +57,13 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 		}
 	}, [joined, mine]);
 
-	useEffect(() => {
-		const key = (e: KeyboardEvent) => {
-			if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || !/^[1-9]$/.test(e.key)) return;
-			const w = workspaces[Number(e.key) - 1];
-			if (!w) return;
-			e.preventDefault();
-			if (w.id !== current?.id) goTo(w.id);
-		};
-		window.addEventListener("keydown", key);
-		return () => window.removeEventListener("keydown", key);
-	}, [workspaces, current]);
+	// ⌃⌘1–9 (Ctrl+Shift+1–9 off a Mac): ⌘1–9 are the rail's tabs.
+	useJump("workspace", (n) => {
+		const w = workspaces[n - 1];
+		if (!w || w.id === current?.id) return false;
+		blurActiveEditable();
+		goTo(w.id);
+	});
 
 	const others = activity?.filter((a) => a.id !== current?.id) ?? [];
 	const mentions = others.reduce((n, a) => n + a.mentions, 0);
@@ -114,7 +109,7 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 										</Slot>
 										<span className={`min-w-0 flex-1 truncate ${active ? "font-medium" : ""}`}>{w.name}</span>
 										{waiting?.mentions ? <Mentions count={waiting.mentions} /> : waiting?.unread && dot}
-										{active ? <CheckIcon className="shrink-0 text-neutral-500" /> : i < 9 && <span className="shrink-0 text-xs text-neutral-400">{`${mod}${i + 1}`}</span>}
+										{active ? <CheckIcon className="shrink-0 text-neutral-500" /> : i < 9 && <span className="shrink-0 text-xs text-neutral-400">{shortcutLabel("workspace", i + 1)}</span>}
 									</button>
 								</div>
 							);
@@ -175,11 +170,11 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 				</span>
 				{dot}
 			</div>
-			<div className="flex gap-3 pl-[30px] text-xs font-medium">
-				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className="text-sky-800 hover:underline">
+			<div className="flex gap-2 pl-[30px]">
+				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className={compactPrimaryButton}>
 					Join
 				</button>
-				<button type="button" onClick={() => run(decline({ id: invite.id }))} className="text-neutral-500 hover:underline">
+				<button type="button" onClick={() => run(decline({ id: invite.id }))} className={compactButton}>
 					Decline
 				</button>
 			</div>

@@ -71,6 +71,15 @@ export const placeDeniedMessage = (kind: PlaceKind, name: string, list: readonly
 	`Only ${whoCan(list, roles, need)} can ${verbs[kind][need]} ${name}.`;
 
 /**
+ * Whether saving `next` takes away the person's own Edit (Post) there. Only Owners may do that, since
+ * nobody else could undo it: a Member setting #general to View would lock the team out with them.
+ */
+export const losesOwnEdit = (who: Access, next: readonly AccessEntry[] | undefined) => !who.owner && !reaches(levelIn(who, next), "edit");
+
+/** The refusal (and the app's hint) for a change that `losesOwnEdit`. */
+export const ownEditMessage = (kind: PlaceKind) => `You'd lose ${kind === "channel" ? "Post" : "edit"} access. Ask an Owner.`;
+
+/**
  * A list as saved: roles in the workspace (`roleIds`) or Everyone, each once, at most one level each.
  * Owners always have Edit, so naming the Owner role adds nothing and is dropped. Throws a plain message.
  */

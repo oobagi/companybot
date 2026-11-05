@@ -9,7 +9,7 @@ import { compactControlClass, hintClass, useDebounced, useSynced } from "../../u
 import { Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
-import { CloseIcon, PrivateIcon } from "../../icons";
+import { CaretUpDownIcon, CloseIcon, PrivateIcon } from "../../icons";
 
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
@@ -17,6 +17,8 @@ import { CloseIcon, PrivateIcon } from "../../icons";
 /** One box for every value, so each kind (text, pickers, chips, checkbox) lines up under the others. */
 const cell = "flex min-h-[calc(1.5em+0.5rem+2px)] w-full items-center rounded-lg border border-transparent px-2 py-1";
 const editable = `${cell} outline-none hover:border-neutral-200 focus:border-neutral-400`;
+/** "Pick…" / "Add…" beside a field's value: the same hover border as the field itself. */
+const fieldPicker = "inline-flex shrink-0 items-center rounded-lg border border-transparent px-2 py-1 text-left hover:border-neutral-200 focus:border-neutral-400 outline-none";
 const empty = "text-neutral-400";
 
 /** A value, read-only. Links open their record; ones to a deleted record say so and don't open. */
@@ -192,7 +194,7 @@ function OneEditor({ field, id, refs, onSave }: { field: TypeField; id: string |
 			<span className={`${cell} gap-2`}>
 				{id && <LinkChips field={field} ids={[id]} refs={refs} onRemove={() => onSave(null)} />}
 				{/* No database to pick from when it links to one you can't see (linksHidden). */}
-				{field.linkType && <RecordPicker typeId={field.linkType} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} onPick={(picked) => onSave(picked)} />}
+				{field.linkType && <RecordPicker typeId={field.linkType} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} caret={false} className={fieldPicker} onPick={(picked) => onSave(picked)} />}
 			</span>
 		);
 	}
@@ -230,7 +232,7 @@ function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: stri
 				))
 			)}
 			{field.kind === "link" ? (
-				field.linkType && <RecordPicker typeId={field.linkType} exclude={ids} label="Add" onPick={(picked) => add(picked)} />
+				field.linkType && <RecordPicker typeId={field.linkType} exclude={ids} label="Add" caret={false} className={fieldPicker} onPick={(picked) => add(picked)} />
 			) : (
 				options.length > 0 && (
 					<Select
@@ -239,7 +241,7 @@ function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: stri
 						options={options.map((o) => ({ value: o.id, label: o.label }))}
 						onChange={add}
 						caret={false}
-						className="inline-flex text-neutral-400 hover:text-neutral-700"
+						className={fieldPicker}
 					/>
 				)
 			)}
@@ -259,15 +261,29 @@ export function RecordPicker({
 	typeId,
 	exclude = [],
 	label,
+	caret = true,
+	className = `inline-flex items-center gap-1.5 text-left ${compactControlClass}`,
 	onPick,
 }: {
 	typeId: string;
 	exclude?: string[];
 	label: string;
+	/** Off in a record's fields, where a hover border says it's editable (as their Selects). */
+	caret?: boolean;
+	className?: string;
 	onPick: (id: string, title: string) => void;
 }) {
 	return (
-		<Popover trigger={`${label}…`} className="text-neutral-400 hover:text-neutral-700" panelClassName="flex w-64 flex-col gap-1 p-2">
+		<Popover
+			trigger={
+				<>
+					<span className="min-w-0 flex-1 truncate text-neutral-400">{label}…</span>
+					{caret && <CaretUpDownIcon className="shrink-0 text-neutral-400" />}
+				</>
+			}
+			className={className}
+			panelClassName="flex w-64 flex-col gap-1 p-2"
+		>
 			{(close) => <RecordSearch typeId={typeId} exclude={exclude} onPick={(id, title) => (close(), onPick(id, title))} />}
 		</Popover>
 	);

@@ -3,11 +3,11 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { ArchiveIcon, HistoryIcon, PageIcon, PlusIcon, PrivateIcon } from "../icons";
+import { ArchiveIcon, HistoryIcon, MembersIcon, MoveIcon, PageIcon, PlusIcon, PrivateIcon } from "../icons";
 import { NotFound, Notice, Page, barButton, useRun } from "../ui";
 import { DriveEmpty, DriveListing } from "./drive/DriveListing";
 import { useDriveUploads } from "./drive/upload";
-import { MovePage, NewMenu, PageAccess, useFilePicker } from "./pages/PageTree";
+import { MovePage, NewMenu, PageAccess } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
 import { PageTitle } from "./pages/PageTitle";
@@ -18,7 +18,7 @@ import { TrashNotice } from "./Trash";
 // /pages is the top level, /pages/<id> opens a folder (its listing) or a page (its editor).
 // Records' page bodies use the same editor on the record's page. See wiki/drive.md and wiki/pages.md.
 
-export { DriveNav } from "./pages/PageTree";
+export { DriveNav, NewMenu } from "./pages/PageTree";
 
 const drive = { label: "Drive", to: ["pages"] };
 
@@ -27,29 +27,29 @@ export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boole
 	return <PageOrFolder key={pageId} pageId={pageId as Id<"pages">} />;
 }
 
-/** The top level of Drive: what's there, with New and Upload. */
+/** The top level of Drive: what's there, with New and Upload. No title: the sidebar beside it already says Drive. */
 function DriveRoot({ canEdit }: { canEdit: boolean }) {
 	const folder = useFolderActions(undefined, canEdit);
 	return (
-		<Page title="Drive" heading="Drive" wide actions={folder.actions}>
+		<Page title="" wide actions={folder.actions}>
 			{folder.dialogs}
-			<DriveListing parentId={undefined} uploads={folder.uploads.pending} onDismissUpload={folder.uploads.dismiss} onDrop={canEdit ? folder.drop : undefined} empty={<DriveEmpty canEdit={canEdit} />} />
+			<DriveListing parentId={undefined} uploads={folder.uploads} onDismissUpload={folder.dismissUpload} onDrop={canEdit ? folder.drop : undefined} empty={<DriveEmpty canEdit={canEdit} />} />
 		</Page>
 	);
 }
 
-/** New page, New folder and Upload into `parentId`, plus the uploads they start. */
+/** New page, New folder and Upload into `parentId`, plus the uploads going there. */
 function useFolderActions(parentId: Id<"pages"> | undefined, canEdit: boolean) {
 	const create = useMutation(api.pages.create);
 	const uploads = useDriveUploads();
 	const { error, run } = useRun();
-	const picker = useFilePicker((files) => uploads.start(files, parentId));
 	const add = (kind: "page" | "folder") => run(create({ title: kind === "page" ? "Untitled" : "New folder", parentId, ...(kind === "folder" && { kind }) }).then((id) => navigate("pages", id)));
 	return {
-		uploads,
+		uploads: uploads.into(parentId),
+		dismissUpload: uploads.dismiss,
 		drop: (files: File[]) => uploads.start(files, parentId),
-		actions: canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={() => picker.open(parentId)} className={barButton} trigger={<><PlusIcon /> New</>} />,
-		dialogs: <>{picker.input}<Notice>{error}</Notice></>,
+		actions: canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files, parentId)} className={barButton} trigger={<><PlusIcon /> New</>} />,
+		dialogs: <Notice>{error}</Notice>,
 	};
 }
 
@@ -63,7 +63,7 @@ function PageOrFolder({ pageId }: { pageId: Id<"pages"> }) {
 type Loaded = NonNullable<ReturnType<typeof useQuery<typeof api.pages.get>>>;
 type Crumbs = { label: string; to: string[] }[];
 
-/** Rename, Move to…, Who can access and Archive, shared by page and folder screens. */
+/** Move to…, Who can access and Archive, shared by page and folder screens. */
 function useItemActions(page: Loaded) {
 	const remove = useMutation(api.trash.move);
 	const [moving, setMoving] = useState(false);
@@ -74,10 +74,10 @@ function useItemActions(page: Loaded) {
 	const back = () => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : ["pages"]));
 	const actions = (
 		<>
-			{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}>Move to…</button>}
+			{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}><MoveIcon /> Move to…</button>}
 			{!page.recordId && (
 				<button type="button" onClick={() => setSharing(true)} title={page.lock ? (page.lock.edit ? `Only ${page.lock.who} can edit it` : `Only ${page.lock.who} can see it`) : "Everyone can access it"} className={barButton}>
-					{page.restricted && <PrivateIcon />} Who can access
+					{page.restricted ? <PrivateIcon /> : <MembersIcon />} Who can access
 				</button>
 			)}
 			{page.canEdit && !page.archived && (
@@ -114,7 +114,7 @@ function FolderScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
 		>
 			{folder.dialogs}
 			{item.dialogs}
-			<DriveListing parentId={page._id} uploads={folder.uploads.pending} onDismissUpload={folder.uploads.dismiss} onDrop={page.canEdit && !page.archived ? folder.drop : undefined} empty={<DriveEmpty canEdit={page.canEdit && !page.archived} />} />
+			<DriveListing parentId={page._id} uploads={folder.uploads} onDismissUpload={folder.dismissUpload} onDrop={page.canEdit && !page.archived ? folder.drop : undefined} empty={<DriveEmpty canEdit={page.canEdit && !page.archived} />} />
 		</Page>
 	);
 }

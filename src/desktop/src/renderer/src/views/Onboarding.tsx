@@ -6,8 +6,9 @@ import { useRef, useState } from "react";
 import { api } from "../api";
 import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { CaretDownIcon, ChannelIcon, CloseIcon, PlusIcon } from "../icons";
-import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, useRun } from "../ui";
+import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
+import { appTabs } from "./AppRail";
+import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
@@ -23,6 +24,7 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 	const me = useQuery(api.workspace.me);
 	const prefs = useQuery(api.preferences.get);
 	const setUp = useMutation(api.workspace.setUp);
+	const update = useMutation(api.preferences.update);
 	const { signOut } = useAuthActions();
 	const [step, setStep] = useState<OnboardingStep>("you");
 	// Someone back here after deleting their last workspace already has a name.
@@ -50,7 +52,10 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 	};
 
 	const submit = () => {
-		if (step === "you") return name.trim() ? go("company") : fail("Enter your name.");
+		if (step === "you") {
+			if (!name.trim()) return fail("Enter your name.");
+			return void run(update({ displayName: name }).then(() => go("company")));
+		}
 		if (step === "company") return company.trim() ? go("team") : fail("Enter your company's name.");
 		const invalid = addInvites(draft);
 		if (invalid.length > 0) return fail(`Not an email: ${invalid.join(", ")}`);
@@ -77,9 +82,7 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 					)}
 
 					{step === "you" && (
-						<Field label="Your name">
-							<input autoFocus value={name} onChange={(e) => setTypedName(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${inputClass} bg-white py-2.5`} />
-						</Field>
+						<NameField name={name} onChange={setTypedName} />
 					)}
 					{step === "company" && (
 						<>
@@ -107,7 +110,7 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 							{step !== "team" ? "Continue" : busy ? "Creating…" : "Create workspace"}
 						</button>
 						{at > 0 && (
-							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={`${descriptionClass} hover:text-neutral-700`}>
+							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={`${secondaryButton} py-2.5`}>
 								Back
 							</button>
 						)}
@@ -201,8 +204,8 @@ function InviteBox({
 const noop = () => {};
 
 /**
- * The app's shell with what they've typed in it: the rail's tile, the sidebar, #general with
- * everyone who'll be in it, and Companybot's welcome (its real text, `welcomeText`). Rendered at
+ * The app's shell with what they've typed in it: the app rail under their workspace's logo,
+ * Chat's sidebar, #general with everyone who'll be in it, and Companybot's welcome (its real text, `welcomeText`). Rendered at
  * full size and scaled down, so it's exactly what opens next. Not interactive.
  */
 function Preview({ name, company, invites }: { name: string; company: string; invites: string[] }) {
@@ -214,26 +217,23 @@ function Preview({ name, company, invites }: { name: string; company: string; in
 		// Laid out at 100/78 % of the frame and scaled by 0.78, so it fills the frame exactly at app size.
 		<div aria-hidden className="pointer-events-none absolute top-0 left-0 h-[128.2%] w-[128.2%] origin-top-left scale-[0.78] select-none">
 			<div className="flex h-full flex-col bg-neutral-100 text-[15px] text-neutral-900">
-				<div className="h-10 shrink-0" />
+				<div className="h-8 shrink-0" />
 				<div className="flex min-h-0 flex-1">
-					{/* The rail: this workspace, open. */}
-					<nav className="flex w-[60px] shrink-0 flex-col items-center gap-2 pt-3">
-						<span className="size-9 overflow-hidden rounded-xl">
-							<Avatar name={workspace} agent />
-						</span>
-						<span className="flex size-9 items-center justify-center rounded-[18px] border border-neutral-300 bg-white text-neutral-700">
-							<PlusIcon size={18} />
-						</span>
-						<span className="mt-auto pb-3">
-							<Avatar name={you} />
-						</span>
+					{/* The app rail: this workspace's logo, the app's parts with Chat open, and you. */}
+					<nav className="flex w-[60px] shrink-0 flex-col items-center pt-2 pb-3">
+						<Avatar name={workspace} agent />
+						<div className="my-auto flex flex-col items-center gap-1">
+							{appTabs.map((t) => (
+								<span key={t.id} className={`flex size-10 items-center justify-center rounded-lg ${t.id === "chat" ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500"}`}>
+									<t.icon size={22} weight={t.id === "chat" ? "fill" : "regular"} />
+								</span>
+							))}
+						</div>
+						<Avatar name={you} />
 					</nav>
 					<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
-						<aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-neutral-200 bg-neutral-50 px-3 pt-3">
-							<div className="flex items-center gap-2 px-2 py-1 pb-3 text-sm font-semibold">
-								<span className={`truncate ${company.trim() ? "" : "text-neutral-400"}`}>{workspace}</span>
-								<CaretDownIcon className="shrink-0 text-neutral-400" />
-							</div>
+						<aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-neutral-200 bg-neutral-50 px-3 pt-2.5">
+							<h1 className="truncate px-2 py-1 pb-3 text-sm font-semibold">Chat</h1>
 							<Group title="Channels">
 								<Item icon={<ChannelIcon />} active onClick={noop}>
 									general
@@ -287,4 +287,32 @@ function Preview({ name, company, invites }: { name: string; company: string; in
 			</div>
 		</div>
 	);
+}
+
+/** Invited members already have a workspace, but still choose their own name. */
+export function NameOnboarding() {
+	const { signOut } = useAuthActions();
+	const prefs = useQuery(api.preferences.get);
+	const update = useMutation(api.preferences.update);
+	const [typed, setTyped] = useState<string>();
+	const name = typed ?? prefs?.displayName ?? "";
+	const { error, busy, run, fail } = useRun();
+	return (
+		<div className="drag flex h-screen items-center justify-center bg-neutral-50">
+			<Form className="no-drag flex w-[360px] flex-col gap-6" onSubmit={() => {
+				if (!name.trim()) return fail("Enter your name.");
+				void run(update({ displayName: name }));
+			}}>
+				<Intro title="First, your name" body="Companybot and your teammates call you by it." />
+				<NameField name={name} onChange={setTyped} />
+				<Notice>{error}</Notice>
+				<button type="submit" disabled={busy} className={primaryButton}>Continue</button>
+				<button type="button" onClick={() => void signOut()} className={`${secondaryButton} inline-flex items-center justify-center gap-1.5`}><SignOutIcon /> Sign out</button>
+			</Form>
+		</div>
+	);
+}
+
+function NameField({ name, onChange }: { name: string; onChange: (name: string) => void }) {
+	return <Field label="Your name"><input autoFocus value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${inputClass} bg-white py-2.5`} /></Field>;
 }
