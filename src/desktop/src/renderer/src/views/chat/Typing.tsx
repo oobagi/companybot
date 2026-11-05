@@ -5,6 +5,8 @@ import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { Avatar, AvatarStack, MenuItem, PopoverPanel } from "./common";
+import { StopIcon } from "../../icons";
+import { smallButton } from "../../ui";
 
 /**
  * An agent working here, and its step ("Searching records for Acme…"; null while it writes). `canStop`:
@@ -80,9 +82,9 @@ function StopButton({ agent }: { agent: Working }) {
 			disabled={agent.stopping}
 			onClick={() => stop({ turnId: agent.turnId }).catch(() => {})}
 			title={`Stop ${agent.name}`}
-			className="shrink-0 rounded px-1.5 font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-60 disabled:hover:bg-transparent"
+			className={`${smallButton} shrink-0`}
 		>
-			{agent.stopping ? "Stopping…" : "Stop"}
+			<StopIcon weight="fill" /> {agent.stopping ? "Stopping…" : "Stop"}
 		</button>
 	);
 }
@@ -124,6 +126,7 @@ function WorkingList({ agents, label }: { agents: Working[]; label: string }) {
 			onClose={() => setOpened(false)}
 			trapFocus={false}
 			target={
+				// oxlint-disable-next-line ui/button-class -- "2 agents working" is a link inside the typing line's sentence (PopoverPanel's target, so the lint can't see the words around it)
 				<button
 					type="button"
 					onMouseEnter={open}

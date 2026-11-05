@@ -1,6 +1,7 @@
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { CloseIcon } from "../../icons";
+import { trailingAction } from "./Sidebar";
 import type { Message } from "./data";
 
 // Cards under a message for its first links (backend linkPreviews.ts): site, title, a bit of the
@@ -32,7 +33,7 @@ export function LinkPreviews({ message, onError }: { message: Message; onError: 
 							title="Hide preview"
 							aria-label={`Hide the preview of ${card.title ?? card.url}`}
 							onClick={() => hide({ messageId: message._id, url: card.url }).catch(onError)}
-							className="absolute top-1 right-1 hidden size-5 items-center justify-center rounded-full bg-white text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 group-hover/card:flex focus-visible:flex"
+							className={`absolute top-1 right-1 bg-white opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100 ${trailingAction}`}
 						>
 							<CloseIcon />
 						</button>

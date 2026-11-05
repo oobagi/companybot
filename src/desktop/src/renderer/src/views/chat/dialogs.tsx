@@ -5,7 +5,7 @@ import { api } from "../../api";
 import { type ReplyMode, replyModeLabels, replyModes } from "@companybot/core/router";
 import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
-import { Field, Form, Loading, Notice, Section, Setting, Settings, compactButton, compactPrimaryButton, descriptionClass, iconDangerButton, inputClass, listClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../../ui";
+import { Form, Loading, Notice, Section, Setting, Settings, compactButton, compactControlClass, compactPrimaryButton, descriptionClass, iconDangerButton, listClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../../ui";
 import { ArchiveIcon, PlusIcon, SignOutIcon, UserMinusIcon } from "../../icons";
 import { AgentBadge, Avatar, DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "./common";
 import { navigate } from "../../router";
@@ -22,19 +22,17 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 	return (
 		<Modal title="New channel" onClose={onClose}>
 			<Form onSubmit={() => run(create({ name, topic: topic.trim() || undefined, private: isPrivate }).then((id) => (onOpen(id), onClose())))}>
-				<Field label="Name">
-					<input value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={inputClass} />
-				</Field>
-				<Field label="Topic">
-					<input value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="Optional. What's this channel about?" className={inputClass} />
-				</Field>
-				<label className="flex items-start gap-2 text-sm">
-					<Checkbox checked={isPrivate} onChange={setPrivate} className="mt-0.5" />
-					<span>
-						<span className="font-medium">Private</span>
-						<span className="block text-neutral-500">Only people added can see it.</span>
-					</span>
-				</label>
+				<Settings>
+					<Setting label="Name">
+						<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={wideControlClass} />
+					</Setting>
+					<Setting label="Topic" hint="Optional. What's this channel about?">
+						<input aria-label="Topic" value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="What's it about?" className={wideControlClass} />
+					</Setting>
+					<Setting label="Private" hint="Only people added can see it.">
+						<Checkbox checked={isPrivate} onChange={setPrivate} label="Private" />
+					</Setting>
+				</Settings>
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
@@ -74,7 +72,7 @@ export function BrowseChannels({ onClose, onOpen }: { onClose: () => void; onOpe
 							<button
 								type="button"
 								onClick={() => run(join({ chatId: c._id }), () => (onOpen(c._id), onClose()))}
-								className={secondaryButton}
+								className={compactButton}
 							>
 								Join
 							</button>
@@ -92,7 +90,7 @@ function Picker({ options, picked, onChange }: { options: Participant[]; picked:
 	const shown = options.filter((o) => o.name.toLowerCase().includes(filter.toLowerCase()));
 	return (
 		<div className="flex flex-col gap-2">
-			<input value={filter} autoFocus onChange={(e) => setFilter(e.target.value)} placeholder="Search" className={inputClass} />
+			<input value={filter} autoFocus onChange={(e) => setFilter(e.target.value)} placeholder="Search" aria-label="Search" className={`${compactControlClass} w-full`} />
 			<ul className="-mx-2 flex max-h-72 flex-col overflow-y-auto">
 				{shown.map((o) => (
 					<li key={o.id}>

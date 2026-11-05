@@ -3,7 +3,7 @@ import { useQuery } from "../../convex";
 import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { secondaryButton } from "../../ui";
+import { compactButton } from "../../ui";
 import { Popover } from "./common";
 import type { SkillRef } from "./data";
 import { ProfileLink } from "./Profile";
@@ -30,6 +30,7 @@ export function TokenChip({ token }: { token: Token }) {
 	}
 	const { id } = token.ref;
 	return (
+		// oxlint-disable-next-line ui/button-class -- a #channel chip inside message text: a link in a sentence, styled by .token
 		<button type="button" onClick={() => navigate("chat", id)} className="token hover:underline">
 			{token.text}
 		</button>
@@ -51,9 +52,11 @@ function SkillCard({ skill, onClose }: { skill: SkillRef; onClose: () => void })
 			{full?.instructions && (
 				<Markdown className="max-h-64 overflow-y-auto rounded-xl bg-neutral-50 px-3 py-2 text-sm leading-relaxed">{full.instructions}</Markdown>
 			)}
-			<button type="button" onClick={() => (onClose(), navigate("settings", "skills", skill.id))} className={`${secondaryButton} self-start`}>
-				Open skill
-			</button>
+			<div className="flex">
+				<button type="button" onClick={() => (onClose(), navigate("settings", "skills", skill.id))} className={compactButton}>
+					<SkillIcon /> Open skill
+				</button>
+			</div>
 		</div>
 	);
 }

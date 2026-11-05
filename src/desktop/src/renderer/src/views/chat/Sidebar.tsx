@@ -254,6 +254,7 @@ export function Group({ title, section, add, children }: { title: string; sectio
 			<div draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} className="flex items-center justify-between px-2 pb-1">
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500">
 					{section ? (
+						// oxlint-disable-next-line ui/button-class -- a section's title folds it when clicked (Slack's sidebar); it reads as the heading, not a button
 						<button type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className="flex max-w-full items-center gap-0.5 hover:text-neutral-900">
 							<span className="truncate">{title}</span>
 							<CaretRightIcon className={`shrink-0 ${section.collapsed ? "" : "rotate-90 opacity-0 group-hover/section:opacity-100"}`} />
@@ -291,6 +292,7 @@ export function SidebarList({ children }: { children: React.ReactNode }) {
 /** A section header's +. */
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
 	return (
+		// oxlint-disable-next-line ui/button-class -- trailingAction is the sidebar's shared trailing-control look (also PageTree's); it belongs in ui.tsx
 		<button type="button" onClick={onClick} title={label} aria-label={label} className={trailingAction}>
 			<PlusIcon />
 		</button>
@@ -401,6 +403,7 @@ export function Item({
 					{onToggle ? (
 						<>
 							<span className="contents group-hover/item:hidden">{icon}</span>
+							{/* oxlint-disable-next-line ui/button-class -- the fold chevron takes the row's icon slot on hover, sized to it */}
 							<button
 								type="button"
 								aria-label={`${expanded ? "Collapse" : "Expand"} ${label ?? ""}`.trim()}
@@ -419,6 +422,7 @@ export function Item({
 			{renaming && rename ? (
 				<RenameInput value={rename.value} onSave={rename.onSave} onDone={() => setRenaming(false)} className="-my-0.5 -ml-1.5 flex-1 px-1.5 py-0.5" />
 			) : (
+				// oxlint-disable-next-line ui/button-class -- the sidebar row itself: Item is the primitive and the row its hover surface
 				<button
 					ref={row}
 					type="button"
@@ -432,7 +436,7 @@ export function Item({
 				>
 					{/* A plain label ellipsizes like the others; richer children truncate their own text. */}
 					{typeof children === "string" ? <span className="truncate">{children}</span> : children}
-					{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
+					{draft && !active && <span className="ml-auto shrink-0 text-xs font-normal text-neutral-400">Draft</span>}
 					{mentioned && !active && (
 						<CountBadge count="@" dark className="ml-auto" />
 					)}
@@ -446,6 +450,7 @@ export function Item({
 							onClose={closeMenu}
 							className="w-52 p-1"
 							target={
+								// oxlint-disable-next-line ui/button-class -- trailingAction is the sidebar's shared trailing-control look; it belongs in ui.tsx
 								<button type="button" title="More" aria-label={label ? `Actions for ${label}` : "Actions"} onClick={() => setMenuAt(menuAt === "button" ? undefined : "button")} className={trailingAction}>
 									<MoreIcon weight="bold" />
 								</button>
@@ -477,6 +482,7 @@ function Guide({ continues, elbow }: { continues: boolean; elbow: boolean }) {
 	return (
 		<span aria-hidden className="relative w-7 shrink-0">
 			{continues && <span className="absolute -top-px bottom-0 left-[18.25px] w-[1.5px] bg-neutral-300" />}
+			{/* oxlint-disable-next-line shadcn/no-arbitrary-values -- the elbow's 1.5px stroke matches the guide line beside it (w-[1.5px]) */}
 			{elbow && <span className="absolute -top-px left-[18.25px] h-[calc(50%+1px)] w-2 rounded-bl-lg border-neutral-300 border-b-[1.5px] border-l-[1.5px]" />}
 		</span>
 	);
