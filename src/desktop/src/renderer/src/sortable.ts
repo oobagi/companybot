@@ -176,6 +176,7 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 	const area = scroller(el, axis);
 	let scroll0 = area ? scrollOf(area, axis) : 0;
 	const p0 = pointer(e, axis);
+	const pointerId = e.pointerId;
 	let last = p0;
 	let frame = 0;
 	let live: Session | undefined;
@@ -221,6 +222,10 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 			session = live = { group, axis, from: { list, id }, el, slots, source, dropping: false, ...placed };
 			document.documentElement.classList.add("sorting");
 			window.getSelection()?.removeAllRanges();
+			// Keep getting the pointer if it leaves the window, so letting go out there still drops.
+			try {
+				el.setPointerCapture(pointerId);
+			} catch {}
 			notify();
 		}
 		ev.preventDefault();
@@ -232,6 +237,8 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 		window.removeEventListener("pointerup", up);
 		window.removeEventListener("pointercancel", cancel);
 		window.removeEventListener("keydown", key, true);
+		window.removeEventListener("dragstart", native, true);
+		window.removeEventListener("blur", cancel);
 		if (frame) cancelAnimationFrame(frame);
 		document.documentElement.classList.remove("sorting");
 	};
@@ -265,6 +272,9 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 		}, 160);
 	};
 	const cancel = () => stop();
+	// Pressing on selected text, a picture or a link would start the browser's own drag, which cancels
+	// the pointer and leaves the row where it was: the "sometimes it won't drag".
+	const native = (ev: DragEvent) => ev.preventDefault();
 	const key = (ev: KeyboardEvent) => {
 		if (ev.key !== "Escape" || !live) return;
 		ev.stopPropagation();
@@ -274,6 +284,8 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 	window.addEventListener("pointerup", up);
 	window.addEventListener("pointercancel", cancel);
 	window.addEventListener("keydown", key, true);
+	window.addEventListener("dragstart", native, true);
+	window.addEventListener("blur", cancel);
 }
 
 /** How far a row slides while another is dragged past it; `.sortable-shift` in styles.css moves it. */
