@@ -372,59 +372,62 @@ function ProfileTab() {
 	const update = useMutation(api.preferences.update);
 	const me = useQuery(api.workspace.me);
 	const erase = useMutation(api.workspace.eraseAccount);
-	const nameDraft = useDraft("account:name", prefs?.displayName ?? "", 0);
-	const name = nameDraft.dirty ? nameDraft.value : undefined;
-	const setName = (value: string | undefined) => value === undefined ? nameDraft.discard() : nameDraft.set(value);
+	// Edited together and saved from the top bar, like General; only what changed is sent.
+	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all" };
+	const draft = useDraft("account:preferences", saved, 0);
+	const value = draft.value;
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
-	const shownName = name ?? prefs.displayName;
+	const save = () => {
+		const changed = {
+			...(value.displayName !== saved.displayName && { displayName: value.displayName }),
+			...(value.timeZone !== saved.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
+			...(value.sendWith !== saved.sendWith && { sendWith: value.sendWith }),
+			...(value.notify !== saved.notify && { notify: value.notify }),
+		};
+		run(update(changed), draft.discard);
+	};
 
 	return (
 		<>
+			<SaveBar dirty={draft.dirty} onSave={save} onDiscard={draft.discard} />
 			<Notice>{error}</Notice>
 			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
 				<Setting label="Photo" hint={`Shown to your team in every workspace. ${pictureLimits}.`}>
 					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
 				</Setting>
 				<Setting label="Name" hint="What agents and teammates call you.">
-					<Form className="flex gap-2" onSubmit={() => run(update({ displayName: shownName }), () => setName(undefined))}>
-						<input className={wideControlClass} value={shownName} placeholder="e.g. Jaden" onChange={(e) => setName(e.target.value)} />
-						{name !== undefined && name !== prefs.displayName && (
-							<button type="submit" className={compactPrimaryButton}>
-								Save
-							</button>
-						)}
-					</Form>
+					<input className={wideControlClass} value={value.displayName} placeholder="e.g. Jaden" onChange={(e) => draft.set({ ...value, displayName: e.target.value })} />
 				</Setting>
 				<Setting label="Time zone" hint="For dates and times agents give you.">
 					<Select
 						className={wideControlClass}
-						value={prefs.timeZone ?? "auto"}
+						value={value.timeZone}
 						options={[{ value: "auto", label: `Automatic (${zoneLabel(deviceTimeZone())})` }, ...timeZones.map((zone) => ({ value: zone, label: zoneLabel(zone) }))]}
-						onChange={(zone) => run(update({ timeZone: zone === "auto" ? null : zone }))}
+						onChange={(timeZone) => draft.set({ ...value, timeZone })}
 					/>
 				</Setting>
-				<Setting label="Send messages with" hint={prefs.sendWith === "enter" ? "Shift+Enter adds a new line." : "Enter adds a new line."}>
+				<Setting label="Send messages with" hint={value.sendWith === "enter" ? "Shift+Enter adds a new line." : "Enter adds a new line."}>
 					<Select
 						className={wideControlClass}
-						value={prefs.sendWith}
+						value={value.sendWith}
 						options={[
 							{ value: "enter", label: "Enter" },
 							{ value: "mod-enter", label: "⌘ Enter" },
 						]}
-						onChange={(sendWith) => run(update({ sendWith }))}
+						onChange={(sendWith) => draft.set({ ...value, sendWith })}
 					/>
 				</Setting>
 				<Setting label="Notifications" hint="When Companybot isn't in front, and the dock count.">
 					<Select
 						className={wideControlClass}
-						value={prefs.notify}
+						value={value.notify}
 						options={[
 							{ value: "all", label: "DMs and mentions" },
 							{ value: "mentions", label: "Mentions only" },
 							{ value: "off", label: "Off" },
 						]}
-						onChange={(notify) => run(update({ notify }))}
+						onChange={(notify) => draft.set({ ...value, notify })}
 					/>
 				</Setting>
 			</Settings>
