@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { messageDayLabel, messageTimeline } from './dates';
 
 const at = (day: number, hour = 12) => new Date(2026, 10, day, hour).getTime();
-const row = (id: string, day: number, status = 'done') => ({ _id: id, _creationTime: at(day), status });
+const row = (id: string, day: number, status = 'done') => ({ _id: id, shownAt: at(day), status });
 
 describe('message chronology with live subscriptions', () => {
   it('keeps an invisible streaming row mounted and moves the date header when its live approval appears', () => {

@@ -67,4 +67,14 @@ The reusable library now has a development gallery (`More → Components`) with 
 
 Android gallery verification covers all eight examples, light/dark appearance and interactions. iOS gallery verification covers normal/large-text grouped lists, native choices and dates, bottom toolbar and centered feedback. This pass found and fixed picker measurement, large-text row layout, and status-bar appearance restoration centrally. Settings navigation and document toolbar actions pass on both simulators. The iOS document check exposed missing nested BlockNote stylesheet imports; explicit core/react imports restored paragraph spacing and placeholder styling. The final mobile suite passes 106 tests across 19 files; mobile typecheck, lint and all-platform/DOM export pass.
 
-Document touch actions preserve the existing schema and collaboration boundary. Child creation was exercised on iOS, with its single server-created link present in the parent. Mounted BlockNote regressions cover nested deletion and movement without unintended archiving. A development-only stale DomWebView tag warning occurred during concurrent FastRefresh edits; the final Android navigation/toolbar smoke produced no new runtime errors. A stable release build and physical-device teardown still need acceptance testing.
+Document touch actions preserve the existing schema and collaboration boundary. Child creation was exercised on iOS, with its single server-created link present in the parent. Mounted BlockNote regressions cover nested deletion and movement without unintended archiving. Subsequent checks reproduced missing-DomWebView errors during normal navigation, so the earlier FastRefresh-only explanation was incorrect. WebView lifecycle handling remains under investigation; a stable release build and physical-device teardown still need acceptance testing.
+
+## Reliability follow-up
+
+The current-main integration passes repository typecheck, 331 core, 800 backend, 119 desktop and 128 mobile tests, plus 41 backend scale tests. These checks establish contract compatibility, not visual or device acceptance.
+
+A real editor regression reproduced the typing/paste crash: the page-removal guard tried to convert new blocks before BlockNote assigned their IDs. The guard now inspects transaction identities while preserving page-deletion confirmation. The updated mobile suite passes 130 tests; typecheck and lint pass. On the iOS simulator, entering a new paragraph, navigating back and reopening preserved the paragraph without that crash. Android verification remains outstanding.
+
+Mobile chat now consumes paginated history, bounds deep-link seeking with an explicit continuation, and uses publication time consistently. Review also corrected a race where a linked message could load before its list mounted and never scroll into view. Native long-history scrolling still needs acceptance testing.
+
+The immediate priority is shared component reliability and on-device screen composition. Further feature expansion waits on validating navigation, lists, sheets, forms and feedback states together.

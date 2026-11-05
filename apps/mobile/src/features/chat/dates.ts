@@ -11,7 +11,7 @@ export function messageDayLabel(time: number, now = Date.now()) {
   return new Date(time).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-type DatedMessage = { _id: string; _creationTime: number; status: string; privacy?: { hidden?: boolean } | null };
+type DatedMessage = { _id: string; shownAt: number; status: string; privacy?: { hidden?: boolean } | null };
 
 /** Invisible streaming rows stay mounted: their live subscriptions can reveal approval cards. */
 export function messageTimeline<T extends DatedMessage>(messages: readonly T[], liveVisible: ReadonlySet<string>, now = Date.now()) {
@@ -19,8 +19,8 @@ export function messageTimeline<T extends DatedMessage>(messages: readonly T[], 
   let previous: number | undefined;
   for (const message of messages) {
     if (message.status === 'streaming' && !message.privacy?.hidden && !liveVisible.has(message._id)) continue;
-    if (previous === undefined || !sameMessageDay(previous, message._creationTime)) days.set(message._id, messageDayLabel(message._creationTime, now));
-    previous = message._creationTime;
+    if (previous === undefined || !sameMessageDay(previous, message.shownAt)) days.set(message._id, messageDayLabel(message.shownAt, now));
+    previous = message.shownAt;
   }
   return { data: messages.slice().reverse(), days };
 }

@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import type { Message } from './types';
+import { approvalFailure } from './approvalOutcome';
 
 type Approval = FunctionReturnType<typeof api.approvals.forReply>[number];
 export function Approvals({ message }: { message: Message }) {
@@ -25,7 +26,7 @@ function ApprovalCard({ approval, reason, loaded }: { approval?: Approval; reaso
       <Button label="Allow once" loading={task.busy} onPress={() => void act(true)} />
       {approval.alwaysText && <><Button label={approval.alwaysAutomation ? 'Always for this automation' : 'Always allow'} variant="secondary" disabled={task.busy} onPress={() => void act(true, true)} /><Text variant="caption" tone="muted">{approval.alwaysText}</Text></>}
       <Button label="Deny" variant="ghost" disabled={task.busy} onPress={() => void act(false)} />
-    </Stack> : <Text tone="muted">Waiting for {approval.approver}. Only they can answer.</Text> : <Text tone={approval.status === 'failed' ? 'danger' : 'muted'}>{approval.status === 'done' ? `Done · ${approval.always ? 'Always allowed' : 'Allowed once'} by ${approval.approver}` : approval.status === 'denied' ? `Denied by ${approval.approver}. Nothing ran.` : approval.status === 'expired' ? 'Expired. Nothing ran.' : approval.status === 'failed' ? `Failed: ${approval.error}` : 'Approved · running…'}</Text>}
+    </Stack> : <Text tone="muted">Waiting for {approval.approver}. Only they can answer.</Text> : <Text tone={approval.status === 'failed' && !approvalFailure(approval).uncertain ? 'danger' : 'muted'}>{approval.status === 'done' ? `Done · ${approval.always ? 'Always allowed' : 'Allowed once'} by ${approval.approver}` : approval.status === 'denied' ? `Denied by ${approval.approver}. Nothing ran.` : approval.status === 'expired' ? 'Expired. Nothing ran.' : approval.status === 'failed' ? approvalFailure(approval).text : 'Approved · running…'}</Text>}
     {task.error && <ErrorState message={task.error} />}
   </> : <Text tone="muted">{loaded ? 'Approval no longer available.' : 'Loading exact action…'}</Text>}</Card>;
 }

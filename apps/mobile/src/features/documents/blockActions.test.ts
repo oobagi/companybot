@@ -15,6 +15,36 @@ function editor() {
 }
 afterEach(() => { for (const value of editors.splice(0)) value._tiptapEditor.destroy(); vi.useRealTimers(); });
 
+it('allows newly typed blocks before BlockNote assigns their IDs', () => {
+  const value = editor();
+  const confirm = vi.fn(async () => true);
+  const dispose = installPageRemovalGuard(value, confirm, error => { throw error; });
+  const pm = value._tiptapEditor;
+  const block = pm.schema.nodes.blockContainer.create(null, pm.schema.nodes.paragraph.create(null, pm.schema.text('New paragraph')));
+  expect(() => pm.view.dispatch(pm.state.tr.insert(pm.state.doc.content.size - 1, block))).not.toThrow();
+  expect(value.document.at(-1)?.content).toEqual([{ type: 'text', text: 'New paragraph', styles: {} }]);
+  expect(value.document.at(-1)?.id).toBeTruthy();
+  expect(confirm).not.toHaveBeenCalled();
+  dispose();
+});
+
+it('still confirms page deletion when a paste also inserts a block without an ID', async () => {
+  const value = editor();
+  value.insertBlocks([{ id: 'child-block', type: 'page', props: { pageId: 'child' } }], 'b', 'after');
+  const confirm = vi.fn(async () => false);
+  const dispose = installPageRemovalGuard(value, confirm, error => { throw error; });
+  const pm = value._tiptapEditor;
+  let from = 0; let size = 0;
+  pm.state.doc.descendants((node, pos) => { if (node.attrs.id === 'child-block') { from = pos; size = node.nodeSize; } });
+  const replacement = pm.schema.nodes.blockContainer.create(null, pm.schema.nodes.paragraph.create(null, pm.schema.text('Pasted paragraph')));
+  expect(() => pm.view.dispatch(pm.state.tr.replaceWith(from, from + size, replacement))).not.toThrow();
+  await Promise.resolve();
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(['child']);
+  expect(value.getBlock('child-block')).toBeDefined();
+  expect(value.document.map(block => block.id)).toEqual(['a', 'b', 'child-block']);
+  dispose();
+});
+
 it('consumes native commands once and creates at the captured cursor despite later selection changes', async () => {
   const value = editor();
   value.setTextCursorPosition('a', 'end');

@@ -41,12 +41,23 @@ export function installPageRemovalGuard(editor: PageEditor, confirm: (ids: strin
   let active = true;
   let approved = false;
   let asking = false;
-  const off = editor.onBeforeChange(({ getChanges, tr }) => {
-    if (approved || tr.getMeta('addToHistory') === false || tr.getMeta('rebased') !== undefined) return;
-    const changes = getChanges();
-    const pageIds = changes.flatMap(change => change.type === 'delete' && change.block.type === 'page' ? [change.block.props.pageId] : []);
+  const off = editor.onBeforeChange(({ tr }) => {
+    if (approved || !tr.docChanged || tr.getMeta('addToHistory') === false || tr.getMeta('rebased') !== undefined) return;
+    // This runs before BlockNote assigns IDs to newly typed/pasted blocks.
+    // getChanges() converts those temporary nodes to blocks and throws. Only
+    // inspect existing identities here; moves retain their IDs in the new doc.
+    const retained = new Set<string>();
+    tr.doc.descendants(node => {
+      if (node.type.name === 'blockContainer' && typeof node.attrs.id === 'string') retained.add(node.attrs.id);
+    });
+    const deleted: string[] = [];
+    const pageIds: string[] = [];
+    tr.before.descendants(node => {
+      if (node.type.name !== 'blockContainer' || typeof node.attrs.id !== 'string' || retained.has(node.attrs.id)) return;
+      deleted.push(node.attrs.id);
+      if (node.firstChild?.type.name === 'page') pageIds.push(node.firstChild.attrs.pageId);
+    });
     if (!pageIds.length) return;
-    const deleted = changes.filter(change => change.type === 'delete').map(change => change.block.id);
     if (!asking) {
       asking = true;
       queueMicrotask(() => {

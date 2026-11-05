@@ -73,7 +73,7 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
                 <Text variant="label" style={{ flexShrink: 1 }}>{message.author.name}</Text>
                 {message.author.type === 'agent' && <Badge label="Bot" />}
               </View>
-              <Text variant="caption" tone="muted">{new Date(message._creationTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{message.editedAt ? ' · edited' : ''}</Text>
+              <Text variant="caption" tone="muted">{new Date(message.shownAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{message.editedAt ? ' · edited' : ''}</Text>
             </View>
           </View>
         </ProfileLink>
