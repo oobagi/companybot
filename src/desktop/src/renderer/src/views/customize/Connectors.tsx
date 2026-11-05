@@ -7,7 +7,7 @@ import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ConnectorIcon } from "../../icons";
-import { EmptyState, Form, Loading, Notice, Section, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
+import { EmptyState, Form, Loading, Notice, Section, compactButton, inputClass, metadataClass, primaryButton, useRun } from "../../ui";
 import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
@@ -144,7 +144,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 						<button
 							type="button"
 							onClick={() => confirm({ title: `Disconnect ${connector.name}?`, action: "Disconnect", body: "This deletes the saved connection. You will need to connect again before agents can use it.", onConfirm: () => disconnect({ connectorId: connector.id }) })}
-							className="text-neutral-500 hover:text-red-600"
+							className={compactButton}
 						>
 							Disconnect
 						</button>

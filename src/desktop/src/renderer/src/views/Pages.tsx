@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { ArchiveIcon, DriveIcon, HistoryIcon, PageIcon, PrivateIcon } from "../icons";
+import { ArchiveIcon, DriveIcon, HistoryIcon, MembersIcon, MoveIcon, PageIcon, PrivateIcon } from "../icons";
 import { EmptyState, NotFound, Notice, Page, barButton, useRun } from "../ui";
 import { MovePage, PageAccess } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
@@ -52,10 +52,10 @@ function PageScreen({ pageId }: { pageId: Id<"pages"> }) {
 					<button type="button" onClick={() => setHistory(true)} className={barButton}>
 						<HistoryIcon /> History
 					</button>
-					{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}>Move to…</button>}
+					{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}><MoveIcon /> Move to…</button>}
 					{!page.recordId && (
 						<button type="button" onClick={() => setSharing(true)} title={page.lock ? (page.lock.edit ? `Only ${page.lock.who} can edit it` : `Only ${page.lock.who} can see it`) : "Everyone can access it"} className={barButton}>
-							{page.restricted && <PrivateIcon />} Who can access
+							{page.restricted ? <PrivateIcon /> : <MembersIcon />} Who can access
 						</button>
 					)}
 					{page.canEdit && !page.archived && (

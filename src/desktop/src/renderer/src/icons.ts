@@ -4,6 +4,8 @@
 export {
 	ArchiveIcon,
 	ArrowBendUpLeftIcon as ReplyIcon,
+	ArrowCounterClockwiseIcon as RestoreIcon,
+	ArrowBendDownRightIcon as MoveIcon,
 	ArrowDownIcon,
 	ArrowLeftIcon,
 	ArrowRightIcon,
@@ -54,6 +56,7 @@ export {
 	TableIcon as DatabaseIcon,
 	TrashIcon,
 	UserIcon,
+	UserMinusIcon,
 	UsersIcon as MembersIcon,
 	XIcon as CloseIcon,
 } from "@phosphor-icons/react";

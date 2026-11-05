@@ -58,7 +58,10 @@ it("shows saved custom fields while read-only and brings back the draft when edi
 it.each(["agent", "settings", "memory", "custom", "account"])("clears the %s draft after saving", async (kind) => {
 	const screen = () => kind === "agent" ? createElement(AgentScreen, { access, agentId: "agent" as never }) : kind === "settings" ? createElement(SettingsView, { access, tab: "general" }) : kind === "memory" ? createElement(MemoryTab, { access }) : kind === "account" ? createElement(SettingsView, { access, tab: "preferences" }) : custom();
 	await render(screen());
-	if (kind === "memory") await click("Edit");
+	if (kind === "memory") {
+		await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Memory actions"]')!.click());
+		await click("Edit");
+	}
 	await change(kind === "memory" ? "textarea" : "input", "Unsaved text");
 	await click("Save"); expect(state.save).toHaveBeenCalled();
 	await render(createElement("div")); await render(screen());

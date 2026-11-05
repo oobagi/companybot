@@ -3,6 +3,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
+import { Segmented } from "../../controls";
 import { Notice, descriptionClass, hintClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
 import type { Message } from "./data";
 
@@ -46,12 +47,18 @@ function ApprovalCard({ part, approval, unlisted }: { part: ApprovalPart; approv
 				<p className="leading-relaxed">{approval?.ask ?? `I'd like to run ${part.tool}.`}</p>
 			)}
 			<div className="flex flex-col gap-2 rounded-xl bg-white px-3 py-2">
-				<div className="flex items-baseline justify-between gap-3 text-xs text-neutral-500">
+				<div className="flex items-center justify-between gap-3 text-xs text-neutral-500">
 					<span>{service}</span>
 					{approval && (
-						<button type="button" onClick={() => setRaw(!raw)} className="text-neutral-400 hover:text-neutral-600">
-							{raw ? "Fields" : "Raw"}
-						</button>
+						<Segmented
+							label="Show as"
+							options={[
+								{ value: "fields", label: "Fields" },
+								{ value: "raw", label: "Raw" },
+							]}
+							value={raw ? "raw" : "fields"}
+							onChange={(v) => setRaw(v === "raw")}
+						/>
 					)}
 				</div>
 				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields fields={approval.fields} input={approval.input} /> : <p className={hintClass}>{unlisted ? "This reply holds too many requests to show them all. Ask the agent again." : "Loading…"}</p>}

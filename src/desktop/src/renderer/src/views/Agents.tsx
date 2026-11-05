@@ -14,8 +14,8 @@ import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
 import { archiveQuestion, useConfirm } from "./chat/common";
 import { TrashNotice } from "./Trash";
-import { AgentIcon, ArchiveIcon } from "../icons";
-import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barButton, cardClass, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
+import { AgentIcon, ArchiveIcon, CaretDownIcon, CaretRightIcon, RestoreIcon } from "../icons";
+import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barButton, cardClass, compactButton, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
@@ -262,8 +262,10 @@ function History({ agent, canManage }: { agent: Agent; canManage: boolean }) {
 							<button
 								type="button"
 								onClick={() => setOpenVersion(openVersion === v.version ? undefined : v.version)}
-								className="text-neutral-500 hover:text-neutral-900"
+								aria-expanded={openVersion === v.version}
+								className={compactButton}
 							>
+								{openVersion === v.version ? <CaretDownIcon /> : <CaretRightIcon />}
 								{openVersion === v.version ? "Hide" : "View"}
 							</button>
 							{v.version === agent.version ? (
@@ -275,9 +277,9 @@ function History({ agent, canManage }: { agent: Agent; canManage: boolean }) {
 										onClick={() =>
 											run(restore({ agentId: agent._id, version: v.version, expectedVersion: agent.version }))
 										}
-										className="font-medium hover:underline"
+										className={compactButton}
 									>
-										Restore
+										<RestoreIcon /> Restore
 									</button>
 								)
 							)}

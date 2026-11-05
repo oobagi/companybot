@@ -7,10 +7,10 @@ import { useState } from "react";
 import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { MemoryIcon } from "../icons";
-import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, hintClass, inputClass, insetClass, metadataClass, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
+import { ArchiveIcon, EditIcon, HistoryIcon, MemoryIcon, MoreIcon, RestoreIcon, TrashIcon } from "../icons";
+import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, compactButton, compactControlClass, compactPrimaryButton, iconButton, hintClass, inputClass, insetClass, metadataClass, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
 
-import { archiveQuestion, useConfirm } from "./chat/common";
+import { MenuItem, Popover, archiveQuestion, useConfirm } from "./chat/common";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -107,49 +107,42 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 						className={`${inputClass} flex-1 resize-none bg-neutral-50 leading-relaxed`}
 					/>
 				)}
-				{memory.canEdit && (
-					<div className={`flex gap-2 ${descriptionClass}`}>
-						{!draft.dirty ? (
-							<>
-								<button
-									type="button"
-									onClick={() => draft.set(memory.content)}
-									className="hover:text-neutral-900"
-								>
-									Edit
-								</button>
-								{memory.version > 1 && (
-									<button type="button" onClick={() => setHistory(!history)} className="hover:text-neutral-900" aria-expanded={history}>
-										History
-									</button>
-								)}
-								<button
-									type="button"
-									onClick={() => confirm(team ? archiveQuestion("team memory", () => remove({ id }), "Agents will stop using this memory.") : { title: "Delete this personal memory?", action: "Delete memory", body: "This permanently deletes the memory and its history. It cannot be undone.", onConfirm: () => remove({ id }) })}
-									title={team ? "Archive this memory" : "Delete this memory forever"}
-									className={team ? "hover:text-neutral-900" : "hover:text-red-600"}
-								>
-									{team ? "Archive" : "Delete"}
-								</button>
-							</>
-						) : (
-							<>
-								<button
-									type="button"
-									onClick={() =>
-										run(update({ id, content: draft.value, expectedVersion: draft.base }), draft.discard)
-									}
-									className="font-medium text-neutral-900"
-								>
-									Save
-								</button>
-								<button type="button" onClick={draft.discard}>
-									Cancel
-								</button>
-							</>
-						)}
-					</div>
-				)}
+				{memory.canEdit &&
+					(!draft.dirty ? (
+						<Popover trigger={<MoreIcon size={16} weight="bold" />} label="Memory actions" className={iconButton} panelClassName="w-48 p-1">
+							{(close) => (
+								<>
+									<MenuItem onClick={() => (close(), draft.set(memory.content))}>
+										<EditIcon /> Edit
+									</MenuItem>
+									{memory.version > 1 && (
+										<MenuItem onClick={() => (close(), setHistory(!history))}>
+											<HistoryIcon /> {history ? "Hide history" : "History"}
+										</MenuItem>
+									)}
+									<MenuItem
+										danger={!team}
+										onClick={() => (close(), confirm(team ? archiveQuestion("team memory", () => remove({ id }), "Agents will stop using this memory.") : { title: "Delete this personal memory?", action: "Delete memory", body: "This permanently deletes the memory and its history. It cannot be undone.", onConfirm: () => remove({ id }) }))}
+									>
+										{team ? <ArchiveIcon /> : <TrashIcon />} {team ? "Archive" : "Delete"}
+									</MenuItem>
+								</>
+							)}
+						</Popover>
+					) : (
+						<div className="flex shrink-0 gap-2">
+							<button type="button" onClick={draft.discard} className={compactButton}>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={() => run(update({ id, content: draft.value, expectedVersion: draft.base }), draft.discard)}
+								className={compactPrimaryButton}
+							>
+								Save
+							</button>
+						</div>
+					))}
 			</div>
 			<p className={metadataClass}>
 				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> · {provenance(memory)} ·{" "}
@@ -191,9 +184,9 @@ function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored:
 						<button
 							type="button"
 							onClick={() => run(restore({ versionId: v._id, expectedVersion: memory.version }), onRestored)}
-							className={`${descriptionClass} hover:text-neutral-900`}
+							className={`shrink-0 ${compactButton}`}
 						>
-							Restore
+							<RestoreIcon /> Restore
 						</button>
 					)}
 				</div>

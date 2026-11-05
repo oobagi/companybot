@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, ArchiveIcon } from "../../icons";
-import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
@@ -166,10 +166,12 @@ export function NewItem({
 			<Notice>{error}</Notice>
 			<div className="flex flex-col gap-5">
 				{children}
-				{onDiscard && <button type="button" className={`${barButton} self-start`} onClick={onDiscard}>Discard</button>}
-				<button type="button" className={`${primaryButton} self-start`} onClick={onCreate}>
-					Create
-				</button>
+				<div className="flex gap-2">
+					{onDiscard && <button type="button" className={secondaryButton} onClick={onDiscard}>Discard</button>}
+					<button type="button" className={primaryButton} onClick={onCreate}>
+						Create
+					</button>
+				</div>
 			</div>
 		</Page>
 	);

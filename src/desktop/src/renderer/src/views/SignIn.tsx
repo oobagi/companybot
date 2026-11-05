@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, useRun } from "../ui";
+import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { Mark, Split } from "./Landing";
 
 /**
@@ -65,12 +65,12 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 						{sentTo ? "Sign in" : "Email me a code"}
 					</button>
 					{sentTo ? (
-						<button type="button" onClick={() => (setSentTo(undefined), setCode(""), fail())} className={`${descriptionClass} hover:text-neutral-700`}>
+						<button type="button" onClick={() => (setSentTo(undefined), setCode(""), fail())} className={`${secondaryButton} py-2.5`}>
 							Use a different email
 						</button>
 					) : (
 						onBack && (
-							<button type="button" onClick={onBack} className={`${descriptionClass} hover:text-neutral-700`}>
+							<button type="button" onClick={onBack} className={`${secondaryButton} py-2.5`}>
 								Back
 							</button>
 						)
