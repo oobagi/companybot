@@ -256,6 +256,8 @@ export function RoleScreen({ access, roleId }: { access: Access; roleId: string 
 }
 
 type RoleConfig = { name: string; on: Permission[] };
+/** The draft keeps `start`, the role as it was when you began editing, so Save sends only what you changed. */
+type RoleDraft = RoleConfig & { start: RoleConfig };
 /** Roles have no version number; the draft notices someone else's save by what changed. */
 const versionOf = (c: RoleConfig) => [...JSON.stringify(c)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7);
 
@@ -267,15 +269,17 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 	const { error, run } = useRun();
 	const fixed = role.builtIn === "owner";
 	const saved: RoleConfig = { name: role.name, on: switches.filter((p) => role.permissions.includes(p)) };
-	const draft = useDraft(`role:${role.id}`, saved, versionOf(saved));
+	const draft = useDraft<RoleDraft>(`role:${role.id}`, { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const toggle = (p: Permission, on: boolean) => draft.set({ ...value, on: on ? [...value.on, p] : value.on.filter((x) => x !== p) });
-	// Only what changed is sent, one switch at a time, so someone else's other changes stay.
+	// Only what you changed since you began is sent, one switch at a time, so someone else's other
+	// changes stay. If they saved meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
 	const save = async () => {
-		if (value.name.trim() !== role.name) await rename({ id: role.id, name: value.name });
+		const { start } = value;
+		if (value.name.trim() !== start.name) await rename({ id: role.id, name: value.name });
 		for (const p of switches) {
 			const on = value.on.includes(p);
-			if (on !== saved.on.includes(p)) await setPermission({ id: role.id as Id<"roles">, permission: p, on });
+			if (on !== start.on.includes(p)) await setPermission({ id: role.id as Id<"roles">, permission: p, on });
 		}
 	};
 	return (
@@ -304,7 +308,7 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 			}
 		>
 			{dialog}
-			{canEdit && <SaveBar dirty={draft.dirty} onSave={() => run(save(), draft.discard)} onDiscard={draft.discard} />}
+			{canEdit && <SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={() => run(save(), draft.discard)} onDiscard={draft.discard} />}
 			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
 			<Field label="Name">

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useQuery, useWorkspace } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
@@ -55,20 +55,19 @@ function useEntries(keys: PinKey[]) {
 	return { resolve, ready };
 }
 
-/** Each workspace's recents in the order the rail shows them, for this session. */
+/** Each workspace's recents in the order the rail last showed them, for this session. */
 const railOrder = new Map<string, PinKey[]>();
 
 /**
- * Recents in a steady order: one already on the rail keeps its place when you open it again (the
- * saved list moves it to the front), and one new to the list comes in at the top. Which ones show
- * is still the latest RECENT_SHOWN, so the one you used longest ago is what drops off. The order
- * starts as the saved one each launch. Same input, same output, so a second render changes nothing.
+ * Recents in a steady order, from the order last shown (`before`): one already on the rail keeps its
+ * place when you open it again (the saved list moves it to the front), and one new to the list comes in
+ * at the top. Which ones show is still the latest RECENT_SHOWN, so the one you used longest ago is what
+ * drops off. Pure: RailPins stores the result only once it's on screen, so a render React throws away
+ * can't reorder anything.
  */
-export function steadyOrder(workspaceId: string, latest: PinKey[]): PinKey[] {
-	const before = (railOrder.get(workspaceId) ?? []).filter((k) => latest.includes(k));
-	const next = [...latest.filter((k) => !before.includes(k)), ...before];
-	railOrder.set(workspaceId, next);
-	return next;
+export function steadyOrder(before: readonly PinKey[], latest: readonly PinKey[]): PinKey[] {
+	const kept = before.filter((k) => latest.includes(k));
+	return [...latest.filter((k) => !kept.includes(k)), ...kept];
 }
 
 /**
@@ -86,7 +85,13 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 	// still loading, the rail keeps what it showed: one arriving late would look new and jump to the top.
 	const ws = workspace?.id ?? "";
 	const latest = recent.filter((k) => !pins.includes(k)).map(resolve).filter((e): e is Entry => !!e).slice(0, RECENT_SHOWN);
-	const lately = (ready ? steadyOrder(ws, latest.map(entryKey)) : (railOrder.get(ws) ?? [])).map(resolve).filter((e): e is Entry => !!e);
+	const before = railOrder.get(ws) ?? [];
+	const order = ready ? steadyOrder(before, latest.map(entryKey)) : before;
+	const orderKey = order.join(" ");
+	useEffect(() => {
+		if (ready) railOrder.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
+	}, [ready, ws, orderKey]);
+	const lately = order.map(resolve).filter((e): e is Entry => !!e);
 	const row = (e: Entry, isPinned: boolean, d?: DragProps) => (
 		<RailItem
 			key={e.key}

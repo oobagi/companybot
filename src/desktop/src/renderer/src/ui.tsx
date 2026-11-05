@@ -717,14 +717,14 @@ export function PageActions({ children }: { children: React.ReactNode }) {
 	return slot ? createPortal(children, slot) : null;
 }
 
-/** Discard and Save in the page's top bar; both off until something changed. */
-export function SaveBar({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => void; onDiscard: () => void }) {
+/** Discard and Save in the page's top bar; both off until something changed. `canSave` false holds Save (an unresolved conflict). */
+export function SaveBar({ dirty, canSave = true, onSave, onDiscard }: { dirty: boolean; canSave?: boolean; onSave: () => void; onDiscard: () => void }) {
 	return (
 		<PageActions>
 			<button type="button" disabled={!dirty} onClick={onDiscard} className={barButton}>
 				Discard
 			</button>
-			<button type="button" disabled={!dirty} onClick={onSave} className={compactPrimaryButton}>
+			<button type="button" disabled={!dirty || !canSave} onClick={onSave} className={compactPrimaryButton}>
 				Save
 			</button>
 		</PageActions>
