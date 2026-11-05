@@ -15,7 +15,7 @@ vi.mock("node:dns/promises", () => ({
 	},
 }));
 type Lookup = (host: string, options: { all: true }, callback: (error: unknown, all: { address: string }[]) => void) => void;
-const server = vi.hoisted(() => ({ connections: [] as { url: string; method: string; address: string }[] }));
+const server = vi.hoisted(() => ({ connections: [] as { url: string; method: string; address: string }[], initializeMs: 0 }));
 vi.mock("undici", () => ({
 	Agent: class {
 		constructor(readonly options: { connect: { lookup: Lookup } }) {}
@@ -32,6 +32,7 @@ vi.mock("undici", () => ({
 			headers: new Headers({ "content-type": "application/json" }),
 			body: [new TextEncoder().encode(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }))],
 		});
+		if (message?.method === "initialize" && server.initializeMs) await new Promise((r) => setTimeout(r, server.initializeMs));
 		if (message?.method === "initialize") return json({ result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "tickets", version: "1" } } });
 		if (message?.method === "tools/list") return json({ result: { tools: [{ name: "find_ticket", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }] } });
 		// An older server: it only knows initialize (the client falls back to it).
@@ -43,6 +44,7 @@ const fetched: string[] = [];
 beforeEach(() => {
 	fetched.length = 0;
 	server.connections.length = 0;
+	server.initializeMs = 0;
 	dns.answer = () => [];
 	dns.asked.length = 0;
 	vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
@@ -143,9 +145,26 @@ describe("custom connectors", () => {
 		expect(fetched).toEqual([]);
 	});
 
-	it("is Streamable HTTP only: a legacy SSE transport, whose stream can't be pinned, can't be saved", async () => {
+	it("is Streamable HTTP only: a legacy SSE transport or SSE address can't be saved", async () => {
 		const { owner } = await ownerAndMember();
 		await expect(owner.mutation(api.customConnectors.create, { connector: { ...tickets, transport: "sse" } as typeof tickets })).rejects.toThrow("transport");
+		await expect(owner.mutation(api.customConnectors.create, { connector: { ...tickets, url: "https://mcp.tickets.example/sse" } })).rejects.toThrow("Streamable HTTP only");
+	});
+
+	it("gets 20 seconds to connect, longer than a catalog connector's 10", async () => {
+		vi.useFakeTimers();
+		const { owner } = await ownerAndMember();
+		const id = await owner.mutation(api.customConnectors.create, { connector: { ...tickets, connection: "workspace", auth: { type: "none" } } });
+		dns.answer = () => ["93.184.216.34"];
+		const refresh = async (initializeMs: number) => {
+			server.initializeMs = initializeMs;
+			const done = owner.action(api.agent.refreshTools, { connectorId: id }).then(() => "connected", (e: Error) => e.message);
+			await vi.advanceTimersByTimeAsync(30_000);
+			return done;
+		};
+		// Past a catalog connector's 10 s, within 20 s: it still connects.
+		expect(await refresh(15_000)).toBe("connected");
+		expect(await refresh(25_000)).toMatch("Couldn't reach Tickets");
 	});
 
 	it("belongs to its workspace alone", async () => {
