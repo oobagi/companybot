@@ -63,9 +63,12 @@ export function AppRail({
 					{workspace}
 				</span>
 			)}
-			{/* Centered while it fits; with many pins it scrolls (my-auto keeps a short list in the middle). */}
+			{/* The tabs sit in the middle and never move: pins and recents hang below them, in the lower half
+			    (two equal flex-1 spaces), so pinning, unpinning or a recent coming in shifts nothing above.
+			    With more than fit, it scrolls. */}
 			<div onScroll={hideTip} className="no-drag flex min-h-0 w-full flex-1 flex-col items-center overflow-y-auto py-2 [scrollbar-width:none]">
-				<div className="my-auto flex flex-col items-center gap-1">
+				<div className="flex-1" />
+				<div className="flex flex-col items-center gap-1">
 					{tabs.map((t, i) => {
 						const active = t.id === tab;
 						const badge = badges[t.id];
@@ -91,8 +94,8 @@ export function AppRail({
 							</span>
 						);
 					})}
-					{below?.(tipFor, hideTip)}
 				</div>
+				<div className="flex flex-1 flex-col items-center gap-1 pt-1">{below?.(tipFor, hideTip)}</div>
 			</div>
 			{youMenu && (
 				// Hovered, it names you, as the rail names each tab.

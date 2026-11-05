@@ -73,7 +73,7 @@ export function steadyOrder(before: readonly PinKey[], latest: readonly PinKey[]
 }
 
 /**
- * Under the rail's tabs: your pins (any chat, DM, page, database or record; drag to reorder), then what
+ * Straight after the rail's tabs, as one group with them: your pins (any chat, DM, page, database or record; drag to reorder), then what
  * you opened lately that isn't pinned. Pin from a sidebar row's menu, or right-click one here.
  * `open` is what's on screen, lit like a tab.
  */
@@ -94,8 +94,8 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 		},
 	});
 	const { item: recentDrag, key: recentList } = useDragList({ group: "rail", enabled: true, onDrop: (from) => { if (from.list === pinList) { toggle(from.id as PinKey); visit(from.id as PinKey); } } });
-	// Both dividers stay while either list has rows, so an empty one still takes a drop; it shows only while dragging.
-	const pinDivider = useDragStatic("rail", { startOf: pinList });
+	// Pins carry on straight after the tabs, as one group; one divider sets recents apart. A drop above it
+	// pins (`endOf`), below it unpins. With no recents it stays, unseen, at the bottom so a pin can still be dragged out.
 	const recentDivider = useDragStatic("rail", { endOf: pinList, startOf: recentList });
 	// The RECENT_SHOWN you opened last, in the order they came in (`steadyOrder`). While some are
 	// still loading, the rail keeps what it showed: one arriving late would look new and jump to the top.
@@ -123,7 +123,6 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 	);
 	return (
 		<>
-			{any && <Divider {...pinDivider} className={`${pinDivider.className} ${sorted.length || pinDivider.className ? "" : "invisible"}`} />}
 			{sorted.map((e) => row(e, true, drag(e.key)))}
 			{any && <Divider {...recentDivider} className={`${recentDivider.className} ${lately.length || recentDivider.className ? "" : "invisible"}`} />}
 			{lately.map((e) => row(e, false, recentDrag(e.key)))}
