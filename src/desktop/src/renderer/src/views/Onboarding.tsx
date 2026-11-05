@@ -8,7 +8,7 @@ import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
 import { appTabs } from "./RailPins";
-import { Form, Notice, Setting, Settings, Stacked, compactControlClass, descriptionClass, primaryButton, secondaryButton, trailingAction, useRun, wideControlClass } from "../ui";
+import { Form, Notice, Setting, Settings, Stacked, chipRemoveButton, compactControlClass, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
@@ -179,7 +179,7 @@ function InviteBox({
 					<span key={email} className="flex items-center gap-1.5 rounded-full bg-neutral-100 py-0.5 pr-1 pl-0.5 text-sm text-neutral-700">
 						<Avatar name={email} size="xs" />
 						{email}
-						<button type="button" onClick={() => onRemove(email)} aria-label={`Remove ${email}`} title="Remove" className={trailingAction}>
+						<button type="button" onClick={() => onRemove(email)} aria-label={`Remove ${email}`} title="Remove" className={chipRemoveButton}>
 							<CloseIcon size={12} weight="bold" />
 						</button>
 					</span>

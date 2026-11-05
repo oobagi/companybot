@@ -8,7 +8,7 @@ import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
-import { CountBadge, Notice, RenameInput, surfaceButton, titleButton, trailingAction, useClock, useRun } from "../../ui";
+import { CountBadge, Notice, RenameInput, chevronButton, surfaceButton, titleButton, trailingAction, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
@@ -399,11 +399,9 @@ export function Item({
 					{onToggle ? (
 						<>
 							<span className="contents group-hover/item:hidden">{icon}</span>
-							<span className="relative z-10 hidden group-hover/item:contents">
-								<button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${label ?? ""}`.trim()} aria-expanded={expanded} onClick={onToggle} className={trailingAction}>
-									<CaretRightIcon className={expanded ? "rotate-90" : ""} />
-								</button>
-							</span>
+							<button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${label ?? ""}`.trim()} aria-expanded={expanded} onClick={onToggle} className={`relative z-10 hidden group-hover/item:flex ${chevronButton}`}>
+								<CaretRightIcon className={expanded ? "rotate-90" : ""} />
+							</button>
 						</>
 					) : (
 						icon

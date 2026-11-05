@@ -5,7 +5,7 @@ import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, chipButton, smallButton, timeAgo, useTip } from "../../ui";
+import { Notice, chipButton, pillLinkButton, repliesButton, smallButton, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { HeldCall } from "./Approval";
@@ -143,7 +143,7 @@ export function MessageRow({
 						<button
 							type="button"
 							onClick={onOpenThread}
-							className={`${smallButton} w-fit`}
+							className={repliesButton}
 						>
 							<AvatarStack people={message.replyAuthors} size="xs" />
 							<span className="font-medium text-neutral-700">
@@ -381,7 +381,7 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 				<button
 					type="button"
 					onClick={() => navigate("chat", chatId, kind ?? "thread", messageId)}
-					className={smallButton}
+					className={pillLinkButton}
 				>
 					{author} {label.charAt(0).toLowerCase() + label.slice(1)} →
 				</button>

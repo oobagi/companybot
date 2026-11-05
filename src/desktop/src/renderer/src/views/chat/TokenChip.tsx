@@ -3,7 +3,7 @@ import { useQuery } from "../../convex";
 import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { compactButton, linkButton } from "../../ui";
+import { actionButton, linkButton } from "../../ui";
 import { Popover } from "./common";
 import type { SkillRef } from "./data";
 import { ProfileLink } from "./Profile";
@@ -52,8 +52,8 @@ function SkillCard({ skill, onClose }: { skill: SkillRef; onClose: () => void })
 				<Markdown className="max-h-64 overflow-y-auto rounded-xl bg-neutral-50 px-3 py-2 text-sm leading-relaxed">{full.instructions}</Markdown>
 			)}
 			<div className="flex">
-				<button type="button" onClick={() => (onClose(), navigate("settings", "skills", skill.id))} className={compactButton}>
-					<SkillIcon /> Open skill
+				<button type="button" onClick={() => (onClose(), navigate("settings", "skills", skill.id))} className={actionButton}>
+					Open skill
 				</button>
 			</div>
 		</div>

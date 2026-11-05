@@ -11,7 +11,7 @@ import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute, views } from "./router";
 import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, compactPrimaryButton, useRun, useStoredWidth } from "./ui";
+import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, updateButton, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
@@ -271,7 +271,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										<GettingStarted agent={chats?.agents[0]?.name ?? "an agent"} />
 										{update?.state === "ready" && (
 											<div className="flex flex-col px-3 pt-4 pb-3">
-												<button type="button" onClick={() => void desktop?.updates.install()} className={`${compactPrimaryButton} text-left`}>
+												<button type="button" onClick={() => void desktop?.updates.install()} className={updateButton}>
 													Update ready · Restart
 												</button>
 											</div>

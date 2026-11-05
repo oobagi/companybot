@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, compactButton, compactControlClass, iconButton, primaryButton, secondaryButton, timeAgo, titleButton, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -177,7 +177,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				}
 			>
 				{canEdit && (
-					<button type="button" title="Save these filters as a view" aria-label="Save these filters as a view" className={`${iconButton} self-center`} onClick={() => setSavingView(true)}>
+					<button type="button" title="Save these filters as a view" aria-label="Save these filters as a view" className={tabAddButton} onClick={() => setSavingView(true)}>
 						<PlusIcon />
 					</button>
 				)}
@@ -422,7 +422,7 @@ function FilterRow({
 			/>
 			<Select label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
 			{needsValue(filter.op) && <FilterValue field={field} filter={filter} onChange={(value) => onChange({ ...filter, value })} />}
-			<button type="button" onClick={onRemove} className={iconButton} title="Remove filter" aria-label="Remove filter">
+			<button type="button" onClick={onRemove} className={bareIconButton} title="Remove filter" aria-label="Remove filter">
 				<CloseIcon />
 			</button>
 		</div>

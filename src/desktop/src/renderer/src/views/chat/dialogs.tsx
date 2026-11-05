@@ -5,7 +5,7 @@ import { api } from "../../api";
 import { type ReplyMode, replyModeLabels, replyModes } from "@companybot/core/router";
 import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
-import { Form, Loading, Notice, Section, Setting, Settings, compactButton, compactControlClass, compactPrimaryButton, descriptionClass, iconDangerButton, listClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../../ui";
+import { Form, Loading, Notice, Section, Setting, Settings, actionButton, compactButton, compactControlClass, compactPrimaryButton, descriptionClass, iconDangerButton, listClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../../ui";
 import { ArchiveIcon, PlusIcon, SignOutIcon, UserMinusIcon } from "../../icons";
 import { AgentBadge, Avatar, DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "./common";
 import { navigate } from "../../router";
@@ -72,7 +72,7 @@ export function BrowseChannels({ onClose, onOpen }: { onClose: () => void; onOpe
 							<button
 								type="button"
 								onClick={() => run(join({ chatId: c._id }), () => (onOpen(c._id), onClose()))}
-								className={compactButton}
+								className={actionButton}
 							>
 								Join
 							</button>

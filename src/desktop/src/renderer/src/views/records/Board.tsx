@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
-import { LoadMore, Loading, Notice, cardButton, useRun } from "../../ui";
+import { LoadMore, Loading, Notice, boardCardButton, useRun } from "../../ui";
 import { type ListArgs, type RecordType, usePagedRows } from "./data";
 import { type TypeField, recordPath, valueText } from "./logic";
 
@@ -107,7 +107,7 @@ function Lane({
 					draggable={canEdit}
 					onDragStart={(e) => e.dataTransfer.setData(CARD, JSON.stringify({ id: r._id, from: id, typeId: type._id, groupBy }))}
 					onClick={() => navigate(...recordPath(type.key, r._id))}
-					className={`${cardButton} flex-col gap-1 bg-white text-sm shadow-xs`}
+					className={boardCardButton}
 				>
 					<span className="font-medium break-words">{valueText(name, r.values[name.key], refs) || "Untitled"}</span>
 					{props.map(

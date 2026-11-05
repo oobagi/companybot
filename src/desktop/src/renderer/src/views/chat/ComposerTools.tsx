@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { MicrophoneIcon, ReactIcon, StopIcon } from "../../icons";
-import { Popover, iconButton } from "./common";
+import { Popover } from "./common";
+import { composerButton } from "../../ui";
 import { spaced, useDictation } from "./dictation";
 import { EmojiPanel } from "./EmojiPanel";
 
@@ -17,7 +18,7 @@ export function ComposerTools({ editor }: { editor: Editor | null }) {
 
 	return (
 		<>
-			<Popover trigger={<ReactIcon />} label="Add emoji" className={iconButton} panelClassName="w-auto">
+			<Popover trigger={<ReactIcon />} label="Add emoji" className={composerButton} panelClassName="w-auto">
 				{(close) => <EmojiPanel onPick={(emoji) => (close(), insert(emoji))} />}
 			</Popover>
 			<span className="relative flex">
@@ -27,7 +28,7 @@ export function ComposerTools({ editor }: { editor: Editor | null }) {
 					aria-label={recording ? "Stop dictation" : "Dictate"}
 					disabled={dictation.state === "transcribing"}
 					onClick={dictation.toggle}
-					className={`${iconButton} ${recording ? "animate-pulse bg-red-50 text-red-600 hover:bg-red-50 hover:text-red-600" : ""} ${dictation.state === "transcribing" ? "animate-pulse" : ""}`}
+					className={`${composerButton} ${recording ? "animate-pulse bg-red-50 text-red-600 hover:bg-red-50 hover:text-red-600" : ""} ${dictation.state === "transcribing" ? "animate-pulse" : ""}`}
 				>
 					{recording ? <StopIcon weight="fill" /> : <MicrophoneIcon />}
 				</button>

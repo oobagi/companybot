@@ -1,11 +1,11 @@
-import { imageButton, trailingAction } from "../../ui";
+import { composerButton, cornerCloseButton, imageButton } from "../../ui";
 import { DOCX, FILES_PER_MESSAGE, XLSX, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "../../convex";
 import { AttachIcon, CloseIcon, FileCsvIcon, FileDocIcon, FileIcon, FilePdfIcon, FileXlsIcon, PageIcon } from "../../icons";
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
-import { Layer, iconButton } from "./common";
+import { Layer } from "./common";
 import { type Pending, pendingFiles, pendingKey } from "./composerFiles";
 import type { Message } from "./data";
 
@@ -100,7 +100,7 @@ export function AttachButton({ attachments }: { attachments: Attachments }) {
 				onClick={() => input.current?.click()}
 				title="Attach files"
 				aria-label="Attach files"
-				className={iconButton}
+				className={composerButton}
 			>
 				<AttachIcon />
 			</button>
@@ -145,7 +145,7 @@ export function PendingFiles({ attachments }: { attachments: Attachments }) {
 								onClick={() => attachments.remove(item.key)}
 								title="Remove"
 								aria-label={`Remove ${item.name}`}
-								className={`absolute top-1 right-1 ${trailingAction}`}
+								className={`absolute top-1 right-1 ${cornerCloseButton}`}
 							>
 								<CloseIcon />
 							</button>

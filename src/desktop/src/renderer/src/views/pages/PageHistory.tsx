@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
-import { EmptyState, LoadMore, Loading, Notice, Tabs, metadataClass, primaryButton, rowButton, useRun } from "../../ui";
+import { EmptyState, LoadMore, Loading, Notice, Tabs, metadataClass, primaryButton, useRun, versionRowButton } from "../../ui";
 import { HistoryIcon } from "../../icons";
 import { DialogButtons, Modal, clock, dayLabel } from "../chat/common";
 import { whoLabel } from "../records/logic";
@@ -40,7 +40,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 								type="button"
 								onClick={() => setPicked(v._id)}
 								data-active={v._id === shown || undefined}
-								className={`${rowButton} flex-col`}
+								className={versionRowButton}
 							>
 								<span className="font-medium">{when(v.time)}</span>
 								<span className="text-neutral-600">

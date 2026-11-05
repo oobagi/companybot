@@ -11,7 +11,7 @@ import type { Mentions } from "./data";
 import { pastedFiles } from "./composerFiles";
 import { keepDraft, textKey, useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn, typedMentions } from "./editor";
-import { Form, compactPrimaryButton, metadataClass, rowButton } from "../../ui";
+import { Form, metadataClass, rowButton, sendButton } from "../../ui";
 
 export type SendWith = Doc<"preferences">["sendWith"];
 
@@ -123,7 +123,7 @@ export function Composer({
 					<button
 						type="submit"
 						disabled={attachments?.uploading || (empty && !attachments?.ids.length)}
-						className={`${compactPrimaryButton} flex h-8 shrink-0 items-center`}
+						className={sendButton}
 						aria-label="Send"
 					>
 						<ArrowUpIcon weight="bold" />

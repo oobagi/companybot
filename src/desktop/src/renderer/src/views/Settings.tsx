@@ -9,7 +9,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactButton, compactDangerButton, compactPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
+import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
@@ -158,7 +158,7 @@ function AppVersion() {
 		<Settings title="App">
 			<Setting label={`Companybot ${version}`} hint={status ? describeUpdate(status) : undefined}>
 				{status?.state === "ready" ? (
-					<button type="button" onClick={() => void desktop?.updates.install()} className={compactPrimaryButton}>
+					<button type="button" onClick={() => void desktop?.updates.install()} className={actionPrimaryButton}>
 						Restart to update
 					</button>
 				) : (
@@ -166,7 +166,7 @@ function AppVersion() {
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
 						onClick={() => void desktop?.updates.check()}
-						className={compactButton}
+						className={actionButton}
 					>
 						Check for updates
 					</button>
@@ -203,7 +203,7 @@ function DangerAction({
 	return (
 		<>
 			<Setting label={action} hint={hint}>
-				<button type="button" onClick={() => setOpen(true)} className={compactDangerButton}>
+				<button type="button" onClick={() => setOpen(true)} className={`${actionButton} text-red-600`}>
 					{action}
 				</button>
 			</Setting>

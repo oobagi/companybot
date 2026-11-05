@@ -8,7 +8,7 @@ import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ConnectorIcon, EditIcon, TrashIcon } from "../../icons";
-import { EmptyState, Form, Loading, Notice, Section, Setting, Settings, barButton, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
+import { EmptyState, Form, Loading, Notice, Section, Setting, Settings, actionPrimaryButton, barButton, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
 import { ConnectorActions } from "../Permissions";
 import { Card, Detail, Facts, Missing } from "./shared";
 
@@ -171,7 +171,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 				<div className="flex items-center gap-3">
 					<button
 						type="button"
-						className={compactPrimaryButton}
+						className={actionPrimaryButton}
 						// Opens in the browser (main process routes window.open there). The app
 						// flips to Connected on its own once the sign-in finishes.
 						onClick={() => run(startOAuth({ connectorId: connector.id }).then((url) => window.open(url)))}
@@ -182,7 +182,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 				</div>
 			) : connector.canUse && connector.canConnect && connector.auth.type === "api_key" ? (
 				<div className="flex items-center gap-3">
-					<button type="button" className={compactPrimaryButton} onClick={() => setPasting(true)}>
+					<button type="button" className={actionPrimaryButton} onClick={() => setPasting(true)}>
 						Connect
 					</button>
 					<span className="text-neutral-400">Paste a key from {connector.name}.</span>

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { compactControlClass, hintClass, linkButton, trailingAction, useDebounced, useSynced } from "../../ui";
+import { bareIconButton, compactControlClass, hintClass, linkButton, useDebounced, useSynced } from "../../ui";
 import { MenuItem, Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
@@ -60,7 +60,7 @@ export function Chip({ children, onRemove }: { children: React.ReactNode; onRemo
 		<span className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-sm">
 			{children}
 			{onRemove && (
-				<button type="button" onClick={onRemove} className={`-mr-1 ${trailingAction}`} title="Remove" aria-label="Remove">
+				<button type="button" onClick={onRemove} className={bareIconButton} title="Remove" aria-label="Remove">
 					<CloseIcon />
 				</button>
 			)}

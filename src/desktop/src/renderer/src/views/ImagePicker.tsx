@@ -3,7 +3,7 @@ import { imageTypes } from "@companybot/core/images";
 import { useRef, useState } from "react";
 import { api } from "../api";
 import { useMutation } from "../convex";
-import { Notice, compactButton, useRun } from "../ui";
+import { Notice, actionButton, useRun } from "../ui";
 import { useUpload } from "../upload";
 import { Avatar, Confirm } from "./chat/common";
 
@@ -36,11 +36,11 @@ export function ImagePicker({
 				<Avatar name={name} image={image} agent={agent} />
 				{!disabled && (
 					<>
-						<button type="button" disabled={busy} onClick={() => input.current?.click()} className={compactButton}>
+						<button type="button" disabled={busy} onClick={() => input.current?.click()} className={actionButton}>
 							{busy ? "Uploading…" : image ? "Replace" : "Upload"}
 						</button>
 						{image && (
-							<button type="button" disabled={busy} onClick={() => setRemoving(true)} className={compactButton}>
+							<button type="button" disabled={busy} onClick={() => setRemoving(true)} className={actionButton}>
 								Remove
 							</button>
 						)}

@@ -167,6 +167,9 @@ export function TopBar({ crumbs = [], title, description, children }: { crumbs?:
  * out on its scrim (styles.css), which shows only while something is under it.
  * `overlayScrollbar` keeps chat panes flush even when the OS uses classic scrollbars.
  */
+/** Whether content is scrolled under the bottom edge of the `Scroll` around you: a sticky footer inside it (a dialog's buttons) fades in its scrim. */
+export const ScrollUnder = createContext(false);
+
 export function Scroll({
 	ref,
 	header,
@@ -211,7 +214,9 @@ export function Scroll({
 					{header}
 				</div>
 			)}
-			<div className="flex flex-1 flex-col">{children}</div>
+			<div className="flex flex-1 flex-col">
+				<ScrollUnder.Provider value={underBottom}>{children}</ScrollUnder.Provider>
+			</div>
 			{footer && (
 				<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
 					{footer}
@@ -464,6 +469,60 @@ export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral
 /** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
 export const trailingAction =
 	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
+/** The composer's round tools beside the text: attach, emoji, dictation. */
+export const composerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50";
+/** The composer's Send: a round dark button with an arrow, grey until there's something to send. */
+export const sendButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200";
+/** `secondaryButton`'s size where a card, popover or settings row acts on its own (Deny, Message, Join, Check for updates). */
+export const actionButton = secondaryButton;
+/** `primaryButton`'s size where a card, popover or settings row acts on its own (Allow once, Connect, Restart to update). */
+export const actionPrimaryButton = primaryButton;
+/** The landing screen's one big dark button (Get started). */
+export const heroButton = "rounded-xl bg-neutral-900 px-6 py-2.5 text-base text-white hover:bg-neutral-800";
+/** The sidebar footer's "Update ready · Restart": small dark text block. */
+export const updateButton = "rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white";
+/** The title bar's 24px icons (sidebar, back, forward, help): greyed out while disabled. */
+export const titleBarButton =
+	"no-drag flex size-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
+/** A small round × in a card's corner (a pending file, a link preview). */
+export const cornerCloseButton = "flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
+/** A 24px icon beside a title (a DM's New chat). */
+export const smallIconButton = "flex size-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
+/** An icon with no box of its own (remove a filter, remove a chip): grey, darker on hover. */
+export const bareIconButton = "text-neutral-400 hover:text-neutral-700";
+/** A row's fold chevron, shown in its icon slot on hover. */
+export const chevronButton = "size-5 items-center justify-center text-neutral-400 hover:text-neutral-800";
+/** The × on an email chip (Onboarding's invite box): a tiny round hover. */
+export const chipRemoveButton = "rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700";
+/** The × beside a time in the schedule editor. */
+export const timeRemoveButton = "rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700";
+/** The × on a side chat tab, over the tab's pill. */
+export const tabCloseButton = "flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900";
+/** The + after a list's view tabs, sized like a tab. */
+export const tabAddButton = "flex items-center px-3 py-2 text-base text-neutral-500 hover:text-neutral-800";
+/** A suggested first message in an empty agent chat. */
+export const suggestionButton =
+	"rounded-xl border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400";
+/** A channel's members (avatars and a count) in its top bar. */
+export const membersButton = "flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-neutral-500 hover:bg-neutral-100";
+/** A message's "3 replies · Last reply …" line under it. */
+export const repliesButton = "-ml-1 flex w-fit items-center gap-2 rounded-lg px-1 py-0.5 text-xs hover:bg-white";
+/** A small bordered pill that goes somewhere (a tool call's "opened a thread →"). */
+export const pillLinkButton = "rounded-full border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-neutral-300 hover:text-neutral-900";
+/** The typing line's Stop: quiet text with a hover fill. */
+export const stopButton = "rounded px-1.5 font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-60 disabled:hover:bg-transparent";
+/** An on/off pill (Install, Turn on for me); pass its colors for each state. */
+export const pillButton = `shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass}`;
+/** A round day of the week in the schedule editor; pass its colors for on and off. */
+export const dayButton = "size-8 rounded-full text-sm";
+/** An emoji picker's category tab. */
+export const emojiTabButton = "flex size-7 items-center justify-center rounded-lg text-base hover:bg-neutral-100";
+/** An emoji picker's skin tone: filled while picked (`aria-pressed`). */
+export const skinToneButton = "flex size-6 items-center justify-center rounded-md text-sm hover:bg-neutral-100 aria-pressed:bg-neutral-200";
+/** A card on a board lane. */
+export const boardCardButton = "flex flex-col gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-sm shadow-xs hover:bg-neutral-50";
+/** One version in a page's history: lit while shown (`data-active`). */
+export const versionRowButton = "flex flex-col rounded-lg px-3 py-2 text-left text-sm hover:bg-neutral-50 data-active:bg-neutral-100";
 /** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
 export const railButton = (active: boolean) =>
 	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;

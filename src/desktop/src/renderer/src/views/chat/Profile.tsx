@@ -2,11 +2,10 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Notice, compactButton, useRun } from "../../ui";
+import { Notice, actionButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Popover, clock, zoneLabel } from "./common";
 import type { Participant } from "./data";
 import { roleNames } from "../Members";
-import { ChatIcon } from "../../icons";
 
 
 /**
@@ -74,8 +73,8 @@ function ProfileCard({ who, onClose, onFor }: { who: Participant; onClose: () =>
 			<Notice>{error}</Notice>
 			{!gone && !person?.isYou && (
 				<div className="flex">
-					<button type="button" onClick={message} className={compactButton}>
-						<ChatIcon /> Message
+					<button type="button" onClick={message} className={actionButton}>
+						Message
 					</button>
 				</div>
 			)}

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { HistoryIcon } from "../../icons";
-import { compactControlClass, hintClass, metadataClass, tileButton } from "../../ui";
-import { iconButton } from "./common";
+import { compactControlClass, emojiTabButton, hintClass, metadataClass, skinToneButton, tileButton } from "../../ui";
 import { type Emoji, type EmojiIndex, groupIcons, groups, loadEmoji, loadedEmoji, recentEmoji, rememberEmoji, saveTone, savedTone, searchEmoji, withTone } from "./emoji";
 
 const tones = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
@@ -53,12 +52,12 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 			{!query && (
 				<div className="flex justify-between">
 					{recent.length > 0 && (
-						<button type="button" title="Recent" aria-label="Recent" onClick={() => jump("recent")} className={iconButton}>
+						<button type="button" title="Recent" aria-label="Recent" onClick={() => jump("recent")} className={`${emojiTabButton} text-neutral-500`}>
 							<HistoryIcon />
 						</button>
 					)}
 					{groupIcons.map((icon, i) => (
-						<button type="button" key={icon} title={groups[i]} aria-label={groups[i]} onClick={() => jump(String(i))} className={iconButton}>
+						<button type="button" key={icon} title={groups[i]} aria-label={groups[i]} onClick={() => jump(String(i))} className={emojiTabButton}>
 							{icon}
 						</button>
 					))}
@@ -107,7 +106,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 							aria-label={i === 0 ? "Default skin tone" : `Skin tone ${i}`}
 							aria-pressed={i === tone}
 							onClick={() => (setTone(i), saveTone(localStorage, i))}
-							className={`${iconButton} aria-pressed:bg-neutral-200`}
+							className={skinToneButton}
 						>
 							{char}
 						</button>
