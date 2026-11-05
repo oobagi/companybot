@@ -71,7 +71,7 @@ export function AppRail({
 						const badge = badges[t.id];
 						const d = drag(t.id);
 						return (
-							<span key={t.id} {...d} onDragStart={(e) => (hideTip(), d.onDragStart(e))} className={`relative flex ${d.className}`}>
+							<span key={t.id} {...d} onPointerDown={d.onPointerDown && ((e) => (hideTip(), d.onPointerDown!(e)))} className={`relative flex ${d.className}`}>
 								<span className="relative flex" {...tipFor(t.label, i < 9 ? shortcutLabel("tab", i + 1) : undefined)}>
 									<button
 										type="button"
