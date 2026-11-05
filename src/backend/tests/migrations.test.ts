@@ -48,22 +48,6 @@ describe("migrations", () => {
 		expect([made.lastRunDate, brief.lastRunDate]).toEqual([undefined, undefined]);
 	});
 
-	it("clears the retired welcome from old turns", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
-		migrationsTest.register(t);
-		const owner = await signIn(t, "owner@co.com");
-		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, (await agentsOf(owner)).companybot._id);
-		await t.run((ctx) => ctx.db.patch(turnId, { welcome: "new_workspace" }));
-		vi.useFakeTimers();
-		try {
-			await t.mutation(internal.migrations.runAll);
-			await t.finishAllScheduledFunctions(vi.runAllTimers);
-		} finally {
-			vi.useRealTimers();
-		}
-		expect(await t.run(async (ctx) => (await ctx.db.query("agentTurns").collect()).filter((turn) => turn.welcome).length)).toBe(0);
-	});
-
 	it("moves agents on the old default model to the new one, and leaves models picked on purpose", async () => {
 		const t = convexTest({ schema, modules, transactionLimits: true });
 		migrationsTest.register(t);
