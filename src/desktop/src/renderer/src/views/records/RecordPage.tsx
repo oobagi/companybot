@@ -6,9 +6,9 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, UnpinIcon } from "../../icons";
+import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, compactButton, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -120,8 +120,8 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 			</dl>
 			<div className="flex gap-4 pt-2 text-sm">
 				{type.canManage && !record.archived && (
-					<button type="button" onClick={() => setAdding(true)} className="text-neutral-500 hover:text-neutral-900">
-						+ Add field
+					<button type="button" onClick={() => setAdding(true)} className={compactButton}>
+						<PlusIcon /> Add field
 					</button>
 				)}
 			</div>
@@ -256,7 +256,7 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 			<div className="flex flex-col gap-2">
 				{results.map((e) => (
 					<div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>
-						<div className="flex items-baseline gap-2">
+						<div className="flex min-h-7 items-center gap-2">
 							<span className="font-medium">{e.undoes ? "Undid a change" : (actionLabels[e.action] ?? e.action)}</span>
 							<span className="text-neutral-500">by {whoLabel(e)}</span>
 							<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(e.time)}</span>
@@ -264,8 +264,8 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 								<span className={metadataClass}>Undone</span>
 							) : (
 								canUndo && (
-									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className="text-xs text-neutral-500 hover:text-neutral-900">
-										Undo
+									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className={`shrink-0 ${compactButton}`}>
+										<RestoreIcon /> Undo
 									</button>
 								)
 							)}

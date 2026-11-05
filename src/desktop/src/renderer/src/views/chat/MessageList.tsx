@@ -3,7 +3,8 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Scroll } from "../../ui";
+import { Scroll, smallButton } from "../../ui";
+import { CaretDownIcon, CaretRightIcon } from "../../icons";
 import { dayLabel, sameDay } from "./common";
 import type { Message, TokenNames } from "./data";
 import { MessageRow, shows } from "./Message";
@@ -167,9 +168,12 @@ function SummaryDivider({ label, summary }: { label: string; summary: string }) 
 		<div className="flex flex-col gap-2 px-5 py-2">
 			<div className="flex items-center gap-3 text-xs text-neutral-400">
 				<div className="h-px flex-1 bg-neutral-200" />
-				<button type="button" onClick={() => setOpen(!open)} className="hover:text-neutral-600">
-					{label} {label === "Agents" ? "see" : "sees"} a summary of the messages above · {open ? "Hide" : "Show"} summary
-				</button>
+				<span className="flex flex-wrap items-center justify-center gap-2 text-center">
+					{label} {label === "Agents" ? "see" : "sees"} a summary of the messages above
+					<button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={smallButton}>
+						{open ? <CaretDownIcon /> : <CaretRightIcon />} {open ? "Hide" : "Show"} summary
+					</button>
+				</span>
 				<div className="h-px flex-1 bg-neutral-200" />
 			</div>
 			{open && (

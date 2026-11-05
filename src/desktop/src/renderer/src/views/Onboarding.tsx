@@ -6,9 +6,9 @@ import { useRef, useState } from "react";
 import { api } from "../api";
 import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { ChannelIcon, CloseIcon } from "../icons";
+import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
 import { appTabs } from "./AppRail";
-import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, useRun } from "../ui";
+import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
@@ -110,7 +110,7 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 							{step !== "team" ? "Continue" : busy ? "Creating…" : "Create workspace"}
 						</button>
 						{at > 0 && (
-							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={`${descriptionClass} hover:text-neutral-700`}>
+							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={`${secondaryButton} py-2.5`}>
 								Back
 							</button>
 						)}
@@ -307,7 +307,7 @@ export function NameOnboarding() {
 				<NameField name={name} onChange={setTyped} />
 				<Notice>{error}</Notice>
 				<button type="submit" disabled={busy} className={primaryButton}>Continue</button>
-				<button type="button" onClick={() => void signOut()} className={descriptionClass}>Sign out</button>
+				<button type="button" onClick={() => void signOut()} className={`${secondaryButton} inline-flex items-center justify-center gap-1.5`}><SignOutIcon /> Sign out</button>
 			</Form>
 		</div>
 	);

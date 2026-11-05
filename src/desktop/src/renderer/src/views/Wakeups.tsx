@@ -4,7 +4,8 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { Section, cardClass, descriptionClass, metadataClass } from "../ui";
+import { Section, cardClass, descriptionClass, iconDangerButton, metadataClass } from "../ui";
+import { CloseIcon } from "../icons";
 import { useConfirm } from "./chat/common";
 import { recordPath } from "./records/logic";
 
@@ -71,7 +72,9 @@ export function PendingWakeups({ recordId, title, hint }: { recordId?: Id<"recor
 						{w.canCancel && (
 							<button
 								type="button"
-								className="shrink-0 text-xs text-neutral-500 hover:text-red-600"
+								aria-label="Cancel"
+								title="Cancel follow-up"
+								className={iconDangerButton}
 								onClick={() =>
 									confirm({
 										title: "Cancel this follow-up?",
@@ -81,7 +84,7 @@ export function PendingWakeups({ recordId, title, hint }: { recordId?: Id<"recor
 									})
 								}
 							>
-								Cancel
+								<CloseIcon size={16} />
 							</button>
 						)}
 					</div>
