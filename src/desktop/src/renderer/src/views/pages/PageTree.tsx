@@ -1,12 +1,12 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
 import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, PrivateIcon } from "../../icons";
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
-import { type DragProps, useSortable } from "../../sortable";
+import { type DragProps, splitDrag, useSortable } from "../../sortable";
 import { LoadMore, Notice, compactControlClass, descriptionClass, useDebounced, useRun } from "../../ui";
 import { Item, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
@@ -44,9 +44,10 @@ function PageNavTree({ openId, canEdit }: { openId?: string; canEdit: boolean })
 		<PageLevel parentId={parentId} sortable render={(p, drag, last) => {
 			const open = p.hasChildren && expanded.has(p._id);
 			const guides = parentId ? [...above, !last] : [];
+			const d = splitDrag(drag);
 			return (
-				<Fragment key={p._id}>
-					<Item drag={drag} pin={`page:${p._id}`} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
+				<div key={p._id} ref={d.box.ref} style={d.box.style} className={`flex flex-col gap-px ${d.box.className}`}>
+					<Item drag={d.handle} pin={`page:${p._id}`} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
 						rename={p.canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
 						menu={p.canEdit ? (close) => <>
 							<MenuItem onClick={() => { close(); add(p._id); }}><PlusIcon /> New page inside</MenuItem>
@@ -59,7 +60,7 @@ function PageNavTree({ openId, canEdit }: { openId?: string; canEdit: boolean })
 						<AccessLock lock={p.lock ?? null} />
 					</Item>
 					{open && level(p._id, guides)}
-				</Fragment>
+				</div>
 			);
 		}} />
 	);

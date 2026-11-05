@@ -1,13 +1,13 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
 import { type PinKey, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
-import { type DragProps, useSortable } from "../../sortable";
+import { type DragProps, splitDrag, useSortable } from "../../sortable";
 import { CountBadge, Notice, RenameInput, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
@@ -77,10 +77,11 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 			{shown.map((c) => {
 				const own = threads.filter((t) => t.chatId === c._id);
 				const open = !folded.includes(c._id);
+				const d = splitDrag(drag(c._id));
 				return (
-					<Fragment key={c._id}>
+					<div key={c._id} ref={d.box.ref} style={d.box.style} className={`flex flex-col gap-px ${d.box.className}`}>
 				<Item
-					drag={drag(c._id)}
+					drag={d.handle}
 					pin={`chat:${c._id}`}
 					icon={c.private ? <PrivateIcon /> : <ChannelIcon />}
 					label={`#${c.name}`}
@@ -113,7 +114,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 						<span className="truncate">{t.title}</span>
 					</Item>
 				))}
-					</Fragment>
+					</div>
 				);
 			})}
 			<Notice>{error}</Notice>
@@ -168,10 +169,11 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 					const parentId = d.dmId ?? (await openDm({ userIds: [], agentIds: [d.agentId!] }));
 					onOpen(await createSide({ parentId }));
 				};
+				const dd = splitDrag(drag(d.key));
 				return (
-					<Fragment key={d.key}>
+					<div key={d.key} ref={dd.box.ref} style={dd.box.style} className={`flex flex-col gap-px ${dd.box.className}`}>
 				<Item
-					drag={drag(d.key)}
+					drag={dd.handle}
 					// No DM with this agent yet: pinning starts it (it's what the pin opens).
 					pin={d.dmId ? `chat:${d.dmId}` : () => openDm({ userIds: [], agentIds: [d.agentId!] }).then((id) => `chat:${id}` as const, (e) => (onError(e), Promise.reject(e)))}
 					icon={<Avatar name={d.name} image={d.image} agent={d.agent} size="row" />}
@@ -226,7 +228,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 						<span className="truncate">{c.label}</span>
 					</Item>
 				))}
-					</Fragment>
+					</div>
 				);
 			})}
 			<Notice>{error}</Notice>
@@ -247,11 +249,11 @@ export type SectionProps = { collapsed: boolean; onToggle: () => void; drag: Dra
  * `add` sits at the header's right end, showing on hover.
  */
 export function Group({ title, section, add, children }: { title: string; section?: SectionProps; add?: React.ReactNode; children: React.ReactNode }) {
-	const { draggable, onDragStart, onDragEnd, className = "", ...target } = section?.drag ?? {};
+	const { onPointerDown, className = "", ...box } = section?.drag ?? {};
 	return (
 		// Folded, ⌥1–9 skip its rows (`sidebarRow`).
-		<section {...target} data-collapsed={section?.collapsed || undefined} className={`group/section relative flex flex-col gap-px ${className}`}>
-			<div draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} className="flex items-center justify-between px-2 pb-1">
+		<section {...box} data-collapsed={section?.collapsed || undefined} className={`group/section relative flex flex-col gap-px ${className}`}>
+			<div onPointerDown={onPointerDown} className="flex items-center justify-between px-2 pb-1">
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500">
 					{section ? (
 						// oxlint-disable-next-line ui/button-class -- a section's title folds it when clicked (Slack's sidebar); it reads as the heading, not a button
@@ -389,7 +391,7 @@ export function Item({
 		<div
 			{...drag}
 			// While renaming, a drag would take the text selection, and right-click is the input's own.
-			draggable={renaming ? false : drag?.draggable}
+			onPointerDown={renaming ? undefined : drag?.onPointerDown}
 			onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt({ x: e.clientX, y: e.clientY })) : undefined}
 			className={`group/item relative flex items-stretch text-sm ${drag?.className ?? ""}`}
 		>
