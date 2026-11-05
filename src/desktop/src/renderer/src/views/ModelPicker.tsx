@@ -2,15 +2,15 @@ import { type ModelInfo, searchModels } from "@companybot/core/models";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAction } from "../convex";
-import { CaretUpDownIcon } from "../icons";
-import { compactControlClass, descriptionClass, inputClass } from "../ui";
-import { Popover } from "./chat/common";
+import { CaretUpDownIcon, CheckIcon } from "../icons";
+import { compactControlClass, descriptionClass, wideControlClass } from "../ui";
+import { MenuItem, Popover } from "./chat/common";
 
 type Pickable = Pick<ModelInfo, "id" | "name" | "provider">;
 
 /**
- * A model field: the pick, and a searchable list of AI Gateway's models. The agent editor's (with
- * its "Model" label), and Settings → General's picture model (`label` left out: the row has one).
+ * A model picker for a settings row: the pick, and a searchable list of AI Gateway's models
+ * (the agent editor's model, Settings → General's reply-decision and picture models).
  */
 export function ModelPicker<M extends Pickable>({
 	models,
@@ -18,9 +18,8 @@ export function ModelPicker<M extends Pickable>({
 	value,
 	onChange,
 	note,
-	label,
 	disabled,
-	className = `${inputClass} w-full`,
+	className = wideControlClass,
 }: {
 	models: M[];
 	defaultModel: string;
@@ -28,7 +27,6 @@ export function ModelPicker<M extends Pickable>({
 	onChange: (id: string) => void;
 	/** A short line about a model: context and price. */
 	note: (m: M) => string;
-	label?: string;
 	disabled?: boolean;
 	className?: string;
 }) {
@@ -38,7 +36,6 @@ export function ModelPicker<M extends Pickable>({
 	const current = models.find((m) => m.id === value);
 	return (
 		<div className="flex flex-col gap-1.5">
-			{label && <span className="text-sm font-medium">{label}</span>}
 			<Popover
 				matchWidth
 				disabled={disabled}
@@ -48,8 +45,7 @@ export function ModelPicker<M extends Pickable>({
 							{current?.name ?? value}
 							{!current && <span className="text-neutral-400"> · unavailable</span>}
 						</span>
-						{/* A settings row's control is too narrow for the note; the list still shows it. */}
-						{label && <span className="shrink-0 text-xs text-neutral-500">{current && note(current)}</span>}
+						{/* A settings row's control is too narrow for the note; the list shows it. */}
 						<CaretUpDownIcon className="shrink-0 self-center text-neutral-400" />
 					</>
 				}
@@ -76,20 +72,15 @@ function ModelList<M extends Pickable>({ models, defaultModel, value, note, onPi
 			{found.length === 0 && <p className={descriptionClass}>No models match.</p>}
 			{[...groups].map(([group, list]) => (
 				<section key={group} className="flex flex-col gap-0.5">
-					<h3 className="px-2 text-xs font-medium uppercase tracking-wide text-neutral-400">{group}</h3>
+					<p className="px-2 pt-2 pb-1 text-xs font-medium text-neutral-400">{group}</p>
 					{list.map((m) => (
-						<button
-							key={m.id}
-							type="button"
-							onClick={() => onPick(m.id)}
-							className={`flex flex-col rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100 ${m.id === value ? "bg-neutral-100" : ""}`}
-						>
-							<span className="text-sm">
-								{m.name}
-								{m.id === value && <span className="text-neutral-400"> · current</span>}
+						<MenuItem key={m.id} onClick={() => onPick(m.id)}>
+							<span className="min-w-0 flex-1">
+								<span className="block text-sm">{m.name}</span>
+								<span className="block text-xs text-neutral-500">{[m.id, note(m)].filter(Boolean).join(" · ")}</span>
 							</span>
-							<span className="text-xs text-neutral-500">{[m.id, note(m)].filter(Boolean).join(" · ")}</span>
-						</button>
+							{m.id === value && <CheckIcon aria-label="Current" className="shrink-0 text-neutral-500" />}
+						</MenuItem>
 					))}
 				</section>
 			))}

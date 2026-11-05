@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, ArchiveIcon } from "../../icons";
-import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, compactButton, compactPrimaryButton, descriptionClass, disabledButtonClass, metadataClass, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
@@ -69,9 +69,9 @@ export function Card(props: {
 			className="flex items-start justify-between gap-4 rounded-xl border border-neutral-200 p-4 text-left hover:bg-neutral-50"
 		>
 			<div className="min-w-0">
-				<h3 className="font-medium">
+				<p className="font-medium">
 					{props.title} <span className="text-xs font-normal text-neutral-400">{props.meta}</span>
-				</h3>
+				</p>
 				<p className={`line-clamp-2 ${descriptionClass}`}>{props.description}</p>
 				{props.status && <p className={`mt-1 ${metadataClass}`}>{props.status}</p>}
 			</div>
@@ -146,7 +146,7 @@ export function Detail(props: {
 	);
 }
 
-/** The page for making a new one: its fields, then Create. */
+/** The page for making a new one: its fields, with Discard and Create in the top bar. */
 export function NewItem({
 	tab,
 	noun,
@@ -164,17 +164,18 @@ export function NewItem({
 	children: React.ReactNode;
 }) {
 	return (
-		<Page title={`New ${noun}`} crumbs={customizeCrumbs(tab)}>
+		<Page
+			title={`New ${noun}`}
+			crumbs={customizeCrumbs(tab)}
+			actions={
+				<>
+					{onDiscard && <button type="button" className={compactButton} onClick={onDiscard}>Discard</button>}
+					<button type="button" className={compactPrimaryButton} onClick={onCreate}>Create</button>
+				</>
+			}
+		>
 			<Notice>{error}</Notice>
-			<div className="flex flex-col gap-5">
-				{children}
-				<div className="flex gap-2">
-					{onDiscard && <button type="button" className={secondaryButton} onClick={onDiscard}>Discard</button>}
-					<button type="button" className={primaryButton} onClick={onCreate}>
-						Create
-					</button>
-				</div>
-			</div>
+			<div className="flex flex-col gap-5">{children}</div>
 		</Page>
 	);
 }
