@@ -79,6 +79,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className={`flex flex-col gap-2 text-sm ${cardClass}`}>
+			{/* oxlint-disable-next-line ui/button-class -- a clickable fold title: the entry's header opens its call details */}
 			<button type="button" onClick={() => setOpen(!open)} className="flex items-baseline gap-2 text-left">
 				<span className="font-medium">{entry.agent}</span>
 				<span className="text-neutral-600">{entry.label}</span>
@@ -108,12 +109,11 @@ function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["al
 			{text}
 			{allowed.ruleStillOn === false && " · rule since removed"}
 			{allowed.ruleStillOn && mine && (
-				<>
-					{" · "}
-					<button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
+				<span>
+					{" "}· <button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
 						See rule
 					</button>
-				</>
+				</span>
 			)}
 		</p>
 	);

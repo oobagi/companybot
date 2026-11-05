@@ -25,6 +25,10 @@ const tabId = (t: (typeof appTabs)[number]) => t.id;
  * bottom. `below` (pins and recents) goes under the tabs, with the rail's tips. Drag a tab to
  * reorder them; the order syncs with your account in this workspace. In Settings no tab is lit.
  */
+/** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
+export const railButton = (active: boolean) =>
+	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
+
 export function AppRail({
 	tab,
 	onOpen,
@@ -73,12 +77,13 @@ export function AppRail({
 						return (
 							<span key={t.id} {...d} onDragStart={(e) => (hideTip(), d.onDragStart(e))} className={`relative flex ${d.className}`}>
 								<span className="relative flex" {...tipFor(t.label, i < 9 ? shortcutLabel("tab", i + 1) : undefined)}>
+									{/* oxlint-disable-next-line ui/button-class -- railButton is the rail's own button look (tabs and pins); it belongs in ui.tsx */}
 									<button
 										type="button"
 										aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread ${badge.mentions === 1 ? "mention or DM" : "mentions or DMs"}` : t.label}
 										aria-current={active ? "page" : undefined}
 										onClick={() => (t.id !== tab && blurActiveEditable(), hideTip(), onOpen(t.id))}
-										className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+										className={railButton(active)}
 									>
 										<t.icon size={22} weight={active ? "fill" : "regular"} />
 									</button>

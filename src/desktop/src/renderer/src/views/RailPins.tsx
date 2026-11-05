@@ -8,6 +8,7 @@ import { type DragProps, useSortable } from "../sortable";
 import type { useTip } from "../ui";
 import { Avatar, MenuItem, PopoverPanel } from "./chat/common";
 import { useTypes } from "./records/data";
+import { railButton } from "./AppRail";
 
 type TipFor = ReturnType<typeof useTip>["tipFor"];
 
@@ -149,7 +150,7 @@ function RailItem({
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
 					onClick={() => (hideTip(), navigate(...entry.path))}
-					className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+					className={railButton(active)}
 				>
 					{entry.icon}
 				</button>

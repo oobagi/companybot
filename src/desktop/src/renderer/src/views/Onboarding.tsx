@@ -8,9 +8,9 @@ import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
 import { appTabs } from "./AppRail";
-import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../ui";
+import { Form, Notice, Setting, Settings, compactControlClass, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
-import { Group, Item } from "./chat/Sidebar";
+import { Group, Item, trailingAction } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
 
 /**
@@ -85,14 +85,14 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 						<NameField name={name} onChange={setTypedName} />
 					)}
 					{step === "company" && (
-						<>
-							<Field label="Company">
-								<input autoFocus value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={`${inputClass} bg-white py-2.5`} />
-							</Field>
-							<Field label="Currency" hint="For amounts on deals and invoices. Changeable later in Settings.">
-								<CurrencySelect className={`${inputClass} w-full bg-white py-2.5`} value={currency} onChange={setCurrency} />
-							</Field>
-						</>
+						<Settings>
+							<Setting label="Company">
+								<input autoFocus aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={wideControlClass} />
+							</Setting>
+							<Setting label="Currency" hint="For amounts on deals and invoices. Changeable later in Settings.">
+								<CurrencySelect className={wideControlClass} value={currency} onChange={setCurrency} />
+							</Setting>
+						</Settings>
 					)}
 					{step === "team" && (
 						<InviteBox
@@ -128,7 +128,7 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 
 			{/* The workspace, as it'll open: a window peeking in from the right, filling in as they type. */}
 			<div className="relative hidden flex-1 lg:block">
-				<div className="absolute inset-y-10 right-0 left-0 overflow-hidden rounded-l-2xl border border-r-0 border-neutral-200/80 bg-neutral-100 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_24px_48px_-24px_rgba(0,0,0,0.18)]">
+				<div className="absolute inset-y-10 right-0 left-0 overflow-hidden rounded-l-2xl border border-r-0 border-neutral-200/80 bg-neutral-100 shadow-lg">
 					<Preview name={name} company={company} invites={invites} />
 				</div>
 			</div>
@@ -172,13 +172,14 @@ function InviteBox({
 }) {
 	const input = useRef<HTMLInputElement>(null);
 	return (
-		<Field label="Emails" hint="Type one and press Enter, or paste a list.">
-			<div onClick={() => input.current?.focus()} className={`${inputClass} flex min-h-24 cursor-text flex-wrap content-start gap-1.5 bg-white`}>
+		<Settings>
+		<Setting wide label="Emails" hint="Type one and press Enter, or paste a list.">
+			<div onClick={() => input.current?.focus()} className={`${compactControlClass} flex min-h-24 w-full cursor-text flex-wrap content-start gap-1.5`}>
 				{invites.map((email) => (
 					<span key={email} className="flex items-center gap-1.5 rounded-full bg-neutral-100 py-0.5 pr-1 pl-0.5 text-sm text-neutral-700">
 						<Avatar name={email} size="xs" />
 						{email}
-						<button type="button" onClick={() => onRemove(email)} aria-label={`Remove ${email}`} className="rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700">
+						<button type="button" onClick={() => onRemove(email)} aria-label={`Remove ${email}`} title="Remove" className={trailingAction}>
 							<CloseIcon size={12} weight="bold" />
 						</button>
 					</span>
@@ -197,7 +198,8 @@ function InviteBox({
 					className="min-w-32 flex-1 bg-transparent py-0.5 outline-none placeholder:text-neutral-400"
 				/>
 			</div>
-		</Field>
+		</Setting>
+		</Settings>
 	);
 }
 
@@ -216,6 +218,7 @@ function Preview({ name, company, invites }: { name: string; company: string; in
 	return (
 		// Laid out at 100/78 % of the frame and scaled by 0.78, so it fills the frame exactly at app size.
 		<div aria-hidden className="pointer-events-none absolute top-0 left-0 h-[128.2%] w-[128.2%] origin-top-left scale-[0.78] select-none">
+			{/* oxlint-disable-next-line shadcn/no-arbitrary-values -- 15px is the app's body size (App.tsx's root); the preview mirrors it */}
 			<div className="flex h-full flex-col bg-neutral-100 text-[15px] text-neutral-900">
 				<div className="h-8 shrink-0" />
 				<div className="flex min-h-0 flex-1">
@@ -314,5 +317,11 @@ export function NameOnboarding() {
 }
 
 function NameField({ name, onChange }: { name: string; onChange: (name: string) => void }) {
-	return <Field label="Your name"><input autoFocus value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${inputClass} bg-white py-2.5`} /></Field>;
+	return (
+		<Settings>
+			<Setting label="Your name">
+				<input autoFocus aria-label="Your name" value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={wideControlClass} />
+			</Setting>
+		</Settings>
+	);
 }
