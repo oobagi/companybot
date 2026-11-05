@@ -40,11 +40,22 @@ const resetting = (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: st
 
 /**
  * The fetch an action connects to `connector` with: undefined (the runtime's) for catalog
- * connectors, a checked one (core `connectorFetch`) for custom ones, which resolves each host
- * and refuses private or local addresses before every connection.
+ * connectors. For custom ones, core `connectorFetch` over the Node network (connectorNetwork.ts):
+ * each host is looked up once per connection and every address checked public, and each request
+ * then connects only to those addresses, so nothing ever reaches a private or local one.
  */
 export const fetchFor = (ctx: Pick<ActionCtx, "runAction">, connector: Connector) =>
-	connector.custom ? connectorFetch((hostname) => ctx.runAction(internal.connectorNetwork.addresses, { hostname })) : undefined;
+	connector.custom
+		? connectorFetch({
+				resolve: (hostname) => ctx.runAction(internal.connectorNetwork.addresses, { hostname }),
+				request: async (url, addresses, init) => {
+					const answer = await ctx.runAction(internal.connectorNetwork.request, { url: url.href, addresses, ...init });
+					// These statuses can't carry a body, even an empty one.
+					const empty = [204, 205, 304].includes(answer.status);
+					return new Response(empty ? null : answer.body, { status: answer.status, statusText: answer.statusText, headers: answer.headers as [string, string][] });
+				},
+			})
+		: undefined;
 
 export const installOf = (ctx: QueryCtx, workspaceId: Id<"workspaces">, connectorId: string) =>
 	ctx.db

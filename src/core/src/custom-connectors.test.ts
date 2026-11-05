@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { scribe } from "../test/fixtures";
 import { grantedConnectorIds, validateAgentConfig } from "./agents";
-import { type CustomConnectorInput, connectorFetch, customConnector, customConnectorId, customUrlProblem, validateConnector, validateCustomConnector } from "./connectors";
+import { type CustomConnectorInput, type PinnedNetwork, connectorFetch, customConnector, customConnectorId, customUrlProblem, validateConnector, validateCustomConnector } from "./connectors";
 import { openConnector } from "./mcp";
 import { startSignIn } from "./oauth";
 
@@ -9,7 +9,6 @@ const input: CustomConnectorInput = {
 	name: "Tickets",
 	description: "",
 	url: "https://mcp.tickets.example/mcp",
-	transport: "http",
 	connection: "workspace",
 	auth: { type: "api_key", header: "X-API-Key", label: "API key" },
 };
@@ -49,10 +48,14 @@ describe("custom connectors", () => {
 		expect(validateCustomConnector({ ...input, auth: { type: "api_key", header: "Authorization", label: "" } })).toMatch("Name the key");
 	});
 
-	it("gets ids that never collide with the catalog's", () => {
-		expect(customConnectorId("Tickets!", [])).toBe("custom-tickets");
-		expect(customConnectorId("Tickets", ["custom-tickets"])).toBe("custom-tickets-2");
-		expect(customConnectorId("日本", [])).toBe("custom-connector");
+	it("gets ids that never collide with the catalog's or repeat", () => {
+		const ids = Array.from({ length: 50 }, () => customConnectorId("Tickets!", []));
+		for (const id of ids) expect(id).toMatch(/^custom-tickets-[a-z0-9]{6}$/);
+		expect(new Set(ids).size).toBe(50);
+		// A taken one is never handed out again.
+		const draws = [0, 0, 0, 0, 0, 0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+		expect(customConnectorId("Tickets", ["custom-tickets-aaaaaa"], () => draws.shift()!)).toBe("custom-tickets-ssssss");
+		expect(customConnectorId("日本", [])).toMatch(/^custom-connector-[a-z0-9]{6}$/);
 		expect(validateConnector({ ...customConnector("custom-x", input), custom: undefined })).toMatch("can't start");
 	});
 
@@ -72,43 +75,47 @@ describe("custom connectors", () => {
 });
 
 describe("connectorFetch", () => {
-	function network(answers: Record<string, string[]>) {
+	function network(answers: (host: string, nth: number) => string[]) {
 		const resolved: string[] = [];
-		const sent: { url: string; redirect?: RequestRedirect }[] = [];
-		const resolve = async (host: string) => {
-			resolved.push(host);
-			return answers[host] ?? [];
+		const sent: { url: string; addresses: string[]; method: string; body?: string }[] = [];
+		const net: PinnedNetwork = {
+			resolve: async (host) => {
+				resolved.push(host);
+				return answers(host, resolved.length);
+			},
+			request: async (url, addresses, init) => {
+				sent.push({ url: url.href, addresses, method: init.method, ...(init.body && { body: new TextDecoder().decode(init.body) }) });
+				return url.pathname === "/moved" ? new Response(null, { status: 302, headers: { location: "https://169.254.169.254/" } }) : new Response("{}");
+			},
 		};
-		const base = (async (input: RequestInfo | URL, init?: RequestInit) => {
-			sent.push({ url: String(input), redirect: init?.redirect });
-			return new Response("{}");
-		}) as typeof fetch;
-		return { resolved, sent, resolve, base };
+		return { resolved, sent, net };
 	}
 
-	it("resolves each host once per connection, refuses private answers, and never follows redirects", async () => {
-		const net = network({ "mcp.tickets.example": ["93.184.216.34"], "auth.tickets.example": ["10.0.0.2"] });
-		const f = connectorFetch(net.resolve, net.base);
-		await f("https://mcp.tickets.example/mcp", { method: "POST" });
-		await f("https://mcp.tickets.example/mcp", { method: "POST" });
-		expect(net.resolved).toEqual(["mcp.tickets.example"]);
-		expect(net.sent).toEqual([
-			{ url: "https://mcp.tickets.example/mcp", redirect: "error" },
-			{ url: "https://mcp.tickets.example/mcp", redirect: "error" },
+	it("looks each host up once per connection and sends every request to the checked addresses", async () => {
+		// Public first, private on any later lookup: the later answer must never be used.
+		const { resolved, sent, net } = network((_host, nth) => (nth === 1 ? ["93.184.216.34"] : ["169.254.169.254"]));
+		const f = connectorFetch(net);
+		await f("https://mcp.tickets.example/mcp", { method: "POST", body: '{"a":1}' });
+		await f("https://mcp.tickets.example/mcp", { method: "POST", body: new URLSearchParams({ code: "x" }) });
+		expect(resolved).toEqual(["mcp.tickets.example"]);
+		expect(sent).toEqual([
+			{ url: "https://mcp.tickets.example/mcp", addresses: ["93.184.216.34"], method: "POST", body: '{"a":1}' },
+			{ url: "https://mcp.tickets.example/mcp", addresses: ["93.184.216.34"], method: "POST", body: "code=x" },
 		]);
-		// OAuth discovery pointing somewhere private, by name or by address, or over http.
+		// The next connection looks up again, and refuses what it gets.
+		await expect(connectorFetch(net)("https://mcp.tickets.example/mcp")).rejects.toThrow("private or local");
+		expect(sent).toHaveLength(2);
+	});
+
+	it("refuses private hosts, http and redirects, and never opens event streams", async () => {
+		const { sent, net } = network((host) => (host === "auth.tickets.example" ? ["10.0.0.2"] : ["93.184.216.34"]));
+		const f = connectorFetch(net);
 		await expect(f("https://auth.tickets.example/.well-known/oauth-authorization-server")).rejects.toThrow("private or local");
 		await expect(f("https://169.254.169.254/latest/meta-data")).rejects.toThrow("private or local");
 		await expect(f("http://mcp.tickets.example/mcp")).rejects.toThrow("https");
-		expect(net.sent).toHaveLength(2);
-	});
-
-	it("checks again on the next connection, so a name repointed inward is caught", async () => {
-		const answers: Record<string, string[]> = { "mcp.tickets.example": ["93.184.216.34"] };
-		const net = network(answers);
-		await connectorFetch(net.resolve, net.base)("https://mcp.tickets.example/mcp");
-		answers["mcp.tickets.example"] = ["93.184.216.34", "127.0.0.1"];
-		await expect(connectorFetch(net.resolve, net.base)("https://mcp.tickets.example/mcp")).rejects.toThrow("private or local");
-		expect(net.sent).toHaveLength(1);
+		await expect(f("https://mcp.tickets.example/moved")).rejects.toThrow("redirected");
+		const stream = await f("https://mcp.tickets.example/mcp", { headers: { accept: "text/event-stream" } });
+		expect(stream.status).toBe(405);
+		expect(sent.map((r) => r.url)).toEqual(["https://mcp.tickets.example/moved"]);
 	});
 });

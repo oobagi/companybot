@@ -92,8 +92,8 @@ export const CUSTOM_CONNECTOR_DESCRIPTION_MAX = 200;
 export interface CustomConnectorInput {
 	name: string;
 	description: string;
+	/** A Streamable HTTP server. Legacy SSE-transport servers can't be custom: their stream can't be held to a checked address (`connectorFetch`). */
 	url: string;
-	transport: "http" | "sse";
 	connection: "workspace" | "personal";
 	auth: { type: "none" } | { type: "api_key"; header: string; prefix?: string; label: string } | { type: "oauth" };
 }
@@ -105,14 +105,18 @@ export const customConnector = (id: string, input: CustomConnectorInput): Connec
 	description: input.description,
 	version: "custom",
 	publisher: "Your workspace",
-	mcp: { url: input.url, transport: input.transport },
+	mcp: { url: input.url, transport: "http" },
 	connection: input.connection,
 	auth: input.auth,
 	custom: true,
 });
 
-/** A new custom connector's id, from its name: "custom-<slug>", not one of `taken`. */
-export function customConnectorId(name: string, taken: readonly string[]): string {
+/**
+ * A new custom connector's id: "custom-<slug>-<suffix>", the suffix random, so no two connectors
+ * ever share one, even after a removal: a removed connector's grants can never point at a new
+ * server that happens to have the same name. `random` gives a number in [0, 1) (tests pass their own).
+ */
+export function customConnectorId(name: string, taken: readonly string[], random: () => number = Math.random): string {
 	const slug =
 		name
 			.toLowerCase()
@@ -121,9 +125,9 @@ export function customConnectorId(name: string, taken: readonly string[]): strin
 			.replace(/^-+|-+$/g, "")
 			.slice(0, 24)
 			.replace(/-+$/, "") || "connector";
-	const base = `${CUSTOM_PREFIX}${slug}`;
-	for (let n = 1; ; n++) {
-		const id = n === 1 ? base : `${base}-${n}`;
+	for (;;) {
+		const suffix = Array.from({ length: 6 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(random() * 36)]).join("");
+		const id = `${CUSTOM_PREFIX}${slug}-${suffix}`;
 		if (!taken.includes(id)) return id;
 	}
 }
@@ -176,21 +180,41 @@ export function customUrlProblem(raw: string): string | null {
 }
 
 /**
- * The fetch a custom connector's MCP client uses (transport, OAuth discovery, sign-in, refresh):
- * before each request, its URL must pass `customUrlProblem` and every address its host resolves to
- * must be public. `resolve` runs once per host per connection (one turn, or one sign-in step), so a
- * name that's repointed at a private address is caught at the next connection. Redirects are
- * refused, so a public server can't bounce a request inward.
+ * The network a custom connector reaches its server through (backend connectorNetwork.ts, in Node):
+ * `resolve` looks a host up once; `request` sends one request that connects only to the addresses
+ * given (with the URL's own Host and TLS name), never looks the host up again, and never follows
+ * a redirect. The body comes back whole: no long-lived streams.
  */
-export function connectorFetch(resolve: (hostname: string) => Promise<string[]>, base: typeof fetch = fetch): typeof fetch {
-	const checked = new Map<string, Promise<unknown>>();
+export interface PinnedNetwork {
+	resolve(hostname: string): Promise<string[]>;
+	request(url: URL, addresses: string[], init: { method: string; headers: [string, string][]; body?: ArrayBuffer }): Promise<Response>;
+}
+
+/**
+ * The fetch a custom connector's MCP client uses (transport, OAuth discovery, sign-in, refresh).
+ * Before each request its URL must pass `customUrlProblem`. Each host is resolved once per
+ * connection (one turn, or one sign-in step) and every address checked public; requests then
+ * connect only to those checked addresses, so a DNS answer that changes after the check
+ * (rebinding) is never used. Redirects are refused, so a public server can't bounce a request
+ * inward. A GET for a server-sent event stream gets 405 without being sent: a request's whole
+ * response has to come back in one piece, which MCP allows (the server just can't push).
+ */
+export function connectorFetch(net: PinnedNetwork): typeof fetch {
+	const checked = new Map<string, Promise<string[]>>();
 	return async (input, init) => {
-		const url = new URL(input instanceof Request ? input.url : String(input));
+		const request = new Request(input, init);
+		const url = new URL(request.url);
 		const problem = customUrlProblem(url.href);
 		if (problem) throw new UnsafeUrlError(problem);
+		if (request.method === "GET" && request.headers.get("accept")?.includes("text/event-stream")) {
+			return new Response(null, { status: 405, statusText: "Event streams aren't used for custom connectors" });
+		}
 		const host = url.hostname.startsWith("[") ? url.hostname : url.hostname.toLowerCase();
-		if (!checked.has(host)) checked.set(host, publicAddresses(host, { resolve }));
-		await checked.get(host);
-		return base(input, { ...init, redirect: "error" });
+		if (!checked.has(host)) checked.set(host, publicAddresses(host, net));
+		const addresses = await checked.get(host)!;
+		const body = request.body ? await request.arrayBuffer() : undefined;
+		const response = await net.request(url, addresses, { method: request.method, headers: [...request.headers], ...(body && { body }) });
+		if (response.status >= 300 && response.status < 400) throw new UnsafeUrlError(`${url.host} redirected the request. Custom connectors don't follow redirects; use the final URL.`);
+		return response;
 	};
 }

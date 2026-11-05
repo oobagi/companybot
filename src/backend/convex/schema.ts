@@ -467,8 +467,8 @@ export default defineSchema({
 		connectorId: v.string(),
 		name: v.string(),
 		description: v.string(),
+		/** A Streamable HTTP MCP server (no SSE: see core `CustomConnectorInput`). */
 		url: v.string(),
-		transport: v.union(v.literal("http"), v.literal("sse")),
 		connection: v.union(v.literal("workspace"), v.literal("personal")),
 		auth: v.union(
 			v.object({ type: v.literal("none") }),

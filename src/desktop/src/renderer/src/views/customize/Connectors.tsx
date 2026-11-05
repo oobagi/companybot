@@ -110,7 +110,7 @@ function ConnectorDetail({ connector, canManage, onEdit }: { connector: Connecto
 					["Sign-in", signIn],
 					["Tools", `Discovered from the connector each turn. Grant "${connector.id}.*" to an agent to use them.`],
 					["Asks first", "Anything that changes something, unless you set it to Always below."],
-					["Server", connector.custom ? `${connector.server} (${connector.transport === "sse" ? "SSE" : "Streamable HTTP"})` : connector.server],
+					["Server", connector.server],
 				]}
 			/>
 			{connector.custom && !connector.installed && canManage && <button type="button" className={`${primaryButton} self-start`} onClick={() => run(setInstalled({ connectorId: connector.id, installed: true }))}>Install</button>}
@@ -227,7 +227,7 @@ function ConnectKeyDialog({ connector, auth, onClose }: { connector: ConnectorIt
 
 type ConnectorForm = CustomConnectorInput;
 
-const emptyForm: ConnectorForm = { name: "", description: "", url: "", transport: "http", connection: "workspace", auth: { type: "none" } };
+const emptyForm: ConnectorForm = { name: "", description: "", url: "", connection: "workspace", auth: { type: "none" } };
 const apiKeyDefaults = { type: "api_key" as const, header: "Authorization", prefix: "Bearer ", label: "API key" };
 
 /** A custom connector as its form shows it. */
@@ -235,15 +235,14 @@ const formOf = (c: ConnectorItem): ConnectorForm => ({
 	name: c.name,
 	description: c.description,
 	url: c.server,
-	transport: c.transport,
 	connection: c.connection,
 	auth: c.auth.type === "api_key" ? { type: "api_key", header: c.auth.header, prefix: c.auth.prefix ?? "", label: c.auth.label } : { type: c.auth.type },
 });
 
 /** What changes where agents connect: saving a change here starts the connector strict (customConnectors.update). */
-const serverOf = (f: ConnectorForm) => JSON.stringify([f.url.trim(), f.transport, f.connection, f.auth.type, f.auth.type === "api_key" ? [f.auth.header.trim(), f.auth.prefix ?? ""] : null]);
+const serverOf = (f: ConnectorForm) => JSON.stringify([f.url.trim(), f.connection, f.auth.type, f.auth.type === "api_key" ? [f.auth.header.trim(), f.auth.prefix ?? ""] : null]);
 
-/** Name, server, transport, whose account, and how it signs in: what someone adding an MCP server fills in. */
+/** Name, server, whose account, and how it signs in: what someone adding an MCP server fills in. */
 function ConnectorFields({ value, onChange }: { value: ConnectorForm; onChange: (value: ConnectorForm) => void }) {
 	const auth = value.auth;
 	const setKey = (patch: Partial<typeof apiKeyDefaults>) => auth.type === "api_key" && onChange({ ...value, auth: { ...auth, ...patch } });
@@ -255,14 +254,9 @@ function ConnectorFields({ value, onChange }: { value: ConnectorForm; onChange: 
 			<Field label="Description" hint="Optional. What it’s for; agents see it when it’s connected.">
 				<input className={inputClass} value={value.description} maxLength={CUSTOM_CONNECTOR_DESCRIPTION_MAX} placeholder="e.g. Tickets and customer conversations" onChange={(e) => onChange({ ...value, description: e.target.value })} />
 			</Field>
-			<Field label="Server URL" hint="The MCP server’s address. It must be https and on the public internet.">
+			<Field label="Server URL" hint="The MCP server’s Streamable HTTP address. It must be https and on the public internet.">
 				<input className={inputClass} value={value.url} inputMode="url" spellCheck={false} placeholder="https://example.com/mcp" onChange={(e) => onChange({ ...value, url: e.target.value })} />
 			</Field>
-			<div className="flex flex-col gap-1.5">
-				<span className="text-sm font-medium">Transport</span>
-				<Segmented label="Transport" value={value.transport} onChange={(transport) => onChange({ ...value, transport })} options={[{ value: "http", label: "Streamable HTTP" }, { value: "sse", label: "SSE" }]} />
-				<span className="text-xs text-neutral-500">Most servers use Streamable HTTP. Pick SSE only if the server’s docs say so.</span>
-			</div>
 			<div className="flex flex-col gap-1.5">
 				<span className="text-sm font-medium">Account</span>
 				<Segmented label="Account" value={value.connection} onChange={(connection) => onChange({ ...value, connection })} options={[{ value: "workspace", label: "One shared account" }, { value: "personal", label: "Each person’s own" }]} />
@@ -346,7 +340,7 @@ function EditConnector({ connector, onDone }: { connector: ConnectorItem; onDone
 			error={error}
 			onDiscard={onDone}
 			onSubmit={() => resets
-				? confirm({ title: `Change how ${connector.name} connects?`, action: "Save and reset", body: "A new server, transport, account type or sign-in disconnects everyone and deletes its saved connections and its Ask, Always and Never settings. It stays installed for the same roles.", onConfirm: () => update({ connectorId: connector.id, connector: value }).then(onDone) })
+				? confirm({ title: `Change how ${connector.name} connects?`, action: "Save and reset", body: "A new server, account type or sign-in disconnects everyone and deletes its saved connections and its Ask, Always and Never settings. It stays installed for the same roles.", onConfirm: () => update({ connectorId: connector.id, connector: value }).then(onDone) })
 				: run(update({ connectorId: connector.id, connector: value }).then(onDone))}
 		>
 			{dialog}
