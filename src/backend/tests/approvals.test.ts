@@ -142,6 +142,51 @@ describe("approvals", () => {
 		expect(JSON.parse(hidden.input)).toEqual({ page: secret, trash: true });
 	});
 
+	describe("naming ids on cards, bounded", () => {
+		/** `n` pages titled "Page i", inserted in bulk. */
+		const seedPages = async (t: ReturnType<typeof convexTest>, as: As & { userId: Id<"users"> }, n: number) => {
+			const workspaceId = await workspaceOf(as);
+			return t.run(async (ctx) => {
+				const ids: Id<"pages">[] = [];
+				for (let i = 0; i < n; i++) ids.push(await ctx.db.insert("pages", { workspaceId, title: `Page ${i}`, archived: false, createdBy: as.userId, updatedAt: 0, updatedBy: as.userId }));
+				return ids;
+			});
+		};
+		/** One reply holding a call per input, as the runner saves them. */
+		const holdAll = async (t: ReturnType<typeof convexTest>, as: As, inputs: object[]) => {
+			const { companybot } = await agentsOf(as);
+			const turnId = await agentTurn(t, as, (await generalOf(as))._id, companybot._id);
+			const parts = [];
+			for (const [i, input] of inputs.entries()) {
+				const { approvalId } = await t.mutation(internal.approvals.request, { turnId, callId: `c${i}`, tool: "pages.write", input: canonicalJson(input), risk: "inside" });
+				parts.push({ type: "approval" as const, id: `c${i}`, approvalId, tool: "pages.write" });
+			}
+			await t.mutation(internal.turns.updateReply, { turnId, text: "", parts });
+			await t.mutation(internal.turns.finishReply, { turnId });
+			return as.query(api.approvals.forReply, { replyId: (await t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId! });
+		};
+
+		it("names the first 20 ids in a long list and counts the rest", async () => {
+			const { t, member } = await ownerAndMember();
+			const pages = await seedPages(t, member, 300);
+			const [card] = await holdAll(t, member, [{ pages }]);
+			const shown = card!.fields!.find((f) => f.key === "pages")!.value as string[];
+			expect(shown).toEqual([...pages.slice(0, 20).map((_, i) => `Page ${i}`), "and 280 more"]);
+		});
+
+		it("loads a reply holding many cards, sharing one budget of names across them", async () => {
+			const { t, member } = await ownerAndMember();
+			const pages = await seedPages(t, member, 600);
+			// 60 calls naming 10 pages each: more cards than a reply shows, more ids than one query names.
+			const cards = await holdAll(t, member, Array.from({ length: 60 }, (_, i) => ({ pages: pages.slice(i * 10, i * 10 + 10) })));
+			expect(cards).toHaveLength(50);
+			const named = cards.flatMap((c) => c.fields![0]!.value as string[]).filter((v) => v.startsWith("Page "));
+			expect(named).toHaveLength(200);
+			// Past the budget, a list only says how many it left out.
+			expect(cards.at(-1)!.fields![0]!.value).toEqual(["and 10 more"]);
+		});
+	});
+
 	it("can't be decided once the person can't see the chat", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "board", private: true });

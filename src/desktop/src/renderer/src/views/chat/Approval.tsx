@@ -16,14 +16,15 @@ type Approval = FunctionReturnType<typeof api.approvals.forReply>[number];
 export function HeldCall({ replyId, part }: { replyId: Message["_id"]; part: ApprovalPart }) {
 	// One subscription per reply, however many cards it holds: the client shares identical queries.
 	const approvals = useQuery(api.approvals.forReply, { replyId });
-	return <ApprovalCard part={part} approval={approvals?.find((a) => a.callId === part.id)} />;
+	// Loaded but not listed: past the cards one reply shows (approvals.APPROVALS_PER_REPLY).
+	return <ApprovalCard part={part} approval={approvals?.find((a) => a.callId === part.id)} unlisted={!!approvals && !approvals.some((a) => a.callId === part.id)} />;
 }
 
 /**
  * One held call. Shows the exact input that will run, every field in full; the person the
  * agent acts for answers. Answers are locked to what's shown here (`hash`), so nothing else can run.
  */
-function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approval | undefined }) {
+function ApprovalCard({ part, approval, unlisted }: { part: ApprovalPart; approval: Approval | undefined; unlisted: boolean }) {
 	const decide = useMutation(api.approvals.decide);
 	const { error, busy, run } = useRun();
 	const [raw, setRaw] = useState(false);
@@ -53,7 +54,7 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 						</button>
 					)}
 				</div>
-				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields fields={approval.fields} input={approval.input} /> : <p className={hintClass}>Loading…</p>}
+				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields fields={approval.fields} input={approval.input} /> : <p className={hintClass}>{unlisted ? "This reply holds too many requests to show them all. Ask the agent again." : "Loading…"}</p>}
 			</div>
 			{approval && <Status approval={approval} busy={busy} raw={raw} onDecide={send} />}
 			<Notice>{error}</Notice>
