@@ -28,6 +28,8 @@ A normal screen is a native header followed by one flex body. Put a toolbar afte
 
 Rows display values. Tapping Edit or a row opens a form; forms do not occupy a browsing screen. A navigation row cannot contain another press target: place its menu in the separate accessory slot. Text wraps and controls remain reachable at accessibility text sizes.
 
+Use `ListRow selectable` for content that needs native text selection, with editing actions in its separate menu rather than an enclosing row press target. Memory uses this pattern so read-only content can still be copied.
+
 Native library files have no Convex, workspace, router destination, or product-specific dependencies. Features provide labels, values and callbacks. Do not add per-feature colors, radius overrides or arbitrary row sizing props.
 
 ESLint enforces the feature/server import boundary for the token, UI and navigation folders. Product adapters, including `features/session/DirectoryHeader`, live with features. Shared APIs expose only behavior that works on each platform; unsupported Pressable callbacks and conflicting list inset overrides are rejected by TypeScript.

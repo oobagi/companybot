@@ -86,7 +86,12 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
       <Section title="Form rows"><ChoicePicker label="View" options={shortChoices} value={selection} onChange={value => { if (typeof value === 'string') setSelection(value); }} /><ChoicePicker label="Multiple selections" multiple options={longChoices} value={many} onChange={value => { if (Array.isArray(value)) setMany(value); }} /><DateInput label="Date" value={date} onChange={setDate} /></Section>
     </> : <>
       <Section title="System typography"><Text variant="title">A clear page title</Text><Text variant="heading">Section heading</Text><Text>Body text uses the system font and follows the device’s text size.</Text><Text variant="caption" tone="muted">Supporting information stays secondary.</Text></Section>
-      <Section title="Custom content rows"><ListRow title="A content item" description="Useful supporting detail" value="Today" disclosure onPress={() => setNotice('Opened item')} /><ListRow title="Separate menu target" description="The menu does not open this row" onPress={() => setNotice('Opened row')} trailing={<ActionMenu label="Item actions" actions={[{ id: 'pin', title: 'Pin', icon: 'pin' }]} onAction={() => setNotice('Menu selected')} />} /></Section>
+      <Section title="Custom content rows"><View>
+        <ListRow title="A content item" description="Useful supporting detail" value="Today" disclosure onPress={() => setNotice('Opened item')} />
+        <ListRow title="A longer title that wraps across several lines at larger text sizes" description="Rows grow with their content. This supporting text must stay above the next row without relying on extra space between rows." disclosure onPress={() => setNotice('Opened long item')} />
+        <ListRow title="Read-only content can still be copied." description="Press and hold the text to select it." selectable />
+        <ListRow title="Separate menu target" description="The menu does not open this row" onPress={() => setNotice('Opened row')} trailing={<ActionMenu label="Item actions" actions={[{ id: 'pin', title: 'Pin', icon: 'pin' }]} onAction={() => setNotice('Menu selected')} />} />
+      </View></Section>
       <Section title="Button hierarchy"><Stack horizontal style={{ flexWrap: 'wrap' }}><Button label="Save" onPress={() => setNotice('Save selected')} /><Button label="Cancel" variant="ghost" onPress={() => setNotice('Cancel selected')} /><Button label="Unavailable" disabled /><Button label="Saving" loading /><Button label="Delete" variant="danger" onPress={() => setNotice('Delete selected')} /></Stack></Section>
       {!!notice && <Text tone="muted">{notice}</Text>}
     </>}

@@ -78,3 +78,13 @@ A real editor regression reproduced the typing/paste crash: the page-removal gua
 Mobile chat now consumes paginated history, bounds deep-link seeking with an explicit continuation, and uses publication time consistently. Review also corrected a race where a linked message could load before its list mounted and never scroll into view. Native long-history scrolling still needs acceptance testing.
 
 The immediate priority is shared component reliability and on-device screen composition. Further feature expansion waits on validating navigation, lists, sheets, forms and feedback states together.
+
+## Settings composition and reliability — 2026-11-05
+
+Members and Memory now use native header actions and shared list rows with separate native menus. Permissions displays readable action summaries; tapping one opens its controls deliberately in a sheet. Existing authorization, version checks, destructive confirmations and permission semantics remain. Profile editing now permits an empty display name, matching the backend, and both profile/workspace editors protect dismissal while picture uploads or removal run.
+
+Direct iOS simulator captures verify the Settings root, Members header/list, Memory's centered empty state, and Permissions at normal and accessibility-large text sizes. A cold-start comparison ruled out a suspected `ListRow` sizing change; its layout implementation was retained. Memory rows retain native text selection through the shared row component. The component gallery now includes adjacent long rows without extra spacing between them. Live-refresh screenshots showed transient overlapping rows and missing search chrome, so final layout checks used cold launches.
+
+The document bridge now waits for the DOM readiness signal before prop updates and handles asynchronous injection failures after detachment. Native document layout follows BlockNote's viewport/scroll-container guidance. A fresh iOS document mount displayed persisted text with no WebView startup error or viewport warning. Repeated Back/history teardown and software-keyboard acceptance are still outstanding: the Maestro XCTest runner crashed before establishing its connection during this pass. Screenshots and code checks do not establish those interactions.
+
+Mobile typecheck, lint and all 130 tests pass. iOS, Android, web and DOM export pass. Android device acceptance of these changes, upload error/dismissal interaction checks and full feature parity remain incomplete.

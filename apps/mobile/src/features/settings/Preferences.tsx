@@ -59,29 +59,31 @@ function ProfileEditor({ initial, onClose }: { initial: ProfilePreferences; onCl
   const current = useQuery(api.preferences.get);
   const update = useMutation(api.preferences.update);
   const task = useTask();
+  const [pictureBusy, setPictureBusy] = useState(false);
+  const busy = task.busy || pictureBusy;
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
   const conflict = !!current && JSON.stringify(editablePreferences(current)) !== JSON.stringify(baseline);
-  const guard = useDraftGuard({ dirty, busy: task.busy, onClose });
-  const nameError = !draft.name.trim() ? 'Enter a display name.' : draft.name.trim().length > 60 ? 'Use 60 characters or fewer.' : undefined;
+  const guard = useDraftGuard({ dirty, busy, onClose });
+  const nameError = draft.name.trim().length > 60 ? 'Use 60 characters or fewer.' : undefined;
   const zoneError = draft.zone.trim() && !isValidTimeZone(draft.zone.trim()) ? 'Enter a valid time zone, such as America/Los_Angeles.' : undefined;
-  return <EditorSheet title="Edit profile" onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy}>
+  return <EditorSheet title="Edit profile" onClose={() => void guard.close()} dismissible={guard.dismissible} busy={busy}>
     {guard.dialog}
     {conflict && <Text tone="danger" accessibilityRole="alert">Your preferences changed on another device. Close and reopen the editor to review them.</Text>}
     <Section title="Profile">
-      <Field label="Display name" value={draft.name} onChangeText={name => setDraft({ ...draft, name })} maxLength={60} error={nameError} editable={!task.busy} textContentType="name" autoComplete="name" />
-      <Field label="Time zone" value={draft.zone} onChangeText={zone => setDraft({ ...draft, zone })} placeholder="Automatic" hint="Leave blank to follow this device." error={zoneError || undefined} editable={!task.busy} autoCapitalize="none" autoCorrect={false} />
+      <Field label="Display name" value={draft.name} onChangeText={name => setDraft({ ...draft, name })} maxLength={60} error={nameError} editable={!busy} textContentType="name" autoComplete="name" />
+      <Field label="Time zone" value={draft.zone} onChangeText={zone => setDraft({ ...draft, zone })} placeholder="Automatic" hint="Leave blank to follow this device." error={zoneError || undefined} editable={!busy} autoCapitalize="none" autoCorrect={false} />
     </Section>
     <Section title="Notifications" description="Your conversation preference applies on all your devices.">
-      <ChoicePicker label="Conversations" value={draft.notify} options={conversationOptions} disabled={task.busy} onChange={notify => { if (notify === 'all' || notify === 'mentions' || notify === 'off') setDraft({ ...draft, notify }); }} />
+      <ChoicePicker label="Conversations" value={draft.notify} options={conversationOptions} disabled={busy} onChange={notify => { if (notify === 'all' || notify === 'mentions' || notify === 'off') setDraft({ ...draft, notify }); }} />
     </Section>
     {task.error && <ErrorState message={task.error} />}
-    <Button label="Save changes" loading={task.busy} disabled={!dirty || conflict || !!nameError || !!zoneError} onPress={() => void task.run(async () => {
-      if (nameError || zoneError || conflict) return;
+    <Button label="Save changes" loading={task.busy} disabled={pictureBusy || !dirty || conflict || !!nameError || !!zoneError} onPress={() => void task.run(async () => {
+      if (pictureBusy || nameError || zoneError || conflict) return;
       // Preferences have no version contract. Send only changed fields to avoid overwriting unrelated updates.
       await update({ ...(draft.name !== baseline.name && { displayName: draft.name.trim() }), ...(draft.zone !== baseline.zone && { timeZone: draft.zone.trim() || null }), ...(draft.notify !== baseline.notify && { notify: draft.notify }), deviceTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
       guard.complete();
       onClose();
     })} />
-    <Section title="Profile picture" description="Picture changes save immediately."><ImageControl of="me" name={initial.displayName || 'You'} image={current ? current.image : initial.image} disabled={task.busy} /></Section>
+    <Section title="Profile picture" description="Picture changes save immediately."><ImageControl of="me" name={initial.displayName || 'You'} image={current ? current.image : initial.image} disabled={task.busy} onBusyChange={setPictureBusy} /></Section>
   </EditorSheet>;
 }

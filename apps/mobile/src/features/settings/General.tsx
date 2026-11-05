@@ -68,32 +68,34 @@ function WorkspaceEditor({ initial, onClose }: { initial: Settings; onClose: () 
   const current = useQuery(api.workspace.settings);
   const update = useMutation(api.workspace.updateSettings);
   const task = useTask();
+  const [pictureBusy, setPictureBusy] = useState(false);
+  const busy = task.busy || pictureBusy;
   const dirty = JSON.stringify(draft) !== JSON.stringify(editableSettings(baseline)) || budget !== String(baseline.imageBudgetUsd);
-  const guard = useDraftGuard({ dirty, busy: task.busy, onClose });
+  const guard = useDraftGuard({ dirty, busy, onClose });
   const conflict = !!current && current.version !== baseline.version;
   const nameError = !draft.name.trim() ? 'Enter a workspace name.' : undefined;
   const currency = draft.currency.trim().toUpperCase();
   const currencyError = !isCurrencyCode(currency) ? 'Enter a currency code such as USD or EUR.' : undefined;
   // Matches the server spending limit; do not import the agent tool runtime into mobile.
   const budgetError = !budget.trim() || !Number.isFinite(Number(budget)) || Number(budget) < 0 || Number(budget) > 10_000 ? 'Enter a monthly budget from $0 to $10,000.' : undefined;
-  return <EditorSheet title="Edit workspace" onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy}>
+  return <EditorSheet title="Edit workspace" onClose={() => void guard.close()} dismissible={guard.dismissible} busy={busy}>
     {guard.dialog}
     {conflict && <Text tone="danger" accessibilityRole="alert">This workspace changed elsewhere. Close and reopen the editor to review the latest settings.</Text>}
     <Section title="Workspace">
-      <Field label="Name" value={draft.name} onChangeText={name => setDraft({ ...draft, name })} error={nameError} editable={!task.busy} />
-      <Field label="Currency" value={draft.currency} onChangeText={currency => setDraft({ ...draft, currency: currency.toUpperCase() })} autoCapitalize="characters" autoCorrect={false} maxLength={3} error={currencyError} editable={!task.busy} hint={baseline.hasAmounts ? 'Existing amounts keep their original currency.' : 'Used for new amounts.'} />
-      <ChoicePicker label="Keep active threads visible" value={String(draft.threadHours)} options={threadWindows.map(w => ({ value: String(w.hours), label: w.label }))} disabled={task.busy} onChange={v => { if (typeof v === 'string' && v) setDraft({ ...draft, threadHours: Number(v) }); }} />
+      <Field label="Name" value={draft.name} onChangeText={name => setDraft({ ...draft, name })} error={nameError} editable={!busy} />
+      <Field label="Currency" value={draft.currency} onChangeText={currency => setDraft({ ...draft, currency: currency.toUpperCase() })} autoCapitalize="characters" autoCorrect={false} maxLength={3} error={currencyError} editable={!busy} hint={baseline.hasAmounts ? 'Existing amounts keep their original currency.' : 'Used for new amounts.'} />
+      <ChoicePicker label="Keep active threads visible" value={String(draft.threadHours)} options={threadWindows.map(w => ({ value: String(w.hours), label: w.label }))} disabled={busy} onChange={v => { if (typeof v === 'string' && v) setDraft({ ...draft, threadHours: Number(v) }); }} />
     </Section>
     <Section title="Agents">
-      <ChoicePicker label="Memory" value={String(draft.memory)} options={[{ value: 'true', label: 'Enabled' }, { value: 'false', label: 'Off — existing memories are kept' }]} disabled={task.busy} onChange={v => setDraft({ ...draft, memory: v === 'true' })} />
-      <ChoicePicker label="Reply decision model" value={draft.routerModel} options={baseline.routerModels.map(m => ({ value: m.id, label: m.name }))} disabled={task.busy} onChange={v => { if (typeof v === 'string' && v) setDraft({ ...draft, routerModel: v }); }} />
+      <ChoicePicker label="Memory" value={String(draft.memory)} options={[{ value: 'true', label: 'Enabled' }, { value: 'false', label: 'Off — existing memories are kept' }]} disabled={busy} onChange={v => setDraft({ ...draft, memory: v === 'true' })} />
+      <ChoicePicker label="Reply decision model" value={draft.routerModel} options={baseline.routerModels.map(m => ({ value: m.id, label: m.name }))} disabled={busy} onChange={v => { if (typeof v === 'string' && v) setDraft({ ...draft, routerModel: v }); }} />
     </Section>
     <Section title="Images">
-      <ChoicePicker label="Model" value={draft.imageModel} options={baseline.imageModels.map(m => ({ value: m.id, label: m.name }))} disabled={task.busy} onChange={v => { if (typeof v === 'string' && v) setDraft({ ...draft, imageModel: v }); }} />
-      <Field label="Monthly budget (USD)" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" editable={!task.busy} error={budgetError} hint="$0 turns off image generation." />
+      <ChoicePicker label="Model" value={draft.imageModel} options={baseline.imageModels.map(m => ({ value: m.id, label: m.name }))} disabled={busy} onChange={v => { if (typeof v === 'string' && v) setDraft({ ...draft, imageModel: v }); }} />
+      <Field label="Monthly budget (USD)" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" editable={!busy} error={budgetError} hint="$0 turns off image generation." />
     </Section>
     {task.error && <ErrorState message={task.error} />}
-    <Button label="Save changes" loading={task.busy} disabled={!dirty || conflict || !!nameError || !!currencyError || !!budgetError} onPress={() => void task.run(async () => { if (nameError || currencyError || budgetError || conflict) return; await update({ ...draft, name: draft.name.trim(), currency, imageBudgetUsd: Number(budget), expectedVersion: baseline.version }); guard.complete(); onClose(); })} />
-    <Section title="Workspace picture" description="Picture changes save immediately."><ImageControl of="workspace" name={baseline.name} image={current ? current.image : baseline.image} disabled={task.busy} /></Section>
+    <Button label="Save changes" loading={task.busy} disabled={pictureBusy || !dirty || conflict || !!nameError || !!currencyError || !!budgetError} onPress={() => void task.run(async () => { if (pictureBusy || nameError || currencyError || budgetError || conflict) return; await update({ ...draft, name: draft.name.trim(), currency, imageBudgetUsd: Number(budget), expectedVersion: baseline.version }); guard.complete(); onClose(); })} />
+    <Section title="Workspace picture" description="Picture changes save immediately."><ImageControl of="workspace" name={baseline.name} image={current ? current.image : baseline.image} disabled={task.busy} onBusyChange={setPictureBusy} /></Section>
   </EditorSheet>;
 }

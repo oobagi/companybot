@@ -6,7 +6,8 @@ import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
-import { Avatar, Button, Card, EditorSheet, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Stack, Text, useConfirm } from '@/components/ui';
+import { ActionMenu, Avatar, Button, Card, EditorSheet, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Stack, Text, useConfirm } from '@/components/ui';
+import { NavigationHeader } from '@/components/navigation/NavigationHeader';
 import { RoleChoices, Roles, roleNames, type WorkspaceRole } from './Roles';
 
 type Member = NonNullable<FunctionReturnType<typeof api.workspace.team>>['members'][number];
@@ -21,12 +22,18 @@ export default function Members() {
   const ownerId = roles.find(role => role.builtIn === 'owner')?.id;
   const canEditMember = (member: Member) => allowed && (!!me?.access?.owner || !member.roles.some(id => id === ownerId));
   const selected = team.members.find(member => member.id === editing);
-  return <Screen nativeScroll><ScreenList data={team.members} keyExtractor={member => member.id}
-    ListHeaderComponent={<Stack>{allowed && <Button label="Invite a teammate" onPress={() => setEditing('invite')} />}<Button label="Roles and permissions" variant="secondary" onPress={() => setEditing('roles')} />{task.error && <ErrorState message={task.error} />}</Stack>}
+  return <>
+    <NavigationHeader action={allowed ? { label: 'Invite a teammate', onPress: () => setEditing('invite'), disabled: task.busy } : undefined} menu={[{ label: 'Roles and permissions', onPress: () => setEditing('roles') }]} />
+    <Screen nativeScroll padded={false}><ScreenList data={team.members} keyExtractor={member => member.id}
+    ListHeaderComponent={task.error ? <ErrorState message={task.error} /> : undefined}
     renderItem={({ item }) => <ListRow title={`${item.name}${item.isYou ? ' (you)' : ''}`} description={`${item.email} · ${roleNames(item.roles, roles)}`} leading={<Avatar name={item.name} image={item.image} />} onPress={canEditMember(item) ? () => setEditing(item.id) : undefined} />}
-    ListFooterComponent={<Stack>{team.invites.map(invite => <Card key={invite.id}><Text variant="label">{invite.email}</Text><Text tone="muted">Invited as {roleNames(invite.roles, roles)}</Text>{allowed && <><Button label="Resend invitation" variant="secondary" disabled={task.busy} onPress={() => void task.run(() => resend({ id: invite.id }))} /><Button label="Cancel invitation" variant="ghost" disabled={task.busy} onPress={() => void task.run(() => cancel({ id: invite.id }))} /></>}</Card>)}</Stack>} />
+    ListFooterComponent={team.invites.length ? <Stack><Text variant="label" tone="muted">Pending invitations</Text>{team.invites.map(invite => <ListRow key={invite.id} title={invite.email} description={`Invited as ${roleNames(invite.roles, roles)}`} trailing={allowed ? <ActionMenu label={`Invitation actions for ${invite.email}`} actions={[
+      { id: 'resend', title: 'Resend invitation', icon: 'envelope', disabled: task.busy },
+      { id: 'cancel', title: 'Cancel invitation', icon: 'trash', destructive: true, disabled: task.busy },
+    ]} onAction={action => { if (task.busy) return; if (action === 'resend') void task.run(() => resend({ id: invite.id })); else if (action === 'cancel') void task.run(() => cancel({ id: invite.id })); }} /> : undefined} />)}</Stack> : undefined} />
+    </Screen>
     {editing === 'roles' ? <Roles onClose={() => setEditing(undefined)} /> : editing === 'invite' || selected ? <MemberEditor key={editing} member={selected} roles={roles} allowed={selected ? canEditMember(selected) : allowed} owner={!!me?.access?.owner} onClose={() => setEditing(undefined)} /> : null}
-  </Screen>;
+  </>;
 }
 function MemberEditor({ member, roles, allowed, owner, onClose }: { member?: Member; roles: WorkspaceRole[]; allowed: boolean; owner: boolean; onClose: () => void }) {
   const [email, setEmail] = useState('');

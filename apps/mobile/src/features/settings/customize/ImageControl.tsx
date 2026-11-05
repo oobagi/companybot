@@ -5,17 +5,24 @@ import { fetch } from 'expo/fetch';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { Platform } from 'react-native';
+import { useLayoutEffect } from 'react';
 import { Avatar, Button, ErrorState, Stack, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 
-export function ImageControl({ of, name, image, disabled = false, agent = false }: { of: 'workspace' | 'me' | Id<'agents'>; name: string; image?: string | null; disabled?: boolean; agent?: boolean }) {
+export function ImageControl({ of, name, image, disabled = false, agent = false, onBusyChange }: { of: 'workspace' | 'me' | Id<'agents'>; name: string; image?: string | null; disabled?: boolean; agent?: boolean; onBusyChange?: (busy: boolean) => void }) {
   const endpoint = useQuery(api.images.uploadEndpoint);
   const workspace = useWorkspace();
   const token = useAuthToken();
   const save = useMutation(api.images.set);
   const task = useTask();
+  // The containing editor must protect dismissal during both upload and removal.
+  // Publish before paint, and release the guard if this control is unmounted.
+  useLayoutEffect(() => {
+    onBusyChange?.(task.busy);
+    return () => onBusyChange?.(false);
+  }, [onBusyChange, task.busy]);
   const upload = () => task.run(async () => {
     if (!endpoint || !workspace || !token) throw new Error('Still connecting. Try again.');
     const result = await DocumentPicker.getDocumentAsync({ type: [...imageTypes], copyToCacheDirectory: true });
