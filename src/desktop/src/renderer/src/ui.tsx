@@ -377,7 +377,7 @@ export function Settings({ title, note, action, children }: { title?: string; no
 export function Setting({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
 	return (
 		<div className="flex items-center gap-6 px-4 py-3">
-			<div className="min-w-0 flex-1">
+			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<p className="text-sm font-medium">{label}</p>
 				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
 			</div>
