@@ -10,7 +10,7 @@ import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute, views } from "./router";
-import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignOutIcon } from "./icons";
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
@@ -179,6 +179,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
+	const createPage = useMutation(api.pages.create);
 	const { status: update } = useUpdates();
 
 	const chatId = view === "chat" ? (route[1] as Id<"chats"> | undefined) : undefined;
@@ -244,7 +245,12 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
 												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
-												{/* Databases is one list, so its + sits by the tab's name rather than under a heading repeating it. */}
+												{/* A tab with one list (Drive, Databases) has its + here, with no heading repeating the name; Chat's lists each have their own. */}
+												{tab === "drive" && can(access, "pages.edit") && (
+													<span className="no-drag flex">
+														<AddButton label="New page" onClick={() => createPage({ title: "Untitled" }).then((id) => navigate("pages", id), fail)} />
+													</span>
+												)}
 												{tab === "databases" && can(access, "fields.edit") && (
 													<span className="no-drag flex">
 														<AddButton label="New database" onClick={() => setNewDatabase(true)} />
@@ -283,7 +289,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
 										})}
 									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</SidebarList>
 							</Scroll>
@@ -321,17 +327,13 @@ const sectionIds = ["channels", "dms"];
 const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { _id: string }) => t._id;
 
-/** Databases' sidebar: your databases, in your order. `canCreate` (fields.edit) also edits and deletes. */
+/** Databases' sidebar: your databases, in your order. New ones come from the + by the tab's name. */
 function DatabasesNav({
 	types,
 	openKey,
-	canCreate,
-	onCreate,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
-	canCreate: boolean;
-	onCreate: () => void;
 }) {
 	const { sorted, drag } = useSortable("databases", types, typeKeyOf);
 	const [editing, setEditing] = useState<RecordType>();
@@ -371,11 +373,6 @@ function DatabasesNav({
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
-			{!types.length && canCreate && (
-				<Item icon={<PlusIcon />} muted create onClick={onCreate}>
-					New database
-				</Item>
-			)}
 		</div>
 	);
 }

@@ -23,7 +23,7 @@ export function PagesView({ pageId }: { pageId?: string }) {
 		return (
 			<Page title="Drive">
 				<EmptyState icon={<DriveIcon />} title="No page open">
-					Open a page from the sidebar, or press + beside Pages to write one.
+					Open a page from the sidebar, or press + beside Drive to write one.
 				</EmptyState>
 			</Page>
 		);

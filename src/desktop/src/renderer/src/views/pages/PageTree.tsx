@@ -8,7 +8,7 @@ import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, useSortable } from "../../sortable";
 import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
-import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
+import { Item, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 
 type PageId = Id<"pages">;
@@ -16,11 +16,11 @@ type PageId = Id<"pages">;
 type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null; lock?: { who: string; edit: boolean } | null; canEdit?: boolean };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
-export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section?: SectionProps }) {
+export function PagesNav({ openId, canEdit }: { openId: string | undefined; canEdit: boolean }) {
 	const workspace = useWorkspace();
-	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} />;
+	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} />;
 }
-function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: boolean; section?: SectionProps }) {
+function PageNavTree({ openId, canEdit }: { openId?: string; canEdit: boolean }) {
 	const [expandedIds, changeExpanded] = useStoredIds("expanded");
 	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
 	const batches = useMemo(() => {
@@ -41,7 +41,7 @@ function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: b
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
 	/** `above`: for each level above this one, whether its line continues past these rows. */
 	const level = (parentId?: PageId, above: boolean[] = []): React.ReactNode => (
-		<PageLevel parentId={parentId} sortable empty={!above.length && canEdit && <Item icon={<PlusIcon />} onClick={() => add()} muted create>New page</Item>} render={(p, drag, last) => {
+		<PageLevel parentId={parentId} sortable render={(p, drag, last) => {
 			const open = p.hasChildren && expanded.has(p._id);
 			const guides = parentId ? [...above, !last] : [];
 			return (
@@ -64,14 +64,14 @@ function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: b
 		}} />
 	);
 	return (
-		<Group title="Pages" section={section} add={canEdit && <AddButton label="New page" onClick={() => add()} />}>
+		<div className="flex flex-col gap-px">
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
-			{!section?.collapsed && level()}
+			{level()}
 			{dialog}
 			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
 			{sharing && <PageAccess pageId={sharing} onClose={() => setSharing(undefined)} />}
-		</Group>
+		</div>
 	);
 }
 
