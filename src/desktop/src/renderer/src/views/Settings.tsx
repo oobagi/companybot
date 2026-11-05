@@ -272,7 +272,7 @@ function GeneralForm({
 }) {
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
-	const draft = useDraft(
+	const draft = useDraft("settings",
 		{ name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) },
 		settings.version,
 	);
@@ -370,7 +370,9 @@ function ProfileTab() {
 	const update = useMutation(api.preferences.update);
 	const me = useQuery(api.workspace.me);
 	const erase = useMutation(api.workspace.eraseAccount);
-	const [name, setName] = useState<string>();
+	const nameDraft = useDraft("account:name", prefs?.displayName ?? "", 0);
+ const name = nameDraft.dirty ? nameDraft.value : undefined;
+ const setName = (value: string | undefined) => value === undefined ? nameDraft.discard() : nameDraft.set(value);
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
 	const shownName = name ?? prefs.displayName;

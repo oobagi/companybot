@@ -150,6 +150,7 @@ export function NewItem({
 	noun,
 	error,
 	onCreate,
+	onDiscard,
 	children,
 }: {
 	tab: MadeTab;
@@ -157,6 +158,7 @@ export function NewItem({
 	noun: string;
 	error?: string;
 	onCreate: () => void;
+	onDiscard?: () => void;
 	children: React.ReactNode;
 }) {
 	return (
@@ -164,6 +166,7 @@ export function NewItem({
 			<Notice>{error}</Notice>
 			<div className="flex flex-col gap-5">
 				{children}
+                {onDiscard && <button type="button" className={barButton} onClick={onDiscard}>Discard</button>}
 				<button type="button" className={`${primaryButton} self-start`} onClick={onCreate}>
 					Create
 				</button>
@@ -177,6 +180,7 @@ export function NewItem({
  * people who can't change it, or while it's in Trash), Delete (to Trash), and Save. `children` go below the fields.
  */
 export function MadeItemDetail<T>({
+ id,
 	tab,
 	name,
 	createdByName,
@@ -189,6 +193,7 @@ export function MadeItemDetail<T>({
 	fields,
 	children,
 }: {
+	id: string;
 	tab: MadeTab;
 	name: string;
 	createdByName: string | null | undefined;
@@ -204,7 +209,7 @@ export function MadeItemDetail<T>({
 	fields: (value: T, onChange: (value: T) => void) => React.ReactNode;
 	children?: React.ReactNode;
 }) {
-	const draft = useDraft(saved, custom.version);
+	const draft = useDraft(`${tab}:${id}`, saved, custom.version);
 	const { error, run } = useRun();
 	const editable = canEdit && !trash;
 	const { confirm, dialog } = useConfirm();

@@ -1,7 +1,7 @@
 import { type Access, can } from "@companybot/core/permissions";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "@companybot/core/skills";
 import type { FunctionReturnType } from "convex/server";
-import { useState } from "react";
+
 import { Select } from "../../controls";
 import { useConfirm } from "../chat/common";
 import { api } from "../../api";
@@ -9,7 +9,7 @@ import { useMutation, useQuery } from "../../convex";
 import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Section, secondaryButton, inputClass, useRun } from "../../ui";
+import { Field, Loading, Notice, Section, secondaryButton, inputClass, useDraft, useRun } from "../../ui";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
@@ -77,17 +77,21 @@ function SkillFields({ value, onChange }: { value: SkillConfig; onChange: (value
 }
 
 function NewSkill({ access }: { access: Access }) {
-	const [audience, setAudience] = useState<"team" | "personal">("personal");
+	const draft = useDraft<{ audience: "team" | "personal"; config: SkillConfig }>("skills:new", { audience: "personal", config: { name: "", description: "", instructions: "" } }, 0);
+ const { audience, config } = draft.value;
+ const setAudience = (audience: "team" | "personal") => draft.set({ ...draft.value, audience });
+ const setConfig = (config: SkillConfig) => draft.set({ ...draft.value, config });
 	const create = useMutation(api.skills.create);
 	const { error, run } = useRun();
-	const [config, setConfig] = useState<SkillConfig>({ name: "", description: "", instructions: "" });
+
 
 	return (
 		<NewItem
+            onDiscard={draft.dirty ? draft.discard : undefined}
 			tab="skills"
 			noun="skill"
 			error={error}
-			onCreate={() => run(create({ config, audience }).then((id) => navigate("settings", "skills", id)))}
+			onCreate={() => run(create({ config, audience }).then((id) => { draft.discard(); navigate("settings", "skills", id); }))}
 		>
 			<Field label="Runs for" hint={!can(access, "skills.edit") ? "This skill is just for you. Sharing with the team needs a role that can make and change team skills." : undefined}>
 				<Select label="Runs for" className={inputClass} value={audience}
@@ -108,6 +112,7 @@ function CustomSkillDetail({ skill: s, custom, access }: { access: Access; skill
 	return (
 		<MadeItemDetail<SkillConfig>
 			tab="skills"
+            id={s.id}
 			name={s.name}
 			createdByName={s.createdByName}
 			canEdit={s.canEdit}

@@ -1,4 +1,6 @@
-import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { api } from "./api";
+import { useQuery, useWorkspace } from "./convex";
+import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
@@ -651,13 +653,27 @@ export function useDebounced<T>(value: T, ms = 250) {
  * updating underneath. If someone else saves while you're editing, `stale` turns true so
  * the form can ask whose change wins. Saves send `base`, and the server refuses stale ones.
  */
-export function useDraft<T>(saved: T, version: number) {
-	const [draft, setDraft] = useState<{ value: T; base: number } | null>(null);
+const formDrafts = new Map<string, { value: unknown; base: number }>();
+const draftListeners = new Set<() => void>();
+const subscribeDrafts = (listener: () => void) => {
+	draftListeners.add(listener);
+	return () => { draftListeners.delete(listener); };
+};
+export function useDraft<T>(key: string, saved: T, version: number) {
+	const me = useQuery(api.workspace.me);
+	const workspace = useWorkspace();
+	const scoped = me ? JSON.stringify([me.userId, workspace?.id, key]) : null;
+	const draft = useSyncExternalStore(subscribeDrafts, () => scoped ? formDrafts.get(scoped) : undefined) as { value: T; base: number } | undefined;
+	const setDraft = (next: { value: T; base: number } | null) => {
+		if (!scoped) return;
+		if (next) formDrafts.set(scoped, next); else formDrafts.delete(scoped);
+		draftListeners.forEach((listener) => listener());
+	};
 	return {
-		value: draft?.value ?? saved,
+		value: draft ? draft.value : saved,
 		set: (value: T) => setDraft({ value, base: draft?.base ?? version }),
-		dirty: draft !== null,
-		stale: draft !== null && draft.base !== version,
+		dirty: draft !== undefined,
+		stale: draft !== undefined && draft.base !== version,
 		base: draft?.base ?? version,
 		discard: () => setDraft(null),
 		/** Overwrite their change on the next save. */

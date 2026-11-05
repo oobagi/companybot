@@ -71,7 +71,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		layout: selected.layout ?? "table",
 		groupBy: selected.groupBy,
 	};
-	const draft = useDraft<Settings>(
+	const draft = useDraft<Settings>(`view:${type._id}:${viewId}`,
 		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
 		selected?.version ?? 0,
 	);
