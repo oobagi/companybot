@@ -72,9 +72,10 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 	const update = useMutation(api.agents.update);
 	const remove = useMutation(api.trash.move);
 	const { confirm, dialog } = useConfirm();
-	const draft = useDraft(pickAgentConfig(agent), agent.version);
+	const draft = useDraft(`agent:${agent._id}`, pickAgentConfig(agent), agent.version);
 	const { error, run } = useRun();
-	const config = draft.value;
+	const editable = canManage && !agent.archived;
+	const config = editable ? draft.value : pickAgentConfig(agent);
 	const edit = (changes: Partial<AgentConfig>) => draft.set({ ...config, ...changes });
 	const access = new Map(agent.access.map((a) => [a.id, a]));
 
@@ -105,7 +106,7 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 		>
 			{dialog}
 			{agent.trash && <TrashNotice trash={agent.trash} />}
-			<ConflictNotice draft={draft} who={agent.updatedByName} />
+			{editable && <ConflictNotice draft={draft} who={agent.updatedByName} />}
 			<Notice>{error}</Notice>
 
 			<fieldset disabled={!canManage || agent.archived} className="flex flex-col gap-5">

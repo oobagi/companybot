@@ -85,7 +85,7 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	const update = useMutation(api.memory.update);
 	const remove = useMutation(api.memory.remove);
 	const { confirm, dialog } = useConfirm();
-	const draft = useDraft(memory.content, memory.version);
+	const draft = useDraft(`memory:${memory.id}`, memory.content, memory.version);
 	const { error, run } = useRun();
 	const [history, setHistory] = useState(false);
 	const id = memory.id as Id<"memories">;
@@ -94,10 +94,10 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	return (
 		<div className={`flex flex-col gap-2 ${cardClass}`}>
 			{dialog}
-			<ConflictNotice draft={draft} who={memory.updatedByName} />
+			{memory.canEdit && <ConflictNotice draft={draft} who={memory.updatedByName} />}
 			<Notice>{error}</Notice>
 			<div className="flex items-start gap-3">
-				{!draft.dirty ? (
+				{!memory.canEdit || !draft.dirty ? (
 					<p className="flex-1 leading-relaxed">{memory.content}</p>
 				) : (
 					<textarea

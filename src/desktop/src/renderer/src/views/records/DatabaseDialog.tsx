@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
@@ -19,15 +19,19 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 	const update = useMutation(api.recordTypes.update);
 	const setAccess = useMutation(api.recordTypes.setAccess);
 	const remove = useMutation(api.trash.move);
-	const draft = useDraft({ name: type?.name ?? "", plural: type?.plural ?? "" }, type?.version ?? 0);
+	const draft = useDraft(`database:${type?._id ?? "new"}`, { name: type?.name ?? "", plural: type?.plural ?? "" }, type?.version ?? 0);
+	const discard = useRef(draft.discard);
+	discard.current = draft.discard;
+	useEffect(() => () => discard.current(), []);
+	const close = () => { draft.discard(); onClose(); };
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	return (
-		<Modal title={type ? "Edit database" : "New database"} onClose={onClose}>
+		<Modal title={type ? "Edit database" : "New database"} onClose={close}>
 			<Form
 				onSubmit={() => {
-					if (type) run(update({ typeId: type._id, ...draft.value, version: draft.base }), onClose);
-					else run(create({ plural: draft.value.plural }).then(setCreated));
+					if (type) run(update({ typeId: type._id, ...draft.value, version: draft.base }), () => { draft.discard(); onClose(); });
+					else run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); }));
 				}}
 			>
 				<Notice>{error}</Notice>

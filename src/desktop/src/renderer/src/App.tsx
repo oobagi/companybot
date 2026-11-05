@@ -1,3 +1,4 @@
+import { setFormDraftPerson } from "./ui";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -41,6 +42,11 @@ type View = (typeof views)[number];
 
 export function App() {
 	const { isLoading, isAuthenticated } = useConvexAuth();
+	const draftMe = useQuery(api.workspace.me);
+	useEffect(() => {
+		if (!isLoading && !isAuthenticated) setFormDraftPerson(null);
+		else if (draftMe !== undefined) setFormDraftPerson(draftMe?.userId ?? null);
+	}, [isLoading, isAuthenticated, draftMe?.userId]);
 	// Signed out, the landing comes first; Get started opens sign-in.
 	const [started, setStarted] = useState(false);
 	if (isLoading) return null;
@@ -221,7 +227,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							email={email}
 							access={access}
 							onSettings={() => navigate("settings", "preferences")}
-							onSignOut={() => void signOut()}
+							onSignOut={() => { setFormDraftPerson(null); void signOut(); }}
 						/>
 					}
 				/>

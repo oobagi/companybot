@@ -73,7 +73,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		layout: selected.layout ?? "table",
 		groupBy: selected.groupBy,
 	};
-	const draft = useDraft<Settings>(
+	const draft = useDraft<Settings>(`view:${type._id}:${viewId}`,
 		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
 		selected?.version ?? 0,
 	);
@@ -99,7 +99,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
-	const open = (id: string) => (setViewId(id), draft.discard());
+	const open = (id: string) => setViewId(id);
 	// Someone deleted the open view.
 	useEffect(() => {
 		if (views && viewId !== "all" && !selected) open("all");
