@@ -114,8 +114,11 @@ export const migrateDisplay = mutation({
 		const member = await requireMember(ctx);
 		if (!can(member, "sidebar.arrange")) return;
 		const type = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("key", databaseKey)).unique();
-		if (!type || type.archived || type.display || !reach(member, type.access)) return;
-		const groupBy = display.groupBy && (await groupable(ctx, type._id, display.groupBy)) ? display.groupBy : undefined;
+		// The same limits as setDisplay: Edit in the database, and no board without a field to group by.
+		if (!type || type.archived || type.display || reach(member, type.access) !== "edit" || !(await canReadSources(ctx, member, type.usedPlaces))) return;
+		const fields = await fieldsOf(ctx, type._id);
+		if (display.layout === "board" && !fields.some(groupsCards)) return;
+		const groupBy = display.groupBy && fields.some((f) => f.key === display.groupBy && groupsCards(f)) ? display.groupBy : undefined;
 		await ctx.db.patch(type._id, { display: { layout: display.layout, groupBy } });
 	},
 });
