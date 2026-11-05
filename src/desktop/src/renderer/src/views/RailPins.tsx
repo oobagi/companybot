@@ -93,7 +93,8 @@ export function steadyOrder(before: readonly PinKey[], latest: readonly PinKey[]
  * The rail's buttons: one group of tabs and pins, mixed in your order (drag any of them anywhere in it),
  * then a divider and what you opened lately that isn't pinned. Drag a recent up into the group to pin it,
  * a pin down to unpin it; tabs can't leave. Pin from a sidebar row's menu, or right-click one here.
- * ⌘1–9 open the group's first nine, in the order shown. `tab` and `open` are what's on screen, lit.
+ * ⌘1–9 open the group's first nine, in the order shown. `tab` and `open` are what's on screen: one
+ * button is lit, the pin or recent if it's on the rail, else its tab.
  */
 export function RailPins({
 	tab,
@@ -142,7 +143,8 @@ export function RailPins({
 	useJump("tab", (n) => {
 		const to = sorted[n - 1];
 		if (!to) return false;
-		if (to.tab ? to.tab.id === tab : to.entry!.key === open) return false;
+		// Already lit: nothing to do. A tab whose screen shows a pin instead isn't lit, so it opens.
+		if (to.tab ? to.tab.id === tab && !onRail : to.entry!.key === open) return false;
 		blurActiveEditable();
 		// A rail button clicked earlier would show its keyboard focus ring once keys are pressed.
 		if (document.activeElement instanceof HTMLElement && document.activeElement.closest("nav[aria-label='App']")) document.activeElement.blur();
@@ -162,11 +164,13 @@ export function RailPins({
 		if (ready) shownRecents.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
 	}, [ready, ws, orderKey]);
 	const lately = order.map(resolve).filter((e): e is Entry => !!e);
+	// One thing lit: what's on screen if it's on the rail (a pin or a recent), else its tab.
+	const onRail = !!open && (pinned.some((e) => e.key === open) || lately.some((e) => e.key === open));
 	return (
 		<>
 			{sorted.map((m, i) => {
 				const shortcut = i < 9 ? shortcutLabel("tab", i + 1) : undefined;
-				if (m.tab) return <TabButton key={m.id} tab={m.tab} active={m.id === tab} badge={badges[m.tab.id]} drag={drag(m.id)} onOpen={onOpenTab} tip={tipFor(m.tab.label, shortcut)} hideTip={hideTip} />;
+				if (m.tab) return <TabButton key={m.id} tab={m.tab} active={m.id === tab && !onRail} badge={badges[m.tab.id]} drag={drag(m.id)} onOpen={onOpenTab} tip={tipFor(m.tab.label, shortcut)} hideTip={hideTip} />;
 				const e = m.entry!;
 				return <RailItem key={m.id} entry={e} active={e.key === open} pinned drag={drag(m.id)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, shortcut)} hideTip={hideTip} />;
 			})}
