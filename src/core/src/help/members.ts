@@ -14,7 +14,7 @@ People whose role can invite enter an email, pick one or more roles (Member to s
 Each workspace has its own roles, listed under Roles in [Members](#/settings/members). A person can hold several and can do anything **any** of their roles allows.
 - **Owner**: can do everything, always. It can't be changed or deleted, and every workspace keeps at least one owner. Only owners give or take Owner.
 - **Member**: what new people get. Owners can change its switches; anything they leave alone follows the default below, including switches added in later updates.
-- **Your own roles**: owners can add more (like Office or Crew), rename them and delete them. Deleting one takes it from everyone; anyone left without a role keeps only shared reads, chat and personal items until an owner assigns a role.
+- **Your own roles**: owners can add more (like Office or Crew), rename them and delete them. Deleting one takes it from everyone; anyone left without a role keeps only shared reads, chat and personal items until an owner assigns a role. A pending invite left without a role joins as Member. The confirmation counts people and pending invites.
 
 Each role is a list of switches, each one thing a person may do:
 
@@ -41,7 +41,7 @@ Each role is a list of switches, each one thing a person may do:
 Everyone can read what's shared with them, chat, and keep personal memories, personal skills and personal automations. Only owners edit the roles themselves, or reset or delete the workspace. Agents work as the person they help: if that person's roles can't do something, the agent says which roles can.
 
 ## Changing roles, removing, leaving
-Click the roles beside a name to change them, or press Remove; it takes effect at once. To leave, open the workspace logo's menu (top of the rail) → Leave. The last owner can't leave. Removed or leaving people lose their personal memories and automations only they could see; what they said in chats stays.
+Click the roles beside a name to change them, or press Remove; it takes effect at once. People who aren't owners can give or take only Member and roles they have themselves, and can't change their own roles. The same goes for removing someone or cancelling an invite: they can only if they could take every role it has. To leave, open the workspace logo's menu (top of the rail) → Leave. The last owner can't leave. Removed or leaving people lose their personal memories and automations only they could see; what they said in chats stays.
 
 ## Switching and joining
 A person can be in many workspaces. Use the workspace logo at the top of the rail: pick one in its menu to switch (or press ⌃⌘1–9; Ctrl+Shift+1–9 on Windows and Linux), answer invites there, or pick New workspace to start your own.

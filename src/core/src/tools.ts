@@ -138,6 +138,12 @@ export interface ToolDef<Input = any> {
 	 * finished, its result (a data tool's `data`; `{ error }` results included). Undefined: `title`.
 	 */
 	label?(input: Input, output?: unknown): string | undefined;
+	/**
+	 * What a call does, from its input alone, for an approval card ("Archive page" for `pages.write` with
+	 * `trash`). `actionKeys` are the inputs it already says, left off the card's fields. Undefined: `title`.
+	 */
+	action?(input: Input): string | undefined;
+	actionKeys?: readonly string[];
 	/** A thread a finished call made, for its tool line to open (chat.ask_agent's). */
 	opens?(output: unknown): { chatId: string; messageId: string; kind?: "message" } | undefined;
 }

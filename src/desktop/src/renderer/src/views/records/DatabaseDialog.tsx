@@ -49,7 +49,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 					<div className="flex flex-col gap-1.5">
 						<span className="text-sm font-medium">Who can access</span>
 						<span className="text-xs text-neutral-500">Its records and their pages follow this too.</span>
-						<WhoCanAccess access={type.access} onSave={(access) => setAccess({ typeId: type._id, access })} />
+						<WhoCanAccess kind="database" access={type.access} onSave={(access) => setAccess({ typeId: type._id, access })} />
 					</div>
 				)}
 				<div className="flex items-center gap-2">

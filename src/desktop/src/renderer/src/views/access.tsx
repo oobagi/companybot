@@ -1,4 +1,4 @@
-import { EVERYONE } from "@companybot/core/place-access";
+import { EVERYONE, type PlaceKind, losesOwnEdit, ownEditMessage } from "@companybot/core/place-access";
 import { Segmented, Select } from "../controls";
 import { useQuery } from "../convex";
 import { api } from "../api";
@@ -17,23 +17,33 @@ export type AccessEntry = { role: string; level: "view" | "edit" };
 export function WhoCanAccess({
 	access,
 	onSave,
-	editLabel = "Edit",
+	kind,
 	follow,
 }: {
 	access: AccessEntry[];
 	onSave?: (access: AccessEntry[]) => Promise<unknown>;
-	editLabel?: "Edit" | "Post";
+	kind: PlaceKind;
 	follow?: { following: boolean; onFollow: () => Promise<unknown> };
 }) {
 	const roles = useQuery(api.roles.list);
+	const me = useQuery(api.workspace.me);
 	const { error, run } = useRun();
 	if (!roles) return null;
+	const editLabel = kind === "channel" ? "Post" : "Edit";
+	// Only Owners may take their own Edit (Post) away: nobody else could undo it. The server refuses it too.
+	const locksOut = (next: AccessEntry[]) => !!me?.access && losesOwnEdit(me.access, next);
+	const lockedOut = ownEditMessage(kind);
 	const nameOf = (role: string) => (role === EVERYONE ? "Everyone" : (roles.find((r) => r.id === role)?.name ?? "Deleted role"));
 	const save = (next: AccessEntry[]) => onSave && run(onSave(next));
-	const levels = [
-		{ value: "view" as const, label: "View" },
-		{ value: "edit" as const, label: editLabel },
-	];
+	const levels = (role: string) => {
+		const view = access.map((x) => (x.role === role ? { ...x, level: "view" as const } : x));
+		return [
+			{ value: "view" as const, label: "View", ...(locksOut(view) && { disabled: true, title: lockedOut }) },
+			{ value: "edit" as const, label: editLabel },
+		];
+	};
+	const without = (role: string) => access.filter((x) => x.role !== role);
+	const guarded = access.some((e) => locksOut(without(e.role)));
 	const addable = [{ id: EVERYONE, name: "Everyone" }, ...roles.filter((r) => r.builtIn !== "owner")].filter((r) => !access.some((e) => e.role === r.id));
 	return (
 		<div className="flex flex-col gap-2">
@@ -54,8 +64,15 @@ export function WhoCanAccess({
 						<span className="flex-1 truncate text-sm">{nameOf(e.role)}</span>
 						{onSave && !follow?.following ? (
 							<>
-								<Segmented label={`What ${nameOf(e.role)} can do`} value={e.level} options={levels} onChange={(level) => level !== e.level && save(access.map((x) => (x.role === e.role ? { ...x, level } : x)))} />
-								<button type="button" aria-label={`Remove ${nameOf(e.role)}`} title="Remove" onClick={() => save(access.filter((x) => x.role !== e.role))} className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900">
+								<Segmented label={`What ${nameOf(e.role)} can do`} value={e.level} options={levels(e.role)} onChange={(level) => level !== e.level && save(access.map((x) => (x.role === e.role ? { ...x, level } : x)))} />
+								<button
+									type="button"
+									aria-label={`Remove ${nameOf(e.role)}`}
+									title={locksOut(without(e.role)) ? lockedOut : "Remove"}
+									disabled={locksOut(without(e.role))}
+									onClick={() => save(without(e.role))}
+									className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+								>
 									<CloseIcon />
 								</button>
 							</>
@@ -80,6 +97,7 @@ export function WhoCanAccess({
 				/>
 			)}
 			{access.length === 0 && <p className={descriptionClass}>Only owners can see it.</p>}
+			{onSave && !follow?.following && guarded && <p className={descriptionClass}>{`Changes that would take away your own ${editLabel} need an Owner.`}</p>}
 			<Notice>{error}</Notice>
 		</div>
 	);

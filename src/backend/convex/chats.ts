@@ -6,7 +6,7 @@ import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { activityOf, addToChat, insertChat, agentOfDm, availableName, dropSeat, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, shownAt, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
-import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
+import { type AccessList, accessInfo, chatAccess, reach, requireKeepsEdit, savedAccess } from "./placeAccess";
 import { canReadReply, canReadSources } from "./replyPrivacy";
 import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
@@ -363,6 +363,7 @@ export const setAccess = mutation({
 		if (chat.archived) throw new ConvexError("This channel is in Archive.");
 		const list: AccessList = await savedAccess(ctx, member, access);
 		if (chat.isDefault && !list.some((e) => e.role === "everyone")) throw new ConvexError(`Everyone is in #${chat.name}, so everyone keeps at least View.`);
+		requireKeepsEdit(member, "channel", list);
 		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
 		const users = chat.private ? (await chatMembersOf(ctx, chat._id)).flatMap((m) => m.userId ? [m.userId] : []) : undefined;

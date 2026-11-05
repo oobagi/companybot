@@ -205,6 +205,18 @@ describe("who can access a page", () => {
 		expect(await crew.query(api.pages.get, { pageId: child })).toBeNull();
 	});
 
+	it("tells an editor still open on a page someone lost that it's gone, without failing", async () => {
+		const { t, owner, crew: member, officeRole } = await setup();
+		const crew = identityOf(t, member.userId);
+		const page = await owner.mutation(api.pages.create, { title: "Plans" });
+		expect(await crew.query(api.pageSync.latestVersion, { id: page })).toEqual(expect.any(Number));
+		await owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: officeRole, level: "edit" }] });
+		expect(await crew.query(api.pageSync.latestVersion, { id: page })).toBeNull();
+		// Its debounced snapshot saves nothing either way, so it isn't refused.
+		await expect(crew.mutation(api.pageSync.submitSnapshot, { id: page, version: 1, content: "{}" })).resolves.toBeNull();
+		await expect(crew.query(api.pageSync.getSteps, { id: page, version: 1 })).rejects.toThrow();
+	});
+
 	it("never opens a page to more people by moving it", async () => {
 		const { owner, crew, officeRole } = await setup();
 		const parent = await owner.mutation(api.pages.create, { title: "Office" });
@@ -249,6 +261,32 @@ async function wakeIn(t: T, as: Person, chatId: Id<"chats">, extra: { recordId?:
 }
 
 // Each of these was a way around the list, found in review. Each test keeps one closed.
+describe("changing who can access a place", () => {
+	it("refuses a change that takes the person's own Edit or Post away, unless they're an Owner", async () => {
+		const { owner, crew, office, officeRole, roleId, deals } = await setup();
+		const member = await roleId("Member");
+		await setMemberSwitch(owner, "fields.edit", true);
+		const general = (await crew.query(api.chats.list))!.channels.find((c) => c.isDefault)!._id;
+		const page = await crew.mutation(api.pages.create, { title: "Team notes" });
+		const refused = "You'd lose";
+		// #general to read-only, a page or database to Office only: Crew would be locked out with no way back.
+		await expect(crew.mutation(api.chats.setAccess, { chatId: general, access: [{ role: "everyone", level: "view" }] })).rejects.toThrow(`${refused} Post access. Ask an Owner.`);
+		await expect(crew.mutation(api.pages.setAccess, { pageId: page, access: [{ role: officeRole, level: "edit" }] })).rejects.toThrow(`${refused} edit access. Ask an Owner.`);
+		await expect(crew.mutation(api.recordTypes.setAccess, { typeId: deals, access: [{ role: "everyone", level: "view" }] })).rejects.toThrow(`${refused} edit access. Ask an Owner.`);
+		expect(await crew.query(api.chats.get, { chatId: general })).toMatchObject({ canPost: true });
+		// Keeping their own Edit through a role is fine, and Owners may restrict anything.
+		await crew.mutation(api.pages.setAccess, { pageId: page, access: [{ role: "everyone", level: "view" }, { role: member, level: "edit" }] });
+		await owner.mutation(api.chats.setAccess, { chatId: general, access: [{ role: "everyone", level: "view" }, { role: officeRole, level: "edit" }] });
+		expect((await office.query(api.chats.get, { chatId: general }))!.canPost).toBe(true);
+		expect((await crew.query(api.chats.get, { chatId: general }))!.canPost).toBe(false);
+		// A sub-page following a stricter parent again counts too.
+		const child = await crew.mutation(api.pages.create, { title: "Child", parentId: page });
+		await crew.mutation(api.pages.setAccess, { pageId: child, access: [{ role: "everyone", level: "edit" }] });
+		await owner.mutation(api.pages.setAccess, { pageId: page, access: [{ role: "everyone", level: "view" }] });
+		await expect(crew.mutation(api.pages.setAccess, { pageId: child, access: null })).rejects.toThrow(`${refused} edit access.`);
+	});
+});
+
 describe("restored, woken, queued and background paths", () => {
 	it("keeps a restored page's list when its parent stays in Archive", async () => {
 		const { owner, crew, office, officeRole } = await setup();

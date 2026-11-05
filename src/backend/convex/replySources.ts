@@ -4,7 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { type Member, accessOf, rolesOf } from "./lib";
 import { chatAccess, reach, type AccessList } from "./placeAccess";
-import { canReadSources, opensSource, writeSourceReader } from "./replyPrivacy";
+import { canReadSources, opensSource, type Source, writeSourceReader } from "./replyPrivacy";
 
 type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
 export type UsedPlace = Place | Id<"users"> | Id<"connectorInstalls">;
@@ -122,45 +122,73 @@ async function fitSources(ctx: QueryCtx, member: Member, audience?: Audience, ar
 	const retained = sources.filter(({ policy }) => !member.ownWrites || !policy.visible || policy.exclusiveTo !== member.userId);
 	const usedPlaces = retained.map(({ id }) => id);
 	if (audience && typeof audience === "object" && "filtered" in audience) return { usedPlaces, place };
-	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience];
+	await (await audienceFit(ctx, member, audience, place, readSource))(retained);
+	return { usedPlaces, place };
+}
+
+/**
+ * Whether content using `sources` could show to everyone in a chat: a reply that couldn't is private there.
+ * Built once per place (its policy and members load once), then checked per reply.
+ */
+export async function placeAudience(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
+	const readSource = writeSourceReader(ctx, member);
+	const check = await audienceFit(ctx, member, chatId, await ctx.db.get(chatId), readSource);
+	return async (sources: UsedPlace[] = []) => {
+		try {
+			await check(await Promise.all(sources.map(async (id) => ({ id, policy: await readSource(id) }))));
+			return true;
+		} catch (e) {
+			if (e instanceof ConvexError) return false;
+			throw e;
+		}
+	};
+}
+
+/** The destination's audience, loaded once; the returned check refuses any source it can't open. */
+async function audienceFit(ctx: QueryCtx, member: Member, audience: Audience | undefined, place: Doc<"recordTypes"> | Doc<"pages"> | Doc<"chats"> | null, readSource: (id: UsedPlace) => Promise<Source>) {
+	const placeId = place?._id;
+	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience && typeof audience === "object" && !("filtered" in audience) ? audience : undefined];
 	// Content edits keep the destination's saved sources, which can narrow its audience beyond its access list.
 	// Proposed access changes still have to fit every source on their own.
 	if (typeof audience === "string") policies.push(...await Promise.all((place?.usedPlaces ?? []).map(readSource)));
 	const memberships = policies.flatMap((p) => p?.users ? [p.users] : []);
 	const users = memberships[0]?.filter((id) => memberships.every((list) => list.includes(id)));
-	// Load memberships and roles once per write, not once per source and destination member.
-	const viewers: Member[] = [];
-	if (users && retained.length) {
+	// Load memberships and roles once per destination, not once per source and destination member.
+	let viewers: Member[] | undefined;
+	const loadViewers = async () => {
+		const found: Member[] = [];
 		const roles = await rolesOf(ctx, member.workspaceId);
 		for (const userId of new Set(users)) {
 			const row = await ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", userId).eq("workspaceId", member.workspaceId)).first();
 			if (row) {
 				const viewer = { ...member, ...accessOf(roles, row), userId, id: row._id };
-				if (policies.every((p) => !p || opensSource(viewer, p))) viewers.push(viewer);
+				if (policies.every((p) => !p || opensSource(viewer, p))) found.push(viewer);
 			}
 		}
-	}
-	for (const { id, policy: from } of retained) {
-		// The place being changed will use the proposed policy itself. Other sources must still fit.
-		if (id === placeId) continue;
-		if (audience && typeof audience === "object" && "skip" in audience && audience.skip === id) continue;
-		if (audience && typeof audience === "object" && "places" in audience && audience.places.includes(id)) continue;
-		let allowed: boolean;
-		if (users) allowed = viewers.every((viewer) => opensSource(viewer, from));
-		else {
-			// The largest role set that cannot open this source is a counterexample if it opens the destination.
-			const roles = member.workspaceRoles.filter((r) => !r.owner && !reach({ ...member, owner: false, roles: [r.id] }, from.access)).map((r) => r.id);
-			const viewer = { ...member, owner: false, roles };
-			allowed = !from.membersOnly && (!policies.every((p) => !!reach(viewer, p?.access)) || !!reach(viewer, from.access));
-		}
-		if (!allowed || !from.visible) {
-			const who = from.person ?? (from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles));
-			if (audience && typeof audience === "object" && "settings" in audience && audience.settings) {
-				const name = from.visible || from.deletedConnector ? from.name : "a restricted source";
-				throw new ConvexError(`Can't change access: ${name} is restricted. Only ${who} can open this source.${from.deletedConnector ? " An Owner can re-share its saved work after uninstall." : " Choose roles that can open every source."}`);
+		return found;
+	};
+	return async (retained: { id: UsedPlace; policy: Source }[]) => {
+		for (const { id, policy: from } of retained) {
+			// The place being changed will use the proposed policy itself. Other sources must still fit.
+			if (id === placeId) continue;
+			if (audience && typeof audience === "object" && "skip" in audience && audience.skip === id) continue;
+			if (audience && typeof audience === "object" && "places" in audience && audience.places.includes(id)) continue;
+			let allowed: boolean;
+			if (users) allowed = (viewers ??= await loadViewers()).every((viewer) => opensSource(viewer, from));
+			else {
+				// The largest role set that cannot open this source is a counterexample if it opens the destination.
+				const roles = member.workspaceRoles.filter((r) => !r.owner && !reach({ ...member, owner: false, roles: [r.id] }, from.access)).map((r) => r.id);
+				const viewer = { ...member, owner: false, roles };
+				allowed = !from.membersOnly && (!policies.every((p) => !!reach(viewer, p?.access)) || !!reach(viewer, from.access));
 			}
-			throw new ConvexError(`This reply uses restricted places. Only ${who} can see this. It can't save it for a wider audience.`);
+			if (!allowed || !from.visible) {
+				const who = from.person ?? (from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles));
+				if (audience && typeof audience === "object" && "settings" in audience && audience.settings) {
+					const name = from.visible || from.deletedConnector ? from.name : "a restricted source";
+					throw new ConvexError(`Can't change access: ${name} is restricted. Only ${who} can open this source.${from.deletedConnector ? " An Owner can re-share its saved work after uninstall." : " Choose roles that can open every source."}`);
+				}
+				throw new ConvexError(`This reply uses restricted places. Only ${who} can see this. It can't save it for a wider audience.`);
+			}
 		}
-	}
-	return { usedPlaces, place };
+	};
 }

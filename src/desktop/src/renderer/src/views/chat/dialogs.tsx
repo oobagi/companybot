@@ -218,7 +218,7 @@ function ChannelAccess({ chat, access }: { chat: ChatDetails; access: NonNullabl
 	return (
 		<section className="flex flex-col gap-2">
 			<h3 className="text-sm font-medium">Who can access</h3>
-			<WhoCanAccess access={access} editLabel="Post" onSave={chat.canManage ? (next) => setAccess({ chatId: chat._id, access: next }) : undefined} />
+			<WhoCanAccess kind="channel" access={access} onSave={chat.canManage ? (next) => setAccess({ chatId: chat._id, access: next }) : undefined} />
 		</section>
 	);
 }

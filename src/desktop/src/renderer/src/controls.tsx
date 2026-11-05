@@ -136,7 +136,7 @@ export function Segmented<T extends string>({
 	onChange,
 	label,
 }: {
-	options: readonly { value: T; label: string }[];
+	options: readonly { value: T; label: string; disabled?: boolean; title?: string }[];
 	value: T;
 	/** Called on every click, the current choice included. */
 	onChange: (value: T) => void;
@@ -149,8 +149,10 @@ export function Segmented<T extends string>({
 					key={o.value}
 					type="button"
 					aria-pressed={o.value === value}
+					disabled={o.disabled}
+					title={o.title}
 					onClick={() => onChange(o.value)}
-					className={`rounded-md px-2.5 py-0.5 ${o.value === value ? "bg-neutral-100 font-medium text-neutral-900" : "text-neutral-500 hover:text-neutral-900"}`}
+					className={`rounded-md px-2.5 py-0.5 ${o.value === value ? "bg-neutral-100 font-medium text-neutral-900" : "text-neutral-500 hover:text-neutral-900"} disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-neutral-500`}
 				>
 					{o.label}
 				</button>

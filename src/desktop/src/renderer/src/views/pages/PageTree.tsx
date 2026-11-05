@@ -152,6 +152,7 @@ export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () =>
 			) : (
 				page && (
 					<WhoCanAccess
+						kind="page"
 						access={page.access}
 						onSave={page.canManageAccess ? (access) => setAccess({ pageId, access }) : undefined}
 						follow={page.canManageAccess ? { following: !page.ownAccess, onFollow: () => setAccess({ pageId, access: null }) } : undefined}

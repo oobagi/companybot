@@ -1,5 +1,5 @@
 import { Checkbox } from "../controls";
-import { type Access, type Permission, can, permissions, switches } from "@companybot/core/permissions";
+import { type Access, type Permission, can, canGrantRole, permissions, switches } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
@@ -39,6 +39,7 @@ export function MembersTab({ access }: { access: Access }) {
 	const memberRole = roles.find((r) => r.builtIn === "member")!.id;
 	const ownerRole = roles.find((r) => r.builtIn === "owner")!.id;
 	const picked = inviteRoles ?? [memberRole];
+	const takable = (ids: readonly string[]) => roles.filter((r) => ids.includes(r.id)).every((r) => canGrantRole(access, r));
 
 	return (
 		<>
@@ -63,7 +64,7 @@ export function MembersTab({ access }: { access: Access }) {
 						placeholder="teammate@company.com"
 						className={`${compactControlClass} min-w-48 flex-1`}
 					/>
-					<RolePicker roles={roles} value={picked} canGiveOwner={access.owner} onChange={setInviteRoles} />
+					<RolePicker roles={roles} value={picked} who={access} onChange={setInviteRoles} />
 					<button type="submit" className={compactPrimaryButton}>
 						Invite
 					</button>
@@ -72,16 +73,18 @@ export function MembersTab({ access }: { access: Access }) {
 
 			<section className="flex flex-col gap-2">
 				{team.members.map((m) => {
-					// Only owners give or take Owner, so only they change an owner's roles.
-					const editable = canManage && (access.owner || !m.roles.includes(ownerRole));
+					// Only owners give or take Owner, so only they change an owner's roles, or their own.
+					const editable = canManage && (access.owner || (!m.roles.includes(ownerRole) && !m.isYou));
+					// Removing someone takes all their roles: only someone who could take each (the server checks too).
+					const removable = editable && takable(m.roles);
 					return (
 						<Row key={m.id} label={m.name} detail={m.name === m.email ? undefined : m.email} you={m.isYou}>
 							{editable ? (
-								<RolePicker roles={roles} value={m.roles} canGiveOwner={access.owner} onChange={(ids) => run(setRoles({ id: m.id, roles: ids }))} />
+								<RolePicker roles={roles} value={m.roles} who={access} onChange={(ids) => run(setRoles({ id: m.id, roles: ids }))} />
 							) : (
 								<span className="text-neutral-400">{roleNames(roles, m.roles).join(", ") || "No role"}</span>
 							)}
-							{editable && !m.isYou && (
+							{removable && !m.isYou && (
 								<button type="button" onClick={() => confirm({ title: `Remove ${m.name}?`, action: "Remove member", body: "They will lose access to this workspace, and their personal workspace data will be deleted.", onConfirm: () => removeMember({ id: m.id }) })} className="hover:text-red-600">
 									Remove
 								</button>
@@ -98,9 +101,11 @@ export function MembersTab({ access }: { access: Access }) {
 								Resend
 							</button>
 						)}
-						<button type="button" onClick={() => confirm({ title: `Cancel the invitation to ${i.email}?`, action: "Cancel invitation", body: "They will no longer be able to join using this invitation.", onConfirm: () => cancelInvite({ id: i.id }) })} className="hover:text-red-600">
-							Cancel
-						</button>
+						{takable(i.roles) && (
+							<button type="button" onClick={() => confirm({ title: `Cancel the invitation to ${i.email}?`, action: "Cancel invitation", body: "They will no longer be able to join using this invitation.", onConfirm: () => cancelInvite({ id: i.id }) })} className="hover:text-red-600">
+								Cancel
+							</button>
+						)}
 					</Row>
 				))}
 			</section>
@@ -110,8 +115,8 @@ export function MembersTab({ access }: { access: Access }) {
 	);
 }
 
-/** Pick one or more roles. At least one stays picked; Owner only for owners to give. */
-function RolePicker({ roles, value, canGiveOwner, onChange }: { roles: readonly Role[]; value: readonly string[]; canGiveOwner: boolean; onChange: (ids: Id<"roles">[]) => void }) {
+/** Pick one or more roles. At least one stays picked; only roles `who` may give or take (Owner only for owners). */
+function RolePicker({ roles, value, who, onChange }: { roles: readonly Role[]; value: readonly string[]; who: Access; onChange: (ids: Id<"roles">[]) => void }) {
 	const names = roleNames(roles, value);
 	return (
 		<Popover
@@ -128,11 +133,12 @@ function RolePicker({ roles, value, canGiveOwner, onChange }: { roles: readonly 
 		>
 			{roles.map((r) => {
 				const on = value.includes(r.id);
+				const grantable = canGrantRole(who, r);
 				return (
-					<label key={r.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100 has-disabled:cursor-default has-disabled:text-neutral-400 has-disabled:hover:bg-transparent">
+					<label key={r.id} title={grantable ? undefined : "Only Owners and people who have this role can give or take it."} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100 has-disabled:cursor-default has-disabled:text-neutral-400 has-disabled:hover:bg-transparent">
 						<Checkbox
 							checked={on}
-							disabled={(r.builtIn === "owner" && !canGiveOwner) || (on && value.length === 1)}
+							disabled={!grantable || (on && value.length === 1)}
 							onChange={(checked) => onChange(checked ? [...(value as Id<"roles">[]), r.id] : (value as Id<"roles">[]).filter((id) => id !== r.id))}
 						/>
 						<span className="min-w-0 flex-1 truncate">{r.name}</span>
@@ -188,7 +194,7 @@ function RolesSection({ roles, canEdit }: { roles: readonly Role[]; canEdit: boo
 							confirm({
 								title: `Delete ${open.name}?`,
 								action: "Delete role",
-								body: `${open.people === 1 ? "1 person loses it" : `${open.people} people lose it`}. Anyone left without a role keeps only shared reads, chat and personal items.`,
+								body: `${open.people === 1 ? "1 person loses it" : `${open.people} people lose it`}. Anyone left without a role keeps only shared reads, chat and personal items.${open.invited ? ` ${open.invited === 1 ? "1 pending invite gives it" : `${open.invited} pending invites give it`}: anyone it was their only role joins as Member.` : ""}`,
 								onConfirm: () => remove({ id: open.id }).then(() => setOpenId(undefined)),
 							})
 						}

@@ -36,7 +36,7 @@ import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { recordOut } from "./recordTools";
 import { canReadReplyDetails, readReplyDetails, canReadReply, readReply, canReadSources } from "./replyPrivacy";
-import { inheritPlaces, notePlace, turnSources, writeSources } from "./replySources";
+import { inheritPlaces, notePlace, placeAudience, turnSources, type UsedPlace, writeSources } from "./replySources";
 import { messagePart, postDecision, replyStats, replyUsage } from "./schema";
 import { recordUsage } from "./usage";
 import { setWakeOutcome } from "./wakeups";
@@ -249,8 +249,8 @@ function answerOf(turn: Doc<"agentTurns">, reply: Doc<"chatMessages"> | null) {
  * A session's finished, unsummarized turns as they replay to the model, oldest first. `steps` is JSON
  * (core replay.ts): a call's input or result can have keys Convex values can't.
  */
-async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member) {
-	const hiddenSummary = !!session.summary && (session.summaryPrivacy !== 1 || !!member && !(await canReadSources(ctx, member, session.summaryPlaces)));
+async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member, sharedHere?: Shared) {
+	const hiddenSummary = !!session.summary && (session.summaryPrivacy !== 1 || !!member && !(await summaryHere(ctx, member, session, sharedHere)));
 	const query = ctx.db.query("agentTurns").withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", hiddenSummary ? 0 : session.summarizedUpTo ?? 0));
 	const replay = [];
 	let tokens = 0;
@@ -267,6 +267,8 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		bytes += reply ? getDocumentSize(reply) : 0;
 		if (bytes > REPLAY_BYTES) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
+		// Where others see the reply, a private one stays out with its question: nothing it used carries over.
+		if (sharedHere && reply && !reply.sharedBy && !(await sharedHere(reply.usedPlaces))) continue;
 		const details = !member || await canReadReplyDetails(ctx, member, reply);
 		// Read one step at a time against the budget: a turn's steps can be many near-1 MiB rows.
 		const kept: Doc<"turnSteps">[] = [];
@@ -279,7 +281,7 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		const steps = kept.flatMap((s) => JSON.parse(s.messages) as ModelMessage[]);
 		const shown = JSON.stringify(member ? stepsFor(steps, { details, results: turn.actorId === member.userId }) : steps);
 		const answer = answerOf(turn, reply);
-		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) ? turn.prompt : "";
+		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) && (!sharedHere || await sharedHere(turn.promptPlaces)) ? turn.prompt : "";
 		const size = approxTokens(prompt + shown + answer);
 		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
 		if (member && reply) {
@@ -291,6 +293,18 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		tokens += size;
 	}
 	return replay.reverse();
+}
+
+/** Checks whether sources fit everyone in the place; undefined in the asker's own 1:1 agent DM, where their private history replays. */
+type Shared = ((sources?: UsedPlace[]) => Promise<boolean>) | undefined;
+
+async function sharedCheck(ctx: QueryCtx, member: Member, chatId: Id<"chats">): Promise<Shared> {
+	return member.ownWrites ? undefined : await placeAudience(ctx, member, chatId);
+}
+
+/** The session summary replays only if the person can read what it used and, in a shared place, everyone there could. */
+async function summaryHere(ctx: QueryCtx, member: Member, session: Doc<"agentSessions">, sharedHere: Shared) {
+	return await canReadSources(ctx, member, session.summaryPlaces) && (!sharedHere || await sharedHere(session.summaryPlaces));
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -336,7 +350,8 @@ export const turnContext = internalMutation({
 		const session = (await ctx.db.get(turn.sessionId))!;
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
-		const summary = !foreign && session.summaryPrivacy === 1 && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null;
+		const sharedHere = await sharedCheck(ctx, member, chat._id);
+		const summary = !foreign && session.summaryPrivacy === 1 && await summaryHere(ctx, member, session, sharedHere) ? session.summary ?? null : null;
 		if (summary) await inheritPlaces(ctx, member, session.summaryPlaces);
 		if (wakeup) {
 			if (!(await canReadSources(ctx, member, wakeup.usedPlaces))) throw new Error("This follow-up uses places you can no longer see.");
@@ -344,7 +359,7 @@ export const turnContext = internalMutation({
 		}
 
 		// Finished turns only, so never this (running) one.
-		const turns = (foreign ? [] : await sessionTurns(ctx, session, member)).map(({ prompt, steps, answer, stopped }) => ({ prompt, steps, answer, ...(stopped && { stopped }) }));
+		const turns = (foreign ? [] : await sessionTurns(ctx, session, member, sharedHere)).map(({ prompt, steps, answer, stopped }) => ({ prompt, steps, answer, ...(stopped && { stopped }) }));
 
 		// What's new: everything in the place after the last turn's reply started.
 		const last = (
@@ -374,7 +389,9 @@ export const turnContext = internalMutation({
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
 		const recent = [];
-		for (const m of window) if (!steered.has(m._id) && await readReply(ctx, member, m)) recent.push(m);
+		// Others' private replies stay out in a shared place too; the message this turn answers is its subject.
+		const here = async (m: Doc<"chatMessages">) => !sharedHere || !!m.sharedBy || await sharedHere(m.usedPlaces);
+		for (const m of window) if (!steered.has(m._id) && (m._id === turn.triggerId || await here(m)) && await readReply(ctx, member, m)) recent.push(m);
 		// A turn after an approval answers the decision, not a message.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
 		if (approval && !(await readReplyDetails(ctx, member, await ctx.db.get(approval.replyId)))) throw new Error("This approval uses places you can no longer see.");
@@ -383,7 +400,7 @@ export const turnContext = internalMutation({
 			if (trigger && await readReply(ctx, member, trigger)) recent.push(trigger);
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId, member);
-		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since);
+		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since, here);
 		const messages = await Promise.all(
 			recent
 				.filter((m) => !m.deleted)
@@ -502,7 +519,7 @@ async function handoffOf(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 const REACTED_MAX = 10;
 
 /** Messages in a place from `since` or before, reacted to after it, oldest first. */
-async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, since: number) {
+async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, since: number, here: (m: Doc<"chatMessages">) => Promise<boolean>) {
 	const rows = await ctx.db
 		.query("reactions")
 		.withIndex("by_chat", (q) => q.eq("chatId", chatId).gt("_creationTime", since))
@@ -511,7 +528,7 @@ async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, 
 	const found: Doc<"chatMessages">[] = [];
 	for (const id of new Set(rows.map((r) => r.messageId))) {
 		const m = await ctx.db.get(id);
-		if (m && !m.deleted && !m.quiet && m.threadId === threadId && m._creationTime <= since && await readReply(ctx, member, m)) found.push(m);
+		if (m && !m.deleted && !m.quiet && m.threadId === threadId && m._creationTime <= since && await here(m) && await readReply(ctx, member, m)) found.push(m);
 		if (found.length === REACTED_MAX) break;
 	}
 	return found.sort((a, b) => a._creationTime - b._creationTime);

@@ -23,10 +23,12 @@ import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import { titleOf } from "./connectorTools";
-import { erased, getMember, liveWorkspace, memberOf, nameOf, requireLiveAgent, requireMember, sweepExpired, toActor } from "./lib";
+import { type Member, erased, getMember, liveWorkspace, memberOf, nameOf, requireLiveAgent, requireMember, sweepExpired, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
-import { canReadReplyDetails, readReplyDetails } from "./replyPrivacy";
-import { fieldsOf, typesOf } from "./recordOps";
+import { canReadReplyDetails, canReadSources, readReplyDetails } from "./replyPrivacy";
+import { fieldsOf, requireRecord, typesOf } from "./recordOps";
+import { requirePage } from "./pageOps";
+import { reach } from "./placeAccess";
 import { writeSources } from "./replySources";
 import { type Op, opArg, risk } from "./schema";
 export type { Op };
@@ -234,65 +236,186 @@ export const forReply = query({
 		const reply = await ctx.db.get(replyId);
 		const chat = reply && (await ctx.db.get(reply.chatId));
 		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member)) || !(await canReadReplyDetails(ctx, member, reply!))) return [];
+		// Bounded: a reply holding more calls than this shows the first ones (the app says the rest aren't shown).
 		const rows = await ctx.db
 			.query("approvals")
 			.withIndex("by_reply", (q) => q.eq("replyId", replyId))
-			.collect();
+			.take(APPROVALS_PER_REPLY);
 		const names = namer(ctx);
-		return Promise.all(
-			rows.map(async (row) => {
-				const mine = canDecideApproval(toActor(member), row);
-				const group = toolGroup(row.tool);
-				const connector = findConnector(group) ?? null;
-				const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
-				const title = await titleOf(ctx, row.workspaceId, row.tool);
-				// A skill proposal may be private even when its write is later refused.
-				const privateInput = row.actorId !== member.userId && (row.tool === "skills.create" || row.tool === "skills.edit");
-				const shownInput = privateInput ? "{}" : row.input;
-				const input: unknown = JSON.parse(shownInput);
-				const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
+		const ids = idNamer(ctx, member);
+		const card = async (row: Doc<"approvals">) => {
+			const mine = canDecideApproval(toActor(member), row);
+			const group = toolGroup(row.tool);
+			const connector = findConnector(group) ?? null;
+			const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
+			const title = await titleOf(ctx, row.workspaceId, row.tool);
+			// A skill proposal may be private even when its write is later refused.
+			const privateInput = row.actorId !== member.userId && (row.tool === "skills.create" || row.tool === "skills.edit");
+			const shownInput = privateInput ? "{}" : row.input;
+			const input: unknown = JSON.parse(shownInput);
+			const automation = row.automationInstallId && (await ctx.db.get(row.automationInstallId));
+			const def = builtinTools.find((t) => t.id === row.tool);
+			const named = await namedInput(ids, input);
+			const action = def?.action?.(input) ?? actionLabel(row.tool, title);
 
-				return {
-					_id: row._id,
-					callId: row.callId,
-					tool: row.tool,
-					/** The service's name ("Night Owl"), or null for built-ins. */
-					service: findConnector(group)?.name ?? null,
-					/** Its name for people: "Send SMS". */
-					action: actionLabel(row.tool, title),
-					/** The ask: "I'd like to send an email to dana@acme.com from your Gmail.", or "Monday summary wants to post in #general as you." */
-					ask: askText(row.tool, connector, input, {
-						title,
-						said: builtinTools.find((t) => t.id === row.tool)?.label?.(input),
-						automation: automation ? automationName(automation) : undefined,
-					}),
-					/** The automation whose run made the call, so the card says where the agent's words came from. */
-					automation: automation ? automationName(automation) : null,
-					/** Set when "Always allow" would cover only this automation's runs. */
-					alwaysAutomation: always?.automation ? automationName(always.automation) : null,
-					/** Null when "Always allow" isn't offered (locked, or not yours to decide). */
-					alwaysText: always
-						? alwaysAllowText(row.tool, connector, { automation: always.automation ? automationName(always.automation) : undefined, title })
-						: null,
-					/** Set when "Always allow" saved a rule. */
-					always: row.always ?? false,
-					/** The exact input that will run, as canonical JSON. */
-					input: shownInput,
-					hash: row.hash,
-					status: approvalStatus(row),
-					/** With `failed`: it may or may not have happened (older apps show only the error). */
-					outcome: row.outcome ?? null,
-					approver: (await names.user(row.actorId)).name,
-					canDecide: mine,
-					expiresAt: row.expiresAt,
-					decidedAt: row.decidedAt ?? null,
-					result: mine ? (row.result ?? null) : null,
-					error: privateInput ? null : row.error ?? null,
-				};
-			}),
-		);
+			return {
+				_id: row._id,
+				callId: row.callId,
+				tool: row.tool,
+				/** The service's name ("Night Owl"), or null for built-ins. */
+				service: findConnector(group)?.name ?? null,
+				/** What this call does, for people: "Send SMS", "Archive page". */
+				action,
+				/** The ask: "I'd like to send an email to dana@acme.com from your Gmail.", or "Monday summary wants to post in #general as you." */
+				ask: askText(row.tool, connector, input, {
+					title,
+					said: (named.target && def?.label?.(input, { title: named.target, name: named.target })) || def?.label?.(input) || (def?.action ? action : undefined),
+					automation: automation ? automationName(automation) : undefined,
+				}),
+				/** The input as the card shows it: ids as names this viewer can see, never a hidden place's. Null: not fields. */
+				fields: named.fields?.filter((f) => !def?.actionKeys?.includes(f.key)) ?? null,
+				/** The automation whose run made the call, so the card says where the agent's words came from. */
+				automation: automation ? automationName(automation) : null,
+				/** Set when "Always allow" would cover only this automation's runs. */
+				alwaysAutomation: always?.automation ? automationName(always.automation) : null,
+				/** Null when "Always allow" isn't offered (locked, or not yours to decide). */
+				alwaysText: always
+					? alwaysAllowText(row.tool, connector, { automation: always.automation ? automationName(always.automation) : undefined, title })
+					: null,
+				/** Set when "Always allow" saved a rule. */
+				always: row.always ?? false,
+				/** The exact input that will run, as canonical JSON. */
+				input: shownInput,
+				hash: row.hash,
+				status: approvalStatus(row),
+				/** With `failed`: it may or may not have happened (older apps show only the error). */
+				outcome: row.outcome ?? null,
+				approver: (await names.user(row.actorId)).name,
+				canDecide: mine,
+				expiresAt: row.expiresAt,
+				decidedAt: row.decidedAt ?? null,
+				result: mine ? (row.result ?? null) : null,
+				error: privateInput ? null : row.error ?? null,
+			};
+		};
+		// In order, so the shared name budget goes to the first cards, the same way every time.
+		const cards = [];
+		for (const row of rows) cards.push(await card(row));
+		return cards;
 	},
 });
+
+/** Most cards `forReply` returns for one reply. */
+export const APPROVALS_PER_REPLY = 50;
+/** Ids named per card, and per query across its cards: each name is a few reads through the shared readers. */
+export const NAMED_IDS_PER_CARD = 20;
+export const NAMED_IDS_PER_QUERY = 200;
+
+type IdName = { name: string; seen: boolean };
+
+/**
+ * Names ids for one viewer across one query's cards: each id is looked up once, and at most
+ * NAMED_IDS_PER_QUERY are, so a reply holding many calls (or one call naming hundreds) still loads.
+ */
+function idNamer(ctx: QueryCtx, member: Member) {
+	// Promises, claimed before awaiting, so cards resolving at once share lookups and never overspend.
+	const names = new Map<string, Promise<IdName | null>>();
+	return {
+		/** Whether this string is an id of a kind `idName` names: no reads. */
+		isId: (s: string) => ID_TABLES.some((table) => ctx.db.normalizeId(table, s) !== null),
+		/** Its name, or undefined once the query's budget is spent (left unresolved). */
+		name(id: string): Promise<IdName | null | undefined> {
+			let named = names.get(id);
+			if (!named) {
+				if (names.size >= NAMED_IDS_PER_QUERY) return Promise.resolve(undefined);
+				named = idName(ctx, member, id);
+				names.set(id, named);
+			}
+			return named;
+		},
+	};
+}
+
+/**
+ * A held call's input for its card: each id it names as what this viewer may see ("Old pricing notes",
+ * "#sales"), or what it is ("a page you can't see"), never a hidden place's name. `target` is the name of
+ * what it acts on (its `page`, `id` or `record`), when the viewer can see it. A manage tool's `request`
+ * shows its fields. At most NAMED_IDS_PER_CARD ids are named; a list past that ends "and N more", and other
+ * ids past it stay as they are. What runs is still the exact stored input (Raw).
+ */
+async function namedInput(ids: ReturnType<typeof idNamer>, input: unknown) {
+	if (!input || typeof input !== "object" || Array.isArray(input)) return { fields: null, target: undefined };
+	const top = input as Record<string, unknown>;
+	const request = Object.keys(top).length === 1 && top.request && typeof top.request === "object" && !Array.isArray(top.request) ? (top.request as Record<string, unknown>) : top;
+	const counted = new Set<string>();
+	const nameOf = async (id: string) => {
+		if (!counted.has(id)) {
+			if (counted.size >= NAMED_IDS_PER_CARD) return undefined;
+			counted.add(id);
+		}
+		return await ids.name(id);
+	};
+	const scalar = async (v: unknown) => typeof v === "string" && ids.isId(v) ? (await nameOf(v))?.name ?? v : v;
+	const shown = async (v: unknown): Promise<unknown> => {
+		if (!Array.isArray(v)) return scalar(v);
+		const out: unknown[] = [];
+		let more = 0;
+		for (const item of v) {
+			if (typeof item === "string" && ids.isId(item)) {
+				const named = await nameOf(item);
+				if (named === undefined) more++;
+				else out.push(named?.name ?? item);
+			} else out.push(item);
+		}
+		return more ? [...out, `and ${more} more`] : out;
+	};
+	let target: string | undefined;
+	for (const key of ["page", "id", "record"]) {
+		const named = typeof request[key] === "string" && ids.isId(request[key]) ? await nameOf(request[key]) : null;
+		if (named) { target = named.seen ? named.name : undefined; break; }
+	}
+	const fields = [];
+	for (const [key, value] of Object.entries(request)) fields.push({ key, value: await shown(value) });
+	return { fields, target };
+}
+
+const ID_TABLES = ["pages", "records", "recordTypes", "chats", "users", "agents", "chatMessages"] as const;
+
+/** What an id names for this viewer, or null if it isn't one of these kinds. Gates are the shared readers'. */
+async function idName(ctx: QueryCtx, member: Member, id: string): Promise<IdName | null> {
+	const hidden = (name: string) => ({ name, seen: false });
+	const seen = (name: string) => ({ name, seen: true });
+	const pageId = ctx.db.normalizeId("pages", id);
+	if (pageId) {
+		if (!(await ctx.db.get(pageId))) return hidden("a deleted page");
+		return await requirePage(ctx, member, pageId).then((p) => seen(p.title || "Untitled"), () => hidden("a page you can't see"));
+	}
+	const recordId = ctx.db.normalizeId("records", id);
+	if (recordId) {
+		if (!(await ctx.db.get(recordId))) return hidden("a deleted record");
+		return await requireRecord(ctx, member, recordId).then((r) => seen(r.title || "Untitled"), () => hidden("a record you can't see"));
+	}
+	const typeId = ctx.db.normalizeId("recordTypes", id);
+	if (typeId) {
+		const type = await ctx.db.get(typeId);
+		return type && type.workspaceId === member.workspaceId && reach(member, type.access) && await canReadSources(ctx, member, type.usedPlaces) ? seen(type.plural) : hidden("a database you can't see");
+	}
+	const chatId = ctx.db.normalizeId("chats", id);
+	if (chatId) {
+		const chat = await ctx.db.get(chatId);
+		if (chat && await canSee(ctx, chat, member)) return seen(chat.kind === "channel" ? `#${chat.name}` : "a direct message");
+		return hidden(chat?.kind === "channel" ? "a channel you can't see" : "a conversation you can't see");
+	}
+	const userId = ctx.db.normalizeId("users", id);
+	if (userId) return await memberOf(ctx, userId, member.workspaceId) ? seen(await nameOf(ctx, userId)) : hidden("someone");
+	const agentId = ctx.db.normalizeId("agents", id);
+	if (agentId) {
+		const agent = await ctx.db.get(agentId);
+		return agent?.workspaceId === member.workspaceId ? seen(agent.name) : hidden("an agent");
+	}
+	if (ctx.db.normalizeId("chatMessages", id)) return hidden("a message");
+	return null;
+}
 
 /**
  * Approve or deny. `hash` is the one the approver was shown: if it doesn't match the
@@ -316,7 +439,9 @@ export const decide = mutation({
 		}
 		const status = approvalStatus(row);
 		if (status === "expired") throw new ConvexError("This request expired. Ask the agent again.");
-		if (status !== "pending") throw new ConvexError("This was already decided.");
+		// Lost a race (another device, a double click): the card already shows the outcome. Not an error,
+		// since the client logs every failed mutation to the console.
+		if (status !== "pending") return { decided: false };
 		if (hash !== row.hash) throw new ConvexError("This action isn't the one you were shown. Nothing ran.");
 		const agent = await requireLiveAgent(ctx, member, row.agentId);
 
@@ -342,6 +467,7 @@ export const decide = mutation({
 			...(asked?.chain && { chain: asked.chain }),
 			...(asked?.ask && { ask: asked.ask }),
 		});
+		return { decided: true };
 	},
 });
 

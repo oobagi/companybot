@@ -317,6 +317,8 @@ export const recordTools: ToolDef[] = [
 		binds: (input) => (input.trash !== undefined && input.id ? [{ kind: "record", id: input.id }] : []),
 		execute: (input, { records }) => records.save(input),
 		label: savedLabel,
+		action: (input) => !input.id ? "Create record" : input.trash === undefined ? "Save record" : input.trash ? "Archive record" : "Restore record",
+		actionKeys: ["trash"],
 	}),
 	defineTool({
 		id: "records.undo",
@@ -337,6 +339,8 @@ export const recordTools: ToolDef[] = [
 		riskFor: (input) => input.trash === true ? "locked" : "inside",
 		execute: (input, { records }) => records.saveField(input),
 		label: fieldLabel,
+		action: (input) => !input.field ? "Add field" : input.trash === undefined ? "Update field" : input.trash ? "Archive field" : "Restore field",
+		actionKeys: ["trash"],
 	}),
 	defineTool({
 		id: "records.save_database",

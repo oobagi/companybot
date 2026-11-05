@@ -6,7 +6,7 @@ import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { BlockColorsItem, DragHandleMenu, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableColumnHeaderItem, TableRowHeaderItem, getDefaultReactSlashMenuItems, useBlockNoteEditor, useExtensionState } from "@blocknote/react";
 import { SideMenuExtension } from "@blocknote/core/extensions";
 import { linkedPageId, validPageHref } from "@companybot/core/page-links";
-import { type MouseEvent, useEffect, useMemo, useRef } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { PageIcon } from "../../icons";
@@ -57,7 +57,11 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 	// Pasted, dropped or picked pictures (BlockNote's uploadFile). The editor is made once, so it calls the latest through a ref.
 	const uploadImage = useRef<(file: File) => Promise<string>>(null);
 	uploadImage.current = (file) => upload(file).then((id) => addImage({ pageId, file: id })).catch((e) => { fail(e); throw e; });
-	const sync = useBlockNoteSync<PageBlockEditor>(api.pageSync, pageId, { editorOptions: { schema: pageEditorSchema, links, uploadFile: (file) => uploadImage.current!(file) }, onSyncError: fail });
+	// Deleted, or access taken away while open: the server's latest version reads null, and sync says the
+	// page doesn't exist. Say it's unavailable instead of showing that as an error.
+	const [gone, setGone] = useState(false);
+	const syncFailed = (e: Error) => (/doesn't exist server-side/.test(e.message) ? setGone(true) : fail(e));
+	const sync = useBlockNoteSync<PageBlockEditor>(api.pageSync, pageId, { editorOptions: { schema: pageEditorSchema, links, uploadFile: (file) => uploadImage.current!(file) }, onSyncError: syncFailed });
 	useEffect(() => {
 		if (focusKey && editable && sync.editor) {
 			const body = sync.editor.document.find((block) => Array.isArray(block.content)) ?? sync.editor.document.at(-1)!;
@@ -66,7 +70,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 		}
 	}, [sync.editor, editable, focusKey]);
 	if (sync.isLoading) return <Loading />;
-	if (!sync.editor) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
+	if (!sync.editor || gone) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
 	return (
 		<PageReferences.Provider value={references.current}>
 			<Notice>{error}</Notice>
@@ -88,7 +92,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 			</div>
 			<UpgradePageLinks editor={sync.editor} editable={editable} />
 			<PageBlockRemoval editor={sync.editor} pageId={pageId} editable={editable} />
-			{standalone && <ChildPages editor={sync.editor} pageId={pageId} editable={editable} />}
+			{standalone && <ChildPages editor={sync.editor} pageId={pageId} />}
 		</PageReferences.Provider>
 	);
 }
@@ -116,25 +120,15 @@ export function VersionPreview({ content }: { content: string }) {
 	return <div onClickCapture={openPageLink} onAuxClickCapture={openPageLink}><BlockNoteView editor={editor} editable={false} theme={theme} className={viewClass} /></div>;
 }
 
-/** Sidebar-created children appear here too; embedded links already have a place in the document. */
-function ChildPages({ editor, pageId, editable }: { editor: PageBlockEditor; pageId: Id<"pages">; editable: boolean }) {
+/**
+ * Children without a block in this document (one the server is adding right now) show as rows. The server is
+ * the only one that adds sub-page blocks (pageOps `appendPageBlock`): two writers raced and doubled them.
+ */
+function ChildPages({ editor, pageId }: { editor: PageBlockEditor; pageId: Id<"pages"> }) {
 	const linked = useLinkedPages(editor);
 	const placed = useRef(new Set<string>());
 	for (const id of linked) placed.current.add(id);
-	return <div className="flex flex-col gap-1"><PageLevel parentId={pageId} render={(p) => !placed.current.has(p._id) && <ChildPage key={p._id} editor={editor} pageId={p._id} editable={editable} />} /></div>;
-}
-
-/** Older children without document links become movable blocks on the next editable open. */
-function ChildPage({ editor, pageId, editable }: { editor: PageBlockEditor; pageId: string; editable: boolean }) {
-	useEffect(() => {
-		if (!editable) return;
-		let exists = false;
-		editor.forEachBlock((block) => { if (block.type === "page" && block.props.pageId === pageId) exists = true; return true; });
-		if (exists) return;
-		const last = editor.document.at(-1)!;
-		editor.insertBlocks([{ type: "page", props: { pageId } }], last, last.type === "paragraph" && last.content.length === 0 ? "before" : "after");
-	}, [editor, pageId, editable]);
-	return editable ? null : <PageBlockRow pageId={pageId} />;
+	return <div className="flex flex-col gap-1"><PageLevel parentId={pageId} render={(p) => !placed.current.has(p._id) && <PageBlockRow key={p._id} pageId={p._id} />} /></div>;
 }
 
 /** Existing page links become blocks, including ones with text accidentally typed beside them. */

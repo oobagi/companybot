@@ -1435,6 +1435,8 @@ export default defineSchema({
 		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("reset"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
 		root: v.object({
 			roleId: v.optional(v.id("roles")),
+			/** With `roleId`: what a pending invite left with no role gets instead (Member). */
+			fallbackRoleId: v.optional(v.id("roles")),
 			workspaceId: v.optional(v.id("workspaces")),
 			userId: v.optional(v.id("users")),
 			connectorId: v.optional(v.string()),

@@ -17,7 +17,7 @@ import {
 	requirePage,
 	restoreVersion,
 } from "./pageOps";
-import { accessInfo, savedAccess } from "./placeAccess";
+import { accessInfo, requireKeepsEdit, savedAccess } from "./placeAccess";
 import { withoutPageTitles } from "./pageBlocks";
 import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
@@ -257,6 +257,7 @@ export const setAccess = mutation({
 		await requireEditable(ctx, member, page);
 		const next = access ? await savedAccess(ctx, member, access) : undefined;
 		const inherited = page.parentId ? (await pageState(ctx, (await ctx.db.get(page.parentId))!)).access : undefined;
+		requireKeepsEdit(member, "page", next ?? inherited);
 		// A child following this list can retain facts from another source too. Check before widening.
 		const queue = [page];
 		let scanned = 0;
