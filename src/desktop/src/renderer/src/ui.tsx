@@ -337,22 +337,25 @@ export function Tabs<T extends string>({
  * A titled part of a screen, usually a stack of cards. Its heading is inset to line up with the
  * text inside them; `flush` keeps it at the edge, for plain content (a form) that sits there too.
  */
-export function Section({ title, hint, flush, children }: { title: string; hint?: string; flush?: boolean; children: React.ReactNode }) {
+export function Section({ title, hint, flush, action, children }: { title: string; hint?: string; flush?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} flush={flush} />
+			<Heading title={title} hint={hint} flush={flush} action={action} />
 			{children}
 		</section>
 	);
 }
 
-/** Section and Settings headings: a title and a hint. */
-function Heading({ title, hint, flush }: { title?: string; hint?: string; flush?: boolean }) {
+/** Section and Settings headings: a title and a hint, and on the right a button for the section (Add). */
+function Heading({ title, hint, flush, action }: { title?: string; hint?: string; flush?: boolean; action?: React.ReactNode }) {
 	if (!title && !hint) return null;
 	return (
-		<div className={flush ? "" : insetClass}>
-			{title && <h2 className="font-medium">{title}</h2>}
-			{hint && <p className={descriptionClass}>{hint}</p>}
+		<div className={`flex items-end gap-3 ${flush ? "" : insetClass}`}>
+			<div className="min-w-0 flex-1">
+				{title && <h2 className="font-medium">{title}</h2>}
+				{hint && <p className={descriptionClass}>{hint}</p>}
+			</div>
+			{action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
 		</div>
 	);
 }
@@ -361,10 +364,10 @@ function Heading({ title, hint, flush }: { title?: string; hint?: string; flush?
  * Settings, one per row in a card: what it is and a one-line hint on the left, its
  * control on the right. Every settings screen uses it, so labels and controls line up.
  */
-export function Settings({ title, hint, children }: { title?: string; hint?: string; children: React.ReactNode }) {
+export function Settings({ title, hint, action, children }: { title?: string; hint?: string; action?: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} />
+			<Heading title={title} hint={hint} action={action} />
 			<div className={listClass}>{children}</div>
 		</section>
 	);

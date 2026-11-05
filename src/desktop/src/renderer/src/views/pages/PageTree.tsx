@@ -7,7 +7,7 @@ import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, PrivateIc
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, useSortable } from "../../sortable";
-import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
+import { LoadMore, Notice, descriptionClass, inputClass, useDebounced, useRun } from "../../ui";
 import { Item, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 
@@ -146,9 +146,9 @@ export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () =>
 	const page = useQuery(api.pages.get, { pageId });
 	const setAccess = useMutation(api.pages.setAccess);
 	return (
-		<Modal title={page ? `Who can access ${page.title || "this page"}` : "Who can access"} onClose={onClose}>
+		<Modal title={page ? page.title || "Untitled" : "Who can access"} size="lg" onClose={onClose}>
 			{page?.recordId ? (
-				<p className="text-sm text-neutral-500">A record's page follows its database's list.</p>
+				<p className={descriptionClass}>A record's page follows its database's list.</p>
 			) : (
 				page && (
 					<WhoCanAccess

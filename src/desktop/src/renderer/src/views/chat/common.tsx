@@ -1,6 +1,6 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CloseIcon, PlusIcon } from "../../icons";
+import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
 import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
@@ -196,22 +196,44 @@ export function Layer({ onClose, className, overlayClassName, children }: { onCl
 	);
 }
 
-/** `wide` for side-by-side content (page history). */
-export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
+/**
+ * A dialog. Two kinds, laid out the same everywhere:
+ * - a form (create, rename): stacked `Field`s, then `DialogButtons` (Cancel, then the action) at the bottom right;
+ * - settings for one thing (a channel, a database): `Settings`/`Section` cards with inset headings, as on a
+ *   settings screen (`size="lg"`). Leave, Archive and the like go in `menu`, the ⋯ beside Close.
+ * `size="xl"` for side-by-side content (page history).
+ */
+export function Modal({ title, size = "md", menu, onClose, children }: { title: string; size?: "md" | "lg" | "xl"; menu?: (close: () => void) => React.ReactNode; onClose: () => void; children: React.ReactNode }) {
 	return (
 		<Layer
 			onClose={onClose}
 			overlayClassName="bg-neutral-900/20"
-			className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 text-[15px] text-neutral-900 shadow-xl`}
+			className={`flex max-h-[85vh] w-full ${widths[size]} flex-col gap-5 overflow-y-auto rounded-2xl bg-white p-6 text-[15px] text-neutral-900 shadow-xl`}
 		>
-			<header className="flex items-center justify-between">
-				<MantineModal.Title className="text-lg font-medium">{title}</MantineModal.Title>
+			<header className="flex items-center gap-1">
+				<MantineModal.Title className="min-w-0 flex-1 truncate text-lg font-medium">{title}</MantineModal.Title>
+				{menu && <MoreMenu label="More">{menu}</MoreMenu>}
 				<IconButton label="Close" onClick={onClose}>
 					<CloseIcon />
 				</IconButton>
 			</header>
 			{children}
 		</Layer>
+	);
+}
+const widths = { md: "max-w-md", lg: "max-w-xl", xl: "max-w-4xl" };
+
+/** A dialog's buttons: bottom right, Cancel first, the action last. */
+export function DialogButtons({ children }: { children: React.ReactNode }) {
+	return <div className="flex justify-end gap-2">{children}</div>;
+}
+
+/** ⋯ opening a menu of `MenuItem`s: a row's or a dialog's other actions. */
+export function MoreMenu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
+	return (
+		<Popover label={label} trigger={<MoreIcon />} className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100" panelClassName="w-56 p-1">
+			{children}
+		</Popover>
 	);
 }
 
@@ -363,10 +385,10 @@ export function Confirm(props: { title: string; action: string; danger?: boolean
 			<div className="flex flex-col gap-4 text-sm">
 				{props.children && <p className="text-neutral-600">{props.children}</p>}
 				<Notice>{props.error}</Notice>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button autoFocus type="button" disabled={props.busy} onClick={props.onClose} className={secondaryButton}>Cancel</button>
 					<button type="button" disabled={props.busy} onClick={props.onConfirm} className={props.danger ? dangerButton : primaryButton}>{props.action}</button>
-				</div>
+				</DialogButtons>
 			</div>
 		</Modal>
 	);

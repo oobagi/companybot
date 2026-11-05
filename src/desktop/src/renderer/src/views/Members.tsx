@@ -5,11 +5,11 @@ import { useState } from "react";
 import { api } from "../api";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
-import { CaretRightIcon, CaretUpDownIcon, CloseIcon, MoreIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
+import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
 import { navigate } from "../router";
 import { ConflictNotice, Field, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, cardClass, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun } from "../ui";
 
-import { MenuItem, Modal, Popover, useConfirm } from "./chat/common";
+import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
 type Role = NonNullable<FunctionReturnType<typeof api.roles.list>>[number];
 
@@ -129,14 +129,14 @@ function InviteDialog({ roles, who, onNote, onClose }: { roles: readonly Role[];
 					<RolePicker roles={roles} value={picked} who={who} onChange={setPicked} wide />
 				</Field>
 				<Notice>{error}</Notice>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Cancel
 					</button>
 					<button type="submit" disabled={busy || !email.trim()} className={primaryButton}>
 						Invite
 					</button>
-				</div>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);
@@ -144,14 +144,8 @@ function InviteDialog({ roles, who, onNote, onClose }: { roles: readonly Role[];
 
 /** A row's ⋯ menu; none when there's nothing in it for you. */
 function RowMenu({ label, hidden, children }: { label: string; hidden?: boolean; children: (close: () => void) => React.ReactNode }) {
-	if (hidden) return null;
-	return (
-		<Popover label={label} trigger={<MoreIcon />} className={rowMenuButton} panelClassName="w-56 p-1">
-			{children}
-		</Popover>
-	);
+	return hidden ? null : <MoreMenu label={label}>{children}</MoreMenu>;
 }
-const rowMenuButton = "flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100";
 
 /** Pick one or more roles. At least one stays picked; only roles `who` may give or take (Owner only for owners). */
 function RolePicker({ roles, value, who, onChange, wide }: { roles: readonly Role[]; value: readonly string[]; who: Access; onChange: (ids: Id<"roles">[]) => void; wide?: boolean }) {
@@ -232,14 +226,14 @@ function NewRoleDialog({ onClose }: { onClose: () => void }) {
 					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={inputClass} />
 				</Field>
 				<Notice>{error}</Notice>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Cancel
 					</button>
 					<button type="submit" disabled={busy || !name.trim()} className={primaryButton}>
 						Create role
 					</button>
-				</div>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

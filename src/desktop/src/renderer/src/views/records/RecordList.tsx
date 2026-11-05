@@ -1,6 +1,6 @@
 import { useStoredIds } from "../../arrangements";
 import type { FieldKind } from "@companybot/core/records";
-import { type Access, can } from "@companybot/core/permissions";
+import type { Access } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
@@ -10,8 +10,8 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
-import { MenuItem, Modal, Popover, useConfirm } from "../chat/common";
+import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, secondaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
@@ -277,9 +277,10 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						<Field label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
 							<input name="name" autoFocus required maxLength={120} className={inputClass} />
 						</Field>
-						<button type="submit" className={`${primaryButton} self-start`}>
-							Save for everyone
-						</button>
+						<DialogButtons>
+							<button type="button" onClick={() => setSavingView(false)} className={secondaryButton}>Cancel</button>
+							<button type="submit" className={primaryButton}>Save for everyone</button>
+						</DialogButtons>
 					</Form>
 				</Modal>
 			)}
@@ -534,9 +535,10 @@ function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void })
 				<Field label={label}>
 					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
 				</Field>
-				<button type="submit" className={`${primaryButton} self-start`}>
-					Create
-				</button>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Create</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

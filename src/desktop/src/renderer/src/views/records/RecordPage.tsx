@@ -296,5 +296,5 @@ function RecordHistory({ open, onClose, type, recordId, pageId, canUndo, canRest
 	const [tab, setTab] = useState<"properties" | "body">("properties");
 	if (!open) return null;
 	const tabs = <Tabs tabs={[{ id: "properties", label: "Properties" }, { id: "body", label: "Page body" }]} value={tab} onChange={setTab} />;
-	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" wide onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
+	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" size="xl" onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
 }

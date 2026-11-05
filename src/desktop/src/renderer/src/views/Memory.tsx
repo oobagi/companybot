@@ -8,9 +8,9 @@ import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { ArchiveIcon, EditIcon, HistoryIcon, MemoryIcon, MoreIcon, RestoreIcon, TrashIcon } from "../icons";
-import { ConflictNotice, EmptyState, Field, Form, Loading, NewButton, NoMatches, Notice, PageActions, Section, cardClass, compactButton, compactControlClass, compactPrimaryButton, descriptionClass, iconButton, hintClass, inputClass, insetClass, metadataClass, primaryButton, secondaryButton, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
+import { ConflictNotice, EmptyState, Field, Form, Loading, NewButton, NoMatches, Notice, PageActions, Section, cardClass, compactButton, compactPrimaryButton, iconButton, hintClass, inputClass, insetClass, metadataClass, primaryButton, secondaryButton, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
 
-import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "./chat/common";
+import { DialogButtons, MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "./chat/common";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -238,14 +238,14 @@ function NewMemoryDialog({
 					/>
 				</Field>
 				<Notice>{error}</Notice>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Cancel
 					</button>
 					<button type="submit" disabled={busy || !content.trim() || !agentId} className={primaryButton}>
 						Add memory
 					</button>
-				</div>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

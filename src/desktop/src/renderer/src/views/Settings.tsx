@@ -9,13 +9,13 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
+import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
-import { Confirm, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
+import { Confirm, DialogButtons, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
 import { MembersTab, RoleScreen, RolesTab } from "./Members";
@@ -221,14 +221,14 @@ function DangerAction({
 						<Field label={`Type “${confirm}” to confirm`}>
 							<input className={inputClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
 						</Field>
-						<div className="flex justify-end gap-2">
+						<DialogButtons>
 							<button type="button" onClick={close} disabled={busy} className={secondaryButton}>
 								Cancel
 							</button>
 							<button type="submit" disabled={busy || !matches} className={dangerButton}>
 								{busy ? pending : action}
 							</button>
-						</div>
+						</DialogButtons>
 					</Form>
 				</Modal>
 			)}

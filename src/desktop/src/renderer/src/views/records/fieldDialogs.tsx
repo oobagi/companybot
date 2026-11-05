@@ -5,8 +5,8 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { Field, Form, Notice, iconDangerButton, inputClass, metadataClass, primaryButton, secondaryButton, useRun } from "../../ui";
-import { TrashIcon } from "../../icons";
-import { Modal, archiveQuestion, useConfirm } from "../chat/common";
+import { ArchiveIcon, TrashIcon } from "../../icons";
+import { DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
 
@@ -79,9 +79,10 @@ export function AddField({
 						Holds several
 					</label>
 				)}
-				<button type="submit" className={`${primaryButton} self-start`}>
-					Add field
-				</button>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Add field</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);
@@ -108,7 +109,19 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 			onClose,
 		);
 	return (
-		<Modal title={`Edit “${field.label}”`} onClose={onClose}>
+		<Modal
+			title={`Edit “${field.label}”`}
+			onClose={onClose}
+			menu={
+				field.key !== "name"
+					? (close) => (
+							<MenuItem onClick={() => (close(), confirm(archiveQuestion(field.label, () => remove({ kind: "field", id: fieldId }).then(onClose), "The field will be hidden; its saved values are kept.")))}>
+								<ArchiveIcon /> Archive field
+							</MenuItem>
+						)
+					: undefined
+			}
+		>
 			{dialog}
 			<Form onSubmit={() => save()}>
 				<Notice>{error}</Notice>
@@ -135,20 +148,10 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 						</div>
 					</Field>
 				)}
-				<div className="flex items-center justify-between">
-					<button type="submit" className={primaryButton}>
-						Save
-					</button>
-					{field.key !== "name" && (
-						<button
-							type="button"
-							onClick={() => confirm(archiveQuestion(field.label, () => remove({ kind: "field", id: fieldId }).then(onClose), "The field will be hidden; its saved values are kept."))}
-							className={secondaryButton}
-						>
-							Archive field
-						</button>
-					)}
-				</div>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Save</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

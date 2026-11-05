@@ -129,11 +129,11 @@ it("shows saved custom fields while archived and restores the draft on restore",
 	await render(custom(true, true)); expect((document.querySelector("input") as HTMLInputElement).value).toBe("Saved skill");
 	await render(custom()); expect((document.querySelector("input") as HTMLInputElement).value).toBe("Unsaved skill");
 });
-it("clears edited database fields after saving", async () => {
+it("clears edited database fields after saving, and stays open", async () => {
 	const type = { _id: "database", name: "Project", plural: "Projects", key: "project", version: 1, access: [] } as never;
 	const close = vi.fn();
 	await render(createElement(DatabaseDialog, { type, onClose: close }));
 	await change("input", "Unsaved database"); await click("Save");
-	expect(close).toHaveBeenCalledOnce();
+	expect(close).not.toHaveBeenCalled();
 	expect((document.querySelector("input") as HTMLInputElement).value).toBe("Projects");
 });

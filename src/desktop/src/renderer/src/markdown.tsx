@@ -5,7 +5,7 @@ import { type ComponentProps, type MouseEvent, useMemo, useState } from "react";
 import { type Components, type LinkSafetyModalProps, defaultComponents, defaultRehypePlugins, Streamdown } from "streamdown";
 import { navigate } from "./router";
 import { Notice, descriptionClass, primaryButton, secondaryButton, useRun } from "./ui";
-import { Modal } from "./views/chat/common";
+import { DialogButtons, Modal } from "./views/chat/common";
 import type { TokenNames } from "./views/chat/data";
 import { TokenChip } from "./views/chat/TokenChip";
 import { TOKEN_TAG, findToken, rehypeTokens } from "./views/chat/tokens";
@@ -30,12 +30,12 @@ function ExternalLinkModal({ url, onClose, onConfirm }: LinkSafetyModalProps) {
 			<p className={descriptionClass}>This link opens in your browser.</p>
 			<p className="max-h-40 overflow-y-auto rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm wrap-anywhere select-text">{url}</p>
 			<Notice>{error}</Notice>
-			<div className="flex justify-end gap-2">
+			<DialogButtons>
 				<button type="button" disabled={busy} onClick={() => void run(navigator.clipboard.writeText(url), () => setCopied(true))} className={secondaryButton}>
 					{copied ? "Copied" : "Copy link"}
 				</button>
 				<button type="button" onClick={onConfirm} className={primaryButton}>Open link</button>
-			</div>
+			</DialogButtons>
 		</Modal>
 	);
 }
