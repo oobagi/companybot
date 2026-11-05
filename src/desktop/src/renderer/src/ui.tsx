@@ -374,14 +374,19 @@ export function Settings({ title, note, action, children }: { title?: string; no
 	);
 }
 
-export function Setting({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/**
+ * One setting in a `Settings` card. Every form uses these rows, on a screen or in a dialog.
+ * `wide` is for long text (a textarea, instructions): the label and hint on top, the control
+ * across the card under them (give it `compactControlClass w-full`).
+ */
+export function Setting({ label, hint, wide, children }: { label: string; hint?: string; wide?: boolean; children: React.ReactNode }) {
 	return (
-		<div className="flex items-center gap-6 px-4 py-3">
+		<div className={`flex px-4 py-3 ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
 			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<p className="text-sm font-medium">{label}</p>
 				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
 			</div>
-			<div className="flex shrink-0 items-center gap-2 text-sm">{children}</div>
+			<div className={`flex items-center gap-2 text-sm ${wide ? "" : "shrink-0"}`}>{children}</div>
 		</div>
 	);
 }
@@ -395,6 +400,7 @@ export function Form({ className = "flex flex-col gap-4", onSubmit, children }: 
 	);
 }
 
+/** The old stacked form field: `ui/no-stacked-form` reports every use. Forms are `Setting` rows; delete this once none are left. */
 export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
 	return (
 		<label className="flex flex-col gap-1.5">
@@ -421,6 +427,7 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
+/** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
 export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */

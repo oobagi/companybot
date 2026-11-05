@@ -197,10 +197,10 @@ export function Layer({ onClose, className, overlayClassName, children }: { onCl
 }
 
 /**
- * A dialog. Two kinds, laid out the same everywhere:
- * - a form (create, rename): stacked `Field`s, then `DialogButtons` (Cancel, then the action) at the bottom right;
- * - settings for one thing (a channel, a database): `Settings`/`Section` cards with inset headings, as on a
- *   settings screen (`size="lg"`). Leave, Archive and the like go in `menu`, the ⋯ beside Close.
+ * A dialog. Its fields are `Settings`/`Setting` rows in a card, exactly as on a settings screen (never
+ * stacked fields); a form (create, rename, invite) ends with `DialogButtons` (Cancel, then the action) at
+ * the bottom right. Settings for one thing (a channel, a database) take `size="lg"`; Leave, Archive and the
+ * like go in `menu`, the ⋯ beside Close.
  * `size="xl"` for side-by-side content (page history).
  */
 export function Modal({ title, size = "md", menu, onClose, children }: { title: string; size?: "md" | "lg" | "xl"; menu?: (close: () => void) => React.ReactNode; onClose: () => void; children: React.ReactNode }) {
