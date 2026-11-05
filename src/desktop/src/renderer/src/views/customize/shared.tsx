@@ -10,10 +10,10 @@ import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
 /** Each tab's description shows in the top bar. */
 export const customizeTabs = [
-	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do. Changing them takes a role that can change agents." },
-	{ id: "connectors", label: "Connectors", one: "Connector", icon: ConnectorIcon, description: "Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping." },
-	{ id: "skills", label: "Skills", one: "Skill", icon: SkillIcon, description: "Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it." },
-	{ id: "automations", label: "Automations", one: "Automation", icon: AutomationIcon, description: "Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something." },
+	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do" },
+	{ id: "connectors", label: "Connectors", one: "Connector", icon: ConnectorIcon, description: "Outside apps your agents can use" },
+	{ id: "skills", label: "Skills", one: "Skill", icon: SkillIcon, description: "Instructions agents load when needed" },
+	{ id: "automations", label: "Automations", one: "Automation", icon: AutomationIcon, description: "Jobs agents run on their own" },
 ] as const;
 export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 

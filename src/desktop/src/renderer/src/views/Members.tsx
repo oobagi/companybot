@@ -279,7 +279,7 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 		<Page
 			title={role.name}
 			crumbs={crumbs}
-			intro={fixed ? "Owners can do everything, and this can't be changed." : `${peopleLabel(role.people)} ${role.people === 1 ? "has" : "have"} this role. People get every switch any of their roles has.${role.builtIn === "member" ? " New people get Member." : ""}`}
+			description={fixed ? "Can do everything" : `${peopleLabel(role.people)}${role.builtIn === "member" ? " · new people get it" : ""}`}
 			actions={
 				canEdit &&
 				!role.builtIn && (
@@ -307,7 +307,7 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 			<Field label="Name">
 				<input value={value.name} disabled={!canEdit} onChange={(e) => draft.set({ ...value, name: e.target.value })} className={inputClass} />
 			</Field>
-			<Settings title="What it can do">
+			<Settings title="What it can do" hint={fixed ? undefined : "People get every switch any of their roles has."}>
 				{switches.map((p) => (
 					<Setting key={p} label={switchLabel(p)}>
 						<Checkbox label={switchLabel(p)} checked={fixed || value.on.includes(p)} disabled={!canEdit} onChange={(on) => toggle(p, on)} />

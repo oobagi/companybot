@@ -36,12 +36,12 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "Everyone in this workspace, and people you've invited. Their roles decide what they can do; changes apply right away.", icon: <MembersIcon /> },
-			{ id: "roles", label: "Roles", description: "What each role can do. People get every switch any of their roles has. Owners can do everything.", icon: <RolesIcon /> },
-			{ id: "permissions", label: "Permissions", description: "Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps.", icon: <PermissionsIcon /> },
-			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
-			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
-			{ id: "usage", label: "Usage", description: "What AI has cost this month. People whose role can see the whole workspace see everyone; everyone else sees only their own share.", icon: <UsageIcon /> },
+			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
+			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
+			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
+			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
+			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
+			{ id: "usage", label: "Usage", description: "What AI cost this month", icon: <UsageIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
@@ -73,7 +73,7 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 	if (tab === "roles" && itemId) return <RoleScreen access={access} roleId={itemId} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
-		<Page title={current.label} intro={(current as { description?: string }).description}>
+		<Page title={current.label} description={(current as { description?: string }).description}>
 			{tab === "general" && <GeneralTab access={access} />}
 			{tab === "members" && <MembersTab access={access} />}
 			{tab === "roles" && <RolesTab access={access} />}

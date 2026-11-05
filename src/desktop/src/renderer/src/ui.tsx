@@ -239,15 +239,14 @@ const actionSlot = createContext<HTMLElement | null>(null);
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
- * `description` sits next to the title in the top bar (short: it truncates); `intro`, a sentence or
- * two about the screen, opens its content in full. `actions` go on the top bar's right. `wide` for tables.
+ * `description` sits next to the title in the top bar: a few words, like a channel's topic (it
+ * truncates; the details belong in help). `actions` go on the top bar's right. `wide` for tables.
  */
 export function Page({
 	title,
 	crumbs,
 	heading,
 	description,
-	intro,
 	actions,
 	wide,
 	children,
@@ -256,7 +255,6 @@ export function Page({
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
 	description?: string;
-	intro?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
 	children: React.ReactNode;
@@ -281,8 +279,6 @@ export function Page({
 					}`}
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-					{/* Inset like section headings, so it lines up with the text in the cards below. */}
-					{intro && <p className={`${descriptionClass} ${insetClass}`}>{intro}</p>}
 					{children}
 				</div>
 			</actionSlot.Provider>
