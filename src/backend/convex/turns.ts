@@ -1,3 +1,4 @@
+import { publicSearchChat } from "./chatDiscovery";
 import type { PlaceMessage, Skill } from "@companybot/core";
 import type { ModelMessage } from "ai";
 import { QUIET_WINDOW_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, calledTools, fallbackModels, responseOf, steerNote, stepsFor, withoutFileImages } from "@companybot/core";
@@ -229,7 +230,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	};
 	// Every reply starts hidden (quiet: not in the timeline, unread or the thread's replies) while the
 	// typing line shows the agent working, and shows once its message starts (show).
-	const replyId = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true });
+	const replyId = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, searchPublic: publicSearchChat(chat), quiet: true });
 	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now(), step: { label: THINKING_STEP, at: Date.now() }, debouncing: undefined });
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }

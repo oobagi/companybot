@@ -375,6 +375,7 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId", "archived"])
 		// One person's personal memories in a workspace (team memories have no owner).
 		.index("by_owner", ["ownerId", "workspaceId"])
+		.index("by_workspace_scope", ["workspaceId", "scope", "archived"])
 		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Archive).
 		.index("by_agent_scope", ["agentId", "scope", "archived"])
 		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
@@ -553,6 +554,8 @@ export default defineSchema({
 		createdBy: v.id("users"),
 		// COMPAT(0.1.0-alpha.10): moved to `chatActivity`. Once migrations.chatActivity has run on prod, drop these two and the fallback in chatOps `activityOf`.
 		lastMessageAt: v.optional(v.number()),
+		/** Search discovery; maintained with chat visibility. */
+		searchPublic: v.optional(v.boolean()),
 		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
@@ -568,15 +571,27 @@ export default defineSchema({
 		.index("by_dm_key", ["workspaceId", "dmKey"])
 		.index("by_name", ["workspaceId", "name", "archived"]),
 
+	// Discovery activity changes independently of a seat's read state.
+	seatActivity: defineTable({
+		workspaceId: v.id("workspaces"), chatId: v.id("chats"), seatId: v.id("chatMembers"),
+		userId: v.id("users"), activityAt: v.number(), restricted: v.boolean(),
+	}).index("by_seat", ["seatId"]).index("by_chat", ["chatId"]).index("by_workspace", ["workspaceId"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_activity", ["workspaceId", "userId", "activityAt"])
+		.index("by_private_activity", ["workspaceId", "userId", "restricted", "activityAt"]),
+
 	// What changes with every message in a chat, apart from it, so the many queries that read a chat's
 	// name, members or access don't re-run on each one (chatOps `activityOf`). Made with the chat.
 	chatActivity: defineTable({
 		chatId: v.id("chats"),
+		pendingAt: v.optional(v.number()),
+		/** COMPAT(0.1.0-alpha.10): discoveryChatActivity backfills these index keys. */
+		workspaceId: v.optional(v.id("workspaces")), kind: v.optional(v.union(v.literal("channel"), v.literal("dm"))), searchPublic: v.optional(v.boolean()),
 		/** The main timeline's newest shown message. */
 		lastMessageAt: v.number(),
 		/** USD spent on agent replies and summaries here (main timeline). */
 		costUsd: v.optional(v.number()),
-	}).index("by_chat", ["chatId"]),
+	}).index("by_chat", ["chatId"]).index("by_search_activity", ["workspaceId", "kind", "searchPublic", "lastMessageAt"]),
 
 	// Who's in a chat: one person or one agent per row.
 	chatMembers: defineTable({
@@ -610,6 +625,8 @@ export default defineSchema({
 		/** A delivered message from an agent, on this person's behalf. */
 		actingFor: v.optional(v.id("users")),
 		text: v.string(),
+		/** COMPAT(0.1.0-alpha.10): old messages are backfilled by searchAudience. */
+		searchPublic: v.optional(v.boolean()),
 		parts: v.array(messagePart),
 		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
 		attachments: v.optional(v.array(attachment)),
@@ -667,7 +684,7 @@ export default defineSchema({
 		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
 		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
 		.index("by_workspace", ["workspaceId"])
-		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId"] }),
+		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId", "searchPublic"] }),
 
 	// What a link looked like when we fetched it (linkUnfurl.ts), one row per URL per workspace, shared
 	// by every message that posts it and refetched when a day old. The picture is our own copy.
@@ -935,6 +952,8 @@ export default defineSchema({
 		wake: v.optional(v.object({ wakeupId: v.id("wakeups"), outcome: wakeOutcome, reason: v.optional(v.string()) })),
 	})
 		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_actor", ["workspaceId", "actorId"])
+		.index("by_chat", ["chatId"])
 		.index("by_reply", ["replyId"])
 		.index("by_actor", ["actorId"]),
 
@@ -1401,6 +1420,7 @@ export default defineSchema({
 		model: v.optional(v.string()),
 		costUsd: v.number(),
 	})
+		.index("by_month_kind", ["workspaceId", "month", "kind"])
 		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
 		.index("by_user", ["workspaceId", "userId", "month"]),
 

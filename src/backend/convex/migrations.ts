@@ -1,3 +1,5 @@
+import { setActivity } from "./chatOps";
+import { publicSearchChat, ensureSeatActivity } from "./chatDiscovery";
 import { fromLegacy } from "./wakeups";
 import { v } from "convex/values";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
@@ -314,6 +316,28 @@ export const dropChatReactLocks = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): populate indexed search audiences and activity-ordered seats.
+export const searchAudience = migrations.define({
+	table: "chatMessages", batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		const chat = await ctx.db.get(row.chatId);
+		return { searchPublic: !!chat && publicSearchChat(chat) };
+	},
+});
+// COMPAT(0.1.0-alpha.10): backfill chat discovery audiences.
+export const searchChats = migrations.define({
+	table: "chats", batchSize: 50,
+	migrateOne: async (_ctx, chat) => ({ searchPublic: publicSearchChat(chat) }),
+});
+// COMPAT(0.1.0-alpha.10): backfill user discovery activity directly from existing seats.
+export const moveSeatActivity = migrations.define({
+	table: "chatMembers", batchSize: 50,
+	migrateOne: async (ctx, seat) => {
+		const chat = await ctx.db.get(seat.chatId);
+		if (chat) await ensureSeatActivity(ctx, chat, seat);
+	},
+});
+
 // COMPAT(0.1.0-alpha.10): retire after existing installs have their trigger indexes backfilled.
 export const automationTriggerIndexes = migrations.define({
 	table: "automationInstalls",
@@ -348,6 +372,12 @@ export const messageShownAt = migrations.define({
 	migrateOne: async (ctx, m) => {
 		if (m.publishedAt === undefined && !m.quiet) await ctx.db.patch(m._id, { publishedAt: m._creationTime });
 	},
+});
+
+// COMPAT(0.1.0-alpha.10): populate bounded channel-discovery keys on hot activity documents.
+export const discoveryChatActivity = migrations.define({
+	table: "chats", batchSize: 50,
+	migrateOne: async (ctx, chat) => { await setActivity(ctx, chat, {}); },
 });
 
 // COMPAT(0.1.0-alpha.10): member lists read only `members` (workspace.team), so each row copies its person's
@@ -437,6 +467,10 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.automationTriggerIndexes,
 	internal.migrations.chatActivity,
 	internal.migrations.messageShownAt,
+	internal.migrations.searchAudience,
+	internal.migrations.searchChats,
+	internal.migrations.moveSeatActivity,
+	internal.migrations.discoveryChatActivity,
 	internal.migrations.memberProfiles,
 	internal.migrations.lastWorkspaces,
 	internal.migrations.chatMemberCounts,

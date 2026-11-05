@@ -1,3 +1,4 @@
+import { ensureSeatActivity } from "../convex/chatDiscovery";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -115,6 +116,8 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		mine.push(await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: memberId }));
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, agentId });
 		await ctx.db.insert("chatMembers", { chatId: dm, workspaceId, userId: memberId });
+		for (const seat of (await ctx.db.query("chatMembers").collect()).filter((r) => r.workspaceId === workspaceId)) await ensureSeatActivity(ctx, (await ctx.db.get(seat.chatId))!, seat);
+		await ctx.db.insert("chatActivity", { workspaceId, chatId: channel, lastMessageAt: now });
 		const message = { chatId: channel, workspaceId, parts: [], status: "done" as const };
 		const said = await ctx.db.insert("chatMessages", { ...message, authorUserId: memberId, text: "Hi", mentions: { userIds: [], agentIds: [] } });
 		const mention = await ctx.db.insert("chatMessages", { ...message, authorUserId: ownerId, text: "@member", mentions: { userIds: [memberId], agentIds: [] } });
@@ -212,7 +215,7 @@ const memberRow = (t: T, workspaceId: Id<"workspaces">, userId: Id<"users">) =>
 const seatsIn = (rows: Awaited<ReturnType<typeof dump>>, workspaceId: string, userId: string) =>
 	[...rows.values()]
 		.filter(({ table, row }) => table === "chatMembers" && row.workspaceId === workspaceId && row.userId === userId && rows.get(row.chatId as string)!.row.kind === "channel")
-		.map(({ row }) => row._id);
+		.flatMap(({ row }) => [row._id, ...[...rows.values()].filter((entry) => entry.table === "seatActivity" && entry.row.seatId === row._id).map((entry) => entry.row._id)]);
 
 /** The chats these seats are in. */
 const seatChats = (rows: Awaited<ReturnType<typeof dump>>, seats: string[]) => new Set(seats.map((id) => rows.get(id)!.row.chatId as string));
@@ -449,7 +452,7 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "lastWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "lastWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads", "seatActivity"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));
