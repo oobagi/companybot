@@ -281,7 +281,8 @@ export function Page({
 					}`}
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-					{intro && <p className={descriptionClass}>{intro}</p>}
+					{/* Inset like section headings, so it lines up with the text in the cards below. */}
+					{intro && <p className={`${descriptionClass} ${insetClass}`}>{intro}</p>}
 					{children}
 				</div>
 			</actionSlot.Provider>
