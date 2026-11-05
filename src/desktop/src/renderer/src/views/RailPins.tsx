@@ -1,8 +1,9 @@
-import { railButton } from "../ui";
+import { CountBadge, railButton } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useQuery, useWorkspace } from "../convex";
-import { ChannelIcon, ChatIcon, DatabaseIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
+import { ChannelIcon, ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, UnpinIcon } from "../icons";
+import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { type PinKey, RECENT_SHOWN, pathOf, splitPin, usePins } from "../pins";
 import { navigate } from "../router";
 import { type DragProps, moveCommand, useDragList, useDragStatic, useSortable } from "../sortable";
@@ -12,6 +13,22 @@ import { Avatar, MenuItem, PopoverPanel } from "./chat/common";
 import { useTypes } from "./records/data";
 
 type TipFor = ReturnType<typeof useTip>["tipFor"];
+
+/** The rail's tabs: the parts of the app, in the order a new rail shows them. They're pins you can't remove. */
+export const appTabs = [
+	{ id: "chat", label: "Chat", icon: ChatIcon },
+	{ id: "drive", label: "Drive", icon: DriveIcon },
+	{ id: "databases", label: "Databases", icon: DatabaseIcon },
+	{ id: "customize", label: "Customize", icon: CustomizeIcon },
+] as const;
+export type AppTab = (typeof appTabs)[number]["id"];
+
+/** What's waiting in a tab: a red count of chats with a mention or DM, else a dot for unread. */
+export type TabBadge = { mentions: number; unread: boolean };
+
+/** One thing in the rail's main group: a tab, or a pin. Ids don't collide: a pin's has a colon. */
+type Main = { id: string; tab?: (typeof appTabs)[number]; entry?: Entry };
+const mainId = (m: Main) => m.id;
 
 /** A pin or recent, as the rail shows it. Gone ones (left, archived, deleted) aren't shown. */
 type Entry = { key: PinKey; label: string; icon: React.ReactNode; path: string[]; unread: boolean; mentioned: boolean };
@@ -58,7 +75,7 @@ function useEntries(keys: PinKey[]) {
 }
 
 /** Each workspace's recents in the order the rail last showed them, for this session. */
-const railOrder = new Map<string, PinKey[]>();
+const shownRecents = new Map<string, PinKey[]>();
 
 /**
  * Recents in a steady order, from the order last shown (`before`): one already on the rail keeps its
@@ -73,60 +90,115 @@ export function steadyOrder(before: readonly PinKey[], latest: readonly PinKey[]
 }
 
 /**
- * Straight after the rail's tabs, as one group with them: your pins (any chat, DM, page, database or record; drag to reorder), then what
- * you opened lately that isn't pinned. Pin from a sidebar row's menu, or right-click one here.
- * `open` is what's on screen, lit like a tab.
+ * The rail's buttons: one group of tabs and pins, mixed in your order (drag any of them anywhere in it),
+ * then a divider and what you opened lately that isn't pinned. Drag a recent up into the group to pin it,
+ * a pin down to unpin it; tabs can't leave. Pin from a sidebar row's menu, or right-click one here.
+ * ⌘1–9 open the group's first nine, in the order shown. `tab` and `open` are what's on screen, lit.
  */
-export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; tipFor: TipFor; hideTip: () => void }) {
+export function RailPins({
+	tab,
+	onOpenTab,
+	badges = {},
+	open,
+	tipFor,
+	hideTip,
+}: {
+	tab: AppTab | undefined;
+	onOpenTab: (tab: AppTab) => void;
+	badges?: Partial<Record<AppTab, TabBadge>>;
+	open: PinKey | undefined;
+	tipFor: TipFor;
+	hideTip: () => void;
+}) {
 	const { pins, recent, toggle, visit } = usePins();
 	const workspace = useWorkspace();
 	const { resolve, ready } = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
-	const [pinOrder, changePinOrder] = useStoredIds("pinsOrder");
-	// Pins and recents are one group: drag a recent up among the pins to pin it there, a pin down to unpin it.
-	const { sorted, drag, key: pinList } = useSortable("pinsOrder", pinned, entryKey, "y", undefined, {
+	const [railOrder, changeRail] = useStoredIds("rail");
+	const items: Main[] = [...appTabs.map((t) => ({ id: t.id, tab: t })), ...pinned.map((e) => ({ id: e.key, entry: e }))];
+	const { sorted, drag, key: mainList } = useSortable("rail", items, mainId, "y", undefined, {
 		group: "rail",
 		onReceive: (from, index, shown) => {
 			const key = from.id as PinKey;
 			toggle(key);
-			const command = moveCommand(pinOrder, [...shown, key], key, index);
-			if (command) changePinOrder(command);
+			const command = moveCommand(railOrder, [...shown, key], key, index);
+			if (command) changeRail(command);
 		},
 	});
-	const { item: recentDrag, key: recentList } = useDragList({ group: "rail", enabled: true, onDrop: (from) => { if (from.list === pinList) { toggle(from.id as PinKey); visit(from.id as PinKey); } } });
-	// Pins carry on straight after the tabs, as one group; one divider sets recents apart. A drop above it
-	// pins (`endOf`), below it unpins. With no recents it stays, unseen, at the bottom so a pin can still be dragged out.
-	const recentDivider = useDragStatic("rail", { endOf: pinList, startOf: recentList });
-	// The RECENT_SHOWN you opened last, in the order they came in (`steadyOrder`). While some are
-	// still loading, the rail keeps what it showed: one arriving late would look new and jump to the top.
+	// Recents take pins, never tabs.
+	const { item: recentDrag, key: recentList } = useDragList({
+		group: "rail",
+		enabled: true,
+		accepts: (from) => from.id.includes(":"),
+		onDrop: (from) => {
+			if (from.list !== mainList) return;
+			toggle(from.id as PinKey);
+			visit(from.id as PinKey);
+		},
+	});
+	// A drop above it pins (`endOf`), below it unpins. With no recents it stays, unseen, so a pin can still be dragged out.
+	const divider = useDragStatic("rail", { endOf: mainList, startOf: recentList });
+
+	useJump("tab", (n) => {
+		const to = sorted[n - 1];
+		if (!to) return false;
+		if (to.tab ? to.tab.id === tab : to.entry!.key === open) return false;
+		blurActiveEditable();
+		// A rail button clicked earlier would show its keyboard focus ring once keys are pressed.
+		if (document.activeElement instanceof HTMLElement && document.activeElement.closest("nav[aria-label='App']")) document.activeElement.blur();
+		if (to.tab) onOpenTab(to.tab.id);
+		else navigate(...to.entry!.path);
+	});
+
+	// Your last RECENT_SHOWN places, less the pinned ones, in the order they came in (`steadyOrder`). Pinning
+	// one doesn't pull in another, so the rail keeps its length. While some are still loading, the rail keeps
+	// what it showed: one arriving late would look new and jump to the top.
 	const ws = workspace?.id ?? "";
-	const latest = recent.filter((k) => !pins.includes(k)).map(resolve).filter((e): e is Entry => !!e).slice(0, RECENT_SHOWN);
-	const before = railOrder.get(ws) ?? [];
+	const latest = recent.map(resolve).filter((e): e is Entry => !!e).slice(0, RECENT_SHOWN).filter((e) => !pins.includes(e.key));
+	const before = shownRecents.get(ws) ?? [];
 	const order = ready ? steadyOrder(before, latest.map(entryKey)) : before;
 	const orderKey = order.join(" ");
 	useEffect(() => {
-		if (ready) railOrder.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
+		if (ready) shownRecents.set(ws, orderKey ? (orderKey.split(" ") as PinKey[]) : []);
 	}, [ready, ws, orderKey]);
 	const lately = order.map(resolve).filter((e): e is Entry => !!e);
-	const any = sorted.length > 0 || lately.length > 0;
-	const row = (e: Entry, isPinned: boolean, d?: DragProps) => (
-		<RailItem
-			key={e.key}
-			entry={e}
-			active={e.key === open}
-			pinned={isPinned}
-			drag={d}
-			onToggle={() => toggle(e.key)}
-			tip={tipFor(e.label, isPinned ? undefined : "Recent")}
-			hideTip={hideTip}
-		/>
-	);
 	return (
 		<>
-			{sorted.map((e) => row(e, true, drag(e.key)))}
-			{any && <Divider {...recentDivider} className={`${recentDivider.className} ${lately.length || recentDivider.className ? "" : "invisible"}`} />}
-			{lately.map((e) => row(e, false, recentDrag(e.key)))}
+			{sorted.map((m, i) => {
+				const shortcut = i < 9 ? shortcutLabel("tab", i + 1) : undefined;
+				if (m.tab) return <TabButton key={m.id} tab={m.tab} active={m.id === tab} badge={badges[m.tab.id]} drag={drag(m.id)} onOpen={onOpenTab} tip={tipFor(m.tab.label, shortcut)} hideTip={hideTip} />;
+				const e = m.entry!;
+				return <RailItem key={m.id} entry={e} active={e.key === open} pinned drag={drag(m.id)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, shortcut)} hideTip={hideTip} />;
+			})}
+			<Divider {...divider} className={`${divider.className} ${lately.length || divider.className ? "" : "invisible"}`} />
+			{lately.map((e) => (
+				<RailItem key={e.key} entry={e} active={e.key === open} pinned={false} drag={recentDrag(e.key)} onToggle={() => toggle(e.key)} tip={tipFor(e.label, "Recent")} hideTip={hideTip} />
+			))}
 		</>
+	);
+}
+
+/** A tab: one part of the app. Its badge counts chats with an unread @mention or DM, else a dot for unread. */
+function TabButton({ tab: t, active, badge, drag, onOpen, tip, hideTip }: { tab: (typeof appTabs)[number]; active: boolean; badge?: TabBadge; drag: DragProps; onOpen: (tab: AppTab) => void; tip: ReturnType<TipFor>; hideTip: () => void }) {
+	return (
+		<span {...drag} onPointerDown={drag.onPointerDown && ((e) => (hideTip(), drag.onPointerDown!(e)))} className={`relative flex ${drag.className ?? ""}`}>
+			<span className="relative flex" {...tip}>
+				<button
+					type="button"
+					aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread ${badge.mentions === 1 ? "mention or DM" : "mentions or DMs"}` : t.label}
+					aria-current={active ? "page" : undefined}
+					onClick={() => (!active && blurActiveEditable(), hideTip(), onOpen(t.id))}
+					className={railButton(active)}
+				>
+					<t.icon size={22} weight={active ? "fill" : "regular"} />
+				</button>
+				{badge?.mentions ? (
+					<CountBadge count={badge.mentions} ring className="pointer-events-none absolute -top-1 -right-1" />
+				) : (
+					badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
+				)}
+			</span>
+		</span>
 	);
 }
 

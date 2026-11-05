@@ -20,9 +20,9 @@ import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
 import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
-import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
+import { AppRail } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
-import { RailPins } from "./views/RailPins";
+import { type AppTab, type TabBadge, appTabs } from "./views/RailPins";
 import { type PinKey, pinOf, usePins } from "./pins";
 import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
@@ -219,7 +219,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 					badges={badges}
 					workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />}
 					workspaceName={workspace}
-					below={(tipFor, hideTip) => <RailPins open={here} tipFor={tipFor} hideTip={hideTip} />}
+					open={here}
 					you={prefs?.displayName || email}
 					youMenu={
 						<YouMenu

@@ -7,7 +7,7 @@ import { api } from "../api";
 import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
-import { appTabs } from "./AppRail";
+import { appTabs } from "./RailPins";
 import { Form, Notice, Setting, Settings, Stacked, compactControlClass, descriptionClass, primaryButton, secondaryButton, trailingAction, useRun, wideControlClass } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";

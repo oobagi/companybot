@@ -14,14 +14,14 @@ it("loads personal, shared and account rows together, isolated by person and wor
 	const ws = await workspaceOf(owner);
 	const other = await sideWorkspace(t, "owner@co.com");
 	const general = await generalOf(owner);
-	await change(owner, "tabs", to("drive", "chat", ["chat"]));
+	await change(owner, "rail", to("drive", "chat", ["chat"]));
 	await change(member, "channels", add(general._id));
 	await change(owner, "workspaces", to(other.workspaceId, ws, [ws]));
-	expect(await idsOf(owner, "tabs")).toEqual(["drive", "chat"]);
-	expect((await owner.query(api.arrangements.get))?.rows.map((r) => r.list).sort()).toEqual(["channels", "tabs", "workspaces"]);
-	expect(await idsOf(member, "tabs")).toBeUndefined();
+	expect(await idsOf(owner, "rail")).toEqual(["drive", "chat"]);
+	expect((await owner.query(api.arrangements.get))?.rows.map((r) => r.list).sort()).toEqual(["channels", "rail", "workspaces"]);
+	expect(await idsOf(member, "rail")).toBeUndefined();
 	expect(await idsOf(member, "channels")).toEqual([general._id]);
-	expect(await idsOf(owner.in(other.workspaceId), "tabs")).toBeUndefined();
+	expect(await idsOf(owner.in(other.workspaceId), "rail")).toBeUndefined();
 	expect(await idsOf(owner.in(other.workspaceId), "workspaces")).toEqual([other.workspaceId, ws]);
 	expect(await member.in(other.workspaceId).query(api.arrangements.get)).toBeNull();
 });
@@ -65,22 +65,22 @@ it("needs sidebar.arrange to reorder shared lists; personal ones stay the member
 	await expect(member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } })).rejects.toThrow("rearrange shared sidebar lists");
 	await member.mutation(api.arrangements.migrate, { list: "channels", ids: [general._id] });
 	expect(await idsOf(owner, "channels")).toBeUndefined();
-	// Rail tabs, pins and their order, DM order and folds are the member's own.
-	await change(member, "tabs", to("drive", "chat", ["chat"]));
+	// The rail's order, pins, DM order and folds are the member's own.
+	await change(member, "rail", to("drive", "chat", ["chat"]));
 	await change(member, "pins", add(`chat:${general._id}`));
 	await change(member, "pins", add(`page:${page}`));
-	await change(member, "pinsOrder", to(`page:${page}`, `chat:${general._id}`, [`chat:${general._id}`]));
+	await change(member, "rail", to(`page:${page}`, "chat", ["drive", "chat", `chat:${general._id}`]));
 	const dms = (await member.query(api.chats.list))!.agents.map((agent) => agent._id as string);
 	await change(member, "dms", to(dms[1]!, dms[0]!, [dms[0]!]));
 	await change(member, "folded", add("channels"));
 	await change(member, "channelFolds", add(general._id));
 	await change(member, "workspaces", add(ws));
-	expect(await idsOf(member, "tabs")).toEqual(["drive", "chat"]);
-	expect(await idsOf(member, "pinsOrder")).toEqual([`page:${page}`, `chat:${general._id}`]);
+	// Tabs and pins mix in one order.
+	expect(await idsOf(member, "rail")).toEqual(["drive", `page:${page}`, "chat", `chat:${general._id}`]);
 	expect(await idsOf(member, "dms")).toEqual([dms[1], dms[0]]);
 	expect(await idsOf(member, "folded")).toEqual(["channels"]);
 	expect(await idsOf(member, "channelFolds")).toEqual([general._id]);
-	expect(await idsOf(owner, "tabs")).toBeUndefined();
+	expect(await idsOf(owner, "rail")).toBeUndefined();
 });
 
 it("validates an imported page against the destination workspace, even when another is open", async () => {
@@ -102,9 +102,9 @@ it("validates an imported page against the destination workspace, even when anot
 it("imports only absent lists, resolves database keys once, and stores layout on the database", async () => {
 	const { owner } = await ownerAndMember();
 	const type = (await owner.query(api.recordTypes.list))[0]!;
-	await owner.mutation(api.arrangements.migrate, { list: "tabs", ids: ["drive", "chat"] });
-	await owner.mutation(api.arrangements.migrate, { list: "tabs", ids: ["databases"] });
-	expect(await idsOf(owner, "tabs")).toEqual(["drive", "chat"]);
+	await owner.mutation(api.arrangements.migrate, { list: "rail", ids: ["drive", "chat"] });
+	await owner.mutation(api.arrangements.migrate, { list: "rail", ids: ["databases"] });
+	expect(await idsOf(owner, "rail")).toEqual(["drive", "chat"]);
 	await owner.mutation(api.arrangements.migrate, { list: "columns", databaseKey: type.key, ids: ["name"] });
 	await owner.mutation(api.arrangements.migrate, { list: "databases", ids: [type.key, "deleted"] });
 	expect(await idsOf(owner, "columns", type._id)).toEqual(["name"]);
@@ -165,7 +165,7 @@ it("refuses commands naming removed or foreign things, and drops dead or malform
 	const type = (await owner.query(api.recordTypes.list))[0]!;
 	const deletedView = await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "Gone", columns: ["name"], filters: [] });
 	await owner.mutation(api.databaseViews.remove, { viewId: deletedView, version: 1 });
-	const cases: [ArrangementList, string, string?][] = [["channels", gone], ["channels", foreign], ["pages", gonePage], ["views", deletedView, type._id], ["databases", "deleted"], ["columns", "deleted", type._id], ["folded", "deleted"], ["tabs", "nope"], ["channelFolds", gone]];
+	const cases: [ArrangementList, string, string?][] = [["channels", gone], ["channels", foreign], ["pages", gonePage], ["views", deletedView, type._id], ["databases", "deleted"], ["columns", "deleted", type._id], ["folded", "deleted"], ["rail", "nope"], ["channelFolds", gone]];
 	for (const [list, id, entityId] of cases) {
 		await expect(change(owner, list, add(id), entityId), `${list} ${id}`).rejects.toThrow("Not found.");
 		await expect(change(owner, list, to(id, null), entityId)).rejects.toThrow("Not found.");
@@ -271,9 +271,9 @@ it("cleans personal rows on leaving/erasure and every workspace row on workspace
 	const { t, owner, member } = await ownerAndMember();
 	const ws = await workspaceOf(owner);
 	const general = await generalOf(owner);
-	await change(member, "tabs", add("chat"));
+	await change(member, "rail", add("chat"));
 	await change(member, "workspaces", add(ws));
-	await change(owner, "tabs", add("drive"));
+	await change(owner, "rail", add("drive"));
 	await change(owner, "channels", add(general._id));
 	vi.useFakeTimers();
 	await member.mutation(api.workspace.leave);

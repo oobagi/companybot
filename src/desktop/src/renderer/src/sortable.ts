@@ -46,7 +46,7 @@ export function moveCommand(saved: readonly string[], shown: readonly string[], 
 
 // ---- The drag in progress, shared by every list (one pointer drags one row at a time). ----
 
-type ListEntry = { group: string; axis: Axis; els: Map<string, HTMLElement>; enabled: boolean; onDrop: (from: { list: string; id: string }, index: number) => void };
+type ListEntry = { group: string; axis: Axis; els: Map<string, HTMLElement>; enabled: boolean; accepts?: (from: { list: string; id: string }) => boolean; onDrop: (from: { list: string; id: string }, index: number) => void };
 type StaticEntry = { group: string; el: HTMLElement; endOf?: string; startOf?: string };
 const lists = new Map<string, ListEntry>();
 const statics = new Map<string, StaticEntry>();
@@ -171,6 +171,8 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 	if (!l || session || e.button !== 0 || e.ctrlKey || e.metaKey) return;
 	if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable=true]")) return;
 	const { axis, group } = l;
+	// Lists a row may land in: its own, and others in the group that take it (recents take pins, not tabs).
+	const takes = (k: string) => { const t = lists.get(k); return !!t?.enabled && (k === list || !t.accepts || t.accepts({ list, id })); };
 	const x0 = e.clientX;
 	const y0 = e.clientY;
 	const area = scroller(el, axis);
@@ -189,7 +191,7 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 		const first = live.slots[0]!;
 		const end = live.slots.at(-1)!;
 		const d = Math.min(Math.max(offset(), first.start - dragged.start - dragged.size), end.start + end.size - dragged.start);
-		const next = place(live.slots, live.source, dragged.start + d, (k) => lists.get(k)?.enabled ?? false);
+		const next = place(live.slots, live.source, dragged.start + d, takes);
 		el.style.transform = axis === "y" ? `translate3d(0, ${d}px, 0) scale(1.03)` : `translate3d(${d}px, 0, 0) scale(1.03)`;
 		if (next && (next.target.at !== live.target.at || next.target.list !== live.target.list)) {
 			session = live = { ...live, ...next };
@@ -217,7 +219,7 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 			const source = slots.findIndex((s) => s.key === slotKey(list, id));
 			if (source < 0) return stop();
 			scroll0 = area ? scrollOf(area, axis) : 0;
-			const placed = place(slots, source, slots[source]!.start, (k) => lists.get(k)?.enabled ?? false);
+			const placed = place(slots, source, slots[source]!.start, takes);
 			if (!placed) return stop();
 			session = live = { group, axis, from: { list, id }, el, slots, source, dropping: false, ...placed };
 			document.documentElement.classList.add("sorting");
@@ -293,14 +295,17 @@ const shiftStyle = (px = 0) => ({ "--sort-shift": `${px}px` }) as React.CSSPrope
 
 /**
  * A list you can drag rows within, and, in a `group`, between. `onDrop` gets what was dropped (from
- * this list or another in the group) and its index here, counted without it.
+ * this list or another in the group) and its index here, counted without it. `accepts` says which rows
+ * from other lists it takes (all, by default).
  */
-export function useDragList({ group, axis = "y", enabled, onDrop }: { group?: string; axis?: Axis; enabled: boolean; onDrop: (from: { list: string; id: string }, index: number) => void }) {
+export function useDragList({ group, axis = "y", enabled, accepts, onDrop }: { group?: string; axis?: Axis; enabled: boolean; accepts?: (from: { list: string; id: string }) => boolean; onDrop: (from: { list: string; id: string }, index: number) => void }) {
 	const key = useId();
 	const g = group ?? key;
 	const drop = useRef(onDrop);
 	drop.current = onDrop;
-	const entry = useMemo<ListEntry>(() => ({ group: g, axis, els: new Map(), enabled, onDrop: (f, i) => drop.current(f, i) }), [g, axis, enabled]);
+	const take = useRef(accepts);
+	take.current = accepts;
+	const entry = useMemo<ListEntry>(() => ({ group: g, axis, els: new Map(), enabled, accepts: (f) => take.current?.(f) ?? true, onDrop: (f, i) => drop.current(f, i) }), [g, axis, enabled]);
 	useEffect(() => {
 		lists.set(key, entry);
 		return () => void lists.delete(key);

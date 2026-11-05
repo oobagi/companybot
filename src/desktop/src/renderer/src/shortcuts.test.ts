@@ -4,20 +4,24 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { inApp } from "./testing";
-import { AppRail, type AppTab } from "./views/AppRail";
+import { AppRail } from "./views/AppRail";
+import type { AppTab } from "./views/RailPins";
 import { Modal } from "./views/chat/common";
 import { Group, Item, SidebarList } from "./views/chat/Sidebar";
 
-const saved = vi.hoisted(() => ({ tabs: [] as string[], pins: [] as string[] }));
-vi.mock("./arrangements", () => ({ useStoredIds: (list: string) => [list === "tabs" ? saved.tabs : [], () => {}, true] }));
-vi.mock("./pins", () => ({ usePins: () => ({ pins: saved.pins, recent: [], toggle: vi.fn(), visit: vi.fn(), canSaveRecent: true }) }));
+const saved = vi.hoisted(() => ({ rail: [] as string[], pins: [] as string[] }));
+vi.mock("./arrangements", () => ({ useStoredIds: (list: string) => [list === "rail" ? saved.rail : [], () => {}, true] }));
+// The rail resolves pins from these; with none pinned it needs nothing back.
+vi.mock("./convex", async (real) => ({ ...(await real<typeof import("./convex")>()), useQuery: () => undefined, useWorkspace: () => undefined }));
+vi.mock("./views/records/data", () => ({ useTypes: () => [] }));
+vi.mock("./pins", async (real) => ({ ...(await real<typeof import("./pins")>()), usePins: () => ({ pins: saved.pins, recent: [], toggle: vi.fn(), visit: vi.fn(), canSaveRecent: true }) }));
 
 let root: Root;
 let host: HTMLElement;
 beforeEach(() => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", configurable: true });
-	saved.tabs = [];
+	saved.rail = [];
 	saved.pins = [];
 	host = document.body.appendChild(document.createElement("div"));
 	root = createRoot(host);
@@ -39,7 +43,7 @@ it("opens the Nth rail tab with ⌘N, in the order shown, even after a reorder",
 	press("Digit2", { metaKey: true });
 	expect(onOpen).toHaveBeenLastCalledWith("drive");
 
-	saved.tabs = ["customize", "databases"];
+	saved.rail = ["customize", "databases"];
 	render(rail(onOpen));
 	press("Digit2", { metaKey: true });
 	expect(onOpen).toHaveBeenLastCalledWith("databases");

@@ -1,5 +1,5 @@
 import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
-import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
+import { arrangementLists, retiredRailLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
@@ -10,6 +10,8 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+// COMPAT(0.1.0-alpha.10): rows may still hold the retired rail lists until migrations.railOrder has run on prod; then use `arrangementList`.
+const storedArrangementList = oneOf([...(Object.keys(arrangementLists) as ArrangementList[]), ...retiredRailLists]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
@@ -398,7 +400,7 @@ export default defineSchema({
 	arrangements: defineTable({
 		workspaceId: v.optional(v.id("workspaces")),
 		userId: v.optional(v.id("users")),
-		list: arrangementList,
+		list: storedArrangementList,
 		entityId: v.optional(v.union(v.id("pages"), v.id("recordTypes"))),
 		ids: v.array(v.string()),
 	}).index("by_list", ["workspaceId", "userId", "list", "entityId"])
