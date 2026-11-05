@@ -7,7 +7,7 @@ import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, PrivateIc
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, useSortable } from "../../sortable";
-import { LoadMore, Notice, descriptionClass, inputClass, useDebounced, useRun } from "../../ui";
+import { LoadMore, Notice, compactControlClass, descriptionClass, useDebounced, useRun } from "../../ui";
 import { Item, trailingAction } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 
@@ -114,7 +114,7 @@ export function MovePage({ page, onClose }: { page: Row; onClose: () => void }) 
 	);
 	return (
 		<Modal title={`Move ${page.title}`} onClose={onClose}>
-			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search pages…" aria-label="Search pages" className={inputClass} />
+			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search pages…" aria-label="Search pages" className={`${compactControlClass} w-full`} />
 			<Notice>{error}</Notice>
 			<div className="flex max-h-72 flex-col overflow-y-auto">
 				{text ? (

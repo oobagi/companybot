@@ -68,6 +68,7 @@ export function MessageRow({
 			>
 				<div className="flex w-9 shrink-0 items-start justify-center">
 					{grouped ? (
+						// oxlint-disable-next-line shadcn/no-arbitrary-values -- the hover time has to fit the 36px avatar gutter; text-xs overflows it
 						<span className="invisible pt-1 text-[10px] whitespace-nowrap text-neutral-400 tabular-nums group-hover:visible">
 							{clock(message._creationTime)}
 						</span>
@@ -143,7 +144,7 @@ export function MessageRow({
 						<button
 							type="button"
 							onClick={onOpenThread}
-							className="-ml-1 flex w-fit items-center gap-2 rounded-lg px-1 py-0.5 text-xs hover:bg-white"
+							className={`${smallButton} w-fit`}
 						>
 							<AvatarStack people={message.replyAuthors} size="xs" />
 							<span className="font-medium text-neutral-700">
@@ -212,6 +213,7 @@ function Reactions({ reactions, onToggle }: { reactions: Reaction[]; onToggle?: 
 		<>
 			<div className="flex flex-wrap gap-1 pt-0.5">
 				{reactions.map((r) => (
+					// oxlint-disable-next-line ui/button-class -- a reaction pill: an on/off chip with an emoji and a count, as in Slack
 					<button
 						type="button"
 						key={r.emoji}
@@ -254,10 +256,10 @@ function ReactionList({ reactions }: { reactions: Reaction[] }) {
 		<div className="flex flex-col gap-1">
 			{reactions.map((r) => (
 				<section key={r.emoji} className="flex flex-col">
-					<h3 className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-xs text-neutral-500 tabular-nums">
+					<p className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-xs text-neutral-500 tabular-nums">
 						<span className="text-base leading-none">{r.emoji}</span>
 						{r.count}
-					</h3>
+					</p>
 					{r.people.map((p) => (
 						<ProfileLink key={`${p.type}:${p.id}`} who={p} className="flex items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-neutral-100">
 							<Avatar name={p.name} image={p.image} agent={p.type === "agent"} size="xs" />
@@ -382,7 +384,7 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 				<button
 					type="button"
 					onClick={() => navigate("chat", chatId, kind ?? "thread", messageId)}
-					className="rounded-full border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-neutral-300 hover:text-neutral-900"
+					className={smallButton}
 				>
 					{author} {label.charAt(0).toLowerCase() + label.slice(1)} →
 				</button>

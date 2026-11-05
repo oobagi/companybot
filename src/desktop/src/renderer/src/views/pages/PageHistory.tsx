@@ -35,6 +35,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 					<div className="min-w-0 flex-1 overflow-y-auto">{shown && <Preview versionId={shown} />}</div>
 					<div className="flex w-64 shrink-0 flex-col gap-1 overflow-y-auto">
 						{results.map((v, i) => (
+							// oxlint-disable-next-line ui/button-class -- a version in the history list: a selectable two-line row, like a sidebar item
 							<button
 								key={v._id}
 								type="button"

@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Field, Form, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../ui";
+import { Form, Notice, Setting, Settings, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
 import { Mark, Split } from "./Landing";
 
 /**
@@ -42,23 +42,26 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 					<h1 className="text-xl font-semibold tracking-tight text-neutral-900">{sentTo ? "Check your email" : "Sign in to Companybot"}</h1>
 					{sentTo && <p className={descriptionClass}>We sent a 6-digit code to {sentTo}.</p>}
 				</div>
-				{sentTo ? (
-					<Field label="Code">
-						<input
-							autoFocus
-							inputMode="numeric"
-							autoComplete="one-time-code"
-							value={code}
-							onChange={(e) => setCode(e.target.value)}
-							placeholder="123456"
-							className={`${inputClass} bg-white py-2.5 tracking-widest`}
-						/>
-					</Field>
-				) : (
-					<Field label="Email">
-						<input autoFocus type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={`${inputClass} bg-white py-2.5`} />
-					</Field>
-				)}
+				<Settings>
+					{sentTo ? (
+						<Setting label="Code">
+							<input
+								autoFocus
+								aria-label="Code"
+								inputMode="numeric"
+								autoComplete="one-time-code"
+								value={code}
+								onChange={(e) => setCode(e.target.value)}
+								placeholder="123456"
+								className={`${wideControlClass} tracking-widest`}
+							/>
+						</Setting>
+					) : (
+						<Setting label="Email">
+							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={wideControlClass} />
+						</Setting>
+					)}
+				</Settings>
 				<Notice>{error}</Notice>
 				<div className="flex flex-col gap-4">
 					<button type="submit" disabled={busy} className={`${primaryButton} py-2.5`}>
