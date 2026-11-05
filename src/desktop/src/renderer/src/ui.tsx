@@ -445,15 +445,19 @@ export function NewButton({ label, onClick }: { label: string; onClick: () => vo
 
 /**
  * A screen with nothing in it yet: no button, since the top bar's create action is how you start.
- * The same distance below whatever sits above it on every screen. Centering it in the leftover
- * space put it in a different place on each screen, depending on how that screen was laid out.
+ * In the middle of the space under the top bar on every screen: sticky `top-1/2` holds it at the
+ * middle of the scrolling area. `min-h-[60vh]` makes its box reach past the middle even when what
+ * wraps it doesn't fill the screen (that left it high on some screens). When controls above reach
+ * past the middle, it sits just below them.
  */
 export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
 	return (
-		<div className="flex flex-col items-center gap-2 py-16 text-center">
-			<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
-			<h2 className="text-base font-medium">{title}</h2>
-			<p className={descriptionClass}>{children}</p>
+		<div className="flex min-h-[60vh] flex-1 flex-col items-center pt-24">
+			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
+				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
+				<h2 className="text-base font-medium">{title}</h2>
+				<p className={descriptionClass}>{children}</p>
+			</div>
 		</div>
 	);
 }
