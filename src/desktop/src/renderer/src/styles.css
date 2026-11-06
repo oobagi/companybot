@@ -186,6 +186,11 @@ body {
 	border-left: 1.5px solid var(--color-neutral-300);
 }
 
+/* The sidebar tree's straight line: the same border as the elbow, so where they overlap they match. */
+.tree-line {
+	border-left: 1.5px solid var(--color-neutral-300);
+}
+
 /* A stacked field's control (`Setting` in a dialog or on sign-in): full width and a size up, so a form reads at a glance. */
 .stacked-control > * {
 	width: 100%;

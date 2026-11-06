@@ -471,7 +471,9 @@ export function Item({
 function Guide({ continues, elbow }: { continues: boolean; elbow: boolean }) {
 	return (
 		<span aria-hidden className="relative w-7 shrink-0">
-			{continues && <span className="absolute -top-px bottom-0 left-[18.25px] w-[1.5px] bg-neutral-300" />}
+			{/* A border, like the elbow's: a 1.5px fill and a 1.5px border round to different device pixels, so
+			    where they overlapped the line read as double thick. Same stroke, so the overlap is exact. */}
+			{continues && <span className="absolute -top-px bottom-0 left-[18.25px] tree-line" />}
 			{elbow && <span className="absolute -top-px left-[18.25px] h-[calc(50%+1px)] w-2 tree-elbow rounded-bl-lg" />}
 		</span>
 	);
