@@ -290,26 +290,33 @@ export async function findOrCreateDm(
 		.filter((q) => q.eq(q.field("parentId"), undefined))
 		.first();
 	if (existing) return existing._id;
-	const chatId = await insertChat(ctx, {
-		workspaceId,
-		kind: "dm",
-		searchPublic: false,
-		private: true,
-		dmKey,
-		archived: false,
-		createdBy,
-		memberCount: 0,
-	});
+	// Just you and agents: opening it isn't a message, so it keeps its place in your DMs (most recent
+	// first) until someone writes. A DM with people starts as new, at the top, since you're about to write.
+	const quiet = userIds.length === 1 && agentIds.length > 0;
+	const chatId = await insertChat(
+		ctx,
+		{
+			workspaceId,
+			kind: "dm",
+			searchPublic: false,
+			private: true,
+			dmKey,
+			archived: false,
+			createdBy,
+			memberCount: 0,
+		},
+		quiet ? 0 : Date.now(),
+	);
 	const chat = (await ctx.db.get(chatId))!;
 	for (const userId of userIds) await addToChat(ctx, chat, { userId });
 	for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
 	return chatId;
 }
 
-/** A new chat, with its activity (`chatActivity`). */
-export async function insertChat(ctx: MutationCtx, chat: WithoutSystemFields<Doc<"chats">>) {
+/** A new chat, with its activity (`chatActivity`). `lastMessageAt` 0 means nothing's been said yet. */
+export async function insertChat(ctx: MutationCtx, chat: WithoutSystemFields<Doc<"chats">>, lastMessageAt = Date.now()) {
 	const chatId = await ctx.db.insert("chats", chat);
-	await ctx.db.insert("chatActivity", { chatId, workspaceId: chat.workspaceId, kind: chat.kind, searchPublic: publicSearchChat(chat), lastMessageAt: Date.now() });
+	await ctx.db.insert("chatActivity", { chatId, workspaceId: chat.workspaceId, kind: chat.kind, searchPublic: publicSearchChat(chat), lastMessageAt });
 	return chatId;
 }
 
