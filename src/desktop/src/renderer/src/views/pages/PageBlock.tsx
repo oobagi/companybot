@@ -29,10 +29,10 @@ export function PageBlockRow({ pageId, editable = false }: { pageId: string; edi
 	const [renaming, setRenaming] = useState(false);
 	const name = page ? page.title : "Page";
 	return (
-		<div className="group/page flex w-full min-w-0 items-center rounded-md hover:bg-neutral-100/70" contentEditable={false}>
-			<a href={pageHref(pageId)} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
+		<div className="group/page flex w-full min-w-0 cursor-pointer items-center rounded-md select-none hover:bg-neutral-100/70" contentEditable={false}>
+			<a href={pageHref(pageId)} draggable={false} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-2 pl-0.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
 				<PageIcon className="shrink-0 text-neutral-400" />
-				<span className="truncate font-medium underline decoration-neutral-300 underline-offset-4">{name}</span>
+				<span className="truncate underline decoration-neutral-300 underline-offset-2">{name}</span>
 				{page?.archived && <span className="text-xs text-neutral-400">Archived</span>}
 				{page === null && <span className="text-xs text-neutral-400">Unavailable</span>}
 			</a>

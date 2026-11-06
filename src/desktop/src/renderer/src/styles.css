@@ -61,7 +61,6 @@ body {
 .page-editor .bn-editor h2 { font-size: 1.25rem; }
 .page-editor .bn-editor h3 { font-size: 1.125rem; }
 .page-editor .bn-block-content[data-content-type="page"] { width: 100%; }
-.page-editor .bn-editor a.page-block-link::before { display: none; }
 
 /* A header or footer over scrolling content (ui.tsx's Scroll): once something is scrolled
    under it, its background fades in, solid behind the bar and dissolving toward the content,
@@ -115,7 +114,8 @@ body {
 
 /* Page references remain ordinary, editable link marks; chat shows them the same way. */
 :is(.page-editor .bn-editor a, a.page-link)[href^="companybot://page/"] { color: inherit; text-decoration: none; cursor: pointer; }
-:is(.page-editor .bn-editor a, a.page-link)[href^="companybot://page/"]::before {
+/* A page block (PageBlock.tsx) draws its own icon, so it is left out here. */
+:is(.page-editor .bn-editor a, a.page-link)[href^="companybot://page/"]:not(.page-block-link)::before {
 	content: ""; display: inline-block; width: 1em; height: 1em; margin-right: .35em; vertical-align: -.12em;
 	background: currentColor; opacity: .5;
 	/* PageIcon (Phosphor FileText), external so the app's CSP permits the mask. */

@@ -31,10 +31,19 @@ beforeEach(async () => {
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
 
-const attempt = (remote = false) => before({
-	getChanges: () => [{ type: "delete", source: { type: "local" }, prevBlock: undefined, block: { id: "block1", type: "page", props: { pageId: "child", title: "Old title" }, children: [] } }],
-	tr: { getMeta: (key: string) => key === "addToHistory" && remote ? false : undefined },
-} as unknown as Parameters<typeof before>[0]);
+type Context = Parameters<typeof before>[0];
+type Blocks = { id?: string; pageId?: string }[];
+/** A document of top-level blocks, each a page block or a paragraph; a block made by Enter has no id yet. */
+const doc = (blocks: Blocks) => ({
+	descendants: (visit: (node: { attrs: { id?: string }; firstChild: { type: { name: string }; attrs: { pageId?: string } } }) => void) =>
+		blocks.forEach((b) => visit({ attrs: { id: b.id }, firstChild: b.pageId ? { type: { name: "page" }, attrs: { pageId: b.pageId } } : { type: { name: "paragraph" }, attrs: {} } })),
+}) as unknown as Context["tr"]["doc"];
+/** A change from a page block for "child" to `after`; by default the block is removed. */
+const attempt = (remote = false, after: Blocks = []) => before({
+	// BlockNote's diff throws here when a block has no id yet (Enter, paste), so the watcher must not use it.
+	getChanges: () => { throw new Error("Node blockContainer does not have an ID"); },
+	tr: { docChanged: true, before: doc([{ id: "block1", pageId: "child" }]), doc: doc(after), getMeta: (key: string) => key === "addToHistory" && remote ? false : undefined },
+} as unknown as Context);
 
 it("blocks keyboard/menu removal until confirmed, using the page's current title", async () => {
 	await act(async () => { expect(attempt()).toBe(false); });
@@ -56,6 +65,12 @@ it.each([null, { _id: "child", title: "Guide", parentId: "another-parent", archi
 	await act(async () => root.root.findByType(Confirm).props.onConfirm());
 	expect(archive).not.toHaveBeenCalled();
 	expect(remove).toHaveBeenCalledWith(["block1"]);
+});
+
+it("lets Enter make a block that has no id yet, keeping the page block", async () => {
+	await act(async () => { expect(attempt(false, [{ id: "block1", pageId: "child" }, {}])).toBeUndefined(); });
+	expect(root.toJSON()).toBeNull();
+	expect(archive).not.toHaveBeenCalled();
 });
 
 it("lets authorized server changes synchronize without asking again", async () => {
