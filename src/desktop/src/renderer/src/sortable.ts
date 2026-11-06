@@ -10,7 +10,7 @@ import type { ArrangementCommand, ArrangementList } from "@companybot/core/arran
 // let go over its middle and it goes there. A tree (`line`: Drive's sidebar) works like Notion's
 // instead: nothing slides; the row stays where it is, faded, a copy of it follows the pointer along the list, and a
 // line marks the gap it would land in, at the level the pointer's x picks (left to leave a folder,
-// right to stay in it). Rows can sit in another row's box (a folder's open level): they're rows of the
+// right to stay in it); let go and the copy glides into the gap before the row appears there. Rows can sit in another row's box (a folder's open level): they're rows of the
 // group too, and a dragged box carries its own.
 
 type Axis = "x" | "y";
@@ -363,15 +363,18 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	let lastY = e.clientY;
 	let frame = 0;
 	let live: Session | undefined;
-	// In a tree: the copy that follows the pointer, and the line at the gap.
+	// In a tree: the copy that follows the pointer, and the line at the gap. `along0`/`across0`: where
+	// the copy started (its edge on the axis, and its content's edge across it), for the glide at the end.
 	let ghost: HTMLElement | undefined;
 	let mark: HTMLElement | undefined;
+	let along0 = 0;
+	let across0 = 0;
 
 	const offset = () => last - p0 + (area ? scrollOf(area, axis) - scroll0 : 0);
 	const show = () => {
 		if (!live || !ghost || !mark) return;
 		// Along the axis only, like a sliding row; across it the pointer picks the level, which the line shows.
-		ghost.style.transform = axis === "y" ? `translate3d(0, ${lastY - y0}px, 0)` : `translate3d(${lastX - x0}px, 0, 0)`;
+		ghost.style.transform = `${axis === "y" ? `translate3d(0, ${lastY - y0}px, 0)` : `translate3d(${lastX - x0}px, 0, 0)`} scale(1.02)`;
 		const at = lineAt(live);
 		if (!at) return void (mark.style.display = "none");
 		const scrolled = area ? scrollOf(area, axis) - scroll0 : 0;
@@ -422,6 +425,8 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		ghost.style.top = `${r.top}px`;
 		ghost.style.width = `${r.right - left}px`;
 		ghost.style.height = `${r.height}px`;
+		along0 = axis === "y" ? r.top : left;
+		across0 = axis === "y" ? left : r.top;
 		mark = document.createElement("div");
 		mark.className = `sortable-line sortable-line-${axis}`;
 		document.body.append(ghost, mark);
@@ -451,6 +456,20 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		update();
 		if (!frame) frame = requestAnimationFrame(autoscroll);
 	};
+	/**
+	 * Glides the copy to where its row will be (`to`, along and across the axis; fading when it goes into a
+	 * row), the line gone, then `then` lands it: the row appears where the copy stopped, as a sliding row does.
+	 */
+	const settle = (to: { along: number; across: number }, fade: boolean, then: () => void) => {
+		if (!ghost || !mark) return then();
+		mark.style.display = "none";
+		ghost.classList.add("sortable-ghost-landing");
+		if (fade) ghost.style.opacity = "0";
+		const dAlong = to.along - along0;
+		const dAcross = to.across - across0;
+		ghost.style.transform = axis === "y" ? `translate3d(${dAcross}px, ${dAlong}px, 0)` : `translate3d(${dAlong}px, ${dAcross}px, 0)`;
+		setTimeout(then, 160);
+	};
 	const cleanup = () => {
 		window.removeEventListener("pointermove", move);
 		window.removeEventListener("pointerup", up);
@@ -473,6 +492,13 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		session = live = undefined;
 		notify();
 	}
+	/** Put back: the copy glides home first. */
+	const back = () => {
+		if (!live || !line || live.dropping) return stop();
+		cleanup();
+		session = live = { ...live, dropping: true };
+		settle({ along: along0, across: across0 }, false, stop);
+	};
 	const up = () => {
 		cleanup();
 		if (!live) return;
@@ -490,7 +516,15 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 			else lists.get(done.target.list)?.onDrop(done.from, done.target.index);
 			notify();
 		};
-		if (line) return finish();
+		if (line) {
+			session = live = { ...done, dropping: true };
+			notify();
+			const scrolled = area ? scrollOf(area, axis) - scroll0 : 0;
+			const into = onto && done.slots.find((o) => o.list === onto.list && o.id === onto.id);
+			const at = lineAt(done);
+			const to = into ? { along: into.start - scrolled, across: (into.left ?? 0) + (into.inset ?? 0) } : at ? { along: at.y - scrolled, across: at.x } : { along: along0, across: across0 };
+			return settle(to, !!into, finish);
+		}
 		session = live = { ...done, dropping: true, ...(onto && { shifts: closed(done) }) };
 		notify();
 		// Once it has its landing transition, glide into the gap.
@@ -498,14 +532,14 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		requestAnimationFrame(() => void (el.style.transform = axis === "y" ? `translate3d(0, ${to}px, 0)` : `translate3d(${to}px, 0, 0)`));
 		setTimeout(finish, 160);
 	};
-	const cancel = () => stop();
+	const cancel = () => back();
 	// Pressing on selected text, a picture or a link would start the browser's own drag, which cancels
 	// the pointer and leaves the row where it was: the "sometimes it won't drag".
 	const native = (ev: DragEvent) => ev.preventDefault();
 	const key = (ev: KeyboardEvent) => {
 		if (ev.key !== "Escape" || !live) return;
 		ev.stopPropagation();
-		stop();
+		back();
 	};
 	window.addEventListener("pointermove", move, { passive: false });
 	window.addEventListener("pointerup", up);

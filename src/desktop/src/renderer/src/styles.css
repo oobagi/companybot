@@ -185,10 +185,20 @@ body {
 .sortable-ghost [data-guide] {
 	display: none;
 }
+/* Letting go: the copy glides to where the row lands (sortable.ts `settle`). */
+.sortable-ghost-landing {
+	transition:
+		transform 160ms ease,
+		opacity 160ms ease;
+}
 .sortable-line {
 	position: fixed;
 	z-index: 60;
 	pointer-events: none;
+	transition:
+		top 80ms ease,
+		left 80ms ease,
+		width 80ms ease;
 	border-radius: 1px;
 	background: var(--color-link);
 }
