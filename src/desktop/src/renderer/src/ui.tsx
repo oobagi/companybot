@@ -4,7 +4,7 @@ import { Component, Fragment, createContext, useCallback, useContext, useEffect,
 import { createPortal } from "react-dom";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
-import { CaretDownIcon, PlusIcon } from "./icons";
+import { CaretDownIcon, PlusIcon, SearchIcon } from "./icons";
 import { navigate } from "./router";
 import type { DragProps } from "./sortable";
 import { Popover } from "./views/chat/common";
@@ -592,9 +592,13 @@ export function EmptyState({ icon, title, children }: { icon: React.ReactNode; t
 	);
 }
 
-/** A filtered list with nothing left. The filters' own controls undo them. */
+/** A filtered or searched list with nothing left: the same empty state as an empty screen. The filters' own controls undo them. */
 export function NoMatches() {
-	return <p className="py-8 text-center text-sm text-neutral-500">No matches</p>;
+	return (
+		<EmptyState icon={<SearchIcon />} title="No matches">
+			Nothing fits this search or filter. Change or clear it to see more.
+		</EmptyState>
+	);
 }
 
 /** A screen for one item: loading while `loaded` is false, then an empty state saying it's gone. */

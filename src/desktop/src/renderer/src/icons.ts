@@ -45,6 +45,7 @@ export {
 	PuzzlePieceIcon as CustomizeIcon,
 	EyeIcon as ShowIcon,
 	EyeSlashIcon as HideIcon,
+	MagnifyingGlassIcon as SearchIcon,
 	PushPinIcon as PinIcon,
 	PushPinSlashIcon as UnpinIcon,
 	QuestionIcon as HelpIcon,
