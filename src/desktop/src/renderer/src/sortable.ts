@@ -286,7 +286,8 @@ export function placeLine(slots: readonly Slot[], source: number, point: number,
 }
 
 /** Where the tree's line goes, in the coordinates the slots were measured in; none over its own gap, or when it'd go into a row. */
-function lineAt(s: Session): { x: number; y: number; width: number } | undefined {
+/** Where the line goes for a tree drag's target: its left edge, its y along the axis, and its width. */
+export function lineAt(s: Pick<Session, "slots" | "source" | "target">): { x: number; y: number; width: number } | undefined {
 	const { target, source } = s;
 	if (target.onto || target.inset === undefined) return undefined;
 	const dragged = s.slots[source]!;
@@ -297,13 +298,17 @@ function lineAt(s: Session): { x: number; y: number; width: number } | undefined
 	const next = others[target.at];
 	const end = (o: Slot) => o.start + o.size;
 	// On the edge of the target list's own row beside the gap (between two of them, in the middle), so
-	// a header or another list's row between the neighbours isn't crossed.
+	// a header or another list's row between the neighbours isn't crossed. An empty list sits between
+	// the dividers that start and end it: the line goes in the middle of that room, under its title.
 	const edge = () => {
-		const nextIn = next?.list === target.list;
-		const prevIn = prev?.list === target.list;
-		if (nextIn && prevIn) return (end(prev!) + next!.start) / 2;
-		if (nextIn) return next!.start;
-		if (prevIn) return end(prev!);
+		const inList = (o?: Slot) => o?.list === target.list;
+		const bounds = (o?: Slot) => o?.startOf === target.list || o?.endOf === target.list;
+		if (inList(prev) && inList(next)) return (end(prev!) + next!.start) / 2;
+		if (inList(next)) return next!.start;
+		if (inList(prev)) return end(prev!);
+		if (bounds(prev) && bounds(next)) return (end(prev!) + next!.start) / 2;
+		if (bounds(prev)) return end(prev!);
+		if (bounds(next)) return next!.start;
 		return next ? (prev ? (end(prev) + next.start) / 2 : next.start) : prev ? end(prev) : dragged.start;
 	};
 	// Its own gap is the row itself: a level further out goes under it, a deeper one above it.

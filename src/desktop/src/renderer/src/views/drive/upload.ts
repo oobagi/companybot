@@ -8,8 +8,24 @@ import { useFileUpload } from "../../upload";
 // claims each into the folder (or the top level). One list for the whole app: the sidebar's + and
 // a folder's screen both start uploads, the sidebar shows every one in flight, a screen shows its own.
 
-/** `sectionId`: going into a sidebar section (top level only); the sidebar shows it there. */
-export type DriveUpload = { key: string; name: string; parentId?: Id<"pages">; sectionId?: string; progress: number; error?: string };
+/**
+ * `sectionId`: going into a sidebar section (top level only); the sidebar shows it there. `state`:
+ * waiting its turn, sending (with `progress`, 0 to 1), or saving (sent; the server is storing it).
+ */
+export type DriveUpload = { key: string; name: string; parentId?: Id<"pages">; sectionId?: string; state: "waiting" | "sending" | "saving"; progress: number; error?: string };
+
+/** Runs jobs `atOnce` at a time, the rest in the order they came; a failed one holds up nothing. */
+export function limiter(atOnce: number) {
+	let running = 0;
+	const waiting: (() => void)[] = [];
+	const next = () => { if (running < atOnce) waiting.shift()?.(); };
+	return <T,>(job: () => Promise<T>) => new Promise<T>((resolve, reject) => {
+		waiting.push(() => { running++; job().then(resolve, reject).finally(() => { running--; next(); }); });
+		next();
+	});
+}
+/** A few at a time: the browser allows few connections to the backend at once, so one slow file mustn't hold up the rest. */
+const inTurn = limiter(3);
 
 let pending: DriveUpload[] = [];
 const listeners = new Set<() => void>();
@@ -35,8 +51,11 @@ export function useDriveUploads() {
 	const start = (files: File[], parentId?: Id<"pages">, section?: { id: string; onAdded: (fileId: Id<"driveFiles">) => void }) => {
 		for (const file of files) {
 			const key = crypto.randomUUID();
-			set([...pending, { key, name: file.name, parentId, sectionId: section?.id, progress: 0 }]);
-			upload(file, (progress) => update(key, { progress }))
+			set([...pending, { key, name: file.name, parentId, sectionId: section?.id, state: "waiting", progress: 0 }]);
+			inTurn(() => {
+				update(key, { state: "sending" });
+				return upload(file, (progress) => update(key, progress >= 1 ? { progress, state: "saving" } : { progress }));
+			})
 				.then((storageId) => add({ file: storageId, parentId }).catch((e: unknown) => (discard({ file: storageId }).catch(() => {}), Promise.reject(e))))
 				.then((fileId) => (section?.onAdded(fileId), drop(key)), (e: unknown) => update(key, { error: e instanceof Error ? e.message : String(e) }));
 		}

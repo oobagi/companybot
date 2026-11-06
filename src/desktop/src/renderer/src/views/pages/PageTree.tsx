@@ -8,7 +8,7 @@ import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, FolderIcon, HouseIcon, PageIc
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type Section, type SectionId, dropAt, itemsGroup, unsectionedList, useSections } from "../../sections";
-import { type Dragged, type RowDrag, useDragList, useSortable } from "../../sortable";
+import { type Dragged, type RowDrag, useDragList, useDragStatic, useSortable } from "../../sortable";
 import { LoadMore, Notice, compactControlClass, descriptionClass, metadataClass, useDebounced, useRun, trailingAction } from "../../ui";
 import { GUIDE_WIDTH, Group, Item, SectionGroup, SectionsNav } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
@@ -127,6 +127,8 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 		/>
 	);
 	const { renderPage, renderFile } = draw();
+	// Its header starts the top-level list, so a drop into it while empty draws its line under the title.
+	const allFiles = useDragStatic(group, { startOf: unsectionedList("drive") });
 	return (
 		// Home, then the section, spaced like Chat's channels and Direct messages (`SidebarList`).
 		<div className="flex flex-col gap-4">
@@ -138,6 +140,7 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 			</div>
 			<Group
 				title="All files"
+				divider={allFiles}
 				section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: "files" }) }}
 				add={canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files)} />}
 			>
@@ -229,12 +232,12 @@ export function useFilePicker(onFiles: (files: File[], parentId?: PageId) => voi
 	return { input, open: (parentId?: PageId) => { target.current = parentId; ref.current?.click(); } };
 }
 
-/** Uploads in flight, under the rows they'll join: name and progress, or what went wrong (click to dismiss). */
+/** Uploads in flight, under the rows they'll join: name and where it's at (waiting, progress, saving), or what went wrong (click to dismiss). */
 export function UploadRows({ uploads, onDismiss }: { uploads: DriveUpload[]; onDismiss: (key: string) => void }) {
 	return <>{uploads.map((u) => (
 		<Item key={u.key} icon={<UploadIcon />} muted onClick={() => u.error && onDismiss(u.key)} title={u.error}>
 			<span className="truncate">{u.name}</span>
-			<span className={`ml-auto shrink-0 ${metadataClass} ${u.error ? "text-red-600" : ""}`}>{u.error ? "Failed" : `${Math.round(u.progress * 100)}%`}</span>
+			<span className={`ml-auto shrink-0 ${metadataClass} ${u.error ? "text-red-600" : ""}`}>{u.error ? "Failed" : u.state === "waiting" ? "Waiting" : u.state === "saving" ? "Saving…" : `${Math.round(u.progress * 100)}%`}</span>
 		</Item>
 	))}</>;
 }

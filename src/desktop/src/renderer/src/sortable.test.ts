@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { create } from "react-test-renderer";
 import { applyCommand, type ArrangementCommand } from "@companybot/core/arrangements";
-import { applyOrder, arrange, moveCommand, place, placeLine, useSortable } from "./sortable";
+import { applyOrder, arrange, lineAt, moveCommand, place, placeLine, useSortable } from "./sortable";
 
 const id = (s: string) => s;
 
@@ -182,4 +182,15 @@ it("drops into an empty list just after the divider that starts it", () => {
 	// No pins: a recent dragged above the pins divider lands as the first pin.
 	const recentsOnly = [{ key: "top", start: 0, size: 1, pitch: 8, startOf: "p" }, { key: "div", start: 8, size: 1, pitch: 8, endOf: "p", startOf: "r" }, row("r", "x", 16)];
 	expect(place(recentsOnly, 2, -20, any)!.target).toMatchObject({ list: "p", index: 0 });
+});
+
+it("draws the line for an empty list between the dividers that start and end it, not through a row above", () => {
+	// Home row (another list), the All files title (starts the empty list), the Test title (ends it), a row in Test.
+	const slots = [
+		{ key: "home:home", list: "home", id: "home", start: 0, size: 30, pitch: 40, left: 0, right: 200, inset: 0 },
+		{ key: "allFiles", start: 40, size: 20, pitch: 40, startOf: "none", left: 0, right: 200, inset: 0 },
+		{ key: "test", start: 80, size: 20, pitch: 20, endOf: "none", startOf: "test", left: 0, right: 200, inset: 0 },
+		{ key: "test:a", list: "test", id: "a", start: 100, size: 30, pitch: 30, left: 0, right: 200, inset: 0 },
+	];
+	expect(lineAt({ slots, source: 3, target: { list: "none", index: 0, at: 2, inset: 0 } })).toEqual({ x: 0, y: 70, width: 200 });
 });
