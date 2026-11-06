@@ -414,7 +414,7 @@ export const lastWorkspaces = migrations.define({
 
 // The rail's tabs and pins are one group in one order (`rail`), where each kept its own (`tabs`, `pinsOrder`).
 // Each person's rail starts as their tab order, then their pin order; the old rows go.
-// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, `retiredRailLists` and the schema's `storedArrangementList`.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, `dropSectionOrder`, `retiredLists` and the schema's `storedArrangementList`.
 export const railOrder = migrations.define({
 	table: "arrangements",
 	batchSize: 50,
@@ -429,6 +429,15 @@ export const railOrder = migrations.define({
 		}
 		if (tabs) await ctx.db.delete(tabs._id);
 		if (pins) await ctx.db.delete(pins._id);
+	},
+});
+
+/** Chat's section order is gone: channels sit above Direct messages, the one section left. Drops the rows that held it. */
+export const dropSectionOrder = migrations.define({
+	table: "arrangements",
+	batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		if (row.list === "sections") await ctx.db.delete(row._id);
 	},
 });
 
@@ -540,6 +549,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
 	internal.migrations.railOrder,
+	internal.migrations.dropSectionOrder,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

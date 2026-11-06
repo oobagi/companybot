@@ -9,15 +9,15 @@ import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
 import { LoadMore, Notice, compactControlClass, descriptionClass, metadataClass, useDebounced, useRun, trailingAction } from "../../ui";
-import { Item } from "../chat/Sidebar";
+import { Group, Item } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { FileKindIcon } from "../drive/FileIcon";
 import { type DriveUpload, useDriveUploads } from "../drive/upload";
 
-// Drive's sidebar: a Home row for the top level (lit when that's what's open), then a tree of
-// folders, pages and files (wiki/drive.md). Folders hold all three; pages hold sub-pages; files sit
-// in folders or at the top level. Each expanded level loads on its own. The + beside the tab's name
-// (App.tsx) makes a page or folder at the top level, or uploads there.
+// Drive's sidebar: a Home row for the top level (lit when that's what's open), then "All files", a
+// section that folds, holding the tree of folders, pages and files (wiki/drive.md). Folders hold all
+// three; pages hold sub-pages; files sit in folders or at the top level. Each expanded level loads on
+// its own. The section's + makes a page or folder at the top level, or uploads there.
 
 type PageId = Id<"pages">;
 type FileId = Id<"driveFiles">;
@@ -34,6 +34,8 @@ export function DriveNav({ openId, openFileId, canEdit }: { openId: string | und
 function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFileId?: string; canEdit: boolean }) {
 	const [expandedIds, changeExpanded] = useStoredIds("expanded");
 	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
+	const [folded, changeFolded] = useStoredIds("folded");
+	const collapsed = folded.includes("files");
 	const batches = useMemo(() => {
 		const ids = [...expanded];
 		return Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, (i + 1) * 100));
@@ -104,13 +106,22 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 		);
 	};
 	return (
-		<div className="flex flex-col gap-px">
+		// Home, then the section, spaced like Chat's channels and Direct messages (`SidebarList`).
+		<div className="flex flex-col gap-4">
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
-			<Item icon={<HouseIcon />} label="Home" active={!openId && !openFileId} onClick={() => navigate("pages")}>
-				<span className="truncate">Home</span>
-			</Item>
-			{level()}
-			<UploadRows uploads={uploads.pending} onDismiss={uploads.dismiss} />
+			<div className="flex flex-col gap-px">
+				<Item icon={<HouseIcon />} label="Home" active={!openId && !openFileId} onClick={() => navigate("pages")}>
+					<span className="truncate">Home</span>
+				</Item>
+			</div>
+			<Group
+				title="All files"
+				section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: "files" }) }}
+				add={canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files)} />}
+			>
+				{!collapsed && level()}
+				<UploadRows uploads={uploads.pending} onDismiss={uploads.dismiss} />
+			</Group>
 			{picker.input}
 			{dialog}
 			<Notice>{error}</Notice>

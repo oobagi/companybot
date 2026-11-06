@@ -33,20 +33,18 @@ type ChatNavProps = {
 	onError: (e: unknown) => void;
 	/** `agents.manage`: renames agents from their rows. */
 	canManageAgents: boolean;
-	section: SectionProps;
 };
 
 /**
- * Channels, in your own order (drag to change), each with its active threads nested under it
- * (replied to lately, by the workspace's setting; `chats.activeThreads`). Collapsed, it keeps
- * only the open one and unread ones, like Slack.
+ * Channels, at the top of the sidebar in no section (like Drive's Home), in your own order (drag to
+ * change), each with its active threads nested under it (replied to lately, by the workspace's
+ * setting; `chats.activeThreads`). New channel and Browse channels are the + beside the tab's name.
  */
-export function ChannelsNav({ chats, openId, openThread, onOpen, section }: ChatNavProps) {
+export function ChannelsNav({ chats, openId, openThread, onOpen }: ChatNavProps) {
 	const workspace = useWorkspace();
 	const now = useClock();
-	const threads = useQuery(api.chats.activeThreads, section.collapsed ? "skip" : { now }) ?? [];
+	const threads = useQuery(api.chats.activeThreads, { now }) ?? [];
 	const [folded, changeFolded] = useStoredIds("channelFolds");
-	const [dialog, setDialog] = useState<Dialog>();
 	const [details, setDetails] = useState<Id<"chats">>();
 	const markRead = useMutation(api.chats.markRead);
 	const updateChannel = useMutation(api.chats.updateChannel);
@@ -56,25 +54,11 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const { confirm, dialog: confirming } = useConfirm();
 	const drafts = useDraftChats(chats.me, workspace?.id);
 	const { sorted, drag } = useSortable("channels", chats.channels, chatKey);
-	const shown = section.collapsed ? sorted.filter((c) => c._id === openId || c.unread || c.mentioned) : sorted;
 	/** Leaving or deleting the open channel: nothing to show there anymore. */
 	const left = (chatId: Id<"chats">) => chatId === openId && navigate("chat");
 	return (
-		<Group
-			title="Channels"
-			section={section}
-			add={
-				<Popover trigger={<PlusIcon />} label="Add channels" className={trailingAction} panelClassName="w-48 p-1">
-					{(close) => (
-						<>
-							<MenuItem onClick={() => (close(), setDialog("create"))}>New channel</MenuItem>
-							<MenuItem onClick={() => (close(), setDialog("browse"))}>Browse channels</MenuItem>
-						</>
-					)}
-				</Popover>
-			}
-		>
-			{shown.map((c) => {
+		<div className="flex flex-col gap-px">
+			{sorted.map((c) => {
 				const own = threads.filter((t) => t.chatId === c._id);
 				const open = !folded.includes(c._id);
 				const d = splitDrag(drag(c._id));
@@ -119,10 +103,27 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 			})}
 			<Notice>{error}</Notice>
 			{confirming}
+			{details && <ChannelDetailsFor chatId={details} onClose={() => setDetails(undefined)} onLeft={() => left(details)} />}
+		</div>
+	);
+}
+
+/** The + beside Chat's name: New channel and Browse channels, for the channels listed under it. */
+export function ChannelsAdd({ onOpen }: { onOpen: (chatId: Id<"chats">) => void }) {
+	const [dialog, setDialog] = useState<Dialog>();
+	return (
+		<>
+			<Popover trigger={<PlusIcon />} label="Add channels" className={trailingAction} panelClassName="w-48 p-1">
+				{(close) => (
+					<>
+						<MenuItem onClick={() => (close(), setDialog("create"))}>New channel</MenuItem>
+						<MenuItem onClick={() => (close(), setDialog("browse"))}>Browse channels</MenuItem>
+					</>
+				)}
+			</Popover>
 			{dialog === "create" && <CreateChannel onClose={() => setDialog(undefined)} onOpen={onOpen} />}
 			{dialog === "browse" && <BrowseChannels onClose={() => setDialog(undefined)} onOpen={onOpen} />}
-			{details && <ChannelDetailsFor chatId={details} onClose={() => setDetails(undefined)} onLeft={() => left(details)} />}
-		</Group>
+		</>
 	);
 }
 
@@ -131,7 +132,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
  * written to it. Most recent first until you drag one; then your order, with new ones after.
  * An agent's side chats nest under it, like a channel's threads.
  */
-export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, section }: ChatNavProps) {
+export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, section }: ChatNavProps & { section: SectionProps }) {
 	const workspace = useWorkspace();
 	const openDm = useMutation(api.chats.openDm);
 	const createSide = useMutation(api.chats.createSideChat);
@@ -242,18 +243,17 @@ const chatKey = (c: { _id: string }) => c._id;
 const dmKey = (d: { key: string }) => d.key;
 
 /** What the sidebar gives each section: whether it's folded, and its drag handle (the header) and drop area. */
-export type SectionProps = { collapsed: boolean; onToggle: () => void; drag: DragProps };
+export type SectionProps = { collapsed: boolean; onToggle: () => void };
 
 /**
- * A sidebar section. With `section`, click its title to fold it and drag its title to move it.
- * `add` sits at the header's right end, showing on hover.
+ * A sidebar section (Chat's Direct messages, Drive's All files). With `section`, click its title to
+ * fold it. `add` sits at the header's right end, showing on hover.
  */
 export function Group({ title, section, add, children }: { title: string; section?: SectionProps; add?: React.ReactNode; children: React.ReactNode }) {
-	const { onPointerDown, className = "", ...box } = section?.drag ?? {};
 	return (
 		// Folded, ⌥1–9 skip its rows (`sidebarRow`).
-		<section {...box} data-collapsed={section?.collapsed || undefined} className={`group/section relative flex flex-col gap-px ${className}`}>
-			<div onPointerDown={onPointerDown} className="flex items-center justify-between px-2 pb-1">
+		<section data-collapsed={section?.collapsed || undefined} className="group/section relative flex flex-col gap-px">
+			<div className="flex items-center justify-between px-2 pb-1">
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500">
 					{section ? (
 						<button type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className={`${titleButton} flex max-w-full items-center gap-0.5`}>
@@ -290,7 +290,7 @@ export function SidebarList({ children }: { children: React.ReactNode }) {
 	);
 }
 
-/** A section header's +. */
+/** A + on a section header or beside the tab's name. */
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
 	return (
 		<button type="button" onClick={onClick} title={label} aria-label={label} className={trailingAction}>

@@ -44,10 +44,10 @@ it("keeps both devices' changes when each sends a command from the same stale sn
 	expect(order.at(-1)).toBe(b);
 	await change(owner, "recent", { op: "visit", id: "chat:x" });
 	await change(owner, "recent", { op: "visit", id: "chat:y" });
-	await change(owner, "folded", add("channels"));
+	await change(owner, "folded", add("files"));
 	await change(owner, "folded", add("dms"));
 	expect(await idsOf(owner, "recent")).toEqual(["chat:y", "chat:x"]);
-	expect(await idsOf(owner, "folded")).toEqual(["channels", "dms"]);
+	expect(await idsOf(owner, "folded")).toEqual(["files", "dms"]);
 });
 
 it("needs sidebar.arrange to reorder shared lists; personal ones stay the member's to arrange", async () => {
@@ -72,13 +72,13 @@ it("needs sidebar.arrange to reorder shared lists; personal ones stay the member
 	await change(member, "rail", to(`page:${page}`, "chat", ["drive", "chat", `chat:${general._id}`]));
 	const dms = (await member.query(api.chats.list))!.agents.map((agent) => agent._id as string);
 	await change(member, "dms", to(dms[1]!, dms[0]!, [dms[0]!]));
-	await change(member, "folded", add("channels"));
+	await change(member, "folded", add("dms"));
 	await change(member, "channelFolds", add(general._id));
 	await change(member, "workspaces", add(ws));
 	// Tabs and pins mix in one order.
 	expect(await idsOf(member, "rail")).toEqual(["drive", `page:${page}`, "chat", `chat:${general._id}`]);
 	expect(await idsOf(member, "dms")).toEqual([dms[1], dms[0]]);
-	expect(await idsOf(member, "folded")).toEqual(["channels"]);
+	expect(await idsOf(member, "folded")).toEqual(["dms"]);
 	expect(await idsOf(member, "channelFolds")).toEqual([general._id]);
 	expect(await idsOf(owner, "rail")).toBeUndefined();
 });

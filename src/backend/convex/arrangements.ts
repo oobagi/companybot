@@ -188,7 +188,7 @@ function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
 		case "dms": case "dmFolds": return !!(ctx.db.normalizeId("agents", id) || ctx.db.normalizeId("chats", id));
 		case "workspaces": return !!ctx.db.normalizeId("workspaces", id);
 		case "expanded": return !!ctx.db.normalizeId("pages", id);
-		case "sections": case "folded": return sidebarSections.includes(id);
+		case "folded": return sidebarSections.includes(id);
 		case "rail": return railTabs.includes(id) || isPinKey(id);
 		default: return true;
 	}
@@ -208,7 +208,7 @@ export const get = query({
 		const seen = viewer(ctx, member);
 		const shown: Arrangement[] = [];
 		for (const { list, entityId, ids } of rows) {
-			// COMPAT(0.1.0-alpha.10): a retired rail list waiting for migrations.railOrder.
+			// COMPAT(0.1.0-alpha.10): a retired list waiting for migrations.railOrder or dropSectionOrder.
 			if (!isList(list)) continue;
 			if (entityId && list === "pages" && !(await seen.pageLevel(entityId))) continue;
 			const visible = await seen.filter(list, entityId, ids);

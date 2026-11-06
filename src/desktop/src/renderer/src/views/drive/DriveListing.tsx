@@ -3,7 +3,7 @@ import { formatFileSize, fileKind } from "@companybot/core/files";
 import { useState } from "react";
 import { FolderIcon, PageIcon, UploadIcon } from "../../icons";
 import { navigate } from "../../router";
-import { EmptyState, listClass, metadataClass } from "../../ui";
+import { EmptyState, listClass, listRowButton, metadataClass } from "../../ui";
 import { DriveRows, UploadRows, useDriveLevel } from "../pages/PageTree";
 import { FileKindIcon } from "./FileIcon";
 import type { DriveUpload } from "./upload";
@@ -26,7 +26,6 @@ export function DriveListing({ parentId, uploads, onDrop, onDismissUpload, empty
 		onDragLeave: () => setOver(false),
 		onDrop: (e: React.DragEvent) => { e.preventDefault(); setOver(false); const files = [...e.dataTransfer.files]; if (files.length) onDrop(files); },
 	};
-	const row = "flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-neutral-50";
 	return (
 		// The whole area takes drops; with nothing here, the empty state alone fills it (no bare card around it).
 		<div {...dropProps} className={`flex flex-1 flex-col gap-3 rounded-xl ${over ? "outline-2 outline-dashed outline-neutral-300 outline-offset-4" : ""}`}>
@@ -38,16 +37,14 @@ export function DriveListing({ parentId, uploads, onDrop, onDismissUpload, empty
 						<DriveRows
 							level={level}
 							renderPage={(p) => (
-								// oxlint-disable-next-line ui/button-class -- a whole list row opens its page or folder; no shared row look yet
-								<button key={p._id} type="button" onClick={() => navigate("pages", p._id)} className={row}>
+								<button key={p._id} type="button" onClick={() => navigate("pages", p._id)} className={`${listRowButton} items-center`}>
 									<span className="shrink-0 text-neutral-500">{p.kind === "folder" ? <FolderIcon /> : <PageIcon />}</span>
 									<span className="min-w-0 flex-1 truncate">{p.title}</span>
 									<span className={`shrink-0 ${metadataClass}`}>{p.kind === "folder" ? "Folder" : "Page"}</span>
 								</button>
 							)}
 							renderFile={(f) => (
-								// oxlint-disable-next-line ui/button-class -- a whole list row opens its file; no shared row look yet
-								<button key={f._id} type="button" onClick={() => navigate("files", f._id)} className={row}>
+								<button key={f._id} type="button" onClick={() => navigate("files", f._id)} className={`${listRowButton} items-center`}>
 									<span className="shrink-0 text-neutral-500"><FileKindIcon type={f.type} name={f.name} /></span>
 									<span className="min-w-0 flex-1 truncate">{f.name}</span>
 									<span className={`shrink-0 ${metadataClass}`}>{fileKind(f.type)} · {formatFileSize(f.size)}</span>

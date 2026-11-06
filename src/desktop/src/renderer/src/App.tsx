@@ -28,10 +28,9 @@ import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
+import { AddButton, ChannelsAdd, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
-import { DriveNav, NewMenu, PagesView } from "./views/Pages";
-import { useDriveUploads } from "./views/drive/upload";
+import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
@@ -181,8 +180,6 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
-	const createPage = useMutation(api.pages.create);
-	const driveUploads = useDriveUploads();
 	const { status: update } = useUpdates();
 
 	const chatId = view === "chat" ? (route[1] as Id<"chats"> | undefined) : undefined;
@@ -200,8 +197,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	}, [here, visit, canSaveRecent]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
 	const badges: Partial<Record<AppTab, TabBadge>> = { chat: chats ? chatBadge(chats) : { mentions: 0, unread: false } };
-	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
-	const sections = useSortable("sections", sectionIds, sectionKey);
+	// The sidebar's sections fold when you click their title; folds sync with your account in this workspace.
 	const [folded, changeFolded] = useStoredIds("folded");
 	const fold = (id: string) => changeFolded({ op: folded.includes(id) ? "remove" : "add", id });
 	// Hidden or shown, the sidebar stays that way on this computer.
@@ -248,10 +244,10 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
 												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
-												{/* A tab with one list (Drive, Databases) has its + here, with no heading repeating the name; Chat's lists each have their own. */}
-												{tab === "drive" && can(access, "pages.edit") && (
+												{/* The + here adds to the rows right under the name (channels, databases); a section (Direct messages, All files) has its own on its header. */}
+												{tab === "chat" && (
 													<span className="no-drag flex">
-														<NewMenu onPage={() => createPage({ title: "Untitled" }).then((id) => navigate("pages", id), fail)} onFolder={() => createPage({ title: "New folder", kind: "folder" }).then((id) => navigate("pages", id), fail)} onUpload={(files) => driveUploads.start(files)} />
+														<ChannelsAdd onOpen={open} />
 													</span>
 												)}
 												{tab === "databases" && can(access, "fields.edit") && (
@@ -284,13 +280,12 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							>
 								<SidebarList>
 									{!tab && <SettingsNav tab={settingsTab} />}
-									{tab === "chat" &&
-										chats &&
-										sections.sorted.map((id) => {
-											const section = { collapsed: folded.includes(id), onToggle: () => fold(id), drag: sections.drag(id) };
-											const props = { chats, openId, openThread: route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(access, "agents.manage"), section };
-											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
-										})}
+									{tab === "chat" && chats && (
+										<>
+											<ChannelsNav chats={chats} openId={openId} openThread={route[2] === "thread" ? route[3] : undefined} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} />
+											<DmsNav chats={chats} openId={openId} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} section={{ collapsed: folded.includes("dms"), onToggle: () => fold("dms") }} />
+										</>
+									)}
 									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
@@ -326,9 +321,6 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	);
 }
 
-// Chat's sections. Databases and Pages were sections too before they got rail tabs; their saved places are ignored.
-const sectionIds = ["channels", "dms"];
-const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { _id: string }) => t._id;
 
 /** Databases' sidebar: your databases, in your order. New ones come from the + by the tab's name. */

@@ -1,5 +1,5 @@
 import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
-import { arrangementLists, retiredRailLists, type ArrangementList } from "@companybot/core/arrangements";
+import { arrangementLists, retiredLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
@@ -10,8 +10,8 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
-// COMPAT(0.1.0-alpha.10): rows may still hold the retired rail lists until migrations.railOrder has run on prod; then use `arrangementList`.
-const storedArrangementList = oneOf([...(Object.keys(arrangementLists) as ArrangementList[]), ...retiredRailLists]);
+// COMPAT(0.1.0-alpha.10): rows may still hold the retired lists until migrations.railOrder and dropSectionOrder have run on prod; then use `arrangementList`.
+const storedArrangementList = oneOf([...(Object.keys(arrangementLists) as ArrangementList[]), ...retiredLists]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));

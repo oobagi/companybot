@@ -6,7 +6,6 @@ export const arrangementLists = {
 	pages: { scope: "shared", entity: "pages" },
 	views: { scope: "shared", entity: "recordTypes" },
 	columns: { scope: "shared", entity: "recordTypes" },
-	sections: { scope: "personal", entity: undefined },
 	folded: { scope: "personal", entity: undefined },
 	channelFolds: { scope: "personal", entity: undefined },
 	dmFolds: { scope: "personal", entity: undefined },
@@ -53,17 +52,22 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
-export const sidebarSections = ["channels", "dms"];
+/** Sidebar sections that fold (`folded`): Chat's Direct messages and Drive's All files. Channels and Home sit above them, in no section. */
+export const sidebarSections = ["dms", "files"];
 export const railTabs = ["chat", "drive", "databases", "customize"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|db|rec):./.test(id);
-/** Lists the rail had before tabs and pins became one (`rail`); `migrations.railOrder` merges them. COMPAT(0.1.0-alpha.10): delete with it. */
-export const retiredRailLists = ["tabs", "pinsOrder"] as const;
+/**
+ * Lists the rail had before tabs and pins became one (`rail`; `migrations.railOrder` merges them), and the
+ * order of Chat's sections from when Channels was one (`migrations.dropSectionOrder` deletes it).
+ * COMPAT(0.1.0-alpha.10): delete with them.
+ */
+export const retiredLists = ["tabs", "pinsOrder", "sections"] as const;
 
 type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
 export function legacyArrangement(key: string): Legacy | undefined {
-	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.sections": "sections", "sidebar.folded": "folded" } as const;
+	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.folded": "folded" } as const;
 	if (key in fixed) return { list: fixed[key as keyof typeof fixed] };
 	const workspace = /^(rail\.pins|rail\.pins\.order|rail\.recent|sidebar\.channels|sidebar\.dms|sidebar\.databases|sidebar\.channels\.folded|sidebar\.dms\.folded|pages-expanded):([^:]+)$/.exec(key);
 	if (workspace) {
