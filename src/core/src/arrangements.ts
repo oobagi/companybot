@@ -55,8 +55,8 @@ export const extraIds = (command: ArrangementCommand) => ("fill" in command ? co
 /** Sidebar sections that fold (`folded`): Chat's Direct messages and Drive's All files. Channels and Home sit above them, in no section. */
 export const sidebarSections = ["dms", "files"];
 export const railTabs = ["chat", "drive", "databases", "customize"];
-/** A pin's key: what it is and its id (`chat:…`, `page:…`, `db:…`, `rec:…`). */
-export const isPinKey = (id: string) => /^(chat|page|db|rec):./.test(id);
+/** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
+export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
 /**
  * Lists the rail had before tabs and pins became one (`rail`; `migrations.railOrder` merges them), and the
  * order of Chat's sections from when Channels was one (`migrations.dropSectionOrder` deletes it).

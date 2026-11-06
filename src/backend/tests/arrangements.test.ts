@@ -69,14 +69,14 @@ it("needs sidebar.arrange to reorder shared lists; personal ones stay the member
 	await change(member, "rail", to("drive", "chat", ["chat"]));
 	await change(member, "pins", add(`chat:${general._id}`));
 	await change(member, "pins", add(`page:${page}`));
-	await change(member, "rail", to(`page:${page}`, "chat", ["drive", "chat", `chat:${general._id}`]));
+	await change(member, "rail", to(`page:${page}`, "chat", ["drive", "chat", `chat:${general._id}`, "file:one"]));
 	const dms = (await member.query(api.chats.list))!.agents.map((agent) => agent._id as string);
 	await change(member, "dms", to(dms[1]!, dms[0]!, [dms[0]!]));
 	await change(member, "folded", add("dms"));
 	await change(member, "channelFolds", add(general._id));
 	await change(member, "workspaces", add(ws));
 	// Tabs and pins mix in one order.
-	expect(await idsOf(member, "rail")).toEqual(["drive", `page:${page}`, "chat", `chat:${general._id}`]);
+	expect(await idsOf(member, "rail")).toEqual(["drive", `page:${page}`, "chat", `chat:${general._id}`, "file:one"]);
 	expect(await idsOf(member, "dms")).toEqual([dms[1], dms[0]]);
 	expect(await idsOf(member, "folded")).toEqual(["dms"]);
 	expect(await idsOf(member, "channelFolds")).toEqual([general._id]);
