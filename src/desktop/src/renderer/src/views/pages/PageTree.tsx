@@ -4,7 +4,7 @@ import { FILE_ACCEPT } from "@companybot/core/files";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
-import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, FolderIcon, PageIcon, PlusIcon, PrivateIcon, UploadIcon } from "../../icons";
+import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, FolderIcon, HouseIcon, PageIcon, PlusIcon, PrivateIcon, UploadIcon } from "../../icons";
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
@@ -14,9 +14,10 @@ import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/c
 import { FileKindIcon } from "../drive/FileIcon";
 import { type DriveUpload, useDriveUploads } from "../drive/upload";
 
-// Drive's sidebar: a tree of folders, pages and files (wiki/drive.md). Folders hold all three;
-// pages hold sub-pages; files sit in folders or at the top level. Each expanded level loads on its
-// own. The + beside the tab's name (App.tsx) makes a page or folder at the top level, or uploads there.
+// Drive's sidebar: a Home row for the top level (lit when that's what's open), then a tree of
+// folders, pages and files (wiki/drive.md). Folders hold all three; pages hold sub-pages; files sit
+// in folders or at the top level. Each expanded level loads on its own. The + beside the tab's name
+// (App.tsx) makes a page or folder at the top level, or uploads there.
 
 type PageId = Id<"pages">;
 type FileId = Id<"driveFiles">;
@@ -105,6 +106,9 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 	return (
 		<div className="flex flex-col gap-px">
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
+			<Item icon={<HouseIcon />} label="Home" active={!openId && !openFileId} onClick={() => navigate("pages")}>
+				<span className="truncate">Home</span>
+			</Item>
 			{level()}
 			<UploadRows uploads={uploads.pending} onDismiss={uploads.dismiss} />
 			{picker.input}

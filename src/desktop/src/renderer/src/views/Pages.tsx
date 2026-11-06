@@ -34,7 +34,7 @@ export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boole
 function DriveRoot({ canEdit }: { canEdit: boolean }) {
 	const uploads = useDriveUploads();
 	return (
-		<Page title="" wide>
+		<Page title="Drive" wide>
 			<DriveListing parentId={undefined} uploads={uploads.into(undefined)} onDismissUpload={uploads.dismiss} onDrop={canEdit ? (files) => uploads.start(files) : undefined} empty={<DriveEmpty canEdit={canEdit} root />} />
 		</Page>
 	);
