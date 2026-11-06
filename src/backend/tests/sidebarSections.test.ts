@@ -2,7 +2,7 @@ import type { SectionTab } from "@companybot/core/arrangements";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, workspaceOf } from "./helpers";
+import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, upload } from "./helpers";
 
 // Sidebar sections (sidebarSections.ts): shared by the workspace, changed with `sidebar.arrange`, folded
 // by anyone; each item in one of its tab's sections at most, cut to what each person sees.
@@ -14,12 +14,6 @@ const sectionsOf = async (as: As, tab: SectionTab) => (await layout(as)).section
 const idsOf = async (as: As, list: "channels" | "databases" | "pages" | "sectionOrder" | "folded") => (await layout(as)).rows.find((r) => r.list === list && !r.entityId)?.ids;
 const place = (as: As, tab: SectionTab, id: string, sectionId: Id<"sidebarSections"> | null, beforeId: string | null = null, fill?: string[]) =>
 	as.mutation(api.sidebarSections.place, { tab, id, sectionId, beforeId, fill });
-
-async function upload(as: As, name = "notes.txt") {
-	const query = new URLSearchParams({ name, workspaceId: await workspaceOf(as) });
-	const response = await as.fetch(`/files/upload?${query}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: new TextEncoder().encode("notes") as Uint8Array<ArrayBuffer> });
-	return ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
-}
 
 it("holds each channel in one section at a time, and gives it back to the channels list where it's dropped", async () => {
 	const { owner } = await ownerAndMember();

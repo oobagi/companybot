@@ -436,6 +436,8 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 		/** Recents under their pins on the rail. Left out means shown. */
 		showRecents: v.optional(v.boolean()),
+		/** Drive shows each level's folders above its pages and files, as Finder can (off: one order by hand). */
+		foldersFirst: v.optional(v.boolean()),
 	}).index("by_user", ["userId"]),
 
 	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps

@@ -1,7 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
-import { insertAtPosition } from "convex/react";
 import { api } from "../../api";
 import { useArrangements } from "../../arrangements";
 import { useFetch, useMutation } from "../../convex";
@@ -44,15 +43,18 @@ const pageMoved: OptimisticUpdate<PageMove> = (store, { pageId, parentId, worksp
 	markParent(store, workspaceId, parentId);
 };
 
-/** Files are listed by name, so it goes in at its name's place. */
+/** The same for a file. */
 const fileMoved: OptimisticUpdate<FileMove> = (store, { fileId, parentId, workspaceId }) => {
 	const levels = store.getAllQueries(api.driveFiles.children).filter((q) => q.args.workspaceId === workspaceId && q.value);
 	const row = levels.flatMap((q) => q.value!.page).find((f) => f._id === fileId);
 	if (!row) return;
 	for (const { args, value } of levels) {
-		if (value!.page.some((f) => f._id === fileId)) store.setQuery(api.driveFiles.children, args, { ...value!, page: value!.page.filter((f) => f._id !== fileId) });
+		if (args.parentId !== parentId && value!.page.some((f) => f._id === fileId)) store.setQuery(api.driveFiles.children, args, { ...value!, page: value!.page.filter((f) => f._id !== fileId) });
 	}
-	insertAtPosition({ paginatedQuery: api.driveFiles.children, argsToMatch: { workspaceId, parentId }, sortOrder: "asc", sortKeyFromItem: (f) => f.name, localQueryStore: store, item: { ...row, parentId: parentId ?? null } });
+	const last = levels.find((q) => q.args.parentId === parentId && q.value!.isDone);
+	if (last && !levels.some((q) => q.args.parentId === parentId && q.value!.page.some((f) => f._id === fileId))) {
+		store.setQuery(api.driveFiles.children, last.args, { ...last.value!, page: [...last.value!.page, { ...row, parentId: parentId ?? null }] });
+	}
 	markParent(store, workspaceId, parentId);
 };
 
@@ -64,25 +66,27 @@ export function useDriveMoves(run: (action: Promise<unknown>) => unknown) {
 	const moveFile = useMutation(api.driveFiles.move, () => fileMoved);
 	const arrangements = useArrangements();
 	const read = useFetch();
+	const move = (item: DriveItem, parentId: PageId | undefined) => (item.kind === "file" ? moveFile({ fileId: item.id as Id<"driveFiles">, parentId }) : movePage({ pageId: item.id as PageId, parentId }));
 	return {
 		/** Between the rows of `parentId`'s level, at `index` of what it shows there (`shown`, without it). */
 		to: (item: DriveItem, parentId: PageId | undefined, shown: string[], index: number) => {
-			const moved = movePage({ pageId: item.id as PageId, parentId });
+			const moved = move(item, parentId);
 			run(moved);
 			const command = moveCommand(arrangements.ids("pages", parentId), shown, item.id, index);
 			if (command) arrangements.change("pages", parentId, command, moved);
 		},
 		/** Into a folder or page (`parentId`; none for the top level), last in its order. */
 		into: (item: DriveItem, parentId: PageId | undefined) => {
-			if (item.kind === "file") return void run(moveFile({ fileId: item.id as Id<"driveFiles">, parentId }));
-			const moved = movePage({ pageId: item.id as PageId, parentId });
+			const moved = move(item, parentId);
 			run(moved);
-			// Last among what that level shows, which may be open nowhere: read it once the move is in. If
-			// that read fails, the row is still moved, just not placed last.
+			// Last among what that level shows, which may be open nowhere: read it once the move is in (a
+			// page's level lists no files). If that read fails, the row is still moved, just not placed last.
 			void moved.then(async () => {
-				const level = await read(api.pages.children, { parentId, paginationOpts: { numItems: 50, cursor: null } });
+				const paginationOpts = { numItems: 50, cursor: null };
+				const pages = await read(api.pages.children, { parentId, paginationOpts });
+				const files = await read(api.driveFiles.children, { parentId, paginationOpts });
 				const saved = arrangements.ids("pages", parentId);
-				const shown = applyOrder(saved, level.page, rowId).map(rowId);
+				const shown = applyOrder(saved, [...pages.page, ...files.page], rowId).map(rowId);
 				const command = moveCommand(saved, shown, item.id, shown.length);
 				if (command) arrangements.change("pages", parentId, command);
 			}).catch(() => {});

@@ -61,8 +61,8 @@ export const extraIds = (command: ArrangementCommand) => ("fill" in command ? co
 export const builtInSections = ["dms", "files"];
 /**
  * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
- * orders their items in no section: Chat's channels, Drive's top-level pages and folders (its files go
- * by name), the databases. Each item is in at most one of its tab's sections.
+ * orders their items in no section: Chat's channels, Drive's top-level pages, folders and files, the
+ * databases. Each item is in at most one of its tab's sections.
  */
 export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases" } as const;
 export type SectionTab = keyof typeof sectionTabs;

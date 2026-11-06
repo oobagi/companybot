@@ -1,7 +1,7 @@
 import type { ArrangementCommand, ArrangementList } from "@companybot/core/arrangements";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, sideWorkspace, workspaceOf } from "./helpers";
+import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, sideWorkspace, upload, workspaceOf } from "./helpers";
 
 const idsOf = async (as: As, list: ArrangementList, entityId?: string) => (await as.query(api.arrangements.get))?.rows.find((r) => r.list === list && r.entityId === entityId)?.ids;
 const change = (as: As, list: ArrangementList, command: ArrangementCommand, entityId?: string) => as.mutation(api.arrangements.change, { list, entityId, command });
@@ -313,4 +313,29 @@ it("BUG view fill rejects ids from a restricted database", async () => {
 	const elsewhere = await save(other!._id, "Elsewhere");
 	await change(member, "views", to(mine, null, [secret, elsewhere, "not-an-id"]), shown!._id);
 	expect(await idsOf(owner, "views", shown!._id)).toEqual([mine]);
+});
+
+it("orders a level's files among its folders and pages, only in the level they're in", async () => {
+	const { owner } = await ownerAndMember();
+	const plan = await owner.mutation(api.pages.create, { title: "Plan" });
+	const jobs = await owner.mutation(api.pages.create, { title: "Jobs", kind: "folder" });
+	const file = await owner.mutation(api.driveFiles.add, { file: await upload(owner) });
+	const level = async (entityId?: string) => (await owner.query(api.arrangements.get))!.rows.find((r) => r.list === "pages" && r.entityId === entityId)?.ids;
+	// Dropped after the page (never placed before: `fill`), then before it, then the page before the file.
+	await owner.mutation(api.arrangements.change, { list: "pages", command: { op: "move", id: file, beforeId: null, fill: [plan] } });
+	expect(await level()).toEqual([plan, file]);
+	await owner.mutation(api.arrangements.change, { list: "pages", command: { op: "move", id: file, beforeId: plan } });
+	expect(await level()).toEqual([file, plan]);
+	await owner.mutation(api.arrangements.change, { list: "pages", command: { op: "move", id: plan, beforeId: file } });
+	expect(await level()).toEqual([plan, file]);
+	// Not in Jobs: its level can't place it there.
+	await expect(owner.mutation(api.arrangements.change, { list: "pages", entityId: jobs, command: { op: "move", id: file, beforeId: null } })).rejects.toThrow("Not found");
+	await owner.mutation(api.driveFiles.move, { fileId: file, parentId: jobs });
+	await owner.mutation(api.arrangements.change, { list: "pages", entityId: jobs, command: { op: "move", id: file, beforeId: null } });
+	expect(await level(jobs)).toEqual([file]);
+	// Archived, it's left out of what the level returns; it's still placed once restored.
+	await owner.mutation(api.trash.move, { kind: "file", id: file });
+	expect(await level(jobs)).toEqual([]);
+	await owner.mutation(api.trash.restore, { kind: "file", id: file });
+	expect(await level(jobs)).toEqual([file]);
 });

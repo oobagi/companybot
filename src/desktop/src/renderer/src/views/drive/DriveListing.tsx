@@ -9,9 +9,9 @@ import { FileKindIcon } from "./FileIcon";
 import { useDriveMoves } from "./move";
 import type { DriveUpload } from "./upload";
 
-// What's in a folder (or at Drive's top level), on its screen: folders, then pages, then files.
-// Drop files on it to upload them here. Drag a row onto a folder to move it in (a page onto a page
-// too), or folders and pages up and down to reorder them, as in the sidebar's tree of the same levels.
+// What's in a folder (or at Drive's top level), on its screen: its folders, pages and files in the order
+// people put them. Drop files on it to upload them here. Drag a row onto a folder to move it in (a page
+// onto a page too), or up and down to reorder, as in the sidebar's tree of the same levels.
 
 /** `uploads`: this folder's uploads in flight. `onDrop`: files dropped here, when the person can edit it. */
 export function DriveListing({ parentId, uploads, onDrop, onDismissUpload, empty }: {

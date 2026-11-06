@@ -627,10 +627,15 @@ export function useSortable<T>(
 	id: (item: T) => string,
 	axis: Axis = "y",
 	entityId?: string,
-	options?: DragListOptions & { onReceive?: (from: Dragged, index: number, shown: string[]) => void },
+	options?: DragListOptions & {
+		onReceive?: (from: Dragged, index: number, shown: string[]) => void;
+		/** Shown in this order instead (Drive's folders on top): drops land in the saved order where they were let go. Keep it stable. */
+		arrange?: (sorted: T[]) => T[];
+	},
 ) {
 	const [order, change, writable] = useStoredIds(list, entityId);
-	const sorted = useMemo(() => applyOrder(order, items, id), [order, items, id]);
+	const arrange = options?.arrange;
+	const sorted = useMemo(() => { const s = applyOrder(order, items, id); return arrange ? arrange(s) : s; }, [order, items, id, arrange]);
 	const shown = useMemo(() => sorted.map(id), [sorted, id]);
 	const self = useRef("");
 	const { item, tree, onto, row, key } = useDragList({

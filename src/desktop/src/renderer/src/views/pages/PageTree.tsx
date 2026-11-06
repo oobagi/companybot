@@ -14,6 +14,7 @@ import { GUIDE_WIDTH, Group, Item, SectionGroup, SectionsNav } from "../chat/Sid
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { FileKindIcon } from "../drive/FileIcon";
 import { type DriveItem, type DriveMoves, useDriveMoves } from "../drive/move";
+import { foldersFirst, useFoldersFirst } from "../drive/order";
 import { type DriveUpload, useDriveUploads } from "../drive/upload";
 
 // Drive's sidebar: a Home row for the top level (lit when that's what's open), then "All files", a
@@ -179,7 +180,8 @@ function DriveSection({ section, at, moves, renderPage, renderFile, keep, add, c
 	const found = useQuery(api.sidebarSections.driveRows, { sectionId: section._id });
 	const pages = new Map<string, Row>(found?.pages.map((p) => [p._id, p]));
 	const files = new Map<string, FileRow>(found?.files.map((f) => [f._id, f]));
-	const rows = section.ids.filter((id) => pages.has(id) || files.has(id));
+	const held = section.ids.filter((id) => pages.has(id) || files.has(id));
+	const rows = useFoldersFirst() ? foldersFirst(held, (id) => pages.get(id)?.kind === "folder") : held;
 	const item = (id: string): DriveItem => { const p = pages.get(id); return { kind: p ? (p.kind ?? "page") : "file", id, canEdit: !!(p ?? files.get(id))?.canEdit }; };
 	return (
 		<SectionGroup {...at} tab="drive" section={section} rows={rows} keep={keep} add={add}
@@ -252,65 +254,59 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
  */
 export type LevelDrag = { group: string; moves: DriveMoves; open?: boolean; line?: boolean; inset?: number };
 
+/** A level's row: a page or folder, or a file. */
+export type DriveRow = Row | FileRow;
+export const isFile = (row: DriveRow): row is FileRow => "name" in row;
+const kindOf = (row: DriveRow): DriveItem["kind"] => (isFile(row) ? "file" : (row.kind ?? "page"));
+const isFolder = (row: DriveRow) => kindOf(row) === "folder";
+/** Stable, so a level's sorted rows aren't rebuilt every render. */
+const foldersOnTop = (rows: DriveRow[]) => foldersFirst(rows, isFolder);
+
 /**
- * One level of Drive, loaded a page at a time: folders and pages together in the level's shared order
- * (`pages` arrangement), then files by name. A page's level has no files. `empty` once it's known
- * there's nothing. With `drag`, folders and pages drag to reorder and to other levels, and anything
- * drags onto a folder (pages onto pages); files, kept by name, drag only to another level or onto
- * something. `top`: the sidebar's top level, which leaves out what sections hold and takes their rows back.
+ * One level of Drive, loaded a page at a time: its folders, pages and files together in the level's
+ * shared order (`pages` arrangement; what nobody has placed yet follows it, pages then files by name).
+ * A page's level has no files. `empty` once it's known there's nothing. With `drag`, rows drag to
+ * reorder and to other levels, and anything drags onto a folder (pages onto pages). `top`: the
+ * sidebar's top level, which leaves out what sections hold and takes their rows back.
  */
 export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder", drag?: LevelDrag, top?: TopLevel) {
 	const pages = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
 	const withFiles = parentKind !== "page";
 	const files = usePaginatedQuery(api.driveFiles.children, withFiles ? { parentId } : "skip", { initialNumItems: 30 });
 	const hide = top?.hide;
-	const rows = useMemo(() => (hide ? pages.results.filter((p) => !hide.has(p._id)) : pages.results), [pages.results, hide]);
-	const fileRows = withFiles ? (hide ? files.results.filter((f) => !hide.has(f._id)) : files.results) : [];
-	const find = (id: string) => rows.find((p) => p._id === id);
+	const rows = useMemo(() => {
+		const all: DriveRow[] = withFiles ? [...pages.results, ...files.results] : pages.results;
+		return hide ? all.filter((r) => !hide.has(r._id)) : all;
+	}, [pages.results, files.results, withFiles, hide]);
+	const find = (id: string) => rows.find((r) => r._id === id);
+	const arrange = useFoldersFirst() ? foldersOnTop : undefined;
 	// From another level: one that can move, into a level that's open to it (a page's level holds pages only).
 	const comesIn = (item: DriveItem) => !!drag?.open && item.canEdit && (parentKind !== "page" || item.kind === "page");
-	const list = useSortable("pages", rows, rowId, "y", parentId, drag && {
+	const list = useSortable("pages", rows, rowId, "y", parentId, {
+		arrange,
+		...(drag && {
 		id: top ? unsectionedList("drive") : undefined,
 		group: drag.group,
 		line: drag.line,
 		inset: drag.inset,
-		data: (id): DriveItem => ({ kind: find(id)?.kind ?? "page", id, canEdit: !!find(id)?.canEdit, parentId }),
+		data: (id): DriveItem => { const row = find(id); return { kind: row ? kindOf(row) : "page", id, canEdit: !!row?.canEdit, parentId }; },
 		// Its own rows reorder (that needs only `sidebar.arrange`), and at the top a section's come back.
 		accepts: (from) => { const item = asItem(from); return item.parentId === parentId || comesIn(item); },
 		// A folder takes anything, a page only pages; not what's already in it.
-		holds: (id, from) => { const p = find(id); const item = asItem(from); return !!p?.canEdit && item.canEdit && item.id !== p._id && item.parentId !== p._id && (p.kind === "folder" || item.kind === "page"); },
-		onReceive: (from, index, shown) => {
-			const item = asItem(from);
-			if (item.parentId === parentId) top?.onReceive(from, index, shown);
-			else if (item.kind === "file") drag.moves.into(item, parentId);
-			else drag.moves.to(item, parentId, shown, index);
-		},
+		holds: (id, from) => { const p = find(id); const item = asItem(from); return !!p && !isFile(p) && !!p.canEdit && item.canEdit && item.id !== p._id && item.parentId !== p._id && (p.kind === "folder" || item.kind === "page"); },
+		onReceive: (from, index, shown) => { const item = asItem(from); if (item.parentId === parentId) top?.onReceive(from, index, shown); else drag.moves.to(item, parentId, shown, index); },
 		onDropOn: (from, id) => drag.moves.into(asItem(from), id as PageId),
+		}),
 	});
-	const fileKey = useRef("");
-	const fileList = useDragList({
-		group: drag?.group,
-		enabled: !!drag,
-		line: drag?.line,
-		inset: drag?.inset,
-		data: (id): DriveItem => ({ kind: "file", id, canEdit: !!fileRows.find((f) => f._id === id)?.canEdit, parentId }),
-		// Files keep name order, so nothing lands among them but what comes from elsewhere: into this level, by name.
-		accepts: (from) => { const item = asItem(from); return from.list !== fileKey.current && (item.parentId === parentId ? !!top : withFiles && comesIn(item)); },
-		onDrop: (from) => { const item = asItem(from); if (item.parentId === parentId) top?.onReceive(from, 0, []); else drag?.moves.into(item, parentId); },
-	});
-	fileKey.current = fileList.key;
 	const exhausted = pages.status === "Exhausted" && (!withFiles || files.status === "Exhausted");
 	return {
-		pages: list.sorted,
-		files: fileRows,
-		pageDrag: (p: Row): RowDrag | undefined => drag && list.row(p._id),
-		// Only a file you can edit picks up.
-		fileDrag: (f: FileRow): RowDrag | undefined => drag && fileList.row(f._id, !!f.canEdit),
+		rows: list.sorted,
+		drag: (row: DriveRow): RowDrag | undefined => drag && list.row(row._id),
 		pagesStatus: pages.status,
 		filesStatus: withFiles ? files.status : undefined,
 		loadPages: () => pages.loadMore(30),
 		loadFiles: () => files.loadMore(30),
-		empty: exhausted && !list.sorted.length && !fileRows.length,
+		empty: exhausted && !list.sorted.length,
 	};
 }
 export type DriveLevelData = ReturnType<typeof useDriveLevel>;
@@ -321,14 +317,12 @@ export function DriveRows({ level, renderPage, renderFile }: {
 	renderPage: (row: Row, drag: RowDrag | undefined, last: boolean) => React.ReactNode;
 	renderFile: (row: FileRow, drag: RowDrag | undefined, last: boolean) => React.ReactNode;
 }) {
-	const { pages, files, pagesStatus, filesStatus } = level;
-	const morePages = pagesStatus === "CanLoadMore";
-	const moreFiles = filesStatus === "CanLoadMore";
+	const { rows, pagesStatus, filesStatus } = level;
+	const more = pagesStatus === "CanLoadMore" || filesStatus === "CanLoadMore";
 	return (
 		<>
-			{pages.map((p, i) => renderPage(p, level.pageDrag(p), i === pages.length - 1 && !morePages && !files.length && !moreFiles))}
+			{rows.map((row, i) => { const drag = level.drag(row); const last = i === rows.length - 1 && !more; return isFile(row) ? renderFile(row, drag, last) : renderPage(row, drag, last); })}
 			<LoadMore status={pagesStatus} onMore={level.loadPages} />
-			{files.map((f, i) => renderFile(f, level.fileDrag(f), i === files.length - 1 && !moreFiles))}
 			{filesStatus && <LoadMore status={filesStatus} onMore={level.loadFiles} />}
 		</>
 	);
@@ -357,7 +351,7 @@ export function DriveLevel({ parentId, parentKind, drag, top, renderPage, render
 export function PageLevel({ parentId, render, empty }: { parentId?: PageId; render: (row: Row) => React.ReactNode; empty?: React.ReactNode }) {
 	return <DriveLevel parentId={parentId} parentKind="page" renderPage={(p) => render(p)} renderFile={() => null} empty={empty} />;
 }
-const rowId = (p: Row) => p._id;
+const rowId = (row: DriveRow) => row._id;
 
 /**
  * Where something goes: the top level, a top-level folder or page, or any found by title (nested ones

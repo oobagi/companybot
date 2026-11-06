@@ -79,12 +79,14 @@ export function viewer(ctx: QueryCtx, member: Member) {
 		const doc = fileId && await ctx.db.get(fileId);
 		return !!doc && doc.workspaceId === member.workspaceId && !doc.archived && await fileSeen(doc) ? doc : null;
 	};
+	/** A Drive row this person sees: a page, folder or file (a level's order and a section hold all three). */
+	const driveItem = (id: string) => (ctx.db.normalizeId("driveFiles", id) ? file(id) : page(id));
 	const sections = once(() => sectionsOf(ctx, member.workspaceId));
 	/** Whether a section can hold this and the person sees it: a channel, a database, or a top-level page, folder or file. */
 	const sectionItem = async (tab: SectionTab, id: string) => {
 		if (tab === "chat") return channel(id);
 		if (tab === "databases") return (await types()).has(id);
-		const doc = ctx.db.normalizeId("driveFiles", id) ? await file(id) : await page(id);
+		const doc = await driveItem(id);
 		return !!doc && !doc.parentId;
 	};
 	const viewsOf = async (typeId: string) => {
@@ -95,6 +97,7 @@ export function viewer(ctx: QueryCtx, member: Member) {
 	};
 	return {
 		page,
+		file,
 		channel,
 		/** Whether a page level's parent is visible; a call out of page reads can't tell, so it leaves the level out. */
 		pageLevel: async (parentId: string) => { try { return !!(await page(parentId)); } catch (e) { if (e instanceof OutOfPageReads) return false; throw e; } },
@@ -122,7 +125,7 @@ export function viewer(ctx: QueryCtx, member: Member) {
 				case "pages": {
 					const kept: string[] = [];
 					try {
-						for (const id of ids.slice(0, PAGE_LEVEL_MAX)) if (await page(id)) kept.push(id);
+						for (const id of ids.slice(0, PAGE_LEVEL_MAX)) if (await driveItem(id)) kept.push(id);
 					} catch (e) {
 						if (e instanceof OutOfPageReads) return null;
 						throw e;
@@ -169,7 +172,7 @@ const columnsOf = async (ctx: QueryCtx, target: Target) => {
 };
 
 /** Reads one doc, counting its size against a budget when there is one (the legacy import's). */
-type Read = <T extends "chats" | "pages" | "databaseViews" | "agents">(table: T, id: string) => Promise<Doc<T> | null>;
+type Read = <T extends "chats" | "pages" | "databaseViews" | "agents" | "driveFiles">(table: T, id: string) => Promise<Doc<T> | null>;
 const reader = (ctx: QueryCtx, budget?: { bytes: number }): Read => async (table, id) => {
 	const docId = ctx.db.normalizeId(table, id);
 	const doc = docId ? await ctx.db.get(docId) : null;
@@ -188,6 +191,11 @@ async function live(ctx: QueryCtx, member: Member, target: Target, id: string, s
 			return seen.channel(id);
 		}
 		case "pages": case "expanded": {
+			// A level's order holds its files too, read directly like a section's.
+			if (target.list === "pages" && ctx.db.normalizeId("driveFiles", id)) {
+				const file = await read("driveFiles", id);
+				return !!file && !file.archived && file.workspaceId === member.workspaceId && (file.parentId ?? undefined) === target.entityId && !!(await seen.file(id));
+			}
 			const page = await read("pages", id);
 			return !!page && !page.archived && !page.recordId && page.workspaceId === member.workspaceId && (target.list === "expanded" || (page.parentId ?? undefined) === target.entityId) && !!await seen.page(id);
 		}

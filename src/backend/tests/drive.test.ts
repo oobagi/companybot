@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { docx, pngOf, xlsx } from "../../core/test/files";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { type As, agentTurn, agentsOf, generalOf, identityOf, noMentions, ownerAndMember, settle, signIn, workspaceOf } from "./helpers";
+import { type As, agentTurn, agentsOf, generalOf, identityOf, noMentions, ownerAndMember, settle, signIn, upload, workspaceOf } from "./helpers";
 
 // Drive (driveFiles.ts, pageTree.ts folders): folders hold pages, files and folders; files are claimed
 // uploads; Who can access and Archive follow the folder; agents find, read and save files as their person.
@@ -14,13 +14,6 @@ type T = Awaited<ReturnType<typeof ownerAndMember>>["t"];
 const text = (s: string) => new TextEncoder().encode(s);
 const opts = { paginationOpts: { numItems: 50, cursor: null } };
 
-/** Uploads a file as `as` (files.upload), in their open workspace, and returns its storage id. */
-async function upload(as: As, body: Uint8Array = text("notes"), name = "notes.txt") {
-	const query = new URLSearchParams({ name, workspaceId: await workspaceOf(as) });
-	const response = await as.fetch(`/files/upload?${query}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: body as Uint8Array<ArrayBuffer> });
-	expect(response.status).toBe(200);
-	return ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
-}
 const filesIn = async (as: As, parentId?: Id<"pages">) => (await as.query(api.driveFiles.children, { parentId, ...opts })).page;
 const pagesIn = async (as: As, parentId?: Id<"pages">) => (await as.query(api.pages.children, { parentId, ...opts })).page;
 const exists = (t: T, id: Id<"_storage">) => t.run(async (ctx) => !!(await ctx.db.system.get(id)));

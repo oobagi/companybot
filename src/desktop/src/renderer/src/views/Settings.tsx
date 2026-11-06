@@ -362,7 +362,7 @@ function ProfileTab() {
 	// Edited together and saved from the top bar, like General. The draft keeps `start`, your preferences
 	// as they were when you began, so Save sends only what you changed here, never another device's change
 	// back; if they changed meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
-	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true };
+	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true, foldersFirst: prefs?.foldersFirst ?? false };
 	const draft = useDraft("account:preferences", { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const { error, run } = useRun();
@@ -375,6 +375,7 @@ function ProfileTab() {
 			...(value.sendWith !== start.sendWith && { sendWith: value.sendWith }),
 			...(value.notify !== start.notify && { notify: value.notify }),
 			...(value.showRecents !== start.showRecents && { showRecents: value.showRecents }),
+			...(value.foldersFirst !== start.foldersFirst && { foldersFirst: value.foldersFirst }),
 		};
 		run(update(changed), () => draft.discard());
 	};
@@ -424,6 +425,9 @@ function ProfileTab() {
 				</Setting>
 				<Setting label="Recents on the rail" hint="The places you opened lately, under your pins. Right-click the rail to change this too.">
 					<Toggle checked={value.showRecents} onChange={(showRecents) => draft.set({ ...value, showRecents })} />
+				</Setting>
+				<Setting label="Folders on top" hint="In Drive, folders sit above the pages and files at every level, as in Finder. Off, you put everything in the order you like.">
+					<Toggle checked={value.foldersFirst} onChange={(foldersFirst) => draft.set({ ...value, foldersFirst })} />
 				</Setting>
 			</Settings>
 			<AppVersion />

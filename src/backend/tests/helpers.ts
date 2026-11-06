@@ -170,3 +170,11 @@ export async function setMemberSwitch(owner: As, permission: Permission, on: boo
 	const member = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!;
 	await owner.mutation(api.roles.setPermission, { id: member.id, permission, on });
 }
+
+/** Uploads a small file as `as` (the files.upload route), in their open workspace, and returns its storage id. */
+export async function upload(as: As, body: Uint8Array = new TextEncoder().encode("notes"), name = "notes.txt") {
+	const query = new URLSearchParams({ name, workspaceId: await workspaceOf(as) });
+	const response = await as.fetch(`/files/upload?${query}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: body as Uint8Array<ArrayBuffer> });
+	if (response.status !== 200) throw new Error(`Upload failed: ${response.status} ${await response.text()}`);
+	return ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
+}
