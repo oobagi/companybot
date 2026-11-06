@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { newTest, signIn, agentsOf, ownerAndMember } from "./helpers";
+import { newTest, signIn, agentsOf, noMentions, ownerAndMember } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -14,6 +14,17 @@ describe("agents", () => {
 		expect((await owner.query(api.chats.list))!.channels.map((c) => c.title)).toEqual(["general"]);
 		for (const table of ["pages", "records", "skillInstalls", "automationInstalls", "connectorInstalls"] as const)
 			expect(await t.run((ctx) => ctx.db.query(table).collect())).toEqual([]);
+	});
+
+	it("keeps an agent's place in your DMs when you only open its DM", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		const bot = (await agentsOf(owner)).list[0]!;
+		const dmId = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [bot._id] });
+		const agent = async () => (await owner.query(api.chats.list))!.agents.find((a) => a._id === bot._id)!;
+		expect(await agent()).toMatchObject({ dmId, lastMessageAt: 0, unread: false });
+		await owner.mutation(api.messages.send, { chatId: dmId, text: "hi", mentions: noMentions });
+		expect((await agent()).lastMessageAt).toBeGreaterThan(0);
 	});
 
 	it("versions every save and restores old versions", async () => {

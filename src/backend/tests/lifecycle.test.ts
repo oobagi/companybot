@@ -80,7 +80,7 @@ async function dump(t: T) {
 async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, memberId: Id<"users">) {
 	return t.run(async (ctx) => {
 		const mine: string[] = [];
-		mine.push(await ctx.db.insert("arrangements", { workspaceId, userId: memberId, list: "tabs", ids: ["chat"] }));
+		mine.push(await ctx.db.insert("arrangements", { workspaceId, userId: memberId, list: "rail", ids: ["chat"] }));
 		await ctx.db.insert("arrangements", { workspaceId, list: "channels", ids: [] });
 		const now = Date.now();
 		const config = { name: "Helper", description: "", instructions: "Help.", model: "anthropic/claude-haiku-5.5", tools: [] };

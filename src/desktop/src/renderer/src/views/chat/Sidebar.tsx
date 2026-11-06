@@ -4,11 +4,11 @@ import { useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
-import { type PinKey, usePins } from "../../pins";
+import { type PinKey, setRailVia, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
-import { CountBadge, Notice, RenameInput, useClock, useRun, trailingAction } from "../../ui";
+import { CountBadge, Notice, RenameInput, chevronButton, surfaceButton, titleButton, trailingAction, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
@@ -256,8 +256,7 @@ export function Group({ title, section, add, children }: { title: string; sectio
 			<div onPointerDown={onPointerDown} className="flex items-center justify-between px-2 pb-1">
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500">
 					{section ? (
-						// oxlint-disable-next-line ui/button-class -- a section's title folds it when clicked (Slack's sidebar); it reads as the heading, not a button
-						<button type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className="flex max-w-full items-center gap-0.5 hover:text-neutral-900">
+						<button type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className={`${titleButton} flex max-w-full items-center gap-0.5`}>
 							<span className="truncate">{title}</span>
 							<CaretRightIcon className={`shrink-0 ${section.collapsed ? "" : "rotate-90 opacity-0 group-hover/section:opacity-100"}`} />
 						</button>
@@ -400,14 +399,7 @@ export function Item({
 					{onToggle ? (
 						<>
 							<span className="contents group-hover/item:hidden">{icon}</span>
-							{/* oxlint-disable-next-line ui/button-class -- the fold chevron takes the row's icon slot on hover, sized to it */}
-							<button
-								type="button"
-								aria-label={`${expanded ? "Collapse" : "Expand"} ${label ?? ""}`.trim()}
-								aria-expanded={expanded}
-								onClick={onToggle}
-								className="relative z-10 hidden size-5 items-center justify-center text-neutral-400 hover:text-neutral-800 group-hover/item:flex"
-							>
+							<button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${label ?? ""}`.trim()} aria-expanded={expanded} onClick={onToggle} className={`relative z-10 hidden group-hover/item:flex ${chevronButton}`}>
 								<CaretRightIcon className={expanded ? "rotate-90" : ""} />
 							</button>
 						</>
@@ -419,17 +411,17 @@ export function Item({
 			{renaming && rename ? (
 				<RenameInput value={rename.value} onSave={rename.onSave} onDone={() => setRenaming(false)} className="-my-0.5 -ml-1.5 flex-1 px-1.5 py-0.5" />
 			) : (
-				// oxlint-disable-next-line ui/button-class -- the sidebar row itself: Item is the primitive and the row its hover surface
 				<button
 					ref={row}
 					type="button"
 					title={title}
 					// ⌥1–9 count the list's top-level rows (`sidebarRow`).
 					data-sidebar-item={!guides.length && !create ? "" : undefined}
-					onClick={onClick}
+					// A sidebar click is a choice too: the rail's tab lights, not a pin you came through.
+					onClick={() => (setRailVia(undefined), onClick())}
 					onDoubleClick={rename && (() => setRenaming(true))}
 					onKeyDown={rename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(true)))}
-					className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg"
+					className={`${surfaceButton} flex flex-1 items-center gap-2 after:absolute after:inset-0 after:rounded-lg`}
 				>
 					{/* A plain label ellipsizes like the others; richer children truncate their own text. */}
 					{typeof children === "string" ? <span className="truncate">{children}</span> : children}
@@ -437,6 +429,8 @@ export function Item({
 					{mentioned && !active && (
 						<CountBadge count="@" dark className="ml-auto" />
 					)}
+					{/* Unread, besides the bold name: a dot at the row's end, as on the rail. */}
+					{unread && !mentioned && !active && <span aria-hidden className="ml-auto size-2 shrink-0 rounded-full bg-sky-500" />}
 				</button>
 			)}
 			{(items || actions) && !renaming && (
@@ -478,8 +472,7 @@ function Guide({ continues, elbow }: { continues: boolean; elbow: boolean }) {
 	return (
 		<span aria-hidden className="relative w-7 shrink-0">
 			{continues && <span className="absolute -top-px bottom-0 left-[18.25px] w-[1.5px] bg-neutral-300" />}
-			{/* oxlint-disable-next-line shadcn/no-arbitrary-values -- the elbow's 1.5px stroke matches the guide line beside it (w-[1.5px]) */}
-			{elbow && <span className="absolute -top-px left-[18.25px] h-[calc(50%+1px)] w-2 rounded-bl-lg border-neutral-300 border-b-[1.5px] border-l-[1.5px]" />}
+			{elbow && <span className="absolute -top-px left-[18.25px] h-[calc(50%+1px)] w-2 tree-elbow rounded-bl-lg" />}
 		</span>
 	);
 }

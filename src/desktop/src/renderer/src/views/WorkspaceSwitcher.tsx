@@ -6,7 +6,7 @@ import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { CountBadge, Form, MenuDivider, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
+import { CountBadge, Form, MenuDivider, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, rowButton, secondaryButton, useRun, wideControlClass } from "../ui";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
 
 const none: never[] = [];
@@ -95,13 +95,12 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 							const d = drag(w.id);
 							return (
 								<div key={w.id} {...d} className={`relative ${d.className}`}>
-									{/* oxlint-disable-next-line ui/button-class -- a workspace row in the switcher menu: MenuItem's look, plus drag, aria-current and an unread label MenuItem doesn't take */}
 									<button
 										type="button"
 										aria-current={active}
 										aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
 										onClick={() => (close(), !active && goTo(w.id))}
-										className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100"
+										className={`${rowButton} items-center gap-2`}
 									>
 										<Slot>
 											<Avatar name={w.name} image={w.image} agent size="row" className="pointer-events-none" />

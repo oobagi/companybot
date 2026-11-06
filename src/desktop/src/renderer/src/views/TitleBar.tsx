@@ -1,7 +1,7 @@
 import { useEffect, useReducer } from "react";
 import { useUpdates } from "../desktop";
 import { ArrowLeftIcon, ArrowRightIcon, BugIcon, HelpIcon, SidebarIcon, SparkleIcon } from "../icons";
-import { MenuDivider, iconButton, useTip } from "../ui";
+import { MenuDivider, titleBarButton, useTip } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 
 const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
@@ -41,17 +41,17 @@ export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: 
 		<div className="drag flex h-8 shrink-0 items-center gap-0.5 pr-2 pl-21 text-base">
 			{/* Tips go on a wrapper: a disabled button gets no mouse events. */}
 			<span className="flex" {...tipFor(`${sidebar ? "Hide" : "Show"} sidebar`, `${mod}\\`)}>
-				<button type="button" aria-label={`${sidebar ? "Hide" : "Show"} sidebar`} onClick={onSidebar} className={`no-drag ${iconButton}`}>
+				<button type="button" aria-label={`${sidebar ? "Hide" : "Show"} sidebar`} onClick={onSidebar} className={titleBarButton}>
 					<SidebarIcon />
 				</button>
 			</span>
 			<span className="flex" {...tipFor("Back", `${mod}[`)}>
-				<button type="button" aria-label="Back" disabled={navigation && !navigation.canGoBack} onClick={() => history.back()} className={`no-drag ${iconButton}`}>
+				<button type="button" aria-label="Back" disabled={navigation && !navigation.canGoBack} onClick={() => history.back()} className={titleBarButton}>
 					<ArrowLeftIcon />
 				</button>
 			</span>
 			<span className="flex" {...tipFor("Forward", `${mod}]`)}>
-				<button type="button" aria-label="Forward" disabled={navigation && !navigation.canGoForward} onClick={() => history.forward()} className={`no-drag ${iconButton}`}>
+				<button type="button" aria-label="Forward" disabled={navigation && !navigation.canGoForward} onClick={() => history.forward()} className={titleBarButton}>
 					<ArrowRightIcon />
 				</button>
 			</span>
@@ -74,7 +74,7 @@ function Help() {
 					<HelpIcon />
 				</>
 			}
-			className={`no-drag ${iconButton}`} panelClassName="w-56 p-1 text-sm">
+			className={titleBarButton} panelClassName="w-56 p-1 text-sm">
 			{(close) => (
 				<>
 					<MenuItem onClick={() => (close(), window.open(`${repo}/releases`))}>

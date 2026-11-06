@@ -150,7 +150,7 @@ export interface ManageStore {
 }
 /** Each tool's title and description. */
 const about: Record<ManageTool, { title: string; description: string }> = {
-	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids, post a message (and files from the chat, by file id) for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
+	"chat.manage": { title: "Manage messages and DMs", description: "Find people (paged directory, including agent ids), list your chats, open a DM with exact participant ids (people, and you; never another agent: agents have no DMs with each other, so @mention it or use chat_ask_agent), post a message (and files from the chat, by file id) for your person in a chat or thread (this one too: when they ask you to post something for them, send it here rather than writing it as your reply, which is from you), edit your person's own messages, delete them with locked approval, hide the link preview card on your person's own message, or explicitly mark a chat read when asked. Sent as you for the person (\"Companybot, for Dana\"); to your person alone (your DM with them) it's simply from you. Never triggers agents or automations. Only send when asked; do not copy private information to a wider audience without their request." },
 	"channels.manage": { title: "Manage channels", description: "Browse public channels, inspect a visible channel and paged participants, create, rename, set/clear topic, set when agents reply (mentions only or when relevant), add/remove members, join or leave. get takes a chat id or #name; changes take its id (or \"here\"), since names can change. Creating, changing, removing members, deleting and restoring take the person's channel switch; everyone stays in general. Delete moves a channel to Archive and waits for approval. Restore by its exact id. Never deletes forever." },
 	"automations.manage": { title: "Manage automations", description: "List or inspect visible automations (prompt, version, agent, state), edit custom config using its current expectedVersion, pause/resume globally, change agent/audience, or run a sample once just for the person. Runs cannot start other runs. Confirm changes first. Resuming grants no consent: future outside actions still ask. Webhook secrets are omitted." },
 	"automations.remove": { title: "Archive an automation", description: "Move an automation to Archive, including retained library installs. It stops running; opt-ins and grants stay for restoration. Whoever can change it can restore it. The exact call waits for approval." },
@@ -179,6 +179,13 @@ function manageLabel(input: unknown): string | undefined {
 			return `Remove ${at("email")} from the workspace`;
 		case "send":
 			return `Post in ${chat}`;
+		// Lines a turn repeats often (a DM per player): each says what it did, not just the tool's title.
+		case "open_dm":
+			return "Open a DM";
+		case "find_people":
+			return r.kind === "agents" ? "Find agents" : r.kind === "invites" ? "Find invitations" : "Find people";
+		case "list_chats":
+			return "List your chats";
 		case "set_image":
 			return r.file === null ? (r.of === "workspace" ? "Remove the workspace logo" : "Reset a picture to initials") : r.of === "workspace" ? "Set the workspace logo" : r.of === "me" ? "Set your photo" : "Set an agent's picture";
 		case "remove_member":

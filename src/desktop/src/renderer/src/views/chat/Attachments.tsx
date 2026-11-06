@@ -1,4 +1,4 @@
-import { trailingAction } from "../../ui";
+import { composerButton, cornerCloseButton, imageButton } from "../../ui";
 import { FILES_PER_MESSAGE, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "../../convex";
@@ -6,7 +6,7 @@ import { AttachIcon, CloseIcon } from "../../icons";
 import { FileKindIcon } from "../drive/FileIcon";
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
-import { Layer, iconButton } from "./common";
+import { Layer } from "./common";
 import { type Pending, pendingFiles, pendingKey } from "./composerFiles";
 import type { Message } from "./data";
 
@@ -101,7 +101,7 @@ export function AttachButton({ attachments }: { attachments: Attachments }) {
 				onClick={() => input.current?.click()}
 				title="Attach files"
 				aria-label="Attach files"
-				className={iconButton}
+				className={composerButton}
 			>
 				<AttachIcon />
 			</button>
@@ -146,7 +146,7 @@ export function PendingFiles({ attachments }: { attachments: Attachments }) {
 								onClick={() => attachments.remove(item.key)}
 								title="Remove"
 								aria-label={`Remove ${item.name}`}
-								className={`absolute top-1 right-1 ${trailingAction}`}
+								className={`absolute top-1 right-1 ${cornerCloseButton}`}
 							>
 								<CloseIcon />
 							</button>
@@ -211,8 +211,7 @@ export function MessageFiles({ files }: { files: Message["attachments"] }) {
 			{pictures.length > 0 && (
 				<div className="flex flex-wrap gap-2">
 					{pictures.map((f, i) => (
-						// oxlint-disable-next-line ui/button-class -- a picture's thumbnail: the image is the button that opens it
-						<button type="button" key={i} onClick={() => setOpen(f)} title={f.name} className="overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300">
+						<button type="button" key={i} onClick={() => setOpen(f)} title={f.name} className={imageButton}>
 							<img src={f.url!} alt={f.name} loading="lazy" className="max-h-60 max-w-xs object-contain" />
 						</button>
 					))}

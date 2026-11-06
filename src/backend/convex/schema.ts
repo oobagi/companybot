@@ -1,5 +1,5 @@
 import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
-import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
+import { arrangementLists, retiredRailLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
@@ -10,6 +10,8 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+// COMPAT(0.1.0-alpha.10): rows may still hold the retired rail lists until migrations.railOrder has run on prod; then use `arrangementList`.
+const storedArrangementList = oneOf([...(Object.keys(arrangementLists) as ArrangementList[]), ...retiredRailLists]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
@@ -398,7 +400,7 @@ export default defineSchema({
 	arrangements: defineTable({
 		workspaceId: v.optional(v.id("workspaces")),
 		userId: v.optional(v.id("users")),
-		list: arrangementList,
+		list: storedArrangementList,
 		entityId: v.optional(v.union(v.id("pages"), v.id("recordTypes"))),
 		ids: v.array(v.string()),
 	}).index("by_list", ["workspaceId", "userId", "list", "entityId"])
@@ -421,6 +423,8 @@ export default defineSchema({
 		workspaceId: v.optional(v.id("workspaces")),
 		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
 		image: v.optional(v.id("_storage")),
+		/** Recents under their pins on the rail. Left out means shown. */
+		showRecents: v.optional(v.boolean()),
 	}).index("by_user", ["userId"]),
 
 	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
@@ -688,7 +692,7 @@ export default defineSchema({
 		 */
 		publishedAt: v.optional(v.number()),
 		/**
-		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
+		 * A chain of agents paused here (chains.ts): a line like "Agents kept replying to each other, so they've paused.",
 		 * written as the agent whose handoff it held. `by`: who pressed Continue or Stop.
 		 */
 		pause: v.optional(

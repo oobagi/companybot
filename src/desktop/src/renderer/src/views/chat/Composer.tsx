@@ -11,7 +11,7 @@ import type { Mentions } from "./data";
 import { pastedFiles } from "./composerFiles";
 import { keepDraft, textKey, useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn, typedMentions } from "./editor";
-import { Form, compactPrimaryButton, metadataClass } from "../../ui";
+import { Form, metadataClass, rowButton, sendButton } from "../../ui";
 
 export type SendWith = Doc<"preferences">["sendWith"];
 
@@ -123,7 +123,7 @@ export function Composer({
 					<button
 						type="submit"
 						disabled={attachments?.uploading || (empty && !attachments?.ids.length)}
-						className={`${compactPrimaryButton} flex h-8 shrink-0 items-center`}
+						className={sendButton}
 						aria-label="Send"
 					>
 						<ArrowUpIcon weight="bold" />
@@ -148,13 +148,13 @@ function Picker({ menu, onHighlight, onPick }: { menu: Menu; onHighlight: (i: nu
 			<ul role="listbox" className="pb-1">
 				{menu.items.map((c, i) => (
 					<li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === menu.index}>
-						{/* oxlint-disable-next-line ui/button-class -- an option in the @ # / menu's listbox; it picks on mousedown so the editor keeps focus, which MenuItem can't */}
 						<button
 							type="button"
 							// mousedown, not click: the editor must keep focus, or the chip lands nowhere.
 							onMouseDown={(e) => (e.preventDefault(), onPick(i))}
 							onMouseEnter={() => onHighlight(i)}
-							className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === menu.index ? "bg-neutral-100" : ""}`}
+							data-active={i === menu.index || undefined}
+							className={`${rowButton} items-center gap-2`}
 						>
 							<Row candidate={c} />
 						</button>

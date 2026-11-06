@@ -5,7 +5,7 @@ import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, smallButton, timeAgo, useTip } from "../../ui";
+import { Notice, chipButton, pillLinkButton, repliesButton, smallButton, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { HeldCall } from "./Approval";
@@ -68,8 +68,7 @@ export function MessageRow({
 			>
 				<div className="flex w-9 shrink-0 items-start justify-center">
 					{grouped ? (
-						// oxlint-disable-next-line shadcn/no-arbitrary-values -- the hover time has to fit the 36px avatar gutter; text-xs overflows it
-						<span className="invisible pt-1 text-[10px] whitespace-nowrap text-neutral-400 tabular-nums group-hover:visible">
+						<span className="invisible pt-1 text-2xs whitespace-nowrap text-neutral-400 tabular-nums group-hover:visible">
 							{clock(message._creationTime)}
 						</span>
 					) : (
@@ -112,8 +111,9 @@ export function MessageRow({
 					)}
 					{message.privacy && (
 						<div className="flex items-center gap-3 text-xs text-neutral-500">
-							<span title={message.privacy.why ?? undefined} className="italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
-							{message.privacy.share && message.status !== "streaming" && <button type="button" className={smallButton} onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}><ChannelIcon /> Share to channel</button>}
+							<span title={message.privacy.why ?? undefined} className="min-w-0 italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
+							{/* The label wraps, never the button. */}
+							{message.privacy.share && message.status !== "streaming" && <button type="button" className={`${smallButton} shrink-0 whitespace-nowrap`} onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}><ChannelIcon /> Share to channel</button>}
 						</div>
 					)}
 					{message.deleted ? (
@@ -144,7 +144,7 @@ export function MessageRow({
 						<button
 							type="button"
 							onClick={onOpenThread}
-							className={`${smallButton} w-fit`}
+							className={repliesButton}
 						>
 							<AvatarStack people={message.replyAuthors} size="xs" />
 							<span className="font-medium text-neutral-700">
@@ -213,16 +213,14 @@ function Reactions({ reactions, onToggle }: { reactions: Reaction[]; onToggle?: 
 		<>
 			<div className="flex flex-wrap gap-1 pt-0.5">
 				{reactions.map((r) => (
-					// oxlint-disable-next-line ui/button-class -- a reaction pill: an on/off chip with an emoji and a count, as in Slack
 					<button
 						type="button"
 						key={r.emoji}
 						aria-label={`${r.emoji} ${whoReacted(r.people)}`}
 						{...tipFor(whoReacted(r.people))}
+						aria-pressed={r.mine}
 						onClick={onToggle && (() => onToggle(r.emoji))}
-						className={`flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm tabular-nums ${
-							r.mine ? "border-neutral-400 bg-neutral-100 text-neutral-900" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
-						}`}
+						className={chipButton}
 					>
 						<span className="text-base leading-none">{r.emoji}</span>
 						{r.count}
@@ -333,8 +331,8 @@ function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }
 					Array.isArray(run) ? (
 						// A run of tool lines stays together, as tight as the stats line under the reply.
 						<div key={run[0]!.id} className="flex flex-col gap-1">
-							{run.map((part) => (
-								<ToolPart key={part.id} replyId={message._id} part={part} author={message.author.name} />
+							{sameLines(run).map((same) => (
+								<ToolPart key={same[0]!.id} replyId={message._id} parts={same} author={message.author.name} />
 							))}
 						</div>
 					) : run.part.type === "text" ? (
@@ -370,13 +368,27 @@ function runs(parts: Part[]) {
 	return out;
 }
 
+// Replies from before tool lines had labels: make one from the name.
+const lineOf = (part: ToolPart) => toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
+
+/** Back-to-back lines that read the same ("Opened a DM" for each player) show once, with a count. */
+function sameLines(run: ToolPart[]) {
+	const out: ToolPart[][] = [];
+	for (const part of run) {
+		const last = out.at(-1);
+		if (last && lineOf(last[0]!) === lineOf(part) && !!last[0]!.opens === !!part.opens) last.push(part);
+		else out.push([part]);
+	}
+	return out;
+}
+
 /** "Sent SMS with Fake CRM"; click to see what went in and came out (from the activity log). */
-function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: ToolPart; author: string }) {
-	// Replies from before tool lines had labels: make one from the name.
-	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
+function ToolPart({ replyId, parts, author }: { replyId: Message["_id"]; parts: ToolPart[]; author: string }) {
+	const part = parts.at(-1)!;
+	const label = `${lineOf(part)}${parts.length > 1 ? ` ×${parts.length}` : ""}`;
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	// A call that made a thread (an ask to another agent) is a chip that opens it, read-only: "Scout asked Quill →".
-	// One that sent a message jumps to it: "Companybot posted in #sales →".
+	// One that sent a message jumps to it: "Companybot posted in #sales →". Several to the same place open the last.
 	if (part.opens) {
 		const { chatId, messageId, kind } = part.opens;
 		return (
@@ -384,7 +396,7 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 				<button
 					type="button"
 					onClick={() => navigate("chat", chatId, kind ?? "thread", messageId)}
-					className={smallButton}
+					className={pillLinkButton}
 				>
 					{author} {label.charAt(0).toLowerCase() + label.slice(1)} →
 				</button>
@@ -393,19 +405,29 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 	}
 	return (
 		<div className="flex">
-			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
-				<CallPanel replyId={replyId} callId={part.id} />
+			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="max-h-[32rem] w-[32rem] overflow-y-auto p-3">
+				<CallPanel replyId={replyId} callIds={parts.map((p) => p.id)} />
 			</Popover>
 		</div>
 	);
 }
 
-/** Loaded only when opened. */
-function CallPanel({ replyId, callId }: { replyId: Message["_id"]; callId: string }) {
+/** Loaded only when opened: each call of the line, in order. */
+function CallPanel({ replyId, callIds }: { replyId: Message["_id"]; callIds: string[] }) {
 	const calls = useQuery(api.activity.forReply, { replyId });
 	if (!calls) return <p className="text-xs text-neutral-400">Loading…</p>;
-	const call = calls.find((c) => c.callId === callId);
-	return call ? <CallDetails entry={call} /> : <p className="text-xs text-neutral-400">No details saved.</p>;
+	const found = callIds.flatMap((id) => calls.filter((c) => c.callId === id).slice(0, 1));
+	if (!found.length) return <p className="text-xs text-neutral-400">No details saved.</p>;
+	return (
+		<div className="flex flex-col gap-3">
+			{found.map((call, i) => (
+				<Fragment key={call.callId}>
+					{i > 0 && <hr className="border-neutral-200" />}
+					<CallDetails entry={call} />
+				</Fragment>
+			))}
+		</div>
+	);
 }
 
 type Stats = NonNullable<Message["stats"]>;
@@ -490,7 +512,7 @@ function AutomationPrompt({ prompt }: { prompt: string }) {
 
 /**
  * Agents stopped at a limit (backend chains.ts): a quiet line, not a message. The person they work
- * for picks Continue (a fresh budget) or Stop; everyone else sees who it waits for.
+ * for picks Let them continue (a fresh budget) or Stop them; everyone else sees who it waits for.
  */
 function PausedLine({ message, pause, onError }: { message: Message; pause: NonNullable<Message["pause"]>; onError: (e: unknown) => void }) {
 	const decide = useMutation(api.chains.decide);
@@ -502,23 +524,20 @@ function PausedLine({ message, pause, onError }: { message: Message; pause: NonN
 	return (
 		<div id={`message-${message._id}`} className="flex items-center gap-3 px-5 py-1.5 text-xs text-neutral-500">
 			<span className="h-px flex-1 bg-neutral-200" />
-			<span className="flex flex-wrap items-center justify-center gap-x-1.5 text-center">
+			<span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
 				<span>{message.text}</span>
 				{pause.canDecide ? (
-					<>
-						<span className="mr-0.5">·</span>
-						<span className="inline-flex gap-1.5">
-							<button type="button" disabled={busy} onClick={() => act("continue")} className={smallButton}>
-								Continue
-							</button>
-							<button type="button" disabled={busy} onClick={() => act("stop")} className={smallButton}>
-								<StopIcon /> Stop
-							</button>
-						</span>
-					</>
+					// The two buttons wrap together, onto their own centred line when it's narrow.
+					<span className="inline-flex shrink-0 gap-1.5">
+						<button type="button" disabled={busy} onClick={() => act("continue")} className={smallButton}>
+							Let them continue
+						</button>
+						<button type="button" disabled={busy} onClick={() => act("stop")} className={smallButton}>
+							<StopIcon /> Stop them
+						</button>
+					</span>
 				) : (
-					<span>
-						·{" "}
+					<span className="whitespace-nowrap">
 						{pause.status === "paused"
 							? `Waiting for ${pause.for}`
 							: `${pause.status === "continued" ? "Continued" : "Stopped"}${pause.by ? ` by ${pause.by}` : ""}`}

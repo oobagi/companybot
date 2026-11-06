@@ -22,7 +22,7 @@ import { asToolResult, nameOf, requireMember } from "./lib";
 import { writeSources } from "./replySources";
 import { withReceipt } from "./approvals";
 import { opArg } from "./schema";
-import { enqueueTurn, runningTurn } from "./turns";
+import { STALE_TURN_MS, enqueueTurn, runningTurn } from "./turns";
 import { createWakeup, wake } from "./wakeups";
 
 // Agents handing work to each other, for one person (wiki/chat.md, Agents working together). An
@@ -30,9 +30,9 @@ import { createWakeup, wake } from "./wakeups";
 // under its message, so the top level stays the people's. The dispatcher (router.next) can pick who
 // goes next when nobody was @mentioned, and chat.ask_agent asks privately, out of the chat. Every
 // handoff spends the chain's budget (core handoffs.ts); one that would go past a limit pauses the
-// chain with a line in the chat, "Agents paused after 10 turns · Continue · Stop". A person writing
-// in a chain's place resets its budget. Only a person's message starts a chain: wakes, automations
-// and answers to asks never hand off.
+// chain with a line in the chat ("Agents kept replying to each other, so they've paused.", with
+// Let them continue and Stop them). A person writing in a chain's place resets its budget. Only a person's message
+// starts a chain: wakes, automations and answers to asks never hand off.
 
 const budgetOf = (chain: Doc<"agentChains">): ChainBudget<Id<"agents">> => ({ turns: chain.turns, hops: chain.hops, pairs: chain.pairs });
 
@@ -107,13 +107,7 @@ export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">, to?: st
 	const members = await chatMembersOf(ctx, chat._id);
 	const named = to && (await Promise.all(members.map((r) => r.agentId && r.agentId !== turn.agentId && ctx.db.get(r.agentId)))).find((a) => a && !a.archived && a.name === to);
 	if (named) {
-		// A pick already waiting on the same message runs next anyway, and sees this.
-		const waiting = await ctx.db
-			.query("agentTurns")
-			.withIndex("by_place", (q) => q.eq("agentId", named._id).eq("chatId", chat._id).eq("threadId", reply.threadId).eq("status", "queued"))
-			.filter((q) => q.eq(q.field("triggerId"), turn.triggerId))
-			.first();
-		if (waiting) return;
+		if (await answeringThere(ctx, named._id, reply)) return;
 		const by = (await ctx.db.get(turn.agentId))?.name ?? "An agent";
 		return passTo(ctx, { turn, chain: await chainOf(ctx, turn), chat, reply, to: named._id, dispatched: true, dispatch: { model: "", band: "clearly", costUsd: 0, by } });
 	}
@@ -135,8 +129,28 @@ export async function dispatchTo(ctx: MutationCtx, turn: Doc<"agentTurns">, agen
 	if (!reply || reply.deleted || !chat || chat.archived || replyModeOf(chat) !== "relevant" || !chain || agentId === turn.agentId) return;
 	const here = (await chatMembersOf(ctx, chat._id)).some((r) => r.agentId === agentId);
 	const agent = await ctx.db.get(agentId);
-	if (!here || !agent || agent.archived) return;
+	if (!here || !agent || agent.archived || (await answeringThere(ctx, agentId, reply))) return;
 	await passTo(ctx, { turn, chain, chat, reply, to: agentId, dispatched: true, dispatch });
+}
+
+/**
+ * Whether the agent already has a turn queued or running where a hop on `reply` would reach it: the
+ * reply's place, or the thread the hop would go in. Then it's answering this conversation already
+ * (a pick waiting on the same message, a person's message to it), and a hop would be a second turn
+ * beside it, unaware of it: two answers from one agent, in two places, that can contradict each other.
+ * Its turn there answers; the post is in its history next time.
+ */
+async function answeringThere(ctx: QueryCtx, agentId: Id<"agents">, reply: Doc<"chatMessages">) {
+	for (const threadId of new Set([reply.threadId, reply.threadId ?? reply._id]))
+		for (const status of ["queued", "running"] as const) {
+			const turn = await ctx.db
+				.query("agentTurns")
+				.withIndex("by_place", (q) => q.eq("agentId", agentId).eq("chatId", reply.chatId).eq("threadId", threadId).eq("status", status))
+				.first();
+			// A stuck one (failed on the next start) answers nothing.
+			if (turn && (status === "queued" || Date.now() - (turn.startedAt ?? turn._creationTime) < STALE_TURN_MS)) return true;
+		}
+	return false;
 }
 
 type Held = NonNullable<Doc<"agentChains">["held"]>[number];

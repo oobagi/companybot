@@ -46,13 +46,13 @@ export function moveCommand(saved: readonly string[], shown: readonly string[], 
 
 // ---- The drag in progress, shared by every list (one pointer drags one row at a time). ----
 
-type ListEntry = { group: string; axis: Axis; els: Map<string, HTMLElement>; enabled: boolean; onDrop: (from: { list: string; id: string }, index: number) => void };
-type StaticEntry = { group: string; el: HTMLElement; endOf?: string };
+type ListEntry = { group: string; axis: Axis; els: Map<string, HTMLElement>; enabled: boolean; accepts?: (from: { list: string; id: string }) => boolean; onDrop: (from: { list: string; id: string }, index: number) => void };
+type StaticEntry = { group: string; el: HTMLElement; endOf?: string; startOf?: string };
 const lists = new Map<string, ListEntry>();
 const statics = new Map<string, StaticEntry>();
 
 /** One thing in the group, in order along the axis: a row, or a divider between lists. */
-type Slot = { key: string; list?: string; id?: string; start: number; size: number; pitch: number; endOf?: string };
+type Slot = { key: string; list?: string; id?: string; start: number; size: number; pitch: number; endOf?: string; startOf?: string };
 type Session = {
 	group: string;
 	axis: Axis;
@@ -101,7 +101,7 @@ function measure(group: string, axis: Axis): Slot[] {
 	for (const [key, s] of statics) {
 		if (s.group !== group || !s.el.isConnected) continue;
 		const r = s.el.getBoundingClientRect();
-		raw.push({ key, start: start(r, axis), size: extent(r, axis), endOf: s.endOf });
+		raw.push({ key, start: start(r, axis), size: extent(r, axis), endOf: s.endOf, startOf: s.startOf });
 	}
 	raw.sort((a, b) => a.start - b.start);
 	// A slot's pitch: from its start to the next one's, so gaps and margins move with it.
@@ -117,14 +117,24 @@ function measure(group: string, axis: Axis): Slot[] {
 export function place(slots: readonly Slot[], source: number, edge: number, enabled: (list: string) => boolean): Pick<Session, "target" | "shifts"> | undefined {
 	const dragged = slots[source]!;
 	const others = slots.filter((_, i) => i !== source);
-	const center = edge + dragged.size / 2;
-	// The gap it's over: before the first thing whose middle is past its middle.
-	let at = others.findIndex((s) => s.start + s.size / 2 > center);
-	if (at < 0) at = others.length;
+	// The gap it's over. It passes a row once the edge it leads with (its top going up, its bottom going
+	// down) crosses that row's middle: comparing middles instead, a tall row (an open sidebar section) had
+	// to be dragged far past a short one before they swapped. A divider is thin, so it takes a quarter row
+	// past its middle, else a pin would unpin at a twitch.
+	const d = edge - dragged.start;
+	const passed = (s: Slot) => {
+		const middle = s.start + s.size / 2 + (s.list ? 0 : (Math.sign(d) * dragged.size) / 4);
+		return d > 0 ? edge + dragged.size > middle : edge < middle;
+	};
+	let at = source;
+	if (d > 0) while (at < others.length && passed(others[at]!)) at++;
+	else if (d < 0) while (at > 0 && passed(others[at - 1]!)) at--;
 	const list = (gap: number): { list: string; index: number } | undefined => {
 		const prev = others[gap - 1];
 		const next = others[gap];
 		if (prev?.list) return { list: prev.list, index: others.slice(0, gap).filter((s) => s.list === prev.list).length };
+		// Just after a divider that starts a list: its top, even while that list is empty.
+		if (prev?.startOf) return { list: prev.startOf, index: 0 };
 		if (next?.endOf) return { list: next.endOf, index: others.slice(0, gap).filter((s) => s.list === next.endOf).length };
 		if (next?.list) return { list: next.list, index: 0 };
 		return undefined;
@@ -167,13 +177,19 @@ const EDGE = 40;
 function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent) {
 	const l = lists.get(list);
 	if (!l || session || e.button !== 0 || e.ctrlKey || e.metaKey) return;
+	// Move the whole row, not just its handle (a sidebar row's handle is inside it): the row carries the
+	// landing transition, so moving only the handle would snap into place instead of gliding.
+	el = l.els.get(id) ?? el;
 	if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable=true]")) return;
 	const { axis, group } = l;
+	// Lists a row may land in: its own, and others in the group that take it (recents take pins, not tabs).
+	const takes = (k: string) => { const t = lists.get(k); return !!t?.enabled && (k === list || !t.accepts || t.accepts({ list, id })); };
 	const x0 = e.clientX;
 	const y0 = e.clientY;
 	const area = scroller(el, axis);
 	let scroll0 = area ? scrollOf(area, axis) : 0;
 	const p0 = pointer(e, axis);
+	const pointerId = e.pointerId;
 	let last = p0;
 	let frame = 0;
 	let live: Session | undefined;
@@ -182,11 +198,11 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 	const update = () => {
 		if (!live || live.dropping) return;
 		const dragged = live.slots[live.source]!;
-		// It stays within its group's rows (half a row past either end), not over the rest of the window.
+		// It stays within its group's rows (a row past either end, so an end is easy to hit), not over the rest of the window.
 		const first = live.slots[0]!;
 		const end = live.slots.at(-1)!;
-		const d = Math.min(Math.max(offset(), first.start - dragged.start - dragged.size / 2), end.start + end.size - (dragged.start + dragged.size) + dragged.size / 2);
-		const next = place(live.slots, live.source, dragged.start + d, (k) => lists.get(k)?.enabled ?? false);
+		const d = Math.min(Math.max(offset(), first.start - dragged.start - dragged.size), end.start + end.size - dragged.start);
+		const next = place(live.slots, live.source, dragged.start + d, takes);
 		el.style.transform = axis === "y" ? `translate3d(0, ${d}px, 0) scale(1.03)` : `translate3d(${d}px, 0, 0) scale(1.03)`;
 		if (next && (next.target.at !== live.target.at || next.target.list !== live.target.list)) {
 			session = live = { ...live, ...next };
@@ -214,11 +230,15 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 			const source = slots.findIndex((s) => s.key === slotKey(list, id));
 			if (source < 0) return stop();
 			scroll0 = area ? scrollOf(area, axis) : 0;
-			const placed = place(slots, source, slots[source]!.start, (k) => lists.get(k)?.enabled ?? false);
+			const placed = place(slots, source, slots[source]!.start, takes);
 			if (!placed) return stop();
 			session = live = { group, axis, from: { list, id }, el, slots, source, dropping: false, ...placed };
 			document.documentElement.classList.add("sorting");
 			window.getSelection()?.removeAllRanges();
+			// Keep getting the pointer if it leaves the window, so letting go out there still drops.
+			try {
+				el.setPointerCapture(pointerId);
+			} catch {}
 			notify();
 		}
 		ev.preventDefault();
@@ -230,6 +250,8 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 		window.removeEventListener("pointerup", up);
 		window.removeEventListener("pointercancel", cancel);
 		window.removeEventListener("keydown", key, true);
+		window.removeEventListener("dragstart", native, true);
+		window.removeEventListener("blur", cancel);
 		if (frame) cancelAnimationFrame(frame);
 		document.documentElement.classList.remove("sorting");
 	};
@@ -263,6 +285,9 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 		}, 160);
 	};
 	const cancel = () => stop();
+	// Pressing on selected text, a picture or a link would start the browser's own drag, which cancels
+	// the pointer and leaves the row where it was: the "sometimes it won't drag".
+	const native = (ev: DragEvent) => ev.preventDefault();
 	const key = (ev: KeyboardEvent) => {
 		if (ev.key !== "Escape" || !live) return;
 		ev.stopPropagation();
@@ -272,6 +297,8 @@ function begin(list: string, id: string, el: HTMLElement, e: React.PointerEvent)
 	window.addEventListener("pointerup", up);
 	window.addEventListener("pointercancel", cancel);
 	window.addEventListener("keydown", key, true);
+	window.addEventListener("dragstart", native, true);
+	window.addEventListener("blur", cancel);
 }
 
 /** How far a row slides while another is dragged past it; `.sortable-shift` in styles.css moves it. */
@@ -279,14 +306,17 @@ const shiftStyle = (px = 0) => ({ "--sort-shift": `${px}px` }) as React.CSSPrope
 
 /**
  * A list you can drag rows within, and, in a `group`, between. `onDrop` gets what was dropped (from
- * this list or another in the group) and its index here, counted without it.
+ * this list or another in the group) and its index here, counted without it. `accepts` says which rows
+ * from other lists it takes (all, by default).
  */
-export function useDragList({ group, axis = "y", enabled, onDrop }: { group?: string; axis?: Axis; enabled: boolean; onDrop: (from: { list: string; id: string }, index: number) => void }) {
+export function useDragList({ group, axis = "y", enabled, accepts, onDrop }: { group?: string; axis?: Axis; enabled: boolean; accepts?: (from: { list: string; id: string }) => boolean; onDrop: (from: { list: string; id: string }, index: number) => void }) {
 	const key = useId();
 	const g = group ?? key;
 	const drop = useRef(onDrop);
 	drop.current = onDrop;
-	const entry = useMemo<ListEntry>(() => ({ group: g, axis, els: new Map(), enabled, onDrop: (f, i) => drop.current(f, i) }), [g, axis, enabled]);
+	const take = useRef(accepts);
+	take.current = accepts;
+	const entry = useMemo<ListEntry>(() => ({ group: g, axis, els: new Map(), enabled, accepts: (f) => take.current?.(f) ?? true, onDrop: (f, i) => drop.current(f, i) }), [g, axis, enabled]);
 	useEffect(() => {
 		lists.set(key, entry);
 		return () => void lists.delete(key);
@@ -315,11 +345,14 @@ export function useDragList({ group, axis = "y", enabled, onDrop }: { group?: st
 	return { item, key };
 }
 
-/** A divider between lists in a group: it slides with the rows, and a drop just before it ends `endOf`. */
-export function useDragStatic(group: string, endOf?: string) {
+/**
+ * A divider between lists in a group: it slides with the rows. A drop just before it ends `endOf`; one just
+ * after it starts `startOf`, so an empty list still takes rows.
+ */
+export function useDragStatic(group: string, { endOf, startOf }: { endOf?: string; startOf?: string } = {}) {
 	const key = useId();
 	const now = useSyncExternalStore(subscribe, snapshot, snapshot);
-	const ref = useCallback((el: HTMLElement | null) => (el ? statics.set(key, { group, el, endOf }) : statics.delete(key)), [key, group, endOf]);
+	const ref = useCallback((el: HTMLElement | null) => (el ? statics.set(key, { group, el, endOf, startOf }) : statics.delete(key)), [key, group, endOf, startOf]);
 	const mine = now?.group === group;
 	return { ref, style: mine ? shiftStyle(now.shifts.get(key)) : undefined, className: mine ? `sortable-shift sortable-${now.axis}` : "" };
 }

@@ -130,8 +130,7 @@ async function fitSources(ctx: QueryCtx, member: Member, audience?: Audience, ar
  * Whether content using `sources` could show to everyone in a chat: a reply that couldn't is private there.
  * Built once per place (its policy and members load once), then checked per reply.
  */
-export async function placeAudience(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
-	const readSource = writeSourceReader(ctx, member);
+export async function placeAudience(ctx: QueryCtx, member: Member, chatId: Id<"chats">, readSource = writeSourceReader(ctx, member)) {
 	const check = await audienceFit(ctx, member, chatId, await ctx.db.get(chatId), readSource);
 	return async (sources: UsedPlace[] = []) => {
 		try {

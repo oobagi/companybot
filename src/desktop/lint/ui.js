@@ -20,7 +20,41 @@ const buttonClasses = new Set([
 	"iconDangerButton",
 	"trailingAction",
 	"railButton",
+	"composerButton",
+	"sendButton",
+	"actionButton",
+	"actionPrimaryButton",
+	"heroButton",
+	"updateButton",
+	"titleBarButton",
+	"cornerCloseButton",
+	"smallIconButton",
+	"bareIconButton",
+	"chevronButton",
+	"chipRemoveButton",
+	"timeRemoveButton",
+	"tabCloseButton",
+	"tabAddButton",
+	"suggestionButton",
+	"membersButton",
+	"repliesButton",
+	"pillLinkButton",
+	"stopButton",
+	"pillButton",
+	"dayButton",
+	"emojiTabButton",
+	"skinToneButton",
+	"boardCardButton",
+	"versionRowButton",
 	"cardButton",
+	"linkButton",
+	"titleButton",
+	"rowButton",
+	"listRowButton",
+	"tileButton",
+	"imageButton",
+	"chipButton",
+	"surfaceButton",
 ]);
 
 /** Dialog-sized buttons: they belong in a dialog's `DialogButtons`, bottom right. */
@@ -96,9 +130,9 @@ const rule = (description, messages, create) => ({ meta: { type: "suggestion", d
 
 const rules = {
 	"no-stacked-form": rule(
-		"`Field` and `inputClass` are the old stacked form: forms are settings cards.",
+		"`Field` and `inputClass` are the old hand-made form: forms are `Settings`/`Setting`, which stack by themselves in dialogs.",
 		{
-			field: "`Field` is the old stacked form. Put each input in a `Setting` row inside `Settings` (label and hint left, a compact control right); long text gets a full-width row (`Setting wide`). Dialogs keep `DialogButtons`; screens keep `SaveBar`.",
+			field: "`Field` is the old hand-made form. Put each input in a `Setting` inside `Settings`: a row in a card on a screen, stacked (label over a full-width control) in a dialog or on sign-in (`Stacked`). Dialogs keep `DialogButtons`; screens keep `SaveBar`.",
 			input: "`inputClass` is the old big input. Use `wideControlClass` (or `compactControlClass`) in a `Setting` row; a textarea in a `Setting wide` row takes `compactControlClass w-full`.",
 		},
 		(context) => ({
@@ -123,7 +157,7 @@ const rules = {
 		{
 			text: "Text-only button. No text-only buttons: use `iconButton` (an icon, with an aria-label and title) or a bordered button (`compactButton`, `smallButton`); a row's several actions go in its ⋯ menu (`MoreMenu`). Plain links only inside sentences.",
 			oneOff:
-				"One-off button look. Use a shared class (`iconButton`, `compactButton`, `smallButton`, `barButton`, `primaryButton`/`secondaryButton` in `DialogButtons`) or a primitive (`NewButton`, `IconButton`, `MenuItem`, `MoreMenu`, `Toggle`). If it's a new kind, add a named class to ui.tsx and import it.",
+				"One-off button look. Use a shared class (`iconButton`, `compactButton`, `smallButton`, `barButton`, `primaryButton`/`secondaryButton` in `DialogButtons`) or a primitive (`NewButton`, `IconButton`, `MenuItem`, `MoreMenu`, `Toggle`). Clickable text: `linkButton` (opens what it names) or `titleButton` (folds, sorts). Rows: `rowButton`, `listRowButton`. If it's a new kind, add a named class to ui.tsx and import it.",
 			placed: "`{{cls}}` places this button by hand. Dialog buttons go in `DialogButtons` (bottom right); screen actions go in the top bar (`SaveBar`, `PageActions`).",
 		},
 		(context) => ({

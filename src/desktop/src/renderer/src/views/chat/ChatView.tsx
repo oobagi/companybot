@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
-import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, barButton, compactButton, iconButton, useRun, trailingAction } from "../../ui";
+import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
@@ -108,7 +108,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			{agent && messages?.length === 0 && !chat.trash && (
 				<div className="flex flex-col items-start gap-2 pb-2" aria-label="Suggested messages">
 					{suggestions.map((suggestion) => (
-						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [] })} className={`${compactButton} max-w-full text-left`}>
+						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [] })} className={`${suggestionButton} max-w-full`}>
 							{suggestion}
 						</button>
 					))}
@@ -138,7 +138,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					type="button"
 					onClick={() => setDetails(true)}
 					title="Members and details"
-					className={barButton}
+					className={membersButton}
 				>
 					<AvatarStack people={chat.members} />
 					{chat.members.length}
@@ -246,15 +246,14 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 							{(close) => <MenuItem onClick={() => (close(), setRenaming(t.id))}><EditIcon /> Rename</MenuItem>}
 						</Popover>
 					) : (
-						// oxlint-disable-next-line ui/button-class -- a side-chat tab in the agent DM's tab strip: the pill around it is the tab's look
-						<button type="button" aria-current={t.id === chat._id ? "page" : undefined} onClick={() => navigate("chat", t.id)} onDoubleClick={t.side ? () => setRenaming(t.id) : undefined} className={label}>
+						<button type="button" aria-current={t.id === chat._id ? "page" : undefined} onClick={() => navigate("chat", t.id)} onDoubleClick={t.side ? () => setRenaming(t.id) : undefined} className={`${surfaceButton} ${label}`}>
 							{t.label}
 						</button>
 					)}
 					{t.side && renaming !== t.id && (
 						// Only the glyph takes clicks; the faded patch under it is just paint, so the label's tail still opens the tab.
 						<span className="pointer-events-none absolute inset-y-0 right-0 flex w-9 items-center justify-end rounded-r-md bg-linear-to-r from-transparent to-(--pill) to-40% pr-1 opacity-0 focus-within:opacity-100 group-hover/tab:opacity-100">
-							<button type="button" title="Close (goes to Archive)" aria-label={`Close ${t.label}`} onClick={() => close(t.id, t.label)} className={`pointer-events-auto ${trailingAction}`}>
+							<button type="button" title="Close (goes to Archive)" aria-label={`Close ${t.label}`} onClick={() => close(t.id, t.label)} className={`pointer-events-auto ${tabCloseButton}`}>
 								<CloseIcon className="size-3.5" weight="bold" />
 							</button>
 						</span>
@@ -262,7 +261,7 @@ function SideChatTabs({ chat }: { chat: ChatDetails }) {
 				</div>
 			))}
 			</div>
-			<button type="button" title="New chat" aria-label={`New chat with ${chat.title}`} onClick={() => run(create({ parentId: mainId }).then((id) => navigate("chat", id)))} className={iconButton}>
+			<button type="button" title="New chat" aria-label={`New chat with ${chat.title}`} onClick={() => run(create({ parentId: mainId }).then((id) => navigate("chat", id)))} className={smallIconButton}>
 				<PlusIcon />
 			</button>
 			<Notice>{error}</Notice>

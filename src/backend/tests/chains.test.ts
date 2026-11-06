@@ -65,7 +65,7 @@ describe("handoffs by @mention", () => {
 		// Two back-and-forths: the fifth handoff between them is held, with a line in the thread.
 		expect((await turnsOf(t)).filter((x) => x.status !== "done")).toEqual([]);
 		const [line] = await pauses(t);
-		expect(line).toMatchObject({ chatId, threadId: thread, authorAgentId: companybot, text: "Agents paused: Companybot and Scribe went back and forth 2 times.", mentions: { userIds: [member.userId] } });
+		expect(line).toMatchObject({ chatId, threadId: thread, authorAgentId: companybot, text: "Companybot and Scribe kept replying to each other, so they've paused.", mentions: { userIds: [member.userId] } });
 		const shown = (await messagesIn(member, { chatId, threadId: thread })).find((m) => m._id === line!._id)!;
 		expect(shown.pause).toEqual({ status: "paused", for: "member@co.com", by: null, canDecide: true });
 		expect((await messagesIn(owner, { chatId, threadId: thread })).find((m) => m._id === line!._id)!.pause!.canDecide).toBe(false);
@@ -120,7 +120,7 @@ describe("handoffs by @mention", () => {
 		await say(t, scribe, "@Scout find the leads");
 		await say(t, scout, "@Companybot here they are");
 		const [line] = await pauses(t);
-		expect(line!.text).toContain("came back around");
+		expect(line!.text).toBe("Agents kept passing this around, so they've paused.");
 		expect((await turnsOf(t)).filter((x) => x.status !== "done")).toEqual([]);
 	});
 
@@ -201,7 +201,7 @@ describe("the dispatcher after an agent's message", () => {
 		});
 		next("a1");
 		await nextOf();
-		expect((await pauses(t))[0]!.text).toBe(`Agents paused after ${CHAIN_MAX_HOPS} handoffs nobody asked for.`);
+		expect((await pauses(t))[0]!.text).toBe("Agents kept replying to each other, so they've paused.");
 	});
 
 	it("isn't asked in Mentions only channels", async () => {

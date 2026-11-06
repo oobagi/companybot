@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
-import { EmptyState, LoadMore, Loading, Notice, Tabs, metadataClass, primaryButton, useRun } from "../../ui";
+import { EmptyState, LoadMore, Loading, Notice, Tabs, metadataClass, primaryButton, useRun, versionRowButton } from "../../ui";
 import { HistoryIcon } from "../../icons";
 import { DialogButtons, Modal, clock, dayLabel } from "../chat/common";
 import { whoLabel } from "../records/logic";
@@ -35,12 +35,12 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 					<div className="min-w-0 flex-1 overflow-y-auto">{shown && <Preview versionId={shown} />}</div>
 					<div className="flex w-64 shrink-0 flex-col gap-1 overflow-y-auto">
 						{results.map((v, i) => (
-							// oxlint-disable-next-line ui/button-class -- a version in the history list: a selectable two-line row, like a sidebar item
 							<button
 								key={v._id}
 								type="button"
 								onClick={() => setPicked(v._id)}
-								className={`flex flex-col rounded-lg px-3 py-2 text-left text-sm ${v._id === shown ? "bg-neutral-100" : "hover:bg-neutral-50"}`}
+								data-active={v._id === shown || undefined}
+								className={versionRowButton}
 							>
 								<span className="font-medium">{when(v.time)}</span>
 								<span className="text-neutral-600">

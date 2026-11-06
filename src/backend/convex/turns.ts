@@ -401,15 +401,19 @@ export const turnContext = internalMutation({
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId, member);
 		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since, here);
-		const messages = await Promise.all(
-			recent
-				.filter((m) => !m.deleted)
-				// Another agent's reply still streaming keeps its text so far apart from the message.
-				.map(async (m) => {
-					const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
-					return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
-				}),
-		);
+		const messages = (
+			await Promise.all(
+				recent
+					.filter((m) => !m.deleted)
+					// Another agent's reply still streaming keeps its text so far apart from the message. With nothing to
+					// show yet (a reply that started over), it's left out: as `""` it read as a reply that said nothing.
+					.map(async (m) => {
+						const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
+						if (m.status === "streaming" && m._id !== turn.triggerId && !(stream && showable(stream.parts))) return null;
+						return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
+					}),
+			)
+		).filter((m) => m !== null);
 
 		const threadParent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
 		const parent = threadParent && await readReply(ctx, member, threadParent) ? threadParent : null;

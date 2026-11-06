@@ -1,4 +1,4 @@
-import { trailingAction } from "../../ui";
+import { cornerCloseButton } from "../../ui";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { CloseIcon } from "../../icons";
@@ -33,7 +33,7 @@ export function LinkPreviews({ message, onError }: { message: Message; onError: 
 							title="Hide preview"
 							aria-label={`Hide the preview of ${card.title ?? card.url}`}
 							onClick={() => hide({ messageId: message._id, url: card.url }).catch(onError)}
-							className={`absolute top-1 right-1 bg-white opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100 ${trailingAction}`}
+							className={`absolute top-1 right-1 bg-white opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100 ${cornerCloseButton}`}
 						>
 							<CloseIcon />
 						</button>

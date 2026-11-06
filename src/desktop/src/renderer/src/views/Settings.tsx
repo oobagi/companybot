@@ -9,7 +9,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactButton, compactDangerButton, compactPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
+import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
@@ -158,7 +158,7 @@ function AppVersion() {
 		<Settings title="App">
 			<Setting label={`Companybot ${version}`} hint={status ? describeUpdate(status) : undefined}>
 				{status?.state === "ready" ? (
-					<button type="button" onClick={() => void desktop?.updates.install()} className={compactPrimaryButton}>
+					<button type="button" onClick={() => void desktop?.updates.install()} className={actionPrimaryButton}>
 						Restart to update
 					</button>
 				) : (
@@ -166,7 +166,7 @@ function AppVersion() {
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
 						onClick={() => void desktop?.updates.check()}
-						className={compactButton}
+						className={actionButton}
 					>
 						Check for updates
 					</button>
@@ -203,7 +203,7 @@ function DangerAction({
 	return (
 		<>
 			<Setting label={action} hint={hint}>
-				<button type="button" onClick={() => setOpen(true)} className={compactDangerButton}>
+				<button type="button" onClick={() => setOpen(true)} className={`${actionButton} text-red-600`}>
 					{action}
 				</button>
 			</Setting>
@@ -362,7 +362,7 @@ function ProfileTab() {
 	// Edited together and saved from the top bar, like General. The draft keeps `start`, your preferences
 	// as they were when you began, so Save sends only what you changed here, never another device's change
 	// back; if they changed meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
-	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all" };
+	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true };
 	const draft = useDraft("account:preferences", { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const { error, run } = useRun();
@@ -374,6 +374,7 @@ function ProfileTab() {
 			...(value.timeZone !== start.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
 			...(value.sendWith !== start.sendWith && { sendWith: value.sendWith }),
 			...(value.notify !== start.notify && { notify: value.notify }),
+			...(value.showRecents !== start.showRecents && { showRecents: value.showRecents }),
 		};
 		run(update(changed), () => draft.discard());
 	};
@@ -420,6 +421,9 @@ function ProfileTab() {
 						]}
 						onChange={(notify) => draft.set({ ...value, notify })}
 					/>
+				</Setting>
+				<Setting label="Recents on the rail" hint="The places you opened lately, under your pins. Right-click the rail to change this too.">
+					<Toggle checked={value.showRecents} onChange={(showRecents) => draft.set({ ...value, showRecents })} />
 				</Setting>
 			</Settings>
 			<AppVersion />

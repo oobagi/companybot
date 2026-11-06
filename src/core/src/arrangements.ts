@@ -13,8 +13,8 @@ export const arrangementLists = {
 	expanded: { scope: "personal", entity: undefined },
 	pins: { scope: "personal", entity: undefined },
 	recent: { scope: "personal", entity: undefined },
-	pinsOrder: { scope: "personal", entity: undefined },
-	tabs: { scope: "personal", entity: undefined },
+	/** The rail's one group, in your order: its tabs (`railTabs`) and your pins, mixed. */
+	rail: { scope: "personal", entity: undefined },
 	workspaces: { scope: "account", entity: undefined },
 } as const;
 export type ArrangementList = keyof typeof arrangementLists;
@@ -55,15 +55,19 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
 export const sidebarSections = ["channels", "dms"];
 export const railTabs = ["chat", "drive", "databases", "customize"];
+/** A pin's key: what it is and its id (`chat:…`, `page:…`, `db:…`, `rec:…`). */
+export const isPinKey = (id: string) => /^(chat|page|db|rec):./.test(id);
+/** Lists the rail had before tabs and pins became one (`rail`); `migrations.railOrder` merges them. COMPAT(0.1.0-alpha.10): delete with it. */
+export const retiredRailLists = ["tabs", "pinsOrder"] as const;
 
 type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
 export function legacyArrangement(key: string): Legacy | undefined {
-	const fixed = { "rail.order": "workspaces", "rail.tabs": "tabs", "sidebar.sections": "sections", "sidebar.folded": "folded" } as const;
+	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.sections": "sections", "sidebar.folded": "folded" } as const;
 	if (key in fixed) return { list: fixed[key as keyof typeof fixed] };
 	const workspace = /^(rail\.pins|rail\.pins\.order|rail\.recent|sidebar\.channels|sidebar\.dms|sidebar\.databases|sidebar\.channels\.folded|sidebar\.dms\.folded|pages-expanded):([^:]+)$/.exec(key);
 	if (workspace) {
-		const lists = { "rail.pins": "pins", "rail.pins.order": "pinsOrder", "rail.recent": "recent", "sidebar.channels": "channels", "sidebar.dms": "dms", "sidebar.databases": "databases", "sidebar.channels.folded": "channelFolds", "sidebar.dms.folded": "dmFolds", "pages-expanded": "expanded" } as const;
+		const lists = { "rail.pins": "pins", "rail.pins.order": "rail", "rail.recent": "recent", "sidebar.channels": "channels", "sidebar.dms": "dms", "sidebar.databases": "databases", "sidebar.channels.folded": "channelFolds", "sidebar.dms.folded": "dmFolds", "pages-expanded": "expanded" } as const;
 		return { list: lists[workspace[1] as keyof typeof lists], workspaceId: workspace[2] };
 	}
 	const pages = /^sidebar\.pages:([^:]+):([^:]+)$/.exec(key);

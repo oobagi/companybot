@@ -39,10 +39,10 @@ export function SkillsTab() {
 type SkillConfig = { name: string; description: string; instructions: string };
 
 /** Name, description, and instructions: the parts of a skill someone writes, as one card. `children` are rows above them (Runs for). */
-function SkillFields({ value, onChange, children }: { value: SkillConfig; onChange: (value: SkillConfig) => void; children?: React.ReactNode }) {
+function SkillFields({ title, value, onChange, children }: { title?: string; value: SkillConfig; onChange: (value: SkillConfig) => void; children?: React.ReactNode }) {
 	const left = SKILL_DESCRIPTION_MAX - value.description.trim().length;
 	return (
-		<Settings title="Skill">
+		<Settings title={title}>
 			{children}
 			<Setting label="Name">
 				<input
@@ -125,7 +125,7 @@ function CustomSkillDetail({ skill: s, custom, access }: { access: Access; skill
 			trash={s.trash}
 			onDelete={() => remove({ skillId: s.id })}
 			onSave={(config, expectedVersion) => save({ skillId: s.id, config, expectedVersion })}
-			fields={(value, onChange) => <SkillFields value={value} onChange={onChange} />}
+			fields={(value, onChange) => <SkillFields title="Skill" value={value} onChange={onChange} />}
 		>
 			<Facts rows={[["Runs for", s.audience === "personal" ? "Just me" : "Team"]]} />
 			{s.audience === "personal" && !s.trash && can(access, "skills.edit") && (

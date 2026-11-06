@@ -13,7 +13,7 @@ import {
 import { useRef, useState } from "react";
 import { Select } from "../../controls";
 import { CloseIcon, PlusIcon } from "../../icons";
-import { compactButton, compactControlClass, compactPrimaryButton, descriptionClass, hintClass, iconButton } from "../../ui";
+import { compactButton, compactControlClass, dayButton, descriptionClass, hintClass, timeRemoveButton } from "../../ui";
 
 // A schedule is a cron expression, always shown and editable. The form above it is a friendlier
 // way to write the same cron: each control rewrites it, and typing a cron refills the controls.
@@ -151,7 +151,7 @@ function DayToggles({ days, onChange }: { days: number[]; onChange: (days: numbe
 						title={dayNames[i]}
 						aria-label={dayNames[i]}
 						aria-pressed={on}
-						className={on ? compactPrimaryButton : compactButton}
+						className={`${dayButton} ${on ? "bg-neutral-900 text-white" : "border border-neutral-200 text-neutral-600 hover:bg-neutral-50"}`}
 						onClick={() => onChange(on ? days.filter((x) => x !== i) : [...days, i].sort((a, b) => a - b))}
 					>
 						{d}
@@ -184,7 +184,7 @@ function Times({ times, onChange }: { times: string[]; onChange: (times: string[
 							type="button"
 							title="Remove this time"
 							aria-label="Remove this time"
-							className={iconButton}
+							className={timeRemoveButton}
 							onClick={() => onChange(times.filter((_, j) => j !== i))}
 						>
 							<CloseIcon />

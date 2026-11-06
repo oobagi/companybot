@@ -1,7 +1,7 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
-import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
+import { Notice, Scroll, ScrollUnder, Stacked, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
@@ -207,24 +207,40 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 		<Layer
 			onClose={onClose}
 			overlayClassName="bg-neutral-900/20"
-			className={`flex max-h-[85vh] w-full ${widths[size]} flex-col gap-5 overflow-y-auto rounded-2xl bg-white p-6 text-[15px] text-neutral-900 shadow-xl`}
+			className={`dialog flex max-h-[85vh] w-full ${widths[size]} flex-col overflow-hidden rounded-2xl bg-white text-body text-neutral-900 shadow-xl`}
 		>
-			<header className="flex items-center gap-1">
-				<MantineModal.Title className="min-w-0 flex-1 truncate text-lg font-medium">{title}</MantineModal.Title>
-				{menu && <MoreMenu label="More">{menu}</MoreMenu>}
-				<IconButton label="Close" onClick={onClose}>
-					<CloseIcon />
-				</IconButton>
-			</header>
-			{children}
+			{/* The title stays put and the content scrolls under it, fading out as in chat (`Scroll`); `DialogButtons` stick to the bottom the same way. */}
+			<Scroll
+				header={
+					<header className="flex items-center gap-1 px-6 pt-6 pb-5">
+						<MantineModal.Title className="min-w-0 flex-1 truncate text-lg font-medium">{title}</MantineModal.Title>
+						{menu && <MoreMenu label="More">{menu}</MoreMenu>}
+						<IconButton label="Close" onClick={onClose}>
+							<CloseIcon />
+						</IconButton>
+					</header>
+				}
+			>
+				<div className="flex flex-col gap-5 px-6 pb-6">
+					<Stacked>{children}</Stacked>
+				</div>
+			</Scroll>
 		</Layer>
 	);
 }
 const widths = { md: "max-w-md", lg: "max-w-xl", xl: "max-w-4xl" };
 
-/** A dialog's buttons: bottom right, Cancel first, the action last. */
+/**
+ * A dialog's buttons: bottom right, Cancel first, the action last. They stick to the dialog's bottom
+ * while the content scrolls under them; the negative margins keep them where they'd sit unstuck.
+ */
 export function DialogButtons({ children }: { children: React.ReactNode }) {
-	return <div className="flex justify-end gap-2">{children}</div>;
+	const under = useContext(ScrollUnder);
+	return (
+		<div className="scrim-bottom sticky bottom-0 z-30 -mt-4 -mb-6 flex justify-end gap-2 pt-4 pb-6" data-under={under || undefined}>
+			{children}
+		</div>
+	);
 }
 
 /** ⋯ opening a menu of `MenuItem`s: a row's or a dialog's other actions. */
@@ -365,12 +381,14 @@ export function PopoverPanel({
 }
 
 /** A row in a popover menu. */
-export function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?: boolean; children: React.ReactNode }) {
+export function MenuItem({ onClick, danger, disabled, title, children }: { onClick: () => void; danger?: boolean; disabled?: boolean; title?: string; children: React.ReactNode }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${danger ? "text-red-600 hover:bg-red-50" : "hover:bg-neutral-100"}`}
+			disabled={disabled}
+			title={title}
+			className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${danger ? "text-red-600 hover:bg-red-50" : "hover:bg-neutral-100"}`}
 		>
 			{children}
 		</button>

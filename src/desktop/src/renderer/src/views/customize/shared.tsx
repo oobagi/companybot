@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, ArchiveIcon } from "../../icons";
-import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, compactButton, compactPrimaryButton, descriptionClass, disabledButtonClass, metadataClass, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, compactButton, compactPrimaryButton, descriptionClass, disabledButtonClass, metadataClass, pillButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
@@ -106,7 +106,7 @@ function InstallButton({
 			disabled={!canManage || busy}
 			title={canManage ? (installed ? "Remove" : undefined) : "None of your roles can install this"}
 			onClick={onToggle}
-			className={`shrink-0 ${installed ? compactButton : compactPrimaryButton}`}
+			className={`${pillButton} ${installed ? "border border-neutral-200 text-neutral-600" : "bg-neutral-900 text-white"}`}
 		>
 			{installed ? "Installed" : "Install"}
 		</button>

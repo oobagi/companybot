@@ -73,21 +73,23 @@ export function spend<Id extends string>(budget: ChainBudget<Id>, h: Handoff<Id>
 
 export const freshBudget = <Id extends string = never>(turns = 0): ChainBudget<Id> => ({ turns, hops: 0, pairs: [] });
 
-/** The paused line's words, for people ("Agents paused after 10 turns") and for the agents who read it later. */
+/**
+ * The paused line's words, for people and for the agents who read it later: what happened, in plain
+ * words (no counts or jargon). Continue and Stop sit beside it.
+ */
 export function pauseText(reason: PauseReason, name: (id: string) => string) {
 	switch (reason.kind) {
 		case "ring":
-			return "Agents paused: the work came back around to an agent that already had it.";
+			return "Agents kept passing this around, so they've paused.";
 		case "pair":
-			return `Agents paused: ${name(reason.a)} and ${name(reason.b)} went back and forth ${CHAIN_MAX_ROUND_TRIPS} times.`;
+			return `${name(reason.a)} and ${name(reason.b)} kept replying to each other, so they've paused.`;
 		case "turns":
-			return `Agents paused after ${CHAIN_MAX_TURNS} turns.`;
+			return "Agents kept working on this on their own, so they've paused.";
 		case "hops":
-			return `Agents paused after ${CHAIN_MAX_HOPS} handoffs nobody asked for.`;
 		case "posts":
-			return `Agents paused after ${PLACE_MAX_AGENT_POSTS} messages in a row with no reply from a person.`;
+			return "Agents kept replying to each other, so they've paused.";
 		case "depth":
-			return `Agents paused: asks can only go ${CHAIN_MAX_DEPTH} deep.`;
+			return "Agents kept asking each other, so they've paused.";
 	}
 }
 

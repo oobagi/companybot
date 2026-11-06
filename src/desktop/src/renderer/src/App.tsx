@@ -11,7 +11,7 @@ import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute, views } from "./router";
 import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, compactPrimaryButton, useRun, useStoredWidth } from "./ui";
+import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, updateButton, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
@@ -20,9 +20,9 @@ import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
 import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
-import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
+import { AppRail } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
-import { RailPins } from "./views/RailPins";
+import { type AppTab, type TabBadge, appTabs } from "./views/RailPins";
 import { type PinKey, pinOf, usePins } from "./pins";
 import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
@@ -210,8 +210,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
 
 	return (
-		// oxlint-disable-next-line shadcn/no-arbitrary-values -- the app's body size, set once at the root (no 15px step on the scale)
-		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
+		<div className="flex h-screen flex-col bg-neutral-100 text-body text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
 			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
 			<Notice>{arrangements?.error}</Notice>
@@ -223,7 +222,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 					badges={badges}
 					workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />}
 					workspaceName={workspace}
-					below={(tipFor, hideTip) => <RailPins open={here} tipFor={tipFor} hideTip={hideTip} />}
+					open={here}
 					you={prefs?.displayName || email}
 					youMenu={
 						<YouMenu
@@ -240,7 +239,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
 					{/* The sidebar lists the open tab's things, scrolling under its name. */}
 					{sidebar && (
-						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
+						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 select-none [--scrim:var(--color-neutral-50)]">
 							<Scroll
 								className="no-drag"
 								header={
@@ -275,7 +274,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										<GettingStarted agent={chats?.agents[0]?.name ?? "an agent"} />
 										{update?.state === "ready" && (
 											<div className="flex flex-col px-3 pt-4 pb-3">
-												<button type="button" onClick={() => void desktop?.updates.install()} className={`${compactPrimaryButton} text-left`}>
+												<button type="button" onClick={() => void desktop?.updates.install()} className={updateButton}>
 													Update ready · Restart
 												</button>
 											</div>

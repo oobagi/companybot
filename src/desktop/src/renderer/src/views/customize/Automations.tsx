@@ -8,10 +8,10 @@ import { useState } from "react";
 import { agentOptions } from "../../agent-options";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { AutomationIcon, CheckIcon } from "../../icons";
+import { AutomationIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Loading, Notice, Page, Section, Setting, Settings, compactButton, compactControlClass, compactPrimaryButton, descriptionClass, timeAgo, useDraft, useRun, wideControlClass } from "../../ui";
+import { Loading, Notice, Page, Section, Setting, Settings, compactButton, compactControlClass, descriptionClass, pillButton, timeAgo, useDraft, useRun, wideControlClass } from "../../ui";
 import { useTurnOn } from "../Permissions";
 import { PendingWakeups } from "../Wakeups";
 import { deviceTimeZone, useConfirm } from "../chat/common";
@@ -78,9 +78,8 @@ function SubscribeButton({ automation: a, onError }: { automation: AutomationIte
 				type="button"
 				title={on ? "Turn off for you" : undefined}
 				onClick={() => onError(on ? subscribe({ automationId: a.id, on: false }) : Promise.resolve(turnOn.start()))}
-				className={on ? compactButton : compactPrimaryButton}
+				className={`${pillButton} ${on ? "bg-emerald-50 text-emerald-700" : "bg-neutral-900 text-white"}`}
 			>
-				{on && <CheckIcon />}
 				{on ? "On for you" : "Turn on for me"}
 			</button>
 			{turnOn.dialog}
@@ -103,12 +102,13 @@ const defaultSchedule = { type: "schedule" as const, cron: DEFAULT_CRON };
 
 /** Name, when, and what to ask: the parts of an automation someone writes, as one card. `children` are rows under them (Agent, Runs for). */
 function AutomationFields({
+	title,
 	value,
 	onChange,
 	channels,
 	timeZone,
 	children,
-}: {
+}: { title?: string;
 	value: CustomAutomationConfig;
 	onChange: (value: CustomAutomationConfig) => void;
 	channels: Channel[];
@@ -125,7 +125,7 @@ function AutomationFields({
 		{ label: "When another app sends a webhook", value: { type: "webhook" } },
 	];
 	return (
-		<Settings title="Automation">
+		<Settings title={title}>
 			<Setting label="Name">
 				<input
 					aria-label="Name"
@@ -321,7 +321,7 @@ function CustomAutomationDetail({ automation: a, custom, team }: { automation: A
 			trash={a.trash}
 			onDelete={() => remove({ automationId: a.id })}
 			onSave={(config, expectedVersion) => save({ automationId: a.id, config, expectedVersion })}
-			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
+			fields={(value, onChange) => <AutomationFields title="Automation" value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
 		>
 			{!a.trash && <AutomationSettings automation={a} team={team} />}
 		</MadeItemDetail>

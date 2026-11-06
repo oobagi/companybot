@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { CaretRightIcon, CheckIcon } from "../../icons";
+import { titleButton } from "../../ui";
 
 /** What each step asks, and how to do it. `agent` is the main agent's name. */
 const copy = (agent: string): Record<TutorialStep, { title: string; how: string }> => ({
@@ -36,8 +37,7 @@ export function GettingStarted({ agent }: { agent: string }) {
 			className="mx-3 mb-3 flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm"
 		>
 			{/* One control, one place: the caret on the right turns; the whole header is the button. */}
-			{/* oxlint-disable-next-line ui/button-class -- a clickable fold title: the whole header folds the card */}
-			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className="group/fold -m-1 flex items-center justify-between rounded-lg p-1 text-left">
+			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className={`${titleButton} group/fold -m-1 flex items-center justify-between rounded-lg p-1`}>
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500 group-hover/fold:text-neutral-900">{title}</h2>
 				<CaretRightIcon className={`shrink-0 text-neutral-400 transition-transform group-hover/fold:text-neutral-700 ${folded ? "" : "rotate-90"}`} />
 			</button>

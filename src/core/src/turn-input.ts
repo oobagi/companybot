@@ -223,7 +223,7 @@ export function steerNote(messages: PlaceMessage[], actor: { id: string; name: s
 export const postDecision = z.object({
 	emoji: z.string().nullable().describe("Your reaction to the message, one emoji, or null. Decide it first, on its own, apart from whether you write."),
 	new_point: z.string().describe("15 words at most: what you'd add that nobody here has said yet. Empty if nothing."),
-	to: z.string().describe('Who you\'re talking to: a person or agent here, by name, or "room". Naming an agent here wakes it next.'),
+	to: z.string().describe('Who should answer you next: a person or agent here, by name, or "room". Naming an agent here wakes it next.'),
 	message: z.string().describe("What's posted, in Markdown. Empty if you post nothing."),
 });
 export type PostDecision = z.infer<typeof postDecision>;
@@ -238,7 +238,7 @@ const ANSWER_NOTE = [
 	"You end this reply with your answer; nothing else you write is shown:",
 	"- emoji: your reaction to the message, one emoji, any that fits, or null. Decide it first, on its own, apart from whether you write: react if it's for you and needs no words from you (thanks to you, an okay, a vote, a reaction it asks for), each time, even if you reacted to one like it before.",
 	"- new_point: in 15 words or fewer, what you'd add that nobody here has said yet. Empty if nothing.",
-	"- to: who you're talking to, a person or agent here by name, or \"room\". Name an agent only to have it answer you next.",
+	"- to: who should answer you next, a person or agent here by name, or \"room\". Name an agent only to have it answer you next; if you leave a person something to answer or do, name them, even if you also tell an agent.",
 	"- message: what's posted, in Markdown; empty posts nothing. Widgets and approvals you place go out with it.",
 	"When to write:",
 	"- Answer what's for you. An @mention or a DM means it's for you.",
@@ -275,7 +275,7 @@ function routedNote(
 		before.length > 0 &&
 			`- It went to ${listed(before.map(clean))} first, a better fit by that check's guess. One answer is enough: no second take or extra tip, only a fix if theirs is wrong or misses what was asked. Unless the message asks each of you (everyone, a vote): then give your own.`,
 		hop &&
-			`- If it gives back a result you asked for, ${person} already sees it, so never restate, sum up or confirm it. If you asked for it to do more yourself (your message above says what for), do that now and post it; if not, you're done: don't post.\n- If it hands you work or asks you something, do it and post the result.`,
+			`- If it gives back a result you asked for, ${person} already sees it, so never restate, sum up or confirm it. If you asked for it to do more yourself (your message above says what for), do that now and post it; if not, you're done: don't post.\n- If it hands you work or asks you something, do it and post the result. If it's waiting on a person (their answer, move or choice), that's theirs: don't answer, act or choose for them.`,
 		room && `\n${room}`,
 	]
 		.filter(Boolean)
