@@ -321,6 +321,7 @@ export function Item({
 	actions,
 	rename,
 	drag,
+	over,
 	pin,
 	onClick,
 	children,
@@ -355,6 +356,8 @@ export function Item({
 	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
 	/** From `useSortable`: makes the row draggable within its list. */
 	drag?: DragProps;
+	/** A dragged row would go into this one if let go now (a Drive folder): it lights as if hovered. */
+	over?: boolean;
 	/**
 	 * What it is as a pin: its menu gets Pin to rail / Unpin from rail. A function makes the thing
 	 * first (an agent you haven't written to has no DM yet) and returns its key.
@@ -393,7 +396,7 @@ export function Item({
 			{guides.map((continues, level) => (
 				<Guide key={level} continues={continues} elbow={level === guides.length - 1} />
 			))}
-			<div className={`relative flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 ${itemTone({ active, unread, muted, open: !!menuAt })}`}>
+			<div className={`relative flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 ${itemTone({ active, unread, muted, open: !!menuAt || over })}`}>
 			{icon && (
 				<span className="flex size-[22px] shrink-0 items-center justify-center text-lg text-neutral-500">
 					{onToggle ? (
