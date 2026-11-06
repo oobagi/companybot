@@ -17,7 +17,7 @@ describe("handoff limits", () => {
 		}
 		const fifth = { from: "a", to: "b", path };
 		expect(handoffLimit(budget, fifth)).toEqual({ kind: "pair", a: "a", b: "b" });
-		expect(pauseText(handoffLimit(budget, fifth)!, name)).toBe("Agents paused: Scout and Quill went back and forth 2 times.");
+		expect(pauseText(handoffLimit(budget, fifth)!, name)).toBe("Scout and Quill kept replying to each other, so they've paused.");
 	});
 
 	it("breaks a ring: the work coming back to an agent that had it, through another", () => {
@@ -28,12 +28,16 @@ describe("handoff limits", () => {
 
 	it("caps turns, unasked hops, agent posts in a row and ask depth", () => {
 		expect(handoffLimit({ ...freshBudget(), turns: CHAIN_MAX_TURNS }, { from: "a", to: "b", path: ["a"] })).toEqual({ kind: "turns" });
-		expect(pauseText({ kind: "turns" }, name)).toBe("Agents paused after 10 turns.");
 		expect(handoffLimit({ ...freshBudget(), hops: 3 }, { from: "a", to: "b", path: ["a"], dispatched: true })).toEqual({ kind: "hops" });
 		expect(handoffLimit({ ...freshBudget(), hops: 3 }, { from: "a", to: "b", path: ["a"] })).toBeNull();
 		expect(handoffLimit(freshBudget(), { from: "a", to: "b", path: ["a"], agentPosts: 4 })).toEqual({ kind: "posts" });
 		expect(handoffLimit(freshBudget(), { from: "a", to: "b", path: ["a"], ask: { depth: 4 } })).toEqual({ kind: "depth" });
 		expect(askRefusal({ kind: "depth" }, name)).toBe("Not asked: asks can only go 3 deep. Answer with what you have, or ask the person.");
+	});
+
+	it("says why it paused in plain words, with no counts", () => {
+		const reasons = [{ kind: "ring" }, { kind: "pair", a: "a", b: "b" }, { kind: "turns" }, { kind: "hops" }, { kind: "posts" }, { kind: "depth" }] as const;
+		for (const reason of reasons) expect(pauseText(reason, name)).toMatch(/^[^\d]*paused\.$/);
 	});
 
 	it("counts an ask as a round trip and two turns", () => {

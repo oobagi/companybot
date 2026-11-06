@@ -512,7 +512,7 @@ function AutomationPrompt({ prompt }: { prompt: string }) {
 
 /**
  * Agents stopped at a limit (backend chains.ts): a quiet line, not a message. The person they work
- * for picks Continue (a fresh budget) or Stop; everyone else sees who it waits for.
+ * for picks Let them continue (a fresh budget) or Stop them; everyone else sees who it waits for.
  */
 function PausedLine({ message, pause, onError }: { message: Message; pause: NonNullable<Message["pause"]>; onError: (e: unknown) => void }) {
 	const decide = useMutation(api.chains.decide);
@@ -524,23 +524,20 @@ function PausedLine({ message, pause, onError }: { message: Message; pause: NonN
 	return (
 		<div id={`message-${message._id}`} className="flex items-center gap-3 px-5 py-1.5 text-xs text-neutral-500">
 			<span className="h-px flex-1 bg-neutral-200" />
-			<span className="flex flex-wrap items-center justify-center gap-x-1.5 text-center">
+			<span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
 				<span>{message.text}</span>
 				{pause.canDecide ? (
-					<>
-						<span className="mr-0.5">·</span>
-						<span className="inline-flex gap-1.5">
-							<button type="button" disabled={busy} onClick={() => act("continue")} className={smallButton}>
-								Continue
-							</button>
-							<button type="button" disabled={busy} onClick={() => act("stop")} className={smallButton}>
-								<StopIcon /> Stop
-							</button>
-						</span>
-					</>
+					// The two buttons wrap together, onto their own centred line when it's narrow.
+					<span className="inline-flex shrink-0 gap-1.5">
+						<button type="button" disabled={busy} onClick={() => act("continue")} className={smallButton}>
+							Let them continue
+						</button>
+						<button type="button" disabled={busy} onClick={() => act("stop")} className={smallButton}>
+							<StopIcon /> Stop them
+						</button>
+					</span>
 				) : (
-					<span>
-						·{" "}
+					<span className="whitespace-nowrap">
 						{pause.status === "paused"
 							? `Waiting for ${pause.for}`
 							: `${pause.status === "continued" ? "Continued" : "Stopped"}${pause.by ? ` by ${pause.by}` : ""}`}

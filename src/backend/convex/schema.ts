@@ -692,7 +692,7 @@ export default defineSchema({
 		 */
 		publishedAt: v.optional(v.number()),
 		/**
-		 * A chain of agents paused here (chains.ts): the line "Agents paused after 10 turns · Continue · Stop",
+		 * A chain of agents paused here (chains.ts): a line like "Agents kept replying to each other, so they've paused.",
 		 * written as the agent whose handoff it held. `by`: who pressed Continue or Stop.
 		 */
 		pause: v.optional(
