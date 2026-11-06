@@ -475,8 +475,13 @@ const TYPES_MAX = 32;
 function databaseNames(plural: string, singular: string | undefined, types: Doc<"recordTypes">[], except?: Id<"recordTypes">) {
 	const names = { name: (singular ?? singularOf(plural.trim())).trim(), plural: plural.trim() };
 	if (!names.name || !names.plural || names.name.length > 120 || names.plural.length > 120) throw new ConvexError("Give the database a name, up to 120 characters.");
-	if (types.some((t) => t._id !== except && !t.archived && [t.name, t.plural].some((n) => [names.name, names.plural].some((m) => n.toLowerCase() === m.toLowerCase()))))
-		throw new ConvexError(`There's already a database called “${names.plural}”.`);
+	// Say which name clashes, and with which database: a shared singular ("Poker hand") isn't the plural asked for.
+	for (const t of types) {
+		if (t._id === except || t.archived) continue;
+		const same = (n: string) => [names.name, names.plural].some((m) => n.toLowerCase() === m.toLowerCase());
+		if (same(t.plural)) throw new ConvexError(`There's already a database called “${t.plural}”.`);
+		if (same(t.name)) throw new ConvexError(`“${t.plural}” already uses “${t.name}” as its name for one entry. Give this database a different one.`);
+	}
 	return names;
 }
 

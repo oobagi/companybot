@@ -27,6 +27,15 @@ it("owners create, rename and archive databases with stable keys and Activity hi
 	]);
 });
 
+it("names the clashing name and its database when a singular is taken", async () => {
+	const { owner } = await ownerAndMember();
+	const roxy = await owner.mutation(api.recordTypes.create, { plural: "Poker — Roxy" });
+	await owner.mutation(api.recordTypes.update, { typeId: roxy, version: 0, name: "Poker hand" });
+	const jaden = await owner.mutation(api.recordTypes.create, { plural: "Poker — Jaden" });
+	await expect(owner.mutation(api.recordTypes.update, { typeId: jaden, version: 0, name: "Poker hand" })).rejects.toThrow("“Poker — Roxy” already uses “Poker hand”");
+	await expect(owner.mutation(api.recordTypes.create, { plural: "Poker — Roxy" })).rejects.toThrow("There's already a database called “Poker — Roxy”");
+});
+
 it("renames and archives legacy databases and validates database names", async () => {
 	const { owner } = await ownerAndMember();
 	const types = await owner.query(api.recordTypes.list);
