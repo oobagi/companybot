@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuery } from "convex-helpers/react/cache";
 import type { OptimisticUpdate } from "convex/browser";
-import { type PaginatedQueryReference, useAction as useConvexAction, useMutation as useConvexMutation } from "convex/react";
+import { type PaginatedQueryReference, useAction as useConvexAction, useConvex, useMutation as useConvexMutation } from "convex/react";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 import { createContext, useCallback, useContext } from "react";
 
@@ -53,6 +53,13 @@ export function useMutation<M extends FunctionReference<"mutation">>(mutation: M
 		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => (optimistic ? plain.withOptimisticUpdate(optimistic()) : plain)(withWorkspace(args as Args, workspaceId)),
 		[plain, optimistic, workspaceId],
 	);
+}
+
+/** A one-time read, not a subscription (what a folder holds now, to place a row last in it), in the open workspace like the hooks. */
+export function useFetch() {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	const convex = useConvex();
+	return useCallback(<Q extends FunctionReference<"query">>(query: Q, ...[args]: Rest<Q>): Promise<FunctionReturnType<Q>> => convex.query(query, withWorkspace(args as Args, workspaceId)), [convex, workspaceId]);
 }
 
 export function useAction<A extends FunctionReference<"action">>(action: A) {
