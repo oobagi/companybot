@@ -6,7 +6,7 @@ import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { compactControlClass, hintClass, useDebounced, useSynced } from "../../ui";
-import { Popover } from "../chat/common";
+import { MenuItem, Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
 import { CaretUpDownIcon, CloseIcon, PrivateIcon } from "../../icons";
@@ -14,11 +14,17 @@ import { CaretUpDownIcon, CloseIcon, PrivateIcon } from "../../icons";
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
 
+// Record fields edit in place: no box until you hover, so a record's fields read as text. Their
+// pickers (`Select`, `RecordPicker`) share that look instead of the boxed `compactControlClass`.
+/* oxlint-disable shadcn/no-restyle -- in-place field editors: borderless until hover, unlike any shared control */
 /** One box for every value, so each kind (text, pickers, chips, checkbox) lines up under the others. */
 const cell = "flex min-h-[calc(1.5em+0.5rem+2px)] w-full items-center rounded-lg border border-transparent px-2 py-1";
 const editable = `${cell} outline-none hover:border-neutral-200 focus:border-neutral-400`;
 /** "Pick…" / "Add…" beside a field's value: the same hover border as the field itself. */
 const fieldPicker = "inline-flex shrink-0 items-center rounded-lg border border-transparent px-2 py-1 text-left hover:border-neutral-200 focus:border-neutral-400 outline-none";
+/** The currency beside an amount: a picker, quieter than the amount. */
+const currencyPicker = "inline-flex shrink-0 rounded-lg border border-transparent px-2 py-1 text-neutral-500 hover:border-neutral-200";
+/* oxlint-enable shadcn/no-restyle */
 const empty = "text-neutral-400";
 
 /** A value, read-only. Links open their record; ones to a deleted record say so and don't open. */
@@ -50,6 +56,7 @@ function LinkChips({ field, ids, refs, onRemove }: { field: TypeField; ids: stri
 					) : refs[id]?.archived ? (
 						<span className="text-neutral-400">{valueText(field, id, refs)}</span>
 					) : (
+						// oxlint-disable-next-line ui/button-class -- a linked record's name in its chip opens it, like a link
 						<button type="button" onClick={() => key && navigate(...recordPath(key, id))} className="hover:underline">
 							{valueText(field, id, refs)}
 						</button>
@@ -65,6 +72,7 @@ export function Chip({ children, onRemove }: { children: React.ReactNode; onRemo
 		<span className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-sm">
 			{children}
 			{onRemove && (
+				// oxlint-disable-next-line ui/button-class -- a chip's own small ×; `iconButton` is taller than the chip
 				<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" title="Remove" aria-label="Remove">
 					<CloseIcon />
 				</button>
@@ -180,7 +188,7 @@ function MoneyEditor({ value, onSave }: { value: Money | undefined; onSave: (val
 				options={currencyCodes.map((c) => ({ value: c, label: c }))}
 				onChange={(c) => save(amount, c)}
 				caret={false}
-				className="inline-flex shrink-0 rounded-lg border border-transparent px-2 py-1 text-neutral-500 hover:border-neutral-200"
+				className={currencyPicker}
 			/>
 		</span>
 	);
@@ -299,9 +307,9 @@ function RecordSearch({ typeId, exclude, onPick }: { typeId: string; exclude: st
 			{results
 				?.filter((r) => !exclude.includes(r._id))
 				.map((r) => (
-					<button key={r._id} type="button" onClick={() => onPick(r._id, r.title)} className="truncate rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100">
-						{r.title}
-					</button>
+					<MenuItem key={r._id} onClick={() => onPick(r._id, r.title)}>
+						<span className="min-w-0 truncate text-sm">{r.title}</span>
+					</MenuItem>
 				))}
 			{results?.length === 0 && <span className={`px-2 py-1 ${hintClass}`}>No matches.</span>}
 		</>

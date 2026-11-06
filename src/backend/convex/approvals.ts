@@ -11,7 +11,6 @@ import {
 	canDecideApproval,
 	canonicalJson,
 	clipJson,
-	findConnector,
 	toolGroup,
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
@@ -23,6 +22,7 @@ import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
 import { titleOf } from "./connectorTools";
+import { connectorIn } from "./connectorAccess";
 import { type Member, erased, getMember, liveWorkspace, memberOf, nameOf, requireLiveAgent, requireMember, sweepExpired, toActor } from "./lib";
 import { decideFor, setRule } from "./permissions";
 import { canReadReplyDetails, canReadSources, readReplyDetails } from "./replyPrivacy";
@@ -246,7 +246,7 @@ export const forReply = query({
 		const card = async (row: Doc<"approvals">) => {
 			const mine = canDecideApproval(toActor(member), row);
 			const group = toolGroup(row.tool);
-			const connector = findConnector(group) ?? null;
+			const connector = (await connectorIn(ctx, row.workspaceId, group)) ?? null;
 			const always = mine && approvalStatus(row) === "pending" ? await alwaysFor(ctx, row) : null;
 			const title = await titleOf(ctx, row.workspaceId, row.tool);
 			// A skill proposal may be private even when its write is later refused.
@@ -263,7 +263,7 @@ export const forReply = query({
 				callId: row.callId,
 				tool: row.tool,
 				/** The service's name ("Night Owl"), or null for built-ins. */
-				service: findConnector(group)?.name ?? null,
+				service: connector?.name ?? null,
 				/** What this call does, for people: "Send SMS", "Archive page". */
 				action,
 				/** The ask: "I'd like to send an email to dana@acme.com from your Gmail.", or "Monday summary wants to post in #general as you." */

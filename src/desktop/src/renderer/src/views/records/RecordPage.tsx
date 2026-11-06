@@ -8,7 +8,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, compactButton, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, compactButton, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun, cardButton } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -140,6 +140,7 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 			{/* The label opens the field's settings, for whoever may change them. */}
 			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
 				{onEditField ? (
+					// oxlint-disable-next-line ui/button-class -- a field's label opens its settings, like a clickable title
 					<button type="button" onClick={onEditField} title="Edit field" className="-mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 text-left hover:bg-neutral-100 hover:text-neutral-900">
 						{field.label}
 					</button>
@@ -187,6 +188,7 @@ function Linked({ recordId }: { recordId: Id<"records"> }) {
 						</p>
 						<div className={listClass}>
 							{rows.map((r) => (
+								// oxlint-disable-next-line ui/button-class -- a whole list row opens its record; no shared row look yet
 								<button
 									key={r._id}
 									type="button"
@@ -227,7 +229,7 @@ function Discussion({ recordId }: { recordId: Id<"records"> }) {
 						key={m.messageId}
 						type="button"
 						onClick={() => navigate("chat", m.chatId, ...(m.threadId ? ["thread", m.threadId] : ["message", m.messageId]))}
-						className={`flex flex-col gap-1 text-left text-sm hover:bg-neutral-50 ${cardClass}`}
+						className={`flex-col gap-1 text-sm ${cardButton}`}
 					>
 						<span className="flex items-baseline gap-2">
 							<span className="font-medium">{m.author}</span>
@@ -296,5 +298,5 @@ function RecordHistory({ open, onClose, type, recordId, pageId, canUndo, canRest
 	const [tab, setTab] = useState<"properties" | "body">("properties");
 	if (!open) return null;
 	const tabs = <Tabs tabs={[{ id: "properties", label: "Properties" }, { id: "body", label: "Page body" }]} value={tab} onChange={setTab} />;
-	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" wide onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
+	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" size="xl" onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
 }

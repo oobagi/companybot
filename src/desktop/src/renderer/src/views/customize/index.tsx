@@ -1,12 +1,13 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
+import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
 import { NewButton, Notice, Page, useRun } from "../../ui";
 import { AgentScreen, AgentsTab } from "../Agents";
 import { AutomationScreen, AutomationsTab } from "./Automations";
-import { ConnectorScreen, ConnectorsTab } from "./Connectors";
+import { ConnectorScreen, ConnectorsTab, NewConnectorDialog } from "./Connectors";
 import { type CustomizeTab, customizeTabs } from "./shared";
 import { SkillScreen, SkillsTab } from "./Skills";
 
@@ -16,6 +17,7 @@ export { type CustomizeTab, customizeTabs } from "./shared";
 export function CustomizeView({ access, tab, itemId }: { access: Access; tab: CustomizeTab; itemId?: string }) {
 	const createAgent = useMutation(api.agents.create);
 	const { error, run } = useRun();
+	const [adding, setAdding] = useState(false);
 	const current = customizeTabs.find((t) => t.id === tab)!;
 	if (itemId) {
 		if (tab === "agents") return <AgentScreen access={access} agentId={itemId as Id<"agents">} />;
@@ -24,14 +26,15 @@ export function CustomizeView({ access, tab, itemId }: { access: Access; tab: Cu
 		return <AutomationScreen access={access} id={itemId} />;
 	}
 	return (
-		<Page title={current.label} intro={current.description} actions={{
+		<Page title={current.label} description={current.description} actions={{
 			agents: can(access, "agents.manage") && <NewButton label="New agent" onClick={() => run(createAgent().then((id) => navigate("settings", "agents", id)))} />,
-			connectors: null,
+			connectors: can(access, "connectors.manage") && <NewButton label="New connector" onClick={() => setAdding(true)} />,
 			skills: <NewButton label="New skill" onClick={() => navigate("settings", "skills", "new")} />,
 			// Everyone: a personal one needs no switch (the form offers sharing only to those who can).
 			automations: <NewButton label="New automation" onClick={() => navigate("settings", "automations", "new")} />,
 		}[tab]}>
 			<Notice>{error}</Notice>
+			{adding && <NewConnectorDialog onClose={() => setAdding(false)} />}
 			{tab === "agents" && <AgentsTab />}
 			{tab === "connectors" && <ConnectorsTab access={access} />}
 			{tab === "skills" && <SkillsTab />}

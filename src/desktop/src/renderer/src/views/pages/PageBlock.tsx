@@ -29,7 +29,7 @@ export function PageBlockRow({ pageId, editable = false }: { pageId: string; edi
 	const [renaming, setRenaming] = useState(false);
 	const name = page ? page.title : "Page";
 	return (
-		<div className="page-block group/page flex w-full min-w-0 items-center rounded-md hover:bg-neutral-100/70" contentEditable={false}>
+		<div className="group/page flex w-full min-w-0 items-center rounded-md hover:bg-neutral-100/70" contentEditable={false}>
 			<a href={pageHref(pageId)} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
 				<PageIcon className="shrink-0 text-neutral-400" />
 				<span className="truncate font-medium underline decoration-neutral-300 underline-offset-4">{name}</span>

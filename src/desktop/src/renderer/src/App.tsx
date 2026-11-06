@@ -11,7 +11,7 @@ import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute, views } from "./router";
 import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
+import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, compactPrimaryButton, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
@@ -210,6 +210,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
 
 	return (
+		// oxlint-disable-next-line shadcn/no-arbitrary-values -- the app's body size, set once at the root (no 15px step on the scale)
 		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
 			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
@@ -274,7 +275,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										<GettingStarted agent={chats?.agents[0]?.name ?? "an agent"} />
 										{update?.state === "ready" && (
 											<div className="flex flex-col px-3 pt-4 pb-3">
-												<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
+												<button type="button" onClick={() => void desktop?.updates.install()} className={`${compactPrimaryButton} text-left`}>
 													Update ready · Restart
 												</button>
 											</div>

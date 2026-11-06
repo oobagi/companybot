@@ -233,6 +233,10 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "Uninstalling deletes the row before the cascade starts, so access ends at once.",
 	},
+	customConnectors: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		keep: "The workspace's own connector stays when its maker leaves; removing it (customConnectors.remove) deletes the row and uninstalls it first.",
+	},
 	connectorSourceLabels: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		keep: "A deleted install's display name explains its retained sources; no credentials or data survive uninstall.",

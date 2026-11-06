@@ -2,7 +2,7 @@ import { DOCX, PPTX, XLSX, isImageType } from "@companybot/core/files";
 import { type Sheet, parseCsv, readPptx, readXlsx } from "@companybot/core/office-text";
 import { useEffect, useRef, useState } from "react";
 import { Markdown } from "../../markdown";
-import { Loading, Notice, metadataClass } from "../../ui";
+import { Loading, Notice, Tabs, metadataClass } from "../../ui";
 
 // Shows a Drive file inline: pictures and PDFs as they are, Word through docx-preview, Excel, CSV
 // and PowerPoint read with core's office-text readers (the same ones agents read with), text as text.
@@ -21,7 +21,7 @@ export function FileViewer({ url, type, name }: { url: string; type: string; nam
 	if (type === XLSX) return <Fetched url={url} render={(bytes) => <SheetsView sheets={readXlsx(bytes)} />} />;
 	if (type === PPTX) return <Fetched url={url} render={(bytes) => <SlidesView slides={readPptx(bytes)} />} />;
 	if (type === "text/csv") return <Fetched url={url} render={(bytes) => <SheetsView sheets={[{ name, rows: parseCsv(decode(bytes)) }]} />} />;
-	if (type === "text/markdown") return <Fetched url={url} render={(bytes) => <Markdown className="prose prose-neutral max-w-none">{decode(bytes)}</Markdown>} />;
+	if (type === "text/markdown") return <Fetched url={url} render={(bytes) => <Markdown className="rounded-xl border border-neutral-200 bg-white px-8 py-6 text-sm leading-relaxed">{decode(bytes)}</Markdown>} />;
 	if (type.startsWith("text/") || type === "application/json") return <Fetched url={url} render={(bytes) => <pre className="overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm whitespace-pre-wrap">{decode(bytes)}</pre>} />;
 	return <Notice>This kind of file can't be shown here. Open it in your browser to download it.</Notice>;
 }
@@ -71,7 +71,7 @@ function DocxBody({ bytes, container, onError }: { bytes: Uint8Array; container:
 			.catch((e: unknown) => live && onError(e instanceof Error ? `Couldn't show the document: ${e.message}` : "Couldn't show the document."));
 		return () => { live = false; el.replaceChildren(); };
 	}, [bytes, container, onError]);
-	return <div ref={container} className="docx prose prose-neutral max-w-none rounded-xl border border-neutral-200 bg-white px-8 py-6" />;
+	return <div ref={container} className="rounded-xl border border-neutral-200 bg-white px-8 py-6 text-sm leading-relaxed" />;
 }
 
 /** A workbook's sheets as tabs over a table, or a CSV as one sheet. */
@@ -79,18 +79,13 @@ function SheetsView({ sheets }: { sheets: Sheet[] | undefined }) {
 	const [index, setIndex] = useState(0);
 	if (!sheets) return <Notice>It's too big to show here. Open it in your browser instead.</Notice>;
 	if (!sheets.length) return <Notice>The workbook has no sheets.</Notice>;
-	const sheet = sheets[Math.min(index, sheets.length - 1)]!;
+	const open = Math.min(index, sheets.length - 1);
+	const sheet = sheets[open]!;
 	const rows = sheet.rows.slice(0, ROWS_MAX);
 	const cols = Math.min(COLS_MAX, Math.max(1, ...rows.map((r) => r.length)));
 	return (
 		<div className="flex flex-col gap-3">
-			{sheets.length > 1 && (
-				<div className="flex flex-wrap gap-1 text-sm">
-					{sheets.map((s, i) => (
-						<button key={s.name + i} type="button" onClick={() => setIndex(i)} className={`rounded-lg px-2.5 py-1 ${i === index ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"}`}>{s.name}</button>
-					))}
-				</div>
-			)}
+			{sheets.length > 1 && <Tabs tabs={sheets.map((s, i) => ({ id: String(i), label: s.name }))} value={String(open)} onChange={(id) => setIndex(Number(id))} />}
 			{rows.length ? (
 				<div className="overflow-auto rounded-xl border border-neutral-200">
 					<table className="min-w-full border-collapse text-sm">

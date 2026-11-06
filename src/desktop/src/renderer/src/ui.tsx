@@ -239,15 +239,14 @@ const actionSlot = createContext<HTMLElement | null>(null);
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
- * `description` sits next to the title in the top bar (short: it truncates); `intro`, a sentence or
- * two about the screen, opens its content in full. `actions` go on the top bar's right. `wide` for tables.
+ * `description` sits next to the title in the top bar: a few words, like a channel's topic (it
+ * truncates; the details belong in help). `actions` go on the top bar's right. `wide` for tables.
  */
 export function Page({
 	title,
 	crumbs,
 	heading,
 	description,
-	intro,
 	actions,
 	wide,
 	children,
@@ -256,7 +255,6 @@ export function Page({
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
 	description?: string;
-	intro?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
 	children: React.ReactNode;
@@ -281,8 +279,6 @@ export function Page({
 					}`}
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
-					{/* Inset like section headings, so it lines up with the text in the cards below. */}
-					{intro && <p className={`${descriptionClass} ${insetClass}`}>{intro}</p>}
 					{children}
 				</div>
 			</actionSlot.Provider>
@@ -336,48 +332,61 @@ export function Tabs<T extends string>({
 /**
  * A titled part of a screen, usually a stack of cards. Its heading is inset to line up with the
  * text inside them; `flush` keeps it at the edge, for plain content (a form) that sits there too.
+ * Headings are a title only: what a setting does is its own hint. `note`, for the rare section
+ * that needs one, is a small footnote under its content, as in macOS settings.
  */
-export function Section({ title, hint, flush, children }: { title: string; hint?: string; flush?: boolean; children: React.ReactNode }) {
+export function Section({ title, note, flush, action, children }: { title: string; note?: string; flush?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} flush={flush} />
+			<Heading title={title} flush={flush} action={action} />
 			{children}
+			<Note text={note} flush={flush} />
 		</section>
 	);
 }
 
-/** Section and Settings headings: a title and a hint. */
-function Heading({ title, hint, flush }: { title?: string; hint?: string; flush?: boolean }) {
-	if (!title && !hint) return null;
+/** Section and Settings headings: a title, and on the right a button for the section (Add). */
+function Heading({ title, flush, action }: { title?: string; flush?: boolean; action?: React.ReactNode }) {
+	if (!title) return null;
 	return (
-		<div className={flush ? "" : insetClass}>
-			{title && <h2 className="font-medium">{title}</h2>}
-			{hint && <p className={descriptionClass}>{hint}</p>}
+		<div className={`flex min-h-7 items-center gap-3 ${flush ? "" : insetClass}`}>
+			<h2 className="min-w-0 flex-1 font-medium">{title}</h2>
+			{action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
 		</div>
 	);
+}
+
+function Note({ text, flush }: { text?: string; flush?: boolean }) {
+	return text ? <p className={`text-xs text-neutral-500 ${flush ? "" : insetClass}`}>{text}</p> : null;
 }
 
 /**
  * Settings, one per row in a card: what it is and a one-line hint on the left, its
  * control on the right. Every settings screen uses it, so labels and controls line up.
  */
-export function Settings({ title, hint, children }: { title?: string; hint?: string; children: React.ReactNode }) {
+export function Settings({ title, note, action, children }: { title?: string; note?: string; action?: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} />
+			<Heading title={title} action={action} />
 			<div className={listClass}>{children}</div>
+			<Note text={note} />
 		</section>
 	);
 }
 
-export function Setting({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/**
+ * One setting in a `Settings` card. Every form uses these rows, on a screen or in a dialog.
+ * `wide` is for long text (a textarea, instructions): the label and hint on top, the control
+ * across the card under them (give it `compactControlClass w-full`).
+ */
+export function Setting({ label, hint, wide, children }: { label: string; hint?: string; wide?: boolean; children: React.ReactNode }) {
 	return (
-		<div className="flex items-center gap-6 px-4 py-3">
-			<div className="min-w-0 flex-1">
+		<div className={`flex px-4 py-3 ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
+			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<p className="text-sm font-medium">{label}</p>
 				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
 			</div>
-			<div className="flex shrink-0 items-center gap-2 text-sm">{children}</div>
+			<div className={`flex items-center gap-2 text-sm ${wide ? "" : "shrink-0"}`}>{children}</div>
 		</div>
 	);
 }
@@ -391,19 +400,24 @@ export function Form({ className = "flex flex-col gap-4", onSubmit, children }: 
 	);
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/** The old stacked form field: `ui/no-stacked-form` reports every use. Forms are `Setting` rows; delete this once none are left. */
+/**
+ * A count in a pill: unread @mentions and DMs on the rail and in the switcher (red), an @ on a
+ * sidebar row (`dark`). `ring` cuts it out from what it sits on (the rail's background).
+ */
+export function CountBadge({ count, dark, ring, className = "" }: { count: number | string; dark?: boolean; ring?: boolean; className?: string }) {
 	return (
-		<label className="flex flex-col gap-1.5">
-			<span className="text-sm font-medium">{label}</span>
-			{children}
-			{hint && <span className="text-xs text-neutral-500">{hint}</span>}
-		</label>
+		<span
+			className={`inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] leading-none font-bold text-white tabular-nums ${dark ? "bg-neutral-900" : "bg-red-500"} ${ring ? "ring-2 ring-neutral-100" : ""} ${className}`}
+		>
+			{typeof count === "number" && count > 9 ? "9+" : count}
+		</span>
 	);
 }
 
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
-export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
+/** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
 export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
@@ -422,13 +436,21 @@ export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+/** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
+export const trailingAction =
+	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
+/** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
+export const railButton = (active: boolean) =>
+	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */
 export const hintClass = "text-sm text-neutral-400";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
+/** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
+export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
 export const insetClass = "px-[17px]";
 /** Rows in one bordered box, split by lines. */
@@ -461,7 +483,7 @@ export function NewButton({ label, onClick }: { label: string; onClick: () => vo
 export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
 	return (
 		<div className="flex min-h-[60vh] flex-1 flex-col items-center pt-24">
-			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
+			<div className="sticky top-1/2 flex max-w-xs -translate-y-1/2 flex-col items-center gap-2 py-8 text-center text-balance">
 				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
 				<h2 className="text-base font-medium">{title}</h2>
 				<p className={descriptionClass}>{children}</p>
@@ -680,6 +702,9 @@ const subscribeDrafts = (listener: () => void) => {
 	draftListeners.add(listener);
 	return () => { draftListeners.delete(listener); };
 };
+/** A version for `useDraft` from a value with none of its own (a role, your preferences): changes when it does. */
+export const versionOf = (value: unknown) => [...JSON.stringify(value)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7);
+
 export function useDraft<T>(key: string, saved: T, version: number) {
 	const me = useQuery(api.workspace.me);
 	const workspace = useWorkspace();

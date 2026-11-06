@@ -1,7 +1,7 @@
 import { useEffect, useReducer } from "react";
 import { useUpdates } from "../desktop";
 import { ArrowLeftIcon, ArrowRightIcon, BugIcon, HelpIcon, SidebarIcon, SparkleIcon } from "../icons";
-import { MenuDivider, useTip } from "../ui";
+import { MenuDivider, iconButton, useTip } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 
 const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
@@ -11,9 +11,6 @@ const repo = "https://github.com/oobagi/companybot";
 // doesn't describe it yet. Missing (older browsers), the arrows just stay enabled.
 type Navigation = EventTarget & { canGoBack: boolean; canGoForward: boolean };
 const navigation = (globalThis as { navigation?: Navigation }).navigation;
-
-const button =
-	"no-drag flex size-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
 
 /**
  * The strip across the top of the window, beside its buttons: hide the sidebar, step back and
@@ -41,20 +38,20 @@ export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: 
 
 	return (
 		// Starts past the window's buttons (macOS puts them at the top left).
-		<div className="drag flex h-8 shrink-0 items-center gap-0.5 pr-2 pl-[84px] text-base">
+		<div className="drag flex h-8 shrink-0 items-center gap-0.5 pr-2 pl-21 text-base">
 			{/* Tips go on a wrapper: a disabled button gets no mouse events. */}
 			<span className="flex" {...tipFor(`${sidebar ? "Hide" : "Show"} sidebar`, `${mod}\\`)}>
-				<button type="button" aria-label={`${sidebar ? "Hide" : "Show"} sidebar`} onClick={onSidebar} className={button}>
+				<button type="button" aria-label={`${sidebar ? "Hide" : "Show"} sidebar`} onClick={onSidebar} className={`no-drag ${iconButton}`}>
 					<SidebarIcon />
 				</button>
 			</span>
 			<span className="flex" {...tipFor("Back", `${mod}[`)}>
-				<button type="button" aria-label="Back" disabled={navigation && !navigation.canGoBack} onClick={() => history.back()} className={button}>
+				<button type="button" aria-label="Back" disabled={navigation && !navigation.canGoBack} onClick={() => history.back()} className={`no-drag ${iconButton}`}>
 					<ArrowLeftIcon />
 				</button>
 			</span>
 			<span className="flex" {...tipFor("Forward", `${mod}]`)}>
-				<button type="button" aria-label="Forward" disabled={navigation && !navigation.canGoForward} onClick={() => history.forward()} className={button}>
+				<button type="button" aria-label="Forward" disabled={navigation && !navigation.canGoForward} onClick={() => history.forward()} className={`no-drag ${iconButton}`}>
 					<ArrowRightIcon />
 				</button>
 			</span>
@@ -77,7 +74,7 @@ function Help() {
 					<HelpIcon />
 				</>
 			}
-			className={button} panelClassName="w-56 p-1 text-sm">
+			className={`no-drag ${iconButton}`} panelClassName="w-56 p-1 text-sm">
 			{(close) => (
 				<>
 					<MenuItem onClick={() => (close(), window.open(`${repo}/releases`))}>

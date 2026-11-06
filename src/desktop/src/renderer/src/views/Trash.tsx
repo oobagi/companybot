@@ -52,7 +52,7 @@ export function TrashView({ access }: { access: Access }) {
 	const { confirm, dialog } = useConfirm();
 	const canPurge = can(access, "trash.manage");
 	return (
-		<Page title="Archive" intro="Archived items are kept here until you restore them or explicitly delete them forever.">
+		<Page title="Archive" description="Kept until you restore or delete them">
 			<div className={toolbarClass}>
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Archive" className={wideControlClass} />
 				<Select
@@ -73,7 +73,8 @@ export function TrashView({ access }: { access: Access }) {
 								<span className="w-24 shrink-0 text-neutral-500">{kinds.find((k) => k.id === e.kind)!.one}</span>
 								<span className="min-w-0 truncate">
 									{to ? (
-										<button type="button" onClick={() => navigate(...to)} className="font-medium hover:underline">{e.name}</button>
+										// oxlint-disable-next-line ui/button-class -- the archived item's name opens it: a title link in a list row, beside its Restore button
+									<button type="button" onClick={() => navigate(...to)} className="font-medium hover:underline">{e.name}</button>
 									) : (
 										<span className="font-medium">{e.name}</span>
 									)}

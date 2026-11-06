@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { create } from "react-test-renderer";
 import { applyCommand, type ArrangementCommand } from "@companybot/core/arrangements";
-import { applyOrder, moveCommand, useSortable } from "./sortable";
+import { applyOrder, moveCommand, place, useSortable } from "./sortable";
 
 const id = (s: string) => s;
 
@@ -14,26 +14,52 @@ it("puts saved ids first and keeps new ones in their given order after", () => {
 });
 
 it("turns a drop into one move that lands where it looked, saved or not", () => {
-	const drop = (saved: string[], shown: string[], from: string, to: string, edge: "before" | "after") => {
-		const command = moveCommand(saved, shown, from, to, edge);
+	const drop = (saved: string[], shown: string[], from: string, index: number) => {
+		const command = moveCommand(saved, shown, from, index);
 		return command && applyOrder(applyCommand(saved, command), shown, id);
 	};
-	expect(drop(["a", "b", "c"], ["a", "b", "c"], "a", "c", "after")).toEqual(["b", "c", "a"]);
-	expect(drop(["a", "b", "c"], ["a", "b", "c"], "c", "a", "before")).toEqual(["c", "a", "b"]);
-	expect(drop([], ["a", "b", "c", "d"], "a", "c", "before")).toEqual(["b", "a", "c", "d"]);
-	expect(drop(["c"], ["c", "a", "b", "d"], "c", "d", "after")).toEqual(["a", "b", "d", "c"]);
-	expect(moveCommand(["a"], ["a", "b"], "b", "b", "after")).toBeUndefined();
-	expect(moveCommand(["a"], ["a", "b"], "a", "missing", "before")).toBeUndefined();
+	expect(drop(["a", "b", "c"], ["a", "b", "c"], "a", 2)).toEqual(["b", "c", "a"]);
+	expect(drop(["a", "b", "c"], ["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
+	expect(drop([], ["a", "b", "c", "d"], "a", 1)).toEqual(["b", "a", "c", "d"]);
+	expect(drop(["c"], ["c", "a", "b", "d"], "c", 3)).toEqual(["a", "b", "d", "c"]);
+	expect(moveCommand(["a"], ["a", "b"], "b", 1)).toBeUndefined();
 });
 
 it("keeps both devices' moves when each is built from the same stale snapshot", () => {
 	const snapshot = ["a", "b", "c", "d"];
-	const fromA = moveCommand(snapshot, snapshot, "d", "a", "before")!;
-	const fromB = moveCommand(snapshot, snapshot, "b", "d", "after")!;
+	const fromA = moveCommand(snapshot, snapshot, "d", 0)!;
+	const fromB = moveCommand(snapshot, snapshot, "b", 3)!;
 	const server = applyCommand(applyCommand(snapshot, fromA), fromB);
 	expect(server.indexOf("d")).toBeLessThan(server.indexOf("a"));
 	expect(server.at(-1)).toBe("b");
 	expect(applyCommand(applyCommand([], { op: "add", id: "page:1" }), { op: "add", id: "page:2" })).toEqual(["page:1", "page:2"]);
+});
+
+// Rows 30px tall, 2px apart; a divider (8px with its margins) between list p and list r.
+const row = (list: string, id: string, start: number) => ({ key: `${list}:${id}`, list, id, start, size: 30, pitch: 32 });
+const slots = [row("p", "a", 0), row("p", "b", 32), { key: "div", start: 64, size: 1, pitch: 8, endOf: "p" }, row("r", "x", 72), row("r", "y", 104)];
+const any = () => true;
+
+it("lands a dragged row in the gap nearest its middle, anywhere along the list", () => {
+	// a dragged down past b: lands after b, b slides up a row.
+	const down = place(slots, 0, 40, any)!;
+	expect(down.target).toMatchObject({ list: "p", index: 1 });
+	expect(down.shifts.get("p:b")).toBe(-32);
+	// Dragged far past the end, it still lands: at the end of the last list.
+	expect(place(slots, 0, 900, any)!.target).toMatchObject({ list: "r", index: 2 });
+	// Dragged far above the start: first place.
+	expect(place(slots, 4, -900, any)!.target).toMatchObject({ list: "p", index: 0 });
+});
+
+it("moves a row between lists in a group, and the divider slides with the rows", () => {
+	// y dragged up just under b: joins p at its end; the divider and x slide down a row.
+	const up = place(slots, 4, 40, any)!;
+	expect(up.target).toMatchObject({ list: "p", index: 2 });
+	expect(up.shifts.get("div")).toBe(32);
+	expect(up.shifts.get("r:x")).toBe(32);
+	expect(up.shifts.has("p:b")).toBe(false);
+	// A list it can't join is skipped for the nearest one it can.
+	expect(place(slots, 4, 40, (l) => l !== "p")!.target).toMatchObject({ list: "r", index: 0 });
 });
 
 const saved = vi.hoisted(() => ({ ids: [] as string[], writable: true, writes: 0 }));
@@ -46,22 +72,16 @@ it("keeps unseen shared rows when dragging visible ones and disables forbidden d
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	saved.ids = ["a", "hidden", "b", "unloaded"];
 	saved.writable = true;
-	saved.writes = 0;
+	const command = moveCommand(saved.ids, ["a", "b"], "b", 0)!;
+	expect(applyCommand(saved.ids, command)).toEqual(["b", "a", "hidden", "unloaded"]);
 	let list!: ReturnType<typeof useSortable<string>>;
 	const List = () => ((list = useSortable("channels", ["a", "b"], id)), null);
 	let root!: ReturnType<typeof create>;
 	act(() => { root = create(createElement(List)); });
-	const event = { stopPropagation: vi.fn(), preventDefault: vi.fn(), clientY: 0, dataTransfer: { setData: vi.fn() }, currentTarget: { getBoundingClientRect: () => ({ top: 0, height: 20 }) } } as unknown as React.DragEvent;
-	act(() => list.drag("b").onDragStart(event));
-	act(() => list.drag("a").onDragOver(event));
-	act(() => list.drag("a").onDrop(event));
-	expect(saved.ids).toEqual(["b", "a", "hidden", "unloaded"]);
-	expect(saved.writes).toBe(1);
+	expect(list.drag("a").onPointerDown).toBeTypeOf("function");
 	saved.writable = false;
 	act(() => root.update(createElement(List)));
-	expect(list.drag("a").draggable).toBe(false);
-	act(() => { list.drag("a").onDragStart(event); list.drag("b").onDrop(event); });
-	expect(saved.writes).toBe(1);
+	expect(list.drag("a").onPointerDown).toBeUndefined();
 	act(() => root.unmount());
 	vi.unstubAllGlobals();
 });

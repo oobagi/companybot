@@ -58,7 +58,7 @@ export function ActivityTab() {
 
 function DatabaseActivity({ results, status, loadMore }: { results: FunctionReturnType<typeof api.records.activity>["page"]; status: string; loadMore: (count: number) => void }) {
 	return (
-		<Section title="Database changes" hint="Records, fields, databases and shared views, including changes made by agents.">
+		<Section title="Database changes">
 			{results.map((e) => {
 				const [kind, action] = e.action.includes(".") ? e.action.split(".") : ["record", e.action];
 				return <div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>
@@ -79,6 +79,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className={`flex flex-col gap-2 text-sm ${cardClass}`}>
+			{/* oxlint-disable-next-line ui/button-class -- a clickable fold title: the entry's header opens its call details */}
 			<button type="button" onClick={() => setOpen(!open)} className="flex items-baseline gap-2 text-left">
 				<span className="font-medium">{entry.agent}</span>
 				<span className="text-neutral-600">{entry.label}</span>
@@ -108,12 +109,11 @@ function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["al
 			{text}
 			{allowed.ruleStillOn === false && " · rule since removed"}
 			{allowed.ruleStillOn && mine && (
-				<>
-					{" · "}
-					<button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
+				<span>
+					{" "}· <button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
 						See rule
 					</button>
-				</>
+				</span>
 			)}
 		</p>
 	);

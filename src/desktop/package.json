@@ -14,7 +14,8 @@
     "package": "electron-vite build && electron-builder --config electron-builder.yml --publish never",
     "preview:web": "vite --config vite.web.config.ts",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "lint": "oxlint --report-unused-disable-directives src"
   },
   "//": "Everything is bundled by electron-vite, so the packaged app ships no node_modules. Keep all packages in devDependencies.",
   "devDependencies": {
@@ -29,6 +30,7 @@
     "@mantine/hooks": "^8.3.18",
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-scroll-area": "^1.4.0",
+    "@shadcn/lint": "^0.2.5",
     "@tailwindcss/vite": "^4.3.3",
     "@tiptap/core": "^3.32.0",
     "@tiptap/extension-document": "3.32.0",
@@ -53,6 +55,7 @@
     "electron-vite": "^6.0.0",
     "emojibase-data": "^18.0.0",
     "happy-dom": "^21.0.4",
+    "oxlint": "^1.91.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-test-renderer": "19.3.1",

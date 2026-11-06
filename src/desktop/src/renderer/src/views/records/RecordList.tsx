@@ -1,6 +1,6 @@
 import { useStoredIds } from "../../arrangements";
 import type { FieldKind } from "@companybot/core/records";
-import { type Access, can } from "@companybot/core/permissions";
+import type { Access } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
@@ -10,8 +10,8 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
-import { MenuItem, Modal, Popover, useConfirm } from "../chat/common";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, compactButton, compactControlClass, iconButton, primaryButton, secondaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
@@ -123,7 +123,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const args = { typeId: type._id, filters: conditions, sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
-	const tabClass = "flex items-center px-3 py-2 text-base text-neutral-500 hover:text-neutral-800";
 
 	return (
 		<Page
@@ -178,12 +177,12 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				}
 			>
 				{canEdit && (
-					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setSavingView(true)}>
+					<button type="button" title="Save these filters as a view" aria-label="Save these filters as a view" className={`${iconButton} self-center`} onClick={() => setSavingView(true)}>
 						<PlusIcon />
 					</button>
 				)}
 				{canEdit && selected && draft.dirty && (
-					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactControlClass}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
+					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactButton}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
 						Save for everyone
 					</button>
 				)}
@@ -274,12 +273,15 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						}}
 					>
 						<Notice>{naming.error}</Notice>
-						<Field label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
-							<input name="name" autoFocus required maxLength={120} className={inputClass} />
-						</Field>
-						<button type="submit" className={`${primaryButton} self-start`}>
-							Save for everyone
-						</button>
+						<Settings>
+							<Setting label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
+								<input name="name" aria-label="View name" autoFocus required maxLength={120} className={wideControlClass} />
+							</Setting>
+						</Settings>
+						<DialogButtons>
+							<button type="button" onClick={() => setSavingView(false)} className={secondaryButton}>Cancel</button>
+							<button type="submit" className={primaryButton}>Save for everyone</button>
+						</DialogButtons>
 					</Form>
 				</Modal>
 			)}
@@ -321,6 +323,7 @@ function RecordResults({
 		return (
 			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
 				{canSort ? (
+					// oxlint-disable-next-line ui/button-class -- a table's sort header: the column title is the button
 					<button type="button" onClick={() => onSort(next())} className={`flex items-center gap-1 ${on ? "text-neutral-900" : "hover:text-neutral-900"}`}>
 						{label}
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
@@ -420,7 +423,7 @@ function FilterRow({
 			/>
 			<Select label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
 			{needsValue(filter.op) && <FilterValue field={field} filter={filter} onChange={(value) => onChange({ ...filter, value })} />}
-			<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" title="Remove filter" aria-label="Remove filter">
+			<button type="button" onClick={onRemove} className={iconButton} title="Remove filter" aria-label="Remove filter">
 				<CloseIcon />
 			</button>
 		</div>
@@ -531,12 +534,15 @@ function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void })
 		<Modal title={`New ${type.name.toLowerCase()}`} onClose={onClose}>
 			<Form onSubmit={() => run(create({ typeId: type._id, values: { name } }).then((id) => navigate(...recordPath(type.key, id))))}>
 				<Notice>{error}</Notice>
-				<Field label={label}>
-					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-				</Field>
-				<button type="submit" className={`${primaryButton} self-start`}>
-					Create
-				</button>
+				<Settings>
+					<Setting label={label}>
+						<input autoFocus aria-label={label} value={name} onChange={(e) => setName(e.target.value)} className={wideControlClass} />
+					</Setting>
+				</Settings>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Create</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

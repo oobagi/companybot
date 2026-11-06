@@ -5,11 +5,11 @@ import { useState } from "react";
 import { api } from "../api";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
-import { CaretRightIcon, CaretUpDownIcon, CloseIcon, MoreIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
+import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, cardClass, compactControlClass, descriptionClass, inputClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun } from "../ui";
+import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton } from "../ui";
 
-import { MenuItem, Modal, Popover, useConfirm } from "./chat/common";
+import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
 type Role = NonNullable<FunctionReturnType<typeof api.roles.list>>[number];
 
@@ -122,21 +122,23 @@ function InviteDialog({ roles, who, onNote, onClose }: { roles: readonly Role[];
 					)
 				}
 			>
-				<Field label="Email">
-					<input autoFocus type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@company.com" className={inputClass} />
-				</Field>
-				<Field label="Roles">
-					<RolePicker roles={roles} value={picked} who={who} onChange={setPicked} wide />
-				</Field>
+				<Settings>
+					<Setting label="Email">
+						<input autoFocus aria-label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@company.com" className={wideControlClass} />
+					</Setting>
+					<Setting label="Roles" hint="Member unless you pick others.">
+						<RolePicker roles={roles} value={picked} who={who} onChange={setPicked} wide />
+					</Setting>
+				</Settings>
 				<Notice>{error}</Notice>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Cancel
 					</button>
 					<button type="submit" disabled={busy || !email.trim()} className={primaryButton}>
 						Invite
 					</button>
-				</div>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);
@@ -144,14 +146,8 @@ function InviteDialog({ roles, who, onNote, onClose }: { roles: readonly Role[];
 
 /** A row's ⋯ menu; none when there's nothing in it for you. */
 function RowMenu({ label, hidden, children }: { label: string; hidden?: boolean; children: (close: () => void) => React.ReactNode }) {
-	if (hidden) return null;
-	return (
-		<Popover label={label} trigger={<MoreIcon />} className={rowMenuButton} panelClassName="w-56 p-1">
-			{children}
-		</Popover>
-	);
+	return hidden ? null : <MoreMenu label={label}>{children}</MoreMenu>;
 }
-const rowMenuButton = "flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100";
 
 /** Pick one or more roles. At least one stays picked; only roles `who` may give or take (Owner only for owners). */
 function RolePicker({ roles, value, who, onChange, wide }: { roles: readonly Role[]; value: readonly string[]; who: Access; onChange: (ids: Id<"roles">[]) => void; wide?: boolean }) {
@@ -166,7 +162,7 @@ function RolePicker({ roles, value, who, onChange, wide }: { roles: readonly Rol
 					<CaretUpDownIcon className="shrink-0 text-neutral-400" />
 				</>
 			}
-			className={wide ? `flex w-full items-center gap-1.5 text-left ${inputClass}` : `inline-flex max-w-56 items-center gap-1.5 text-left ${compactControlClass}`}
+			className={wide ? `flex items-center gap-1.5 text-left ${wideControlClass}` : `inline-flex max-w-56 items-center gap-1.5 text-left ${compactControlClass}`}
 			panelClassName="flex w-56 flex-col gap-px p-1"
 		>
 			{roles.map((r) => {
@@ -207,7 +203,7 @@ export function RolesTab({ access }: { access: Access }) {
 			{creating && <NewRoleDialog onClose={() => setCreating(false)} />}
 			<section className="flex flex-col gap-2">
 				{roles.map((r) => (
-					<button key={r.id} type="button" onClick={() => navigate("settings", "roles", r.id)} className={`flex items-center gap-3 text-left hover:bg-neutral-50 ${cardClass}`}>
+					<button key={r.id} type="button" onClick={() => navigate("settings", "roles", r.id)} className={`items-center gap-3 ${cardButton}`}>
 						<span className="flex min-w-0 flex-1 flex-col">
 							<span className="truncate font-medium">{r.name}</span>
 							<span className="truncate text-xs text-neutral-500">{roleSummary(r)}</span>
@@ -228,18 +224,20 @@ function NewRoleDialog({ onClose }: { onClose: () => void }) {
 	return (
 		<Modal title="New role" onClose={onClose}>
 			<Form onSubmit={() => run(create({ name }).then((id) => navigate("settings", "roles", id)), onClose)}>
-				<Field label="Name" hint="Starts with every switch off. You turn on what it can do next.">
-					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={inputClass} />
-				</Field>
+				<Settings>
+					<Setting label="Name" hint="Starts with every switch off. You turn on what it can do next.">
+						<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={wideControlClass} />
+					</Setting>
+				</Settings>
 				<Notice>{error}</Notice>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Cancel
 					</button>
 					<button type="submit" disabled={busy || !name.trim()} className={primaryButton}>
 						Create role
 					</button>
-				</div>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);
@@ -259,7 +257,6 @@ type RoleConfig = { name: string; on: Permission[] };
 /** The draft keeps `start`, the role as it was when you began editing, so Save sends only what you changed. */
 type RoleDraft = RoleConfig & { start: RoleConfig };
 /** Roles have no version number; the draft notices someone else's save by what changed. */
-const versionOf = (c: RoleConfig) => [...JSON.stringify(c)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7);
 
 function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: string; to: string[] }[]; canEdit: boolean }) {
 	const rename = useMutation(api.roles.rename);
@@ -286,7 +283,7 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 		<Page
 			title={role.name}
 			crumbs={crumbs}
-			intro={fixed ? "Owners can do everything, and this can't be changed." : `${peopleLabel(role.people)} ${role.people === 1 ? "has" : "have"} this role. People get every switch any of their roles has.${role.builtIn === "member" ? " New people get Member." : ""}`}
+			description={fixed ? "Can do everything" : `${peopleLabel(role.people)}${role.builtIn === "member" ? " · new people get it" : ""}`}
 			actions={
 				canEdit &&
 				!role.builtIn && (
@@ -311,10 +308,12 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 			{canEdit && <SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={() => run(save(), draft.discard)} onDiscard={draft.discard} />}
 			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
-			<Field label="Name">
-				<input value={value.name} disabled={!canEdit} onChange={(e) => draft.set({ ...value, name: e.target.value })} className={inputClass} />
-			</Field>
-			<Settings title="What it can do">
+			<Settings>
+				<Setting label="Name">
+					<input aria-label="Name" value={value.name} disabled={!canEdit} onChange={(e) => draft.set({ ...value, name: e.target.value })} className={wideControlClass} />
+				</Setting>
+			</Settings>
+			<Settings title="What it can do" note={fixed ? undefined : "People get every switch any of their roles has."}>
 				{switches.map((p) => (
 					<Setting key={p} label={switchLabel(p)}>
 						<Checkbox label={switchLabel(p)} checked={fixed || value.on.includes(p)} disabled={!canEdit} onChange={(on) => toggle(p, on)} />

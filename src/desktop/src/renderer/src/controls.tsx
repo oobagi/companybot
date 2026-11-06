@@ -193,3 +193,19 @@ export function Checkbox({ checked, disabled, onChange, label, className = "" }:
 		</span>
 	);
 }
+
+/** An on/off switch. */
+export function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (on: boolean) => void }) {
+	return (
+		<button
+			type="button"
+			role="switch"
+			aria-checked={checked}
+			disabled={disabled}
+			onClick={() => onChange(!checked)}
+			className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-neutral-900" : "bg-neutral-300"} ${disabledButtonClass}`}
+		>
+			<span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : ""}`} />
+		</button>
+	);
+}

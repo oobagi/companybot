@@ -4,9 +4,9 @@ import { type FieldKind, fieldKinds } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
-import { Field, Form, Notice, iconDangerButton, inputClass, metadataClass, primaryButton, secondaryButton, useRun } from "../../ui";
-import { TrashIcon } from "../../icons";
-import { Modal, archiveQuestion, useConfirm } from "../chat/common";
+import { Form, Notice, Setting, Settings, compactControlClass, iconDangerButton, metadataClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../../ui";
+import { ArchiveIcon, TrashIcon } from "../../icons";
+import { DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
 
@@ -51,37 +51,40 @@ export function AddField({
 		<Modal title={`Add a field to ${type.plural.toLowerCase()}`} onClose={onClose}>
 			<Form onSubmit={() => submit()}>
 				<Notice>{error}</Notice>
-				<Field label="Name">
-					<input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Roof type" className={inputClass} />
-				</Field>
-				<Field label="Kind" hint="A field's kind can't change later.">
-					<Select className={inputClass} value={kind} options={fieldKinds.map((k) => ({ value: k, label: kindLabels[k] }))} onChange={setKind} />
-				</Field>
-				{kind === "choice" && (
-					<Field label="Options">
-						<textarea value={options} onChange={(e) => setOptions(e.target.value)} rows={4} placeholder={"Shingle\nMetal\nTile"} className={inputClass} />
-					</Field>
-				)}
-				{kind === "link" && (
-					<Field label="Links to">
-						<Select
-							className={inputClass}
-							value={linkTypeId}
-							placeholder="Pick a database…"
-							options={(types ?? []).map((t) => ({ value: t._id as string, label: t.plural }))}
-							onChange={setLinkTypeId}
-						/>
-					</Field>
-				)}
-				{severalKinds.includes(kind) && (
-					<label className="flex items-center gap-2 text-sm">
-						<Checkbox checked={multiple} onChange={setMultiple} />
-						Holds several
-					</label>
-				)}
-				<button type="submit" className={`${primaryButton} self-start`}>
-					Add field
-				</button>
+				<Settings>
+					<Setting label="Name">
+						<input autoFocus aria-label="Name" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Roof type" className={wideControlClass} />
+					</Setting>
+					<Setting label="Kind" hint="A field's kind can't change later.">
+						<Select label="Kind" className={wideControlClass} value={kind} options={fieldKinds.map((k) => ({ value: k, label: kindLabels[k] }))} onChange={setKind} />
+					</Setting>
+					{kind === "choice" && (
+						<Setting label="Options" hint="One per line." wide>
+							<textarea aria-label="Options" value={options} onChange={(e) => setOptions(e.target.value)} rows={4} placeholder={"Shingle\nMetal\nTile"} className={`${compactControlClass} w-full`} />
+						</Setting>
+					)}
+					{kind === "link" && (
+						<Setting label="Links to">
+							<Select
+								label="Links to"
+								className={wideControlClass}
+								value={linkTypeId}
+								placeholder="Pick a database…"
+								options={(types ?? []).map((t) => ({ value: t._id as string, label: t.plural }))}
+								onChange={setLinkTypeId}
+							/>
+						</Setting>
+					)}
+					{severalKinds.includes(kind) && (
+						<Setting label="Holds several" hint="More than one value per record.">
+							<Checkbox label="Holds several" checked={multiple} onChange={setMultiple} />
+						</Setting>
+					)}
+				</Settings>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Add field</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);
@@ -108,47 +111,52 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 			onClose,
 		);
 	return (
-		<Modal title={`Edit “${field.label}”`} onClose={onClose}>
+		<Modal
+			title={`Edit “${field.label}”`}
+			onClose={onClose}
+			menu={
+				field.key !== "name"
+					? (close) => (
+							<MenuItem onClick={() => (close(), confirm(archiveQuestion(field.label, () => remove({ kind: "field", id: fieldId }).then(onClose), "The field will be hidden; its saved values are kept.")))}>
+								<ArchiveIcon /> Archive field
+							</MenuItem>
+						)
+					: undefined
+			}
+		>
 			{dialog}
 			<Form onSubmit={() => save()}>
 				<Notice>{error}</Notice>
-				<Field label="Name" hint={`${kindLabels[field.kind]}${field.multiple ? ", holds several" : ""}`}>
-					<input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} className={inputClass} />
-				</Field>
-				{field.kind === "choice" && (
-					<Field label="Options" hint="Removing an option keeps it on the records that have it, but it can't be picked again.">
-						<div className="flex flex-col gap-2">
-							{options.map((o, i) => (
-								<span key={o.id} className="flex items-center gap-2">
-									<input
-										value={o.label}
-										onChange={(e) => setOptions(options.map((p, j) => (j === i ? { ...p, label: e.target.value } : p)))}
-										className={`${inputClass} flex-1 py-1.5`}
-									/>
-									<button type="button" onClick={() => setOptions(options.filter((_, j) => j !== i))} aria-label="Remove" title="Remove option" className={iconDangerButton}>
-										<TrashIcon size={16} />
-									</button>
-								</span>
-							))}
-							<input value={added} onChange={(e) => setAdded(e.target.value)} placeholder="New option" className={`${inputClass} py-1.5`} />
-							{retired.length > 0 && <p className={metadataClass}>Removed: {retired.map((o) => o.label).join(", ")}</p>}
-						</div>
-					</Field>
-				)}
-				<div className="flex items-center justify-between">
-					<button type="submit" className={primaryButton}>
-						Save
-					</button>
-					{field.key !== "name" && (
-						<button
-							type="button"
-							onClick={() => confirm(archiveQuestion(field.label, () => remove({ kind: "field", id: fieldId }).then(onClose), "The field will be hidden; its saved values are kept."))}
-							className={secondaryButton}
-						>
-							Archive field
-						</button>
+				<Settings>
+					<Setting label="Name" hint={`${kindLabels[field.kind]}${field.multiple ? ", holds several" : ""}`}>
+						<input autoFocus aria-label="Name" value={label} onChange={(e) => setLabel(e.target.value)} className={wideControlClass} />
+					</Setting>
+					{field.kind === "choice" && (
+						<Setting label="Options" hint="Removing an option keeps it on the records that have it, but it can't be picked again." wide>
+							<div className="flex w-full flex-col gap-2">
+								{options.map((o, i) => (
+									<span key={o.id} className="flex items-center gap-2">
+										<input
+											aria-label={`Option ${i + 1}`}
+											value={o.label}
+											onChange={(e) => setOptions(options.map((p, j) => (j === i ? { ...p, label: e.target.value } : p)))}
+											className={`${compactControlClass} flex-1`}
+										/>
+										<button type="button" onClick={() => setOptions(options.filter((_, j) => j !== i))} aria-label="Remove" title="Remove option" className={iconDangerButton}>
+											<TrashIcon size={16} />
+										</button>
+									</span>
+								))}
+								<input aria-label="New option" value={added} onChange={(e) => setAdded(e.target.value)} placeholder="New option" className={compactControlClass} />
+								{retired.length > 0 && <p className={metadataClass}>Removed: {retired.map((o) => o.label).join(", ")}</p>}
+							</div>
+						</Setting>
 					)}
-				</div>
+				</Settings>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Save</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

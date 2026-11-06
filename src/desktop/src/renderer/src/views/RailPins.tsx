@@ -1,3 +1,4 @@
+import { railButton } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useQuery, useWorkspace } from "../convex";
@@ -5,7 +6,8 @@ import { ChannelIcon, ChatIcon, DatabaseIcon, FolderIcon, PageIcon, PinIcon, Pri
 import { FileKindIcon } from "./drive/FileIcon";
 import { type PinKey, RECENT_SHOWN, pathOf, splitPin, usePins } from "../pins";
 import { navigate } from "../router";
-import { type DragProps, useSortable } from "../sortable";
+import { type DragProps, moveCommand, useDragList, useDragStatic, useSortable } from "../sortable";
+import { useStoredIds } from "../arrangements";
 import type { useTip } from "../ui";
 import { Avatar, MenuItem, PopoverPanel } from "./chat/common";
 import { useTypes } from "./records/data";
@@ -83,11 +85,24 @@ export function steadyOrder(before: readonly PinKey[], latest: readonly PinKey[]
  * `open` is what's on screen, lit like a tab.
  */
 export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; tipFor: TipFor; hideTip: () => void }) {
-	const { pins, recent, toggle } = usePins();
+	const { pins, recent, toggle, visit } = usePins();
 	const workspace = useWorkspace();
 	const { resolve, ready } = useEntries([...pins, ...recent]);
 	const pinned = pins.map(resolve).filter((e): e is Entry => !!e);
-	const { sorted, drag } = useSortable("pinsOrder", pinned, entryKey);
+	const [pinOrder, changePinOrder] = useStoredIds("pinsOrder");
+	// Pins and recents are one group: drag a recent up among the pins to pin it there, a pin down to unpin it.
+	const { sorted, drag, key: pinList } = useSortable("pinsOrder", pinned, entryKey, "y", undefined, {
+		group: "rail",
+		onReceive: (from, index, shown) => {
+			const key = from.id as PinKey;
+			toggle(key);
+			const command = moveCommand(pinOrder, [...shown, key], key, index);
+			if (command) changePinOrder(command);
+		},
+	});
+	const { item: recentDrag } = useDragList({ group: "rail", enabled: true, onDrop: (from) => { if (from.list === pinList) { toggle(from.id as PinKey); visit(from.id as PinKey); } } });
+	const pinDivider = useDragStatic("rail");
+	const recentDivider = useDragStatic("rail", pinList);
 	// The RECENT_SHOWN you opened last, in the order they came in (`steadyOrder`). While some are
 	// still loading, the rail keeps what it showed: one arriving late would look new and jump to the top.
 	const ws = workspace?.id ?? "";
@@ -113,15 +128,15 @@ export function RailPins({ open, tipFor, hideTip }: { open: PinKey | undefined; 
 	);
 	return (
 		<>
-			{!!sorted.length && <Divider />}
+			{!!sorted.length && <Divider {...pinDivider} />}
 			{sorted.map((e) => row(e, true, drag(e.key)))}
-			{!!lately.length && <Divider />}
-			{lately.map((e) => row(e, false))}
+			{!!lately.length && <Divider {...recentDivider} />}
+			{lately.map((e) => row(e, false, recentDrag(e.key)))}
 		</>
 	);
 }
 
-const Divider = () => <span aria-hidden className="my-1 h-px w-6 shrink-0 bg-neutral-300/80" />;
+const Divider = ({ className = "", ...props }: { ref?: (el: HTMLElement | null) => void; style?: React.CSSProperties; className?: string }) => <span aria-hidden {...props} className={`my-1 h-px w-6 shrink-0 bg-neutral-300/80 ${className}`} />;
 
 /** One pin or recent: click to open, right-click to pin or unpin. */
 function RailItem({
@@ -156,7 +171,7 @@ function RailItem({
 					aria-label={entry.mentioned ? `${entry.label}, unread mention` : entry.label}
 					aria-current={active ? "page" : undefined}
 					onClick={() => (hideTip(), navigate(...entry.path))}
-					className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+					className={railButton(active)}
 				>
 					{entry.icon}
 				</button>

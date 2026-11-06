@@ -1,15 +1,15 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { FILE_ACCEPT } from "@companybot/core/files";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
 import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, FolderIcon, PageIcon, PlusIcon, PrivateIcon, UploadIcon } from "../../icons";
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
-import { type DragProps, useSortable } from "../../sortable";
-import { LoadMore, Notice, inputClass, metadataClass, useDebounced, useRun } from "../../ui";
-import { Item, trailingAction } from "../chat/Sidebar";
+import { type DragProps, splitDrag, useSortable } from "../../sortable";
+import { LoadMore, Notice, compactControlClass, descriptionClass, metadataClass, useDebounced, useRun, trailingAction } from "../../ui";
+import { Item } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { FileKindIcon } from "../drive/FileIcon";
 import { type DriveUpload, useDriveUploads } from "../drive/upload";
@@ -66,9 +66,10 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 					const open = p.hasChildren && expanded.has(p._id);
 					const guides = guidesFor(last);
 					const folder = p.kind === "folder";
+					const d = splitDrag(drag);
 					return (
-						<Fragment key={p._id}>
-							<Item drag={drag} pin={`page:${p._id}`} icon={folder ? <FolderIcon /> : <PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
+						<div key={p._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
+							<Item drag={d.handle} pin={`page:${p._id}`} icon={folder ? <FolderIcon /> : <PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
 								rename={p.canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
 								menu={p.canEdit ? (close) => <>
 									<MenuItem onClick={() => { close(); add("page", p._id); }}><PlusIcon /> New page inside</MenuItem>
@@ -83,7 +84,7 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 								<AccessLock lock={p.lock ?? null} />
 							</Item>
 							{open && level(p, guides)}
-						</Fragment>
+						</div>
 					);
 				}}
 				renderFile={(f, last) => (
@@ -258,7 +259,7 @@ export function MoveItem({ item, onClose }: { item: Movable; onClose: () => void
 	const matches = found?.filter(takes);
 	return (
 		<Modal title={`Move ${item.title}`} onClose={onClose}>
-			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={item.kind === "page" ? "Search pages and folders…" : "Search folders…"} aria-label="Search" className={inputClass} />
+			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={item.kind === "page" ? "Search pages and folders…" : "Search folders…"} aria-label="Search" className={`${compactControlClass} w-full`} />
 			<Notice>{error}</Notice>
 			<div className="flex max-h-72 flex-col overflow-y-auto">
 				{text ? (
@@ -295,9 +296,9 @@ export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () =>
 	const what = page?.kind === "folder" ? "folder" : "page";
 	const parent = page?.ancestors.at(-1);
 	return (
-		<Modal title={page ? `Who can access ${page.title || `this ${what}`}` : "Who can access"} onClose={onClose}>
+		<Modal title={page ? page.title || "Untitled" : "Who can access"} onClose={onClose}>
 			{page?.recordId ? (
-				<p className="text-sm text-neutral-500">A record's page follows its database's list.</p>
+				<p className={descriptionClass}>A record's page follows its database's list.</p>
 			) : (
 				page && (
 					<WhoCanAccess

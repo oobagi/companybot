@@ -9,13 +9,13 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Field, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactPrimaryButton, dangerButton, disabledButtonClass, inputClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../ui";
+import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, compactButton, compactDangerButton, compactPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
-import { CurrencySelect, Select } from "../controls";
+import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
-import { Confirm, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
+import { Confirm, DialogButtons, Modal, deviceTimeZone, zoneLabel } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type CustomizeTab, CustomizeView, customizeTabs } from "./customize";
 import { MembersTab, RoleScreen, RolesTab } from "./Members";
@@ -36,12 +36,12 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "Everyone in this workspace, and people you've invited. Their roles decide what they can do; changes apply right away.", icon: <MembersIcon /> },
-			{ id: "roles", label: "Roles", description: "What each role can do. People get every switch any of their roles has. Owners can do everything.", icon: <RolesIcon /> },
-			{ id: "permissions", label: "Permissions", description: "Agents ask before anything that leaves Companybot: sends, calls, payments, changes in other apps.", icon: <PermissionsIcon /> },
-			{ id: "memory", label: "Memory", description: "Each agent has its own memory. Team memories are shared, and anyone can fix them. Only you can see your personal memories.", icon: <MemoryIcon /> },
-			{ id: "activity", label: "Activity", description: "Database changes, and what agents did in chats you can see. Agent results show only for what they did for you.", icon: <ActivityIcon /> },
-			{ id: "usage", label: "Usage", description: "What AI has cost this month. People whose role can see the whole workspace see everyone; everyone else sees only their own share.", icon: <UsageIcon /> },
+			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
+			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
+			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
+			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
+			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
+			{ id: "usage", label: "Usage", description: "What AI cost this month", icon: <UsageIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
@@ -73,7 +73,7 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 	if (tab === "roles" && itemId) return <RoleScreen access={access} roleId={itemId} />;
 	const current = settingsTabs.find((t) => t.id === tab)!;
 	return (
-		<Page title={current.label} intro={(current as { description?: string }).description}>
+		<Page title={current.label} description={(current as { description?: string }).description}>
 			{tab === "general" && <GeneralTab access={access} />}
 			{tab === "members" && <MembersTab access={access} />}
 			{tab === "roles" && <RolesTab access={access} />}
@@ -158,7 +158,7 @@ function AppVersion() {
 		<Settings title="App">
 			<Setting label={`Companybot ${version}`} hint={status ? describeUpdate(status) : undefined}>
 				{status?.state === "ready" ? (
-					<button type="button" onClick={() => void desktop?.updates.install()} className={primaryButton}>
+					<button type="button" onClick={() => void desktop?.updates.install()} className={compactPrimaryButton}>
 						Restart to update
 					</button>
 				) : (
@@ -166,7 +166,7 @@ function AppVersion() {
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
 						onClick={() => void desktop?.updates.check()}
-						className={secondaryButton}
+						className={compactButton}
 					>
 						Check for updates
 					</button>
@@ -203,7 +203,7 @@ function DangerAction({
 	return (
 		<>
 			<Setting label={action} hint={hint}>
-				<button type="button" onClick={() => setOpen(true)} className={`${secondaryButton} text-red-600`}>
+				<button type="button" onClick={() => setOpen(true)} className={compactDangerButton}>
 					{action}
 				</button>
 			</Setting>
@@ -218,37 +218,23 @@ function DangerAction({
 					>
 						<p className="text-neutral-600">{children}</p>
 						<Notice>{error}</Notice>
-						<Field label={`Type “${confirm}” to confirm`}>
-							<input className={inputClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
-						</Field>
-						<div className="flex justify-end gap-2">
+						<Settings>
+							<Setting label={`Type “${confirm}” to confirm`}>
+								<input aria-label={`Type “${confirm}” to confirm`} className={wideControlClass} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
+							</Setting>
+						</Settings>
+						<DialogButtons>
 							<button type="button" onClick={close} disabled={busy} className={secondaryButton}>
 								Cancel
 							</button>
 							<button type="submit" disabled={busy || !matches} className={dangerButton}>
 								{busy ? pending : action}
 							</button>
-						</div>
+						</DialogButtons>
 					</Form>
 				</Modal>
 			)}
 		</>
-	);
-}
-
-/** An on/off switch. */
-function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (on: boolean) => void }) {
-	return (
-		<button
-			type="button"
-			role="switch"
-			aria-checked={checked}
-			disabled={disabled}
-			onClick={() => onChange(!checked)}
-			className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-neutral-900" : "bg-neutral-300"} ${disabledButtonClass}`}
-		>
-			<span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : ""}`} />
-		</button>
 	);
 }
 
@@ -291,7 +277,8 @@ function GeneralForm({
 		<>
 			{canManage && <ConflictNotice draft={draft} />}
 			<Notice>{error}</Notice>
-			<Settings title="Workspace" hint={ownerOnly}>
+			{ownerOnly && <p className={`${hintClass} ${insetClass}`}>{ownerOnly}</p>}
+			<Settings title="Workspace">
 				<Setting label="Logo" hint={`Its icon in the workspace rail at the far left. ${pictureLimits}.`}>
 					<ImagePicker of="workspace" name={settings.name} image={settings.image} agent disabled={!canManage} />
 				</Setting>
@@ -319,8 +306,8 @@ function GeneralForm({
 					<Toggle disabled={!canManage} checked={value.memory} onChange={(memory) => draft.set({ ...value, memory })} />
 				</Setting>
 			</Settings>
-			<Settings title="Agents in channels" hint={ownerOnly ?? "In channels set to \"When relevant\", a quick model call decides whether each agent replies, reacts or stays quiet."}>
-				<Setting label="Reply decisions" hint="What makes that call. Jev is a decision model: fastest and cheapest. Any language model works too.">
+			<Settings title="Agents in channels">
+				<Setting label="Reply decisions" hint="Decides when agents reply in channels set to “When relevant”. Jev is fastest and cheapest.">
 					<ModelPicker
 						models={settings.routerModels}
 						defaultModel={ROUTER_MODEL}
@@ -332,8 +319,8 @@ function GeneralForm({
 					/>
 				</Setting>
 			</Settings>
-			<Settings title="Pictures" hint={ownerOnly ?? "Agents make and edit pictures when asked, through AI Gateway."}>
-				<Setting label="Picture model" hint="What agents make pictures with.">
+			<Settings title="Pictures">
+				<Setting label="Picture model" hint="What agents make and edit pictures with, when asked.">
 					<ModelPicker
 						models={settings.imageModels}
 						defaultModel={defaultImageModel}
@@ -372,27 +359,31 @@ function ProfileTab() {
 	const update = useMutation(api.preferences.update);
 	const me = useQuery(api.workspace.me);
 	const erase = useMutation(api.workspace.eraseAccount);
-	// Edited together and saved from the top bar, like General; only what changed is sent.
+	// Edited together and saved from the top bar, like General. The draft keeps `start`, your preferences
+	// as they were when you began, so Save sends only what you changed here, never another device's change
+	// back; if they changed meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
 	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all" };
-	const draft = useDraft("account:preferences", saved, 0);
+	const draft = useDraft("account:preferences", { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const { error, run } = useRun();
 	if (!prefs) return <Loading />;
 	const save = () => {
+		const { start } = value;
 		const changed = {
-			...(value.displayName !== saved.displayName && { displayName: value.displayName }),
-			...(value.timeZone !== saved.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
-			...(value.sendWith !== saved.sendWith && { sendWith: value.sendWith }),
-			...(value.notify !== saved.notify && { notify: value.notify }),
+			...(value.displayName !== start.displayName && { displayName: value.displayName }),
+			...(value.timeZone !== start.timeZone && { timeZone: value.timeZone === "auto" ? null : value.timeZone }),
+			...(value.sendWith !== start.sendWith && { sendWith: value.sendWith }),
+			...(value.notify !== start.notify && { notify: value.notify }),
 		};
-		run(update(changed), draft.discard);
+		run(update(changed), () => draft.discard());
 	};
 
 	return (
 		<>
-			<SaveBar dirty={draft.dirty} onSave={save} onDiscard={draft.discard} />
+			<SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={save} onDiscard={draft.discard} />
+			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
-			<Settings title="You" hint="Only you see these, except your photo, name and time zone. They follow you to every device.">
+			<Settings title="You" note="Only you see these, except your photo, name and time zone.">
 				<Setting label="Photo" hint={`Shown to your team in every workspace. ${pictureLimits}.`}>
 					<ImagePicker of="me" name={prefs.displayName || me?.email || ""} image={prefs.image} />
 				</Setting>

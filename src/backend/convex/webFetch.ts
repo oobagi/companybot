@@ -9,7 +9,8 @@ import { Readability } from "@mozilla/readability";
 import { v } from "convex/values";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
-import { Agent, fetch } from "undici";
+import { fetch } from "undici";
+import { pinnedAgent } from "./connectorNetwork";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
@@ -137,12 +138,7 @@ async function resolve(hostname: string) {
 
 /** One GET that can only connect to `addresses`, the ones safeFetch checked. */
 async function request(url: URL, addresses: string[], { signal, headers }: { signal: AbortSignal; headers: Record<string, string> }) {
-	const pinned: LookupFunction = (_host, options, callback) => {
-		const all = addresses.map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
-		if (options.all) callback(null, all);
-		else callback(null, all[0]!.address, all[0]!.family);
-	};
-	const dispatcher = new Agent({ connect: { lookup: pinned } });
+	const dispatcher = pinnedAgent(addresses);
 	try {
 		return (await fetch(url, { headers, signal, redirect: "manual", dispatcher })) as unknown as Response;
 	} finally {

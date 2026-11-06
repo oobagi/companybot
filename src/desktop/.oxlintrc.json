@@ -1,0 +1,77 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"jsPlugins": ["@shadcn/lint", "./lint/ui.js"],
+	"categories": { "correctness": "off" },
+	"settings": {
+		"shadcn": {
+			"componentImports": ["(^|/)(ui|controls|common)$"],
+			"note": "UI rules: wiki/architecture.md (\"Every screen has the same shell\")."
+		}
+	},
+	"rules": {
+		"shadcn/no-restyle": [
+			"error",
+			{
+				"allow": ["layout", "drag", "no-drag"],
+				"message": {
+					"default": "<{{component}}> owns its look; \"{{className}}\" restyles it. Pass a shared class from ui.tsx (compactControlClass, wideControlClass, …) or add a named one there, so every screen gets the same look."
+				},
+				"contracts": [
+					{
+						"pattern": "^(Popover|PopoverPanel|Layer|Scroll|Form|ProfileLink)$",
+						"allow": ["layout", "color", "typography", "spacing", "shape", "effects", "motion", "drag", "no-drag", "token"]
+					},
+					{ "pattern": "^RenameInput$", "allow": ["layout", "spacing", "typography", "no-drag"] }
+				]
+			}
+		],
+		"shadcn/no-raw-colors": [
+			"error",
+			{
+				"allow": ["*-neutral-*", "*-white", "*-black", "*-transparent", "*-current", "*-red-*", "*-amber-*", "*-emerald-*", "bg-sky-500"],
+				"message": "\"{{className}}\" is off the app's palette: neutrals, red for danger, amber for warnings, emerald for success, and `text-link` for links (the one blue). {{suggestions}}"
+			}
+		],
+		"shadcn/no-arbitrary-values": ["error", { "allow": ["layout", "transition-*"] }],
+		"shadcn/no-inline-styles": ["error", { "allow": ["left", "top", "width"] }],
+		"shadcn/no-unknown-classes": "error",
+		"no-restricted-imports": [
+			"error",
+			{
+				"paths": [
+					{ "name": "@phosphor-icons/react", "message": "Icons come only from icons.ts: import the icon from there (add it to icons.ts if it's new)." },
+					{ "name": "lucide-react", "message": "Icons come only from icons.ts (Phosphor)." },
+					{ "name": "react-icons", "message": "Icons come only from icons.ts (Phosphor)." }
+				],
+				"patterns": [{ "group": ["@phosphor-icons/react/*", "@heroicons/*", "@tabler/icons-react", "react-icons/*"], "message": "Icons come only from icons.ts (Phosphor)." }]
+			}
+		],
+		"ui/no-stacked-form": "error",
+		"ui/button-class": "error",
+		"ui/dialog-buttons": "error",
+		"ui/no-native-controls": "error",
+		"ui/no-adhoc-heading": "error",
+		"ui/page-description": "error",
+		"ui/disable-reason": "error"
+	},
+	"overrides": [
+		{
+			"files": ["src/renderer/src/ui.tsx", "src/renderer/src/controls.tsx", "src/renderer/src/views/chat/common.tsx"],
+			"rules": {
+				"shadcn/no-restyle": "off",
+				"shadcn/no-arbitrary-values": "off",
+				"shadcn/no-inline-styles": "off",
+				"ui/button-class": "off",
+				"ui/dialog-buttons": "off",
+				"ui/no-native-controls": "off",
+				"ui/no-adhoc-heading": "off"
+			}
+		},
+		{
+			"files": ["src/renderer/src/views/Landing.tsx", "src/renderer/src/views/SignIn.tsx", "src/renderer/src/views/Onboarding.tsx"],
+			"rules": { "ui/dialog-buttons": "off", "ui/no-adhoc-heading": "off" }
+		},
+		{ "files": ["src/renderer/src/icons.ts"], "rules": { "no-restricted-imports": "off" } },
+		{ "files": ["src/renderer/src/views/Art.tsx"], "rules": { "shadcn/no-raw-colors": "off", "shadcn/no-inline-styles": "off" } }
+	]
+}

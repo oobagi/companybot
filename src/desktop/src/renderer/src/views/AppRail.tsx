@@ -1,7 +1,7 @@
 import { ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { useTip } from "../ui";
+import { CountBadge, useTip, railButton } from "../ui";
 
 /** The rail's tabs, top to bottom until you drag them into your order. */
 export const appTabs = [
@@ -71,21 +71,19 @@ export function AppRail({
 						const badge = badges[t.id];
 						const d = drag(t.id);
 						return (
-							<span key={t.id} {...d} onDragStart={(e) => (hideTip(), d.onDragStart(e))} className={`relative flex ${d.className}`}>
+							<span key={t.id} {...d} onPointerDown={d.onPointerDown && ((e) => (hideTip(), d.onPointerDown!(e)))} className={`relative flex ${d.className}`}>
 								<span className="relative flex" {...tipFor(t.label, i < 9 ? shortcutLabel("tab", i + 1) : undefined)}>
 									<button
 										type="button"
 										aria-label={badge?.mentions ? `${t.label}, ${badge.mentions} unread ${badge.mentions === 1 ? "mention or DM" : "mentions or DMs"}` : t.label}
 										aria-current={active ? "page" : undefined}
 										onClick={() => (t.id !== tab && blurActiveEditable(), hideTip(), onOpen(t.id))}
-										className={`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`}
+										className={railButton(active)}
 									>
 										<t.icon size={22} weight={active ? "fill" : "regular"} />
 									</button>
 									{badge?.mentions ? (
-										<span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-neutral-100 bg-red-500 px-0.5 text-[10px] leading-none font-semibold text-white">
-											{badge.mentions > 9 ? "9+" : badge.mentions}
-										</span>
+										<CountBadge count={badge.mentions} ring className="pointer-events-none absolute -top-1 -right-1" />
 									) : (
 										badge?.unread && <span className="pointer-events-none absolute top-1 right-1 size-2 rounded-full border-2 border-neutral-100 bg-sky-500" />
 									)}
