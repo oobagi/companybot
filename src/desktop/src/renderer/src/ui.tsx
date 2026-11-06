@@ -279,7 +279,7 @@ export function Page({
 			<actionSlot.Provider value={slot}>
 				{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
 				<div
-					className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
+					className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-6 pb-10 ${
 						wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
 					}`}
 				>
@@ -613,7 +613,7 @@ export function NotFound({ crumbs, loaded, icon, title, children = "It may have 
 /** Placeholder shown only on first load; later visits come from the cache. */
 export function Loading() {
 	return (
-		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 py-10">
+		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 pt-6 pb-10">
 			<div className="h-4 w-1/3 rounded bg-neutral-100" />
 			<div className="h-4 w-2/3 rounded bg-neutral-100" />
 			<div className="h-4 w-1/2 rounded bg-neutral-100" />
