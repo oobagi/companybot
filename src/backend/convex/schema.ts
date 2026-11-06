@@ -1,5 +1,5 @@
 import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
-import { arrangementLists, retiredLists, type ArrangementList } from "@companybot/core/arrangements";
+import { arrangementLists, retiredLists, sectionTabs, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
@@ -10,6 +10,7 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
 // COMPAT(0.1.0-alpha.10): rows may still hold the retired lists until migrations.railOrder and dropSectionOrder have run on prod; then use `arrangementList`.
 const storedArrangementList = oneOf([...(Object.keys(arrangementLists) as ArrangementList[]), ...retiredLists]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
@@ -406,6 +407,16 @@ export default defineSchema({
 	}).index("by_list", ["workspaceId", "userId", "list", "entityId"])
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_entity", ["entityId"]),
+
+	// Sections people add to a tab's sidebar (core `sectionTabs`), shared by the workspace like Discord's
+	// categories (sidebarSections.ts). `ids`: what it holds, in order; each item is in one of its tab's
+	// sections at most. Their order is the `sectionOrder` arrangement; who folds one, `folded`.
+	sidebarSections: defineTable({
+		workspaceId: v.id("workspaces"),
+		tab: sectionTab,
+		name: v.string(),
+		ids: v.array(v.string()),
+	}).index("by_workspace", ["workspaceId", "tab"]),
 
 	// Personal preferences follow the person across devices.
 	preferences: defineTable({

@@ -119,6 +119,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("chatMembers", { chatId: dm, workspaceId, userId: memberId });
 		for (const seat of (await ctx.db.query("chatMembers").collect()).filter((r) => r.workspaceId === workspaceId)) await ensureSeatActivity(ctx, (await ctx.db.get(seat.chatId))!, seat);
 		await ctx.db.insert("chatActivity", { workspaceId, chatId: channel, lastMessageAt: now });
+		await ctx.db.insert("sidebarSections", { workspaceId, tab: "chat", name: "Board", ids: [channel] });
 		const message = { chatId: channel, workspaceId, parts: [], status: "done" as const };
 		const said = await ctx.db.insert("chatMessages", { ...message, authorUserId: memberId, text: "Hi", mentions: { userIds: [], agentIds: [] } });
 		const mention = await ctx.db.insert("chatMessages", { ...message, authorUserId: ownerId, text: "@member", mentions: { userIds: [memberId], agentIds: [] } });

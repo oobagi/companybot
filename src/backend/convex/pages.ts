@@ -22,7 +22,7 @@ import { withoutPageTitles } from "./pageBlocks";
 import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { can } from "@companybot/core";
-import { kindOf, movePage, pageRow, pageState, pageStates } from "./pageTree";
+import { hasChildren, kindOf, movePage, pageRow, pageState, pageStates } from "./pageTree";
 import { trashInfo } from "./trashOps";
 
 // Pages metadata and history; content syncs through pageSync.ts. See wiki/pages.md.
@@ -133,14 +133,11 @@ export const children = query({
 		}
 		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("recordId", undefined).eq("archived", false))
 			.paginate(capped(paginationOpts, 50));
-		const hasChildren = async (p: Doc<"pages">) =>
-			!!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first()) ||
-			(kindOf(p) === "folder" && !!(await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("archived", false)).first()));
 		const page = [];
 		// Pages kept from them are left out; a page can come back short.
 		for (const p of result.page) {
 			const level = await reach(p);
-			if (level) page.push({ ...pageRow(p, member, level), hasChildren: await hasChildren(p) });
+			if (level) page.push({ ...pageRow(p, member, level), hasChildren: await hasChildren(ctx, p) });
 		}
 		return { ...result, page };
 	},
