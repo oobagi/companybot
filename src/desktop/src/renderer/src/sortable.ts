@@ -307,10 +307,11 @@ const shiftStyle = (px = 0) => ({ "--sort-shift": `${px}px` }) as React.CSSPrope
 /**
  * A list you can drag rows within, and, in a `group`, between. `onDrop` gets what was dropped (from
  * this list or another in the group) and its index here, counted without it. `accepts` says which rows
- * from other lists it takes (all, by default).
+ * from other lists it takes (all, by default). `id` names the list, for a divider elsewhere to end it.
  */
-export function useDragList({ group, axis = "y", enabled, accepts, onDrop }: { group?: string; axis?: Axis; enabled: boolean; accepts?: (from: { list: string; id: string }) => boolean; onDrop: (from: { list: string; id: string }, index: number) => void }) {
-	const key = useId();
+export function useDragList({ id, group, axis = "y", enabled, accepts, onDrop }: { id?: string; group?: string; axis?: Axis; enabled: boolean; accepts?: (from: { list: string; id: string }) => boolean; onDrop: (from: { list: string; id: string }, index: number) => void }) {
+	const auto = useId();
+	const key = id ?? auto;
 	const g = group ?? key;
 	const drop = useRef(onDrop);
 	drop.current = onDrop;
@@ -352,7 +353,7 @@ export function useDragList({ group, axis = "y", enabled, accepts, onDrop }: { g
 export function useDragStatic(group: string, { endOf, startOf }: { endOf?: string; startOf?: string } = {}) {
 	const key = useId();
 	const now = useSyncExternalStore(subscribe, snapshot, snapshot);
-	const ref = useCallback((el: HTMLElement | null) => (el ? statics.set(key, { group, el, endOf, startOf }) : statics.delete(key)), [key, group, endOf, startOf]);
+	const ref = useCallback((el: HTMLElement | null) => void (el ? statics.set(key, { group, el, endOf, startOf }) : statics.delete(key)), [key, group, endOf, startOf]);
 	const mine = now?.group === group;
 	return { ref, style: mine ? shiftStyle(now.shifts.get(key)) : undefined, className: mine ? `sortable-shift sortable-${now.axis}` : "" };
 }
@@ -367,13 +368,14 @@ export function useSortable<T>(
 	id: (item: T) => string,
 	axis: Axis = "y",
 	entityId?: string,
-	options?: { group?: string; onReceive?: (from: { list: string; id: string }, index: number, shown: string[]) => void },
+	options?: { id?: string; group?: string; onReceive?: (from: { list: string; id: string }, index: number, shown: string[]) => void },
 ) {
 	const [order, change, writable] = useStoredIds(list, entityId);
 	const sorted = useMemo(() => applyOrder(order, items, id), [order, items, id]);
 	const shown = useMemo(() => sorted.map(id), [sorted, id]);
 	const self = useRef("");
 	const { item, key } = useDragList({
+		id: options?.id,
 		group: options?.group,
 		axis,
 		enabled: writable,

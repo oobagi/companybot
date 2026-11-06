@@ -8,7 +8,8 @@ import { useFileUpload } from "../../upload";
 // claims each into the folder (or the top level). One list for the whole app: the sidebar's + and
 // a folder's screen both start uploads, the sidebar shows every one in flight, a screen shows its own.
 
-export type DriveUpload = { key: string; name: string; parentId?: Id<"pages">; progress: number; error?: string };
+/** `sectionId`: going into a sidebar section (top level only); the sidebar shows it there. */
+export type DriveUpload = { key: string; name: string; parentId?: Id<"pages">; sectionId?: string; progress: number; error?: string };
 
 let pending: DriveUpload[] = [];
 const listeners = new Set<() => void>();
@@ -30,13 +31,14 @@ export function useDriveUploads() {
 	const list = useSyncExternalStore(subscribe, read);
 	const update = (key: string, patch: Partial<DriveUpload>) => set(pending.map((u) => (u.key === key ? { ...u, ...patch } : u)));
 	const drop = (key: string) => set(pending.filter((u) => u.key !== key));
-	const start = (files: File[], parentId?: Id<"pages">) => {
+	/** `section`: a sidebar section's + puts each file in it once it's in Drive (`onAdded`). */
+	const start = (files: File[], parentId?: Id<"pages">, section?: { id: string; onAdded: (fileId: Id<"driveFiles">) => void }) => {
 		for (const file of files) {
 			const key = crypto.randomUUID();
-			set([...pending, { key, name: file.name, parentId, progress: 0 }]);
+			set([...pending, { key, name: file.name, parentId, sectionId: section?.id, progress: 0 }]);
 			upload(file, (progress) => update(key, { progress }))
 				.then((storageId) => add({ file: storageId, parentId }).catch((e: unknown) => (discard({ file: storageId }).catch(() => {}), Promise.reject(e))))
-				.then(() => drop(key), (e: unknown) => update(key, { error: e instanceof Error ? e.message : String(e) }));
+				.then((fileId) => (section?.onAdded(fileId), drop(key)), (e: unknown) => update(key, { error: e instanceof Error ? e.message : String(e) }));
 		}
 	};
 	/** The uploads going into one folder (or the top level, with no `parentId`). */

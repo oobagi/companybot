@@ -7,17 +7,19 @@ import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../co
 import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, FolderIcon, HouseIcon, PageIcon, PlusIcon, PrivateIcon, UploadIcon } from "../../icons";
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
+import { type Section, type SectionId, dropAt, itemsGroup, unsectionedList, useSections } from "../../sections";
 import { type DragProps, splitDrag, useSortable } from "../../sortable";
 import { LoadMore, Notice, compactControlClass, descriptionClass, metadataClass, useDebounced, useRun, trailingAction } from "../../ui";
-import { Group, Item } from "../chat/Sidebar";
+import { Group, Item, SectionGroup, SectionsNav } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { FileKindIcon } from "../drive/FileIcon";
 import { type DriveUpload, useDriveUploads } from "../drive/upload";
 
 // Drive's sidebar: a Home row for the top level (lit when that's what's open), then "All files", a
-// section that folds, holding the tree of folders, pages and files (wiki/drive.md). Folders hold all
-// three; pages hold sub-pages; files sit in folders or at the top level. Each expanded level loads on
-// its own. The section's + makes a page or folder at the top level, or uploads there.
+// section that folds, holding the tree of folders, pages and files (wiki/drive.md), then the sections
+// people add, each holding top-level ones with what's under them. Folders hold all three; pages hold
+// sub-pages; files sit in folders or at the top level. Each expanded level loads on its own. A
+// section's + makes a page or folder at the top level, or uploads there, and puts it in that section.
 
 type PageId = Id<"pages">;
 type FileId = Id<"driveFiles">;
@@ -53,58 +55,62 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	const toggle = (id: string, open = !expanded.has(id)) => changeExpanded({ op: open ? "add" : "remove", id });
-	const add = (kind: "page" | "folder", parentId?: PageId) =>
-		run(create({ title: kind === "page" ? "Untitled" : "New folder", parentId, ...(kind === "folder" && { kind }) }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
+	const sections = useSections("drive");
+	/** `sectionId`: made by a section's +, so it goes in that section. */
+	const add = (kind: "page" | "folder", parentId?: PageId, sectionId?: SectionId) =>
+		run(create({ title: kind === "page" ? "Untitled" : "New folder", parentId, ...(kind === "folder" && { kind }) }).then((id) => { if (parentId) toggle(parentId, true); if (sectionId) sections.place(id, sectionId); navigate("pages", id); }));
 	const picker = useFilePicker((files, parentId) => { uploads.start(files, parentId); if (parentId) toggle(parentId, true); });
-	/** `above`: for each level above this one, whether its line continues past these rows. */
-	const level = (parent?: Row, above: boolean[] = []): React.ReactNode => {
+	// The top level leaves out what sections hold, and takes their rows back where they're dropped.
+	const [topOrder] = useStoredIds("pages");
+	const top: TopLevel = { hide: sections.held, onReceive: (from, index, shown) => { const at = dropAt(topOrder, shown, from.id, index); sections.place(from.id, null, at.beforeId, at.fill); } };
+	/** How a level's rows draw (`above`: for each level above this one, whether its line continues past these rows). A section's rows draw as the top level's. */
+	const draw = (parent?: Row, above: boolean[] = []) => {
 		const parentId = parent?._id;
 		const guidesFor = (last: boolean) => (parentId ? [...above, !last] : []);
-		return (
-			<DriveLevel
-				parentId={parentId}
-				parentKind={parent ? (parent.kind ?? "page") : undefined}
-				sortable
-				renderPage={(p, drag, last) => {
-					const open = p.hasChildren && expanded.has(p._id);
-					const guides = guidesFor(last);
-					const folder = p.kind === "folder";
-					const d = splitDrag(drag);
-					return (
-						<div key={p._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
-							<Item drag={d.handle} pin={`page:${p._id}`} icon={folder ? <FolderIcon /> : <PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
-								rename={p.canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
-								menu={p.canEdit ? (close) => <>
-									<MenuItem onClick={() => { close(); add("page", p._id); }}><PlusIcon /> New page inside</MenuItem>
-									{folder && <MenuItem onClick={() => { close(); add("folder", p._id); }}><FolderIcon /> New folder inside</MenuItem>}
-									{folder && <MenuItem onClick={() => { close(); picker.open(p._id); }}><UploadIcon /> Upload here</MenuItem>}
-									<MenuItem onClick={() => { close(); setMoving({ ...p, kind: p.kind ?? "page", parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
-									<MenuItem onClick={() => { close(); setSharing({ pageId: p._id }); }}><PrivateIcon /> Who can access</MenuItem>
-									<MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: p.kind ?? "page", id: p._id }), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>
-								</> : undefined}
-								actions={p.canEdit ? <button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add("page", p._id)} className={trailingAction}><PlusIcon /></button> : undefined}>
-								<span className="truncate">{p.title}</span>
-								<AccessLock lock={p.lock ?? null} />
-							</Item>
-							{open && level(p, guides)}
-						</div>
-					);
-				}}
-				renderFile={(f, last) => (
-					<Item key={f._id} pin={`file:${f._id}`} icon={<FileKindIcon type={f.type} name={f.name} />} label={f.name} guides={guidesFor(last)} active={f._id === openFileId} onClick={() => navigate("files", f._id)}
-						rename={f.canEdit ? { value: f.name, onSave: (name) => run(renameFile({ fileId: f._id, name })) } : undefined}
-						menu={f.canEdit ? (close) => <>
-							<MenuItem onClick={() => { close(); setMoving({ kind: "file", _id: f._id, title: f.name, parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
-							<MenuItem onClick={() => { close(); setSharing({ fileId: f._id }); }}><PrivateIcon /> Who can access</MenuItem>
-							<MenuItem onClick={() => { close(); confirm(archiveQuestion(f.name, () => remove({ kind: "file", id: f._id }))); }}><ArchiveIcon /> Archive</MenuItem>
-						</> : undefined}>
-						<span className="truncate">{f.name}</span>
-						<AccessLock lock={f.lock ?? null} />
-					</Item>
-				)}
-			/>
-		);
+		return {
+			renderPage: (p: Row, drag: DragProps | undefined, last: boolean) => {
+				const open = p.hasChildren && expanded.has(p._id);
+				const guides = guidesFor(last);
+				const folder = p.kind === "folder";
+				const d = splitDrag(drag);
+				return (
+					<div key={p._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
+						<Item drag={d.handle} pin={`page:${p._id}`} icon={folder ? <FolderIcon /> : <PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
+							rename={p.canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
+							menu={p.canEdit ? (close) => <>
+								<MenuItem onClick={() => { close(); add("page", p._id); }}><PlusIcon /> New page inside</MenuItem>
+								{folder && <MenuItem onClick={() => { close(); add("folder", p._id); }}><FolderIcon /> New folder inside</MenuItem>}
+								{folder && <MenuItem onClick={() => { close(); picker.open(p._id); }}><UploadIcon /> Upload here</MenuItem>}
+								<MenuItem onClick={() => { close(); setMoving({ ...p, kind: p.kind ?? "page", parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
+								<MenuItem onClick={() => { close(); setSharing({ pageId: p._id }); }}><PrivateIcon /> Who can access</MenuItem>
+								<MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: p.kind ?? "page", id: p._id }), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>
+							</> : undefined}
+							actions={p.canEdit ? <button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add("page", p._id)} className={trailingAction}><PlusIcon /></button> : undefined}>
+							<span className="truncate">{p.title}</span>
+							<AccessLock lock={p.lock ?? null} />
+						</Item>
+						{open && level(p, guides)}
+					</div>
+				);
+			},
+			renderFile: (f: FileRow, last: boolean, drag?: DragProps) => (
+				<Item key={f._id} drag={drag} pin={`file:${f._id}`} icon={<FileKindIcon type={f.type} name={f.name} />} label={f.name} guides={guidesFor(last)} active={f._id === openFileId} onClick={() => navigate("files", f._id)}
+					rename={f.canEdit ? { value: f.name, onSave: (name) => run(renameFile({ fileId: f._id, name })) } : undefined}
+					menu={f.canEdit ? (close) => <>
+						<MenuItem onClick={() => { close(); setMoving({ kind: "file", _id: f._id, title: f.name, parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
+						<MenuItem onClick={() => { close(); setSharing({ fileId: f._id }); }}><PrivateIcon /> Who can access</MenuItem>
+						<MenuItem onClick={() => { close(); confirm(archiveQuestion(f.name, () => remove({ kind: "file", id: f._id }))); }}><ArchiveIcon /> Archive</MenuItem>
+					</> : undefined}>
+					<span className="truncate">{f.name}</span>
+					<AccessLock lock={f.lock ?? null} />
+				</Item>
+			),
+		};
 	};
+	const level = (parent?: Row, above: boolean[] = []): React.ReactNode => (
+		<DriveLevel parentId={parent?._id} parentKind={parent ? (parent.kind ?? "page") : undefined} sortable top={parent ? undefined : top} {...draw(parent, above)} />
+	);
+	const { renderPage, renderFile } = draw();
 	return (
 		// Home, then the section, spaced like Chat's channels and Direct messages (`SidebarList`).
 		<div className="flex flex-col gap-4">
@@ -120,8 +126,16 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 				add={canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files)} />}
 			>
 				{!collapsed && level()}
-				<UploadRows uploads={uploads.pending} onDismiss={uploads.dismiss} />
+				<UploadRows uploads={uploads.pending.filter((u) => !u.sectionId)} onDismiss={uploads.dismiss} />
 			</Group>
+			<SectionsNav tab="drive">
+				{(section, at) => (
+					<DriveSection key={section._id} section={section} at={at} renderPage={renderPage} renderFile={renderFile} keep={(id) => id === openId || id === openFileId}
+						add={canEdit && <NewMenu onPage={() => add("page", undefined, section._id)} onFolder={() => add("folder", undefined, section._id)} onUpload={(files) => uploads.start(files, undefined, { id: section._id, onAdded: (fileId) => sections.place(fileId, section._id) })} />}>
+						<UploadRows uploads={uploads.pending.filter((u) => u.sectionId === section._id)} onDismiss={uploads.dismiss} />
+					</DriveSection>
+				)}
+			</SectionsNav>
 			{picker.input}
 			{dialog}
 			<Notice>{error}</Notice>
@@ -131,6 +145,31 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 		</div>
 	);
 }
+
+/** A Drive section: its top-level pages, folders and files in its order, each with what's under it, drawn like All files' rows. */
+function DriveSection({ section, at, renderPage, renderFile, keep, add, children }: {
+	section: Section;
+	at: { drag: DragProps | undefined; first: boolean };
+	renderPage: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode;
+	renderFile: (row: FileRow, last: boolean, drag?: DragProps) => React.ReactNode;
+	keep: (id: string) => boolean;
+	add: React.ReactNode;
+	children: React.ReactNode;
+}) {
+	const found = useQuery(api.sidebarSections.driveRows, { sectionId: section._id });
+	const pages = new Map<string, Row>(found?.pages.map((p) => [p._id, p]));
+	const files = new Map<string, FileRow>(found?.files.map((f) => [f._id, f]));
+	const rows = section.ids.filter((id) => pages.has(id) || files.has(id));
+	return (
+		<SectionGroup {...at} tab="drive" section={section} rows={rows} keep={keep} add={add}
+			render={(id, drag) => { const page = pages.get(id); return page ? renderPage(page, drag, false) : renderFile(files.get(id)!, false, drag); }}>
+			{children}
+		</SectionGroup>
+	);
+}
+
+/** Drive's top level in the sidebar: it leaves out what sections hold, and `onReceive` takes their rows back. */
+export type TopLevel = { hide: ReadonlySet<string>; onReceive: (from: { list: string; id: string }, index: number, shown: string[]) => void };
 
 /** The + beside Drive's name and on its screens: a new page or folder here, or files to upload here (it asks for them). */
 export function NewMenu({ onPage, onFolder, onUpload, className = trailingAction, trigger = <PlusIcon /> }: { onPage: () => void; onFolder: () => void; onUpload: (files: File[]) => void; className?: string; trigger?: React.ReactNode }) {
@@ -181,13 +220,20 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
  * One level of Drive, loaded a page at a time: folders first, then pages (both in the level's shared
  * order), then files by name. A page's level has no files. `empty` once it's known there's nothing.
  */
-export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder") {
+export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder", top?: TopLevel) {
 	const pages = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
 	const withFiles = parentKind !== "page";
 	const files = usePaginatedQuery(api.driveFiles.children, withFiles ? { parentId } : "skip", { initialNumItems: 30 });
-	const { sorted, drag } = useSortable("pages", pages.results, rowId, "y", parentId);
+	const hide = top?.hide;
+	const unsectioned = useMemo(() => (hide ? pages.results.filter((p) => !hide.has(p._id)) : pages.results), [pages.results, hide]);
+	const { sorted, drag } = useSortable("pages", unsectioned, rowId, "y", parentId, top && {
+		id: unsectionedList("drive"),
+		group: itemsGroup("drive"),
+		// As drawn: folders first.
+		onReceive: (from, index) => top.onReceive(from, index, rows.map(rowId)),
+	});
 	const rows = [...sorted.filter((p) => p.kind === "folder"), ...sorted.filter((p) => p.kind !== "folder")];
-	const fileRows = withFiles ? files.results : [];
+	const fileRows = withFiles ? (hide ? files.results.filter((f) => !hide.has(f._id)) : files.results) : [];
 	const exhausted = pages.status === "Exhausted" && (!withFiles || files.status === "Exhausted");
 	return {
 		pages: rows,
@@ -223,15 +269,16 @@ export function DriveRows({ level, sortable = false, renderPage, renderFile }: {
 }
 
 /** One level, loaded and rendered in one go: the sidebar's tree and the Move dialog. */
-export function DriveLevel({ parentId, parentKind, sortable, renderPage, renderFile, empty }: {
+export function DriveLevel({ parentId, parentKind, sortable, top, renderPage, renderFile, empty }: {
 	parentId?: PageId;
 	parentKind?: "page" | "folder";
 	sortable?: boolean;
+	top?: TopLevel;
 	renderPage: (row: Row, drag: DragProps | undefined, last: boolean) => React.ReactNode;
 	renderFile: (row: FileRow, last: boolean) => React.ReactNode;
 	empty?: React.ReactNode;
 }) {
-	const level = useDriveLevel(parentId, parentKind);
+	const level = useDriveLevel(parentId, parentKind, top);
 	return (
 		<>
 			{level.empty && empty}

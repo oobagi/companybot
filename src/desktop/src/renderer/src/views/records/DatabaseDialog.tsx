@@ -1,3 +1,4 @@
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
@@ -9,7 +10,8 @@ import { type RecordType, useTypes } from "./data";
 import { recordPath } from "./logic";
 import { WhoCanAccess } from "../access";
 
-export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: () => void }) {
+/** `onCreated`: a new database's id, as soon as it's made (a section's + puts it there). */
+export function DatabaseDialog({ type, onCreated, onClose }: { type?: RecordType; onCreated?: (id: Id<"recordTypes">) => void; onClose: () => void }) {
 	const types = useTypes();
 	const [created, setCreated] = useState<string>();
 	useEffect(() => {
@@ -32,7 +34,7 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 	if (!type)
 		return (
 			<Modal title="New database" onClose={close}>
-				<Form onSubmit={() => run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); }))}>
+				<Form onSubmit={() => run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); onCreated?.(id); }))}>
 					<Notice>{error}</Notice>
 					<Settings>
 						<Setting label="Name">
