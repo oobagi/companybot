@@ -2,7 +2,7 @@ import { EVERYONE, type PlaceKind, losesOwnEdit, ownEditMessage } from "@company
 import { useQuery } from "../convex";
 import { api } from "../api";
 import { CaretDownIcon, CheckIcon, PlusIcon, PrivateIcon, RestoreIcon } from "../icons";
-import { Notice, Section, barButton, compactButton, hintClass, listClass, useRun } from "../ui";
+import { Notice, Section, compactButton, hintClass, listClass, useRun } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 
 // Who can access a channel, database or page (core place-access.ts): Everyone or roles, each at
@@ -86,11 +86,11 @@ export function WhoCanAccess({
 					<li key={e.role} className="flex min-h-12 items-center gap-2 px-4 py-2">
 						<span className="flex-1 truncate text-sm">{nameOf(e.role)}</span>
 						{onSave ? (
-							// The role's level, and Remove under it, as in a share dialog: no box until hovered.
+							// The role's level, and Remove under it, as in a share dialog; the same button as + Add.
 							<Popover
 								label={`What ${nameOf(e.role)} can do`}
 								trigger={<>{e.level === "edit" ? `Can ${verb}` : "Can view"}<CaretDownIcon className="text-neutral-400" /></>}
-								className={barButton}
+								className={compactButton}
 								panelClassName="flex w-56 flex-col p-1 text-sm"
 							>
 								{(close) => (

@@ -27,7 +27,7 @@ export function YourPermissions() {
 		<Section title="Yours" note="Actions you've set to run without asking, or never, in this workspace.">
 			{dialog}
 			<Notice>{error}</Notice>
-			{rules.length === 0 && <p className={`${hintClass} ${insetClass}`}>Nothing yet. Everything asks first.</p>}
+			{rules.length === 0 && <p className={`text-sm text-neutral-500 ${cardClass}`}>Nothing yet. Everything asks first.</p>}
 			{rules.map((r) => (
 				<div key={r._id} className={`flex items-start gap-3 text-sm ${cardClass}`}>
 					<div className="min-w-0 flex-1">

@@ -7,7 +7,7 @@ import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
 import { ArchiveIcon, RestoreIcon, TrashIcon } from "../icons";
 import { useConfirm } from "./chat/common";
-import { EmptyState, LoadMore, NoMatches, Notice, Page, compactButton, iconDangerButton, linkButton, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
+import { EmptyState, LoadMore, NoMatches, Notice, Page, PageActions, compactButton, iconDangerButton, linkButton, listClass, metadataClass, timeAgo, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
 // Archive keeps content indefinitely. Roles with trash.manage can explicitly delete forever.
@@ -50,7 +50,7 @@ export function TrashView({ access }: { access: Access }) {
 	const canPurge = can(access, "trash.manage");
 	return (
 		<Page title="Archive" description="Kept until you restore or delete them">
-			<div className={toolbarClass}>
+			<PageActions>
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Archive" className={wideControlClass} />
 				<Select
 					label="Kind"
@@ -58,7 +58,7 @@ export function TrashView({ access }: { access: Access }) {
 					options={[{ value: "", label: "Everything" }, ...kinds.map((k) => ({ value: k.id, label: k.label }))]}
 					onChange={setKind}
 				/>
-			</div>
+			</PageActions>
 			<Notice>{error}</Notice>
 			{dialog}
 			{results.length > 0 && (

@@ -8,7 +8,7 @@ import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { ArchiveIcon, EditIcon, HistoryIcon, MemoryIcon, MoreIcon, RestoreIcon, TrashIcon } from "../icons";
-import { ConflictNotice, EmptyState, Form, Loading, NewButton, NoMatches, Notice, PageActions, Section, Setting, Settings, cardClass, compactButton, compactControlClass, compactPrimaryButton, iconButton, hintClass, insetClass, metadataClass, primaryButton, secondaryButton, timeAgo, toolbarClass, useDraft, useRun, wideControlClass } from "../ui";
+import { ConflictNotice, EmptyState, Form, Loading, NewButton, NoMatches, Notice, PageActions, Section, Setting, Settings, cardClass, compactButton, compactControlClass, compactPrimaryButton, iconButton, hintClass, insetClass, metadataClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun, wideControlClass } from "../ui";
 
 import { DialogButtons, MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "./chat/common";
 
@@ -39,6 +39,12 @@ export function MemoryTab({ access }: { access: Access }) {
 				</p>
 			)}
 			<PageActions>
+				<Select
+					label="Agent"
+					value={filter}
+					options={[{ value: "all", label: "All agents" }, ...agentOptions(agents)]}
+					onChange={(f) => setFilter(f as typeof filter)}
+				/>
 				<NewButton label="New memory" onClick={() => setAdding(true)} />
 			</PageActions>
 			{adding && (
@@ -49,14 +55,6 @@ export function MemoryTab({ access }: { access: Access }) {
 					onClose={() => setAdding(false)}
 				/>
 			)}
-			<div className={toolbarClass}>
-				<Select
-					label="Agent"
-					value={filter}
-					options={[{ value: "all", label: "All agents" }, ...agentOptions(agents)]}
-					onChange={(f) => setFilter(f as typeof filter)}
-				/>
-			</div>
 			{shown.length === 0 ? (filter !== "all" ? <NoMatches /> : <EmptyState icon={<MemoryIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
 				<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
 				<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
