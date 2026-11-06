@@ -71,7 +71,7 @@ describe("handoffs by @mention", () => {
 		expect((await running(t, companybot))._id).toBe(hop._id);
 		const context = await t.mutation(internal.turns.turnContext, { turnId: hop._id });
 		expect(context.elsewhere).toEqual([expect.objectContaining({ thread: false, message: expect.objectContaining({ text: "Hold'em, 1/2 blinds. Roxy deals." }) })]);
-		expect(buildTurnPrompt({ ...context, agentId: companybot, now: Date.now(), connectors: { connected: [], unavailable: [] } })).toContain("What you said elsewhere in this chat");
+		expect(buildTurnPrompt({ ...context, approval: undefined, agentId: companybot, now: Date.now(), connectors: { connected: [], unavailable: [] } })).toContain("What you said elsewhere in this chat");
 	});
 
 	it("ping-pong stops at the limit with the paused line, and Continue resumes for the person only", async () => {

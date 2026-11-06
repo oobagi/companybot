@@ -149,13 +149,13 @@ describe("messaging and channels as the person", () => {
 		const { t, owner, member, companybot, chat } = await ready();
 		const turn = await agentTurn(t, owner, chat._id, companybot._id);
 		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: turn, tool: "chat.manage", input: { request } });
-		const replyId = (await t.run((ctx) => ctx.db.get(turn)))!.replyId!;
+		const replyId = (await t.run((ctx) => ctx.db.get(turn as Id<"agentTurns">)))!.replyId!;
 		const ops = await owner.mutation(api.chats.createChannel, { name: "ops", private: true });
 		const own = await fromGeneral({ action: "open_dm", userIds: [], agentIds: [] });
 		const people = await fromGeneral({ action: "open_dm", userIds: [member.userId], agentIds: [] });
-		const sent = [];
+		const sent: string[] = [];
 		for (const id of [own.chatId, people.chatId, ops]) sent.push((await fromGeneral({ action: "send", chat: id, text: "Dealt" })).messageId);
-		expect((await t.run((ctx) => ctx.db.get(replyId)))!.usedPlaces ?? []).toEqual([]);
+		expect((await t.run((ctx) => ctx.db.get(replyId as Id<"chatMessages">)))!.usedPlaces ?? []).toEqual([]);
 		// What it posted carries only what the turn read (nothing private), not the places it posted in.
 		for (const id of sent) expect((await t.run((ctx) => ctx.db.get(id as Id<"chatMessages">)))!.usedPlaces).toBeUndefined();
 		await t.mutation(internal.turns.updateReply, { turnId: turn, text: "Dealt everyone in.", parts: [{ type: "text", text: "Dealt everyone in." }] });
@@ -164,10 +164,10 @@ describe("messaging and channels as the person", () => {
 
 		// Reading still counts: a DM and a private channel it reads make its next reply private.
 		const next = await agentTurn(t, owner, chat._id, companybot._id);
-		const nextReply = (await t.run((ctx) => ctx.db.get(next)))!.replyId!;
+		const nextReply = (await t.run((ctx) => ctx.db.get(next as Id<"agentTurns">)))!.replyId!;
 		await t.mutation(internal.chatTools.readFor, { turnId: next, chat: people.chatId });
 		await t.mutation(internal.chatTools.readFor, { turnId: next, chat: ops });
-		expect((await t.run((ctx) => ctx.db.get(nextReply)))!.usedPlaces).toEqual(expect.arrayContaining([people.chatId, ops]));
+		expect((await t.run((ctx) => ctx.db.get(nextReply as Id<"chatMessages">)))!.usedPlaces).toEqual(expect.arrayContaining([people.chatId, ops]));
 		await t.mutation(internal.turns.updateReply, { turnId: next, text: "Secret", parts: [{ type: "text", text: "Secret" }] });
 		await t.mutation(internal.turns.finishReply, { turnId: next });
 		expect((await messagesIn(member, { chatId: chat._id })).find((m) => m._id === nextReply)).toMatchObject({ privacy: { hidden: true } });
@@ -208,13 +208,13 @@ describe("messaging and channels as the person", () => {
 		const people = await fromGeneral({ action: "open_dm", userIds: [member.userId], agentIds: [] });
 		const own = await fromGeneral({ action: "open_dm", userIds: [], agentIds: [] });
 		const places = [people.chatId, own.chatId, chat._id];
-		const sends = [];
+		const sends: { messageId: Id<"chatMessages"> }[] = [];
 		for (const id of places) sends.push(await fromGeneral({ action: "send", chat: id, text: "Dealt" }));
-		const line = (i: number) => ({ type: "tool" as const, id: `c${i}`, name: "chat_manage", label: "Post in a chat", status: "done" as const, opens: { chatId: places[i]!, messageId: sends[i].messageId, kind: "message" as const } });
+		const line = (i: number) => ({ type: "tool" as const, id: `c${i}`, name: "chat_manage", label: "Post in a chat", status: "done" as const, opens: { chatId: places[i]!, messageId: sends[i]!.messageId, kind: "message" as const } });
 		const parts = [line(0), line(1), line(2), { type: "text" as const, text: "Dealt." }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn, text: "Dealt.", parts });
 		await t.mutation(internal.turns.finishReply, { turnId: turn });
-		const replyId = (await t.run((ctx) => ctx.db.get(turn)))!.replyId!;
+		const replyId = (await t.run((ctx) => ctx.db.get(turn as Id<"agentTurns">)))!.replyId!;
 		const labels = async (as: typeof owner) => (await messagesIn(as, { chatId: chat._id })).find((m) => m._id === replyId)!.parts.flatMap((p) => (p.type === "tool" ? [p.label] : []));
 		expect(await labels(owner)).toEqual(["Post in your DM with member@co.com", "Send you a DM", "Post in #general"]);
 		expect(await labels(member)).toEqual(["Post in your DM with owner@co.com", "Post in a chat", "Post in #general"]);
