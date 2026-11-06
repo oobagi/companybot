@@ -7,7 +7,6 @@ import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalMutation, internalQuery } from "./_generated/server";
 import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
-import { railTabs } from "@companybot/core/arrangements";
 import { recordUsage } from "./usage";
 import { type RunOutcome, triggerIndexes, scheduleCursor } from "./automationOps";
 import { accessOf, memberOf, memberProfile, rolesOf, timeZoneOf } from "./lib";
@@ -397,26 +396,6 @@ export const lastWorkspaces = migrations.define({
 	},
 });
 
-// The rail's tabs and pins are one group in one order (`rail`), where each kept its own (`tabs`, `pinsOrder`).
-// Each person's rail starts as their tab order, then their pin order; the old rows go.
-// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, `retiredRailLists` and the schema's `storedArrangementList`.
-export const railOrder = migrations.define({
-	table: "arrangements",
-	batchSize: 50,
-	migrateOne: async (ctx, row) => {
-		if (row.list !== "tabs" && row.list !== "pinsOrder") return;
-		if (!(await ctx.db.get(row._id))) return;
-		const place = (list: "tabs" | "pinsOrder" | "rail") => ctx.db.query("arrangements").withIndex("by_list", (q) => q.eq("workspaceId", row.workspaceId).eq("userId", row.userId).eq("list", list).eq("entityId", undefined)).first();
-		const [tabs, pins, rail] = await Promise.all([place("tabs"), place("pinsOrder"), place("rail")]);
-		if (!rail) {
-			const ids = [...(tabs?.ids ?? []), ...railTabs.filter((t) => !tabs?.ids.includes(t)), ...(pins?.ids ?? [])];
-			await ctx.db.insert("arrangements", { workspaceId: row.workspaceId, userId: row.userId, list: "rail", ids: [...new Set(ids)] });
-		}
-		if (tabs) await ctx.db.delete(tabs._id);
-		if (pins) await ctx.db.delete(pins._id);
-	},
-});
-
 // Each chat counts its seats, so channel browsing doesn't read them. Chats made since start at 0 and count live.
 // A big chat is counted SEAT_COUNT_STEP seats a transaction, oldest first, its progress on the chat (`seatCount`):
 // seats added meanwhile are newer, so a later step reads them; one removed that was already counted comes off
@@ -523,7 +502,6 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.lastWorkspaces,
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
-	internal.migrations.railOrder,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

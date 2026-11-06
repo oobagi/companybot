@@ -57,8 +57,6 @@ export const sidebarSections = ["channels", "dms"];
 export const railTabs = ["chat", "drive", "databases", "customize"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|db|rec):./.test(id);
-/** Lists the rail had before tabs and pins became one (`rail`); `migrations.railOrder` merges them. COMPAT(0.1.0-alpha.10): delete with it. */
-export const retiredRailLists = ["tabs", "pinsOrder"] as const;
 
 type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
