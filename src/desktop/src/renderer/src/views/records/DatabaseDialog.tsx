@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
-import { ConflictNotice, Field, Form, Notice, secondaryButton, inputClass, primaryButton, useDraft, useRun } from "../../ui";
-import { Modal, archiveQuestion, useConfirm } from "../chat/common";
+import { ConflictNotice, Form, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
+import { ArchiveIcon } from "../../icons";
+import { DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { recordPath } from "./logic";
 import { WhoCanAccess } from "../access";
@@ -24,39 +25,49 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 	discard.current = draft.discard;
 	useEffect(() => () => discard.current(), []);
 	const close = () => { draft.discard(); onClose(); };
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
 	const { confirm, dialog } = useConfirm();
+	const archive = () => type && confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => { onClose(); navigate("records"); }), "Its records and fields will be archived with it."));
+	const set = (key: "plural" | "name") => (e: React.ChangeEvent<HTMLInputElement>) => draft.set({ ...draft.value, [key]: e.target.value });
+	if (!type)
+		return (
+			<Modal title="New database" onClose={close}>
+				<Form onSubmit={() => run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); }))}>
+					<Notice>{error}</Notice>
+					<Settings>
+						<Setting label="Name">
+							<input autoFocus aria-label="Name" required maxLength={120} placeholder="e.g. Projects" className={wideControlClass} value={draft.value.plural} onChange={set("plural")} />
+						</Setting>
+					</Settings>
+					<DialogButtons>
+						<button type="button" onClick={close} className={secondaryButton}>Cancel</button>
+						<button type="submit" disabled={busy} className={primaryButton}>Create database</button>
+					</DialogButtons>
+				</Form>
+			</Modal>
+		);
 	return (
-		<Modal title={type ? "Edit database" : "New database"} onClose={close}>
-			<Form
-				onSubmit={() => {
-					if (type) run(update({ typeId: type._id, ...draft.value, version: draft.base }), () => { draft.discard(); onClose(); });
-					else run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); }));
-				}}
-			>
-				<Notice>{error}</Notice>
-				{dialog}
+		<Modal title={type.plural} onClose={close} menu={(closeMenu) => <MenuItem onClick={() => (closeMenu(), archive())}><ArchiveIcon /> Archive database</MenuItem>}>
+			{dialog}
+			<Form className="flex flex-col gap-3" onSubmit={() => run(update({ typeId: type._id, ...draft.value, version: draft.base }), () => draft.discard())}>
 				<ConflictNotice draft={draft} />
-				<Field label="Name">
-					<input autoFocus required maxLength={120} placeholder="e.g. Projects" className={inputClass} value={draft.value.plural} onChange={(e) => draft.set({ ...draft.value, plural: e.target.value })} />
-				</Field>
-				{type && (
-					<Field label="One entry">
-						<input required maxLength={120} placeholder="e.g. Project" className={inputClass} value={draft.value.name} onChange={(e) => draft.set({ ...draft.value, name: e.target.value })} />
-					</Field>
+				<Settings title="Database">
+					<Setting label="Name">
+						<input aria-label="Name" required maxLength={120} placeholder="e.g. Projects" className={wideControlClass} value={draft.value.plural} onChange={set("plural")} />
+					</Setting>
+					<Setting label="One entry" hint="What one of them is called.">
+						<input aria-label="One entry" required maxLength={120} placeholder="e.g. Project" className={wideControlClass} value={draft.value.name} onChange={set("name")} />
+					</Setting>
+				</Settings>
+				<Notice>{error}</Notice>
+				{draft.dirty && (
+					<DialogButtons>
+						<button type="button" onClick={draft.discard} className={compactButton}>Discard</button>
+						<button type="submit" disabled={busy || draft.stale} className={compactPrimaryButton}>Save</button>
+					</DialogButtons>
 				)}
-				{type && (
-					<div className="flex flex-col gap-1.5">
-						<span className="text-sm font-medium">Who can access</span>
-						<span className="text-xs text-neutral-500">Its records and their pages follow this too.</span>
-						<WhoCanAccess kind="database" access={type.access} onSave={(access) => setAccess({ typeId: type._id, access })} />
-					</div>
-				)}
-				<div className="flex items-center gap-2">
-					<button type="submit" disabled={draft.stale} className={primaryButton}>{type ? "Save" : "Create database"}</button>
-					{type && <button type="button" className={secondaryButton} onClick={() => confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => { onClose(); navigate("records"); }), "Its records and fields will be archived with it."))}>Archive database</button>}
-				</div>
 			</Form>
+			<WhoCanAccess kind="database" hint="Its records and their pages follow this too." access={type.access} onSave={(access) => setAccess({ typeId: type._id, access })} />
 		</Modal>
 	);
 }

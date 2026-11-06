@@ -4,7 +4,7 @@ import { Component, Fragment, createContext, useCallback, useContext, useEffect,
 import { createPortal } from "react-dom";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
-import { CaretDownIcon, PlusIcon } from "./icons";
+import { CaretDownIcon, PlusIcon, SearchIcon } from "./icons";
 import { navigate } from "./router";
 import type { DragProps } from "./sortable";
 import { Popover } from "./views/chat/common";
@@ -140,7 +140,7 @@ export type Crumb = { label: string; to: string[] };
 export function TopBar({ crumbs = [], title, description, children }: { crumbs?: Crumb[]; title: React.ReactNode; description?: React.ReactNode; children?: React.ReactNode }) {
 	// Its text starts 20px in (16 here, 4 on the title or crumb), like the sidebar's workspace name.
 	return (
-		<header className="drag flex h-12 shrink-0 items-center gap-3 px-4">
+		<header className="drag flex h-12 shrink-0 items-center gap-3 px-4 select-none">
 			<nav className="flex min-w-0 items-center overflow-x-auto text-sm">
 				{crumbs.map((c) => (
 					<Fragment key={c.to.join("/")}>
@@ -167,6 +167,9 @@ export function TopBar({ crumbs = [], title, description, children }: { crumbs?:
  * out on its scrim (styles.css), which shows only while something is under it.
  * `overlayScrollbar` keeps chat panes flush even when the OS uses classic scrollbars.
  */
+/** Whether content is scrolled under the bottom edge of the `Scroll` around you: a sticky footer inside it (a dialog's buttons) fades in its scrim. */
+export const ScrollUnder = createContext(false);
+
 export function Scroll({
 	ref,
 	header,
@@ -211,7 +214,9 @@ export function Scroll({
 					{header}
 				</div>
 			)}
-			<div className="flex flex-1 flex-col">{children}</div>
+			<div className="flex flex-1 flex-col">
+				<ScrollUnder.Provider value={underBottom}>{children}</ScrollUnder.Provider>
+			</div>
 			{footer && (
 				<div className="scrim-bottom sticky bottom-0 z-30" data-under={underBottom || undefined}>
 					{footer}
@@ -239,7 +244,8 @@ const actionSlot = createContext<HTMLElement | null>(null);
 /**
  * A screen: the top bar, then its content. The title lives in the top bar; `heading` is
  * a big title in the content, only for things you write in and rename there (pages, records).
- * `description` sits next to the title in the top bar; `actions` go on its right. `wide` for tables.
+ * `description` sits next to the title in the top bar: a few words, like a channel's topic (it
+ * truncates; the details belong in help). `actions` go on the top bar's right. `wide` for tables.
  */
 export function Page({
 	title,
@@ -331,48 +337,85 @@ export function Tabs<T extends string>({
 /**
  * A titled part of a screen, usually a stack of cards. Its heading is inset to line up with the
  * text inside them; `flush` keeps it at the edge, for plain content (a form) that sits there too.
+ * Headings are a title only: what a setting does is its own hint. `note`, for the rare section
+ * that needs one, is a small footnote under its content, as in macOS settings.
  */
-export function Section({ title, hint, flush, children }: { title: string; hint?: string; flush?: boolean; children: React.ReactNode }) {
+export function Section({ title, note, flush, action, children }: { title: string; note?: string; flush?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
+	const edge = flush || useContext(StackedContext);
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} flush={flush} />
+			<Heading title={title} flush={edge} action={action} />
 			{children}
+			<Note text={note} flush={edge} />
 		</section>
 	);
 }
 
-/** Section and Settings headings: a title and a hint. */
-function Heading({ title, hint, flush }: { title?: string; hint?: string; flush?: boolean }) {
-	if (!title && !hint) return null;
+/** Section and Settings headings: a title, and on the right a button for the section (Add). */
+function Heading({ title, flush, action }: { title?: string; flush?: boolean; action?: React.ReactNode }) {
+	if (!title) return null;
 	return (
-		<div className={flush ? "" : insetClass}>
-			{title && <h2 className="font-medium">{title}</h2>}
-			{hint && <p className={descriptionClass}>{hint}</p>}
+		<div className={`flex min-h-7 items-center gap-3 ${flush ? "" : insetClass}`}>
+			<h2 className="min-w-0 flex-1 font-medium">{title}</h2>
+			{action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
 		</div>
 	);
+}
+
+function Note({ text, flush }: { text?: string; flush?: boolean }) {
+	return text ? <p className={`text-xs text-neutral-500 ${flush ? "" : insetClass}`}>{text}</p> : null;
+}
+
+/** Inside a dialog (and on sign-in), forms stack: each label over its control, full width, no card. */
+const StackedContext = createContext(false);
+
+/** Makes the `Settings` forms under it stack (`Modal` does this for every dialog). */
+export function Stacked({ children }: { children: React.ReactNode }) {
+	return <StackedContext.Provider value>{children}</StackedContext.Provider>;
 }
 
 /**
  * Settings, one per row in a card: what it is and a one-line hint on the left, its
  * control on the right. Every settings screen uses it, so labels and controls line up.
+ * In a dialog (`Stacked`) the same rows stack: label and hint over a full-width control.
  */
-export function Settings({ title, hint, children }: { title?: string; hint?: string; children: React.ReactNode }) {
+export function Settings({ title, note, action, children }: { title?: string; note?: string; action?: React.ReactNode; children: React.ReactNode }) {
+	const stacked = useContext(StackedContext);
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} hint={hint} />
-			<div className={listClass}>{children}</div>
+			<Heading title={title} action={action} flush={stacked} />
+			<div className={stacked ? "flex flex-col gap-4" : listClass}>{children}</div>
+			<Note text={note} flush={stacked} />
 		</section>
 	);
 }
 
-export function Setting({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/**
+ * One setting in a `Settings` card. Every form uses these rows, on a screen or in a dialog.
+ * `wide` is for long text (a textarea, instructions): the label and hint on top, the control
+ * across the card under them (give it `compactControlClass w-full`). `inline` keeps a checkbox
+ * or switch beside its label even where forms stack.
+ */
+export function Setting({ label, hint, wide, inline, children }: { label: string; hint?: string; wide?: boolean; inline?: boolean; children: React.ReactNode }) {
+	const stacked = useContext(StackedContext);
+	if (stacked && !inline) {
+		return (
+			<div className="flex flex-col gap-1.5">
+				<div className="flex min-w-0 flex-col gap-0.5">
+					<p className="text-sm font-medium">{label}</p>
+					{hint && <p className="text-xs text-neutral-500">{hint}</p>}
+				</div>
+				<div className="stacked-control flex gap-2">{children}</div>
+			</div>
+		);
+	}
 	return (
-		<div className="flex items-center gap-6 px-4 py-3">
-			<div className="min-w-0 flex-1">
+		<div className={`flex ${stacked ? "" : "px-4 py-3"} ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
+			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<p className="text-sm font-medium">{label}</p>
 				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
 			</div>
-			<div className="flex shrink-0 items-center gap-2 text-sm">{children}</div>
+			<div className={`flex items-center gap-2 text-sm ${wide ? "" : "shrink-0"}`}>{children}</div>
 		</div>
 	);
 }
@@ -386,19 +429,24 @@ export function Form({ className = "flex flex-col gap-4", onSubmit, children }: 
 	);
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/** The old stacked form field: `ui/no-stacked-form` reports every use. Forms are `Setting` rows; delete this once none are left. */
+/**
+ * A count in a pill: unread @mentions and DMs on the rail and in the switcher (red), an @ on a
+ * sidebar row (`dark`). `ring` cuts it out from what it sits on (the rail's background).
+ */
+export function CountBadge({ count, dark, ring, className = "" }: { count: number | string; dark?: boolean; ring?: boolean; className?: string }) {
 	return (
-		<label className="flex flex-col gap-1.5">
-			<span className="text-sm font-medium">{label}</span>
-			{children}
-			{hint && <span className="text-xs text-neutral-500">{hint}</span>}
-		</label>
+		<span
+			className={`inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-[5px] text-[11px] leading-none font-bold text-white tabular-nums ${dark ? "bg-neutral-900" : "bg-red-500"} ${ring ? "ring-2 ring-neutral-100" : ""} ${className}`}
+		>
+			{typeof count === "number" && count > 9 ? "9+" : count}
+		</span>
 	);
 }
 
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
-export const inputClass = `rounded-xl px-3 py-2 ${controlClass}`;
+/** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
 export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
@@ -417,17 +465,96 @@ export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+/** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
+export const trailingAction =
+	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
+/** The composer's round tools beside the text: attach, emoji, dictation. */
+export const composerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50";
+/** The composer's Send: a round dark button with an arrow, grey until there's something to send. */
+export const sendButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200";
+/** `secondaryButton`'s size where a card, popover or settings row acts on its own (Deny, Message, Join, Check for updates). */
+export const actionButton = secondaryButton;
+/** `primaryButton`'s size where a card, popover or settings row acts on its own (Allow once, Connect, Restart to update). */
+export const actionPrimaryButton = primaryButton;
+/** The landing screen's one big dark button (Get started). */
+export const heroButton = "rounded-xl bg-neutral-900 px-6 py-2.5 text-base text-white hover:bg-neutral-800";
+/** The sidebar footer's "Update ready · Restart": small dark text block. */
+export const updateButton = "rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white";
+/** The title bar's 24px icons (sidebar, back, forward, help): greyed out while disabled. */
+export const titleBarButton =
+	"no-drag flex size-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
+/** A small round × in a card's corner (a pending file, a link preview). */
+export const cornerCloseButton = "flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
+/** A 24px icon beside a title (a DM's New chat). */
+export const smallIconButton = "flex size-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
+/** An icon with no box of its own (remove a filter, remove a chip): grey, darker on hover. */
+export const bareIconButton = "text-neutral-400 hover:text-neutral-700";
+/** A row's fold chevron, shown in its icon slot on hover. */
+export const chevronButton = "size-5 items-center justify-center text-neutral-400 hover:text-neutral-800";
+/** The × on an email chip (Onboarding's invite box): a tiny round hover. */
+export const chipRemoveButton = "rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700";
+/** The × beside a time in the schedule editor. */
+export const timeRemoveButton = "rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700";
+/** The × on a side chat tab, over the tab's pill. */
+export const tabCloseButton = "flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900";
+/** The + after a list's view tabs, sized like a tab. */
+export const tabAddButton = "flex items-center px-3 py-2 text-base text-neutral-500 hover:text-neutral-800";
+/** A suggested first message in an empty agent chat. */
+export const suggestionButton =
+	"rounded-xl border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400";
+/** A channel's members (avatars and a count) in its top bar. */
+export const membersButton = "flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-neutral-500 hover:bg-neutral-100";
+/** A message's "3 replies · Last reply …" line under it. */
+export const repliesButton = "-ml-1 flex w-fit items-center gap-2 rounded-lg px-1 py-0.5 text-xs hover:bg-white";
+/** A small bordered pill that goes somewhere (a tool call's "opened a thread →"). */
+export const pillLinkButton = "rounded-full border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:border-neutral-300 hover:text-neutral-900";
+/** The typing line's Stop: quiet text with a hover fill. */
+export const stopButton = "rounded px-1.5 font-medium text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-60 disabled:hover:bg-transparent";
+/** An on/off pill (Install, Turn on for me); pass its colors for each state. */
+export const pillButton = `shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass}`;
+/** A round day of the week in the schedule editor; pass its colors for on and off. */
+export const dayButton = "size-8 rounded-full text-sm";
+/** An emoji picker's category tab. */
+export const emojiTabButton = "flex size-7 items-center justify-center rounded-lg text-base hover:bg-neutral-100";
+/** An emoji picker's skin tone: filled while picked (`aria-pressed`). */
+export const skinToneButton = "flex size-6 items-center justify-center rounded-md text-sm hover:bg-neutral-100 aria-pressed:bg-neutral-200";
+/** A card on a board lane. */
+export const boardCardButton = "flex flex-col gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-sm shadow-xs hover:bg-neutral-50";
+/** One version in a page's history: lit while shown (`data-active`). */
+export const versionRowButton = "flex flex-col rounded-lg px-3 py-2 text-left text-sm hover:bg-neutral-50 data-active:bg-neutral-100";
+/** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
+export const railButton = (active: boolean) =>
+	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
+/** Text that opens what it names (a record, a channel, an archived item): underlined on hover. */
+export const linkButton = "text-left hover:underline";
+/** A title you click: folds its section, sorts its column, opens its field's settings. Darkens on hover. */
+export const titleButton = "min-w-0 text-left hover:text-neutral-900";
+/** One row in a list you pick from (a menu, versions, workspaces): lit on hover and while picked (`data-active`). */
+export const rowButton = `flex w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-neutral-100 data-active:bg-neutral-100 ${disabledButtonClass}`;
+/** A row inside a `listClass` card that opens what it shows. */
+export const listRowButton = "flex w-full gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50";
+/** A square in a grid of choices (an emoji). */
+export const tileButton = "flex size-8 items-center justify-center rounded-lg hover:bg-neutral-100";
+/** A picture that opens full size. */
+export const imageButton = "overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300";
+/** An on/off pill with a count (a reaction): filled while on (`aria-pressed`). */
+export const chipButton =
+	"flex h-7 items-center gap-1.5 rounded-full border border-neutral-200 px-2.5 text-sm text-neutral-600 tabular-nums hover:border-neutral-300 aria-pressed:border-neutral-400 aria-pressed:bg-neutral-100 aria-pressed:text-neutral-900";
+/** A button whose look is what it sits in (a sidebar row, a tab's pill): none of its own. */
+export const surfaceButton = "min-w-0 text-left";
 export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */
 export const hintClass = "text-sm text-neutral-400";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
+/** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
+export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
-export const insetClass = "px-[17px]";
-/** Rows in one bordered box, split by lines. */
-export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
+export const insetClass = "card-inset px-[17px]";
+/** Rows in one bordered box, split by lines. In a dialog the dialog is the box: no border, rows flush (styles.css). */
+export const listClass = "card-list flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
 /**
  * The row of compact controls atop a screen's content: search and filters, or a one-line add
  * form (`Form className`). One class so every screen's row has the same height and spacing.
@@ -448,14 +575,15 @@ export function NewButton({ label, onClick }: { label: string; onClick: () => vo
 
 /**
  * A screen with nothing in it yet: no button, since the top bar's create action is how you start.
- * In the middle of the space under the top bar on every screen, however much sits above it:
- * sticky `top-1/2` brings it down to the middle; when the controls above reach past that,
- * it stays just below them.
+ * In the middle of the space under the top bar on every screen: sticky `top-1/2` holds it at the
+ * middle of the scrolling area. `min-h-[60vh]` makes its box reach past the middle even when what
+ * wraps it doesn't fill the screen (that left it high on some screens). When controls above reach
+ * past the middle, it sits just below them.
  */
 export function EmptyState({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
 	return (
-		<div className="flex flex-1 flex-col items-center pt-24">
-			<div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 py-8 text-center">
+		<div className="flex min-h-[60vh] flex-1 flex-col items-center pt-24">
+			<div className="sticky top-1/2 flex max-w-xs -translate-y-1/2 flex-col items-center gap-2 py-8 text-center text-balance">
 				<span aria-hidden="true" className="mb-2 text-[32px] text-neutral-400">{icon}</span>
 				<h2 className="text-base font-medium">{title}</h2>
 				<p className={descriptionClass}>{children}</p>
@@ -464,9 +592,13 @@ export function EmptyState({ icon, title, children }: { icon: React.ReactNode; t
 	);
 }
 
-/** A filtered list with nothing left. The filters' own controls undo them. */
+/** A filtered or searched list with nothing left: the same empty state as an empty screen. The filters' own controls undo them. */
 export function NoMatches() {
-	return <p className="py-8 text-center text-sm text-neutral-500">No matches</p>;
+	return (
+		<EmptyState icon={<SearchIcon />} title="No matches">
+			Nothing fits this search or filter. Change or clear it to see more.
+		</EmptyState>
+	);
 }
 
 /** A screen for one item: loading while `loaded` is false, then an empty state saying it's gone. */
@@ -674,6 +806,9 @@ const subscribeDrafts = (listener: () => void) => {
 	draftListeners.add(listener);
 	return () => { draftListeners.delete(listener); };
 };
+/** A version for `useDraft` from a value with none of its own (a role, your preferences): changes when it does. */
+export const versionOf = (value: unknown) => [...JSON.stringify(value)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7);
+
 export function useDraft<T>(key: string, saved: T, version: number) {
 	const me = useQuery(api.workspace.me);
 	const workspace = useWorkspace();
@@ -718,14 +853,14 @@ export function PageActions({ children }: { children: React.ReactNode }) {
 	return slot ? createPortal(children, slot) : null;
 }
 
-/** Discard and Save in the page's top bar; both off until something changed. */
-export function SaveBar({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => void; onDiscard: () => void }) {
+/** Discard and Save in the page's top bar; both off until something changed. `canSave` false holds Save (an unresolved conflict). */
+export function SaveBar({ dirty, canSave = true, onSave, onDiscard }: { dirty: boolean; canSave?: boolean; onSave: () => void; onDiscard: () => void }) {
 	return (
 		<PageActions>
 			<button type="button" disabled={!dirty} onClick={onDiscard} className={compactButton}>
 				Discard
 			</button>
-			<button type="button" disabled={!dirty} onClick={onSave} className={compactPrimaryButton}>
+			<button type="button" disabled={!dirty || !canSave} onClick={onSave} className={compactPrimaryButton}>
 				Save
 			</button>
 		</PageActions>

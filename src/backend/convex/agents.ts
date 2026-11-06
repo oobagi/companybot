@@ -7,6 +7,7 @@ import {
 	describeToolAccess,
 	defaultModel,
 	defaultReasoning,
+	CUSTOM_PREFIX,
 	findConnector,
 	pickAgentConfig,
 	roleSwitches,
@@ -19,6 +20,7 @@ import { type MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, type Who, checkPermission, checkVersion, getMember, namesOf, requireAgent, requireLiveAgent, requirePermission, toActor } from "./lib";
 import { connectorStates } from "./connectors";
+import { connectorsIn } from "./connectorAccess";
 import { imageUrl } from "./images";
 import { allowedModels, catalogModels } from "./modelCatalog";
 import { agentConfig } from "./schema";
@@ -39,7 +41,10 @@ async function clean(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig
 		reasoning: config.reasoning ?? agent.reasoning ?? defaultReasoning,
 		tools: config.tools.filter((id) => toolGroup(id) !== "night-owl"),
 	};
-	const problem = validateAgentConfig(tidy, await allowedModels(ctx, agent.model));
+	// A removed custom connector's grants go too, so the agent (and its old versions) still save and restore.
+	const connectors = await connectorsIn(ctx, agent.workspaceId);
+	tidy.tools = tidy.tools.filter((id) => !toolGroup(id).startsWith(CUSTOM_PREFIX) || connectors.some((c) => c.id === toolGroup(id)));
+	const problem = validateAgentConfig(tidy, await allowedModels(ctx, agent.model), connectors);
 	if (problem) throw new ConvexError(problem);
 	// Sorted and deduped so versions compare cleanly.
 	return { ...tidy, tools: [...new Set(tidy.tools)].sort() };
@@ -121,8 +126,9 @@ export const options = query({
 				})),
 		}));
 		const installed = member ? await connectorStates(ctx, member) : [];
+		const known = member ? await connectorsIn(ctx, member.workspaceId) : [];
 		const connectors = installed.flatMap((state) => {
-			const connector = findConnector(state.id);
+			const connector = findConnector(state.id, known);
 			return connector ? [{ id: connector.id, name: connector.name, connector: true, tools: [] }] : [];
 		});
 		const { models, fetchedAt } = await catalogModels(ctx);

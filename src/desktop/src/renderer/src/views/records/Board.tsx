@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
-import { LoadMore, Loading, Notice, useRun } from "../../ui";
+import { LoadMore, Loading, Notice, boardCardButton, useRun } from "../../ui";
 import { type ListArgs, type RecordType, usePagedRows } from "./data";
 import { type TypeField, recordPath, valueText } from "./logic";
 
@@ -96,10 +96,10 @@ function Lane({
 			}}
 			className={`flex w-64 shrink-0 flex-col gap-2 rounded-xl p-2 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}
 		>
-			<h3 className="flex items-center gap-2 px-1 text-sm font-medium text-neutral-700">
+			<div className="flex items-center gap-2 px-1 text-sm font-medium text-neutral-700">
 				<span className="truncate">{retired ? `${label} (removed)` : label}</span>
 				<span className="text-neutral-400">{status === "LoadingFirstPage" ? "" : `${rows.length}${status === "Exhausted" ? "" : "+"}`}</span>
-			</h3>
+			</div>
 			{rows.map((r) => (
 				<button
 					key={r._id}
@@ -107,7 +107,7 @@ function Lane({
 					draggable={canEdit}
 					onDragStart={(e) => e.dataTransfer.setData(CARD, JSON.stringify({ id: r._id, from: id, typeId: type._id, groupBy }))}
 					onClick={() => navigate(...recordPath(type.key, r._id))}
-					className="flex flex-col gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-sm shadow-xs hover:bg-neutral-50"
+					className={boardCardButton}
 				>
 					<span className="font-medium break-words">{valueText(name, r.values[name.key], refs) || "Untitled"}</span>
 					{props.map(

@@ -29,13 +29,13 @@ function repeats(w: Wakeup) {
 const what = (w: Wakeup) => w.note ?? (w.place ? (w.job ? "When its job finishes" : "Look around for anything worth doing") : "In a chat you can't see");
 
 /** Pending wakeups, soonest first: all you can see, or one record's. Nothing when there are none. */
-export function PendingWakeups({ recordId, title, hint }: { recordId?: Id<"records">; title: string; hint?: string }) {
+export function PendingWakeups({ recordId, title, note }: { recordId?: Id<"records">; title: string; note?: string }) {
 	const wakeups = useQuery(api.wakeups.list, { recordId });
 	const cancel = useMutation(api.wakeups.cancel);
 	const { confirm, dialog } = useConfirm();
 	if (!wakeups?.length) return null;
 	return (
-		<Section title={title} hint={hint}>
+		<Section title={title} note={note}>
 			{dialog}
 			<div className="flex flex-col gap-2">
 				{wakeups.map((w) => (
@@ -51,21 +51,20 @@ export function PendingWakeups({ recordId, title, hint }: { recordId?: Id<"recor
 								]
 									.filter(Boolean)
 									.join(" · ")}
+								{/* Links inside the line of text. */}
 								{w.place && (
-									<>
-										{" · "}
-										<button type="button" className="hover:underline" onClick={() => navigate("chat", w.place!.chatId, ...(w.place!.threadId ? ["thread", w.place!.threadId] : []))}>
+									<span>
+										{" "}· <button type="button" className="hover:underline" onClick={() => navigate("chat", w.place!.chatId, ...(w.place!.threadId ? ["thread", w.place!.threadId] : []))}>
 											{w.place.label}
 										</button>
-									</>
+									</span>
 								)}
 								{w.record && !recordId && (
-									<>
-										{" · "}
-										<button type="button" className="hover:underline" onClick={() => navigate(...recordPath(w.record!.typeKey, w.record!._id))}>
+									<span>
+										{" "}· <button type="button" className="hover:underline" onClick={() => navigate(...recordPath(w.record!.typeKey, w.record!._id))}>
 											{w.record.title}
 										</button>
-									</>
+									</span>
 								)}
 							</span>
 						</div>

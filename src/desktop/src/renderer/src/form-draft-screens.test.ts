@@ -129,11 +129,22 @@ it("shows saved custom fields while archived and restores the draft on restore",
 	await render(custom(true, true)); expect((document.querySelector("input") as HTMLInputElement).value).toBe("Saved skill");
 	await render(custom()); expect((document.querySelector("input") as HTMLInputElement).value).toBe("Unsaved skill");
 });
-it("clears edited database fields after saving", async () => {
+it("clears edited database fields after saving, and stays open", async () => {
 	const type = { _id: "database", name: "Project", plural: "Projects", key: "project", version: 1, access: [] } as never;
 	const close = vi.fn();
 	await render(createElement(DatabaseDialog, { type, onClose: close }));
 	await change("input", "Unsaved database"); await click("Save");
-	expect(close).toHaveBeenCalledOnce();
+	expect(close).not.toHaveBeenCalled();
 	expect((document.querySelector("input") as HTMLInputElement).value).toBe("Projects");
+});
+it("saves only your preference edits, never another device's change back", async () => {
+	const prefs = () => createElement(SettingsView, { access, tab: "preferences" });
+	await render(prefs());
+	await change("input", "Alicia");
+	// Another device turns notifications on while this draft is open.
+	state.queries = { ...state.queries, "preferences:get": { displayName: "Alice", timeZone: "UTC", sendWith: "enter", notify: "all" } };
+	await render(prefs());
+	expect(document.body.textContent).toContain("Keep mine");
+	await click("Keep mine"); await click("Save");
+	expect(state.save).toHaveBeenLastCalledWith({ displayName: "Alicia" });
 });

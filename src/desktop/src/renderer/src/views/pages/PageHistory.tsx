@@ -2,9 +2,9 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
-import { EmptyState, LoadMore, Loading, Notice, Tabs, metadataClass, primaryButton, useRun } from "../../ui";
+import { EmptyState, LoadMore, Loading, Notice, Tabs, metadataClass, primaryButton, useRun, versionRowButton } from "../../ui";
 import { HistoryIcon } from "../../icons";
-import { Modal, clock, dayLabel } from "../chat/common";
+import { DialogButtons, Modal, clock, dayLabel } from "../chat/common";
 import { whoLabel } from "../records/logic";
 import { VersionPreview } from "./PageEditor";
 
@@ -21,7 +21,7 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 	const { error, run } = useRun();
 	const shown = picked ?? results[0]?._id;
 	return (
-		<Modal title="History" wide onClose={onClose}>
+		<Modal title="History" size="xl" onClose={onClose}>
 			{tabs}
 			<Tabs tabs={[{ id: "content", label: "Content" }, { id: "moves", label: "Moves" }]} value={tab} onChange={setTab} />
 			{tab === "moves" ? <Moves pageId={pageId} /> : <>
@@ -39,7 +39,8 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 								key={v._id}
 								type="button"
 								onClick={() => setPicked(v._id)}
-								className={`flex flex-col rounded-lg px-3 py-2 text-left text-sm ${v._id === shown ? "bg-neutral-100" : "hover:bg-neutral-50"}`}
+								data-active={v._id === shown || undefined}
+								className={versionRowButton}
 							>
 								<span className="font-medium">{when(v.time)}</span>
 								<span className="text-neutral-600">
@@ -54,9 +55,11 @@ export function PageHistory({ pageId, canRestore, onClose, tabs }: { pageId: Id<
 				</div>
 			)}
 			{canRestore && shown && shown !== results[0]?._id && (
-				<button type="button" onClick={() => run(restore({ versionId: shown }), onClose)} className={`${primaryButton} self-end`}>
-					Restore this version
-				</button>
+				<DialogButtons>
+					<button type="button" onClick={() => run(restore({ versionId: shown }), onClose)} className={primaryButton}>
+						Restore this version
+					</button>
+				</DialogButtons>
 			)}
 			</>}
 		</Modal>

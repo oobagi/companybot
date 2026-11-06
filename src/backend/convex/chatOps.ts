@@ -35,6 +35,10 @@ export function agentOfDm(chat: Doc<"chats">): Id<"agents"> | null {
 	return agents.length === 1 && keys.length === 2 ? (agents[0]!.slice(2) as Id<"agents">) : null;
 }
 
+/** Why an agent can't open or post in a DM with another agent: there's no agent-to-agent DM, only these. */
+export const OTHER_AGENTS_DM =
+	"Agents don't have DMs with each other, and a person's DM with another agent isn't yours to post in: that agent wouldn't see it as a message to answer. To hand it work, @mention it in your reply; to ask it something, use chat_ask_agent. Anything you tell an agent, the people in the chat can see.";
+
 /** Lowercase, dashes for spaces, no "#". Empty if nothing usable is left. */
 export const normalizeChannelName = (name: string) =>
 	name
@@ -132,11 +136,21 @@ export async function visibleChat(ctx: QueryCtx, chatId: Id<"chats">) {
  * its access list: that names who can ("Only Office and Owners can see #deals."), so an agent can say.
  */
 export async function requireChat(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
+	const chat = await requireChatToPost(ctx, member, chatId);
+	await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
+	return chat;
+}
+
+/**
+ * `requireChat` for a chat a turn only posts in: posting reads nothing there, so the chat isn't one of the
+ * reply's sources (#table-1's reply went private for the DMs it dealt cards into). The posted message still
+ * carries the turn's own sources (`writeSources`).
+ */
+export async function requireChatToPost(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
 	const chat = await ctx.db.get(chatId);
 	const seen = chat ? await reachOf(ctx, chat, member) : "members";
 	if (seen === "access") requireAccess(member, "channel", channelName(chat!), chatAccess(chat!), "view");
 	if (!chat || seen !== "ok") throw new ConvexError("Chat not found.");
-	await notePlace(ctx, member, chat._id, chatAccess(chat), (chat.kind !== "channel" || !!chat.private));
 	return chat;
 }
 
@@ -290,26 +304,33 @@ export async function findOrCreateDm(
 		.filter((q) => q.eq(q.field("parentId"), undefined))
 		.first();
 	if (existing) return existing._id;
-	const chatId = await insertChat(ctx, {
-		workspaceId,
-		kind: "dm",
-		searchPublic: false,
-		private: true,
-		dmKey,
-		archived: false,
-		createdBy,
-		memberCount: 0,
-	});
+	// Just you and agents: opening it isn't a message, so it keeps its place in your DMs (most recent
+	// first) until someone writes. A DM with people starts as new, at the top, since you're about to write.
+	const quiet = userIds.length === 1 && agentIds.length > 0;
+	const chatId = await insertChat(
+		ctx,
+		{
+			workspaceId,
+			kind: "dm",
+			searchPublic: false,
+			private: true,
+			dmKey,
+			archived: false,
+			createdBy,
+			memberCount: 0,
+		},
+		quiet ? 0 : Date.now(),
+	);
 	const chat = (await ctx.db.get(chatId))!;
 	for (const userId of userIds) await addToChat(ctx, chat, { userId });
 	for (const agentId of agentIds) await addToChat(ctx, chat, { agentId });
 	return chatId;
 }
 
-/** A new chat, with its activity (`chatActivity`). */
-export async function insertChat(ctx: MutationCtx, chat: WithoutSystemFields<Doc<"chats">>) {
+/** A new chat, with its activity (`chatActivity`). `lastMessageAt` 0 means nothing's been said yet. */
+export async function insertChat(ctx: MutationCtx, chat: WithoutSystemFields<Doc<"chats">>, lastMessageAt = Date.now()) {
 	const chatId = await ctx.db.insert("chats", chat);
-	await ctx.db.insert("chatActivity", { chatId, workspaceId: chat.workspaceId, kind: chat.kind, searchPublic: publicSearchChat(chat), lastMessageAt: Date.now() });
+	await ctx.db.insert("chatActivity", { chatId, workspaceId: chat.workspaceId, kind: chat.kind, searchPublic: publicSearchChat(chat), lastMessageAt });
 	return chatId;
 }
 

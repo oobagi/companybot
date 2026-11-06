@@ -162,7 +162,39 @@ async function settleApproval(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 }
 
 /**
- * Starts the oldest queued turn in a place, unless one is running (a stale one is failed first).
+ * Whether the agent is answering somewhere else in this chat right now (another thread, or the main
+ * chat). One agent runs one turn at a time in a chat: two at once, in two places, answer the same
+ * conversation without knowing about each other and contradict. The other waits, then starts when
+ * this one ends (startInChat), seeing what it said (turnContext `elsewhere`). A stale one doesn't count.
+ */
+async function busyElsewhere(ctx: QueryCtx, place: Place) {
+	const running = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_agent_chat", (q) => q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("status", "running"))
+		.collect();
+	return running.some((t) => t.threadId !== place.threadId && Date.now() - (t.startedAt ?? t._creationTime) < STALE_TURN_MS);
+}
+
+/** A turn ended: the agent's next waiting turn in this chat starts, its own place's first. */
+async function startInChat(ctx: MutationCtx, place: Place) {
+	await startNext(ctx, place);
+	if (await turnsAt(ctx, place, "running").first()) return;
+	const queued = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_agent_chat", (q) => q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("status", "queued"))
+		.take(20);
+	const tried = new Set([String(place.threadId)]);
+	for (const t of queued) {
+		if (tried.has(String(t.threadId))) continue;
+		tried.add(String(t.threadId));
+		await startNext(ctx, t);
+		if (await turnsAt(ctx, t, "running").first()) return;
+	}
+}
+
+/**
+ * Starts the oldest queued turn in a place, unless one is running (a stale one is failed first), or
+ * the agent is answering elsewhere in the chat (busyElsewhere).
  * A person turn starts as that person's newest queued here, once its quiet window is over, with the
  * older ones folded into it: its context covers all their messages.
  */
@@ -184,7 +216,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		}
 	}
 	let next = await turnsAt(ctx, place, "queued").first();
-	if (!next || (await waiting(ctx, next))) return;
+	if (!next || (await waiting(ctx, next)) || (await busyElsewhere(ctx, place))) return;
 	if (next.person) {
 		const actorId = next.actorId;
 		const theirs = (await turnsAt(ctx, place, "queued").collect()).filter((t) => t.person && t.actorId === actorId);
@@ -401,15 +433,23 @@ export const turnContext = internalMutation({
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId, member);
 		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since, here);
-		const messages = await Promise.all(
-			recent
-				.filter((m) => !m.deleted)
-				// Another agent's reply still streaming keeps its text so far apart from the message.
-				.map(async (m) => {
-					const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
-					return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
-				}),
-		);
+		const messages = (
+			await Promise.all(
+				recent
+					.filter((m) => !m.deleted)
+					// Another agent's reply still streaming keeps its text so far apart from the message. With nothing to
+					// show yet (a reply that started over), it's left out: as `""` it read as a reply that said nothing.
+					.map(async (m) => {
+						const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
+						if (m.status === "streaming" && m._id !== turn.triggerId && !(stream && showable(stream.parts))) return null;
+						return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
+					}),
+			)
+		).filter((m) => m !== null);
+
+		// What it said meanwhile in this chat's other threads or main chat: a separate session, so without this it
+		// can contradict itself (one game told two ways). Never for a foreign run.
+		const elsewhere = foreign ? [] : await saidElsewhere(ctx, member, turn, since, here, names);
 
 		const threadParent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
 		const parent = threadParent && await readReply(ctx, member, threadParent) ? threadParent : null;
@@ -452,6 +492,7 @@ export const turnContext = internalMutation({
 			},
 			messages,
 			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, agent._id))),
+			elsewhere,
 			asked,
 			triggerId: turn.triggerId ?? null,
 			/** Nobody @mentioned it: how sure the dispatcher was, or which agent named it. */
@@ -495,6 +536,35 @@ export const turnContext = internalMutation({
 		};
 	},
 });
+
+/** How many of its replies elsewhere a turn sees, newest kept, and how far back. */
+const ELSEWHERE_MAX = 3;
+const ELSEWHERE_MS = 24 * 60 * 60_000;
+
+/**
+ * The agent's own replies in this chat outside this turn's place (the main chat, or another thread) since
+ * its last reply here, oldest first: what it already said in the same conversation. The same privacy as the
+ * rest of its context: only replies this turn's person may read, that fit a shared place.
+ */
+async function saidElsewhere(ctx: QueryCtx, member: Member, turn: Doc<"agentTurns">, since: number, here: (m: Doc<"chatMessages">) => Promise<boolean>, names: Namer) {
+	const after = Math.max(since, Date.now() - ELSEWHERE_MS);
+	const done = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_agent_chat", (q) => q.eq("agentId", turn.agentId).eq("chatId", turn.chatId).eq("status", "done"))
+		.order("desc")
+		.take(20);
+	const said: Doc<"chatMessages">[] = [];
+	for (const t of done) {
+		if (t.threadId === turn.threadId || !t.replyId) continue;
+		const reply = await ctx.db.get(t.replyId);
+		// The thread's own parent shows as the parent already.
+		if (!reply || reply._id === turn.threadId || reply.quiet || reply.deleted || reply.status !== "done" || !reply.text.trim() || reply._creationTime <= after) continue;
+		if (!(await here(reply)) || !(await readReply(ctx, member, reply))) continue;
+		said.push(reply);
+		if (said.length === ELSEWHERE_MAX) break;
+	}
+	return Promise.all(said.reverse().map(async (m) => ({ thread: !!m.threadId, message: await toPlaceMessage(ctx, m, names, turn.agentId) })));
+}
 
 /** The agents one message went to before this pick, first first (router.apply runs them in turn). */
 async function picksBefore(ctx: QueryCtx, turn: Doc<"agentTurns">, names: Namer) {
@@ -954,11 +1024,13 @@ export const finishReply = internalMutation({
 		if (emoji && trigger && agent) await reactOnce(ctx, trigger, agent, emoji);
 		await setWakeOutcome(ctx, turn, error || stopped ? "failed" : shown ? "notified" : "ran");
 		await settleApproval(ctx, turn);
+		// A pick that waited for this one goes first: it's older than any handoff this turn makes, and an agent
+		// runs one turn at a time in a chat (startNext), so a handoff to it waits behind it.
+		await startThen(ctx, turn);
 		// Agents it @mentioned or named take the work on (chains.ts); an asked agent's answer goes back to the asker.
 		if (!error && !stopped) await handOff(ctx, (await ctx.db.get(turnId))!, decided?.to);
 		await answerAsk(ctx, turn, error ?? (stopped ? "it was stopped" : undefined));
-		await startNext(ctx, turn);
-		await startThen(ctx, turn);
+		await startInChat(ctx, turn);
 	},
 });
 

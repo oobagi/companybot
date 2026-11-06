@@ -6,8 +6,8 @@ import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { Field, Form, MenuDivider, Notice, compactButton, compactPrimaryButton, inputClass, primaryButton, useRun } from "../ui";
-import { Avatar, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
+import { CountBadge, Form, MenuDivider, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, rowButton, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Avatar, DialogButtons, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
 
 const none: never[] = [];
 const workspaceKey = (w: { id: string }) => w.id;
@@ -16,9 +16,7 @@ const workspaceKey = (w: { id: string }) => w.id;
 /** A red count of chats with an unread @mention or DM. */
 function Mentions({ count }: { count: number }) {
 	return (
-		<span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white">
-			{count > 9 ? "9+" : count}
-		</span>
+		<CountBadge count={count} />
 	);
 }
 
@@ -102,7 +100,7 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 										aria-current={active}
 										aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
 										onClick={() => (close(), !active && goTo(w.id))}
-										className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100"
+										className={`${rowButton} items-center gap-2`}
 									>
 										<Slot>
 											<Avatar name={w.name} image={w.image} agent size="row" className="pointer-events-none" />
@@ -160,7 +158,7 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 		<div className="flex flex-col gap-1 rounded-lg px-2 py-1.5">
 			<div className="flex items-center gap-2">
 				<Slot>
-					<span className="flex size-[22px] items-center justify-center rounded-md border border-dashed border-neutral-300 text-[10px] font-medium">
+					<span className="flex size-[22px] items-center justify-center rounded-md border border-dashed border-neutral-300 text-xs font-medium">
 						{invite.workspace.slice(0, 1).toUpperCase()}
 					</span>
 				</Slot>
@@ -170,7 +168,7 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 				</span>
 				{dot}
 			</div>
-			<div className="flex gap-2 pl-[30px]">
+			<div className="flex gap-2 pl-7.5">
 				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className={compactPrimaryButton}>
 					Join
 				</button>
@@ -201,12 +199,19 @@ function NewWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: 
 				}}
 			>
 				<Notice>{error}</Notice>
-				<Field label="Name">
-					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-				</Field>
-				<button type="submit" disabled={!name.trim() || busy} className={`${primaryButton} self-start`}>
-					Create workspace
-				</button>
+				<Settings>
+					<Setting label="Name">
+						<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} className={wideControlClass} />
+					</Setting>
+				</Settings>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="submit" disabled={!name.trim() || busy} className={primaryButton}>
+						Create workspace
+					</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

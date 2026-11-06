@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { HistoryIcon } from "../../icons";
-import { compactControlClass, hintClass, metadataClass } from "../../ui";
+import { compactControlClass, emojiTabButton, hintClass, metadataClass, skinToneButton, tileButton } from "../../ui";
 import { type Emoji, type EmojiIndex, groupIcons, groups, loadEmoji, loadedEmoji, recentEmoji, rememberEmoji, saveTone, savedTone, searchEmoji, withTone } from "./emoji";
 
 const tones = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
-const cell = "flex size-8 items-center justify-center rounded-lg text-xl hover:bg-neutral-100";
-const tab = "flex size-7 items-center justify-center rounded-lg text-base hover:bg-neutral-100";
 
 /**
  * The full emoji picker: search, categories, recents and a skin tone, all on this computer.
@@ -31,7 +29,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 	const results = index ? searchEmoji(index, query) : [];
 	const jump = (id: string) => scroller.current?.querySelector(`[data-section="${id}"]`)?.scrollIntoView({ block: "start" });
 	const button = (e: Emoji) => (
-		<button type="button" key={e.char} title={e.name} onClick={() => pick(withTone(e, tone))} onMouseEnter={() => setHover(e)} className={cell}>
+		<button type="button" key={e.char} title={e.name} onClick={() => pick(withTone(e, tone))} onMouseEnter={() => setHover(e)} className={`${tileButton} text-xl`}>
 			{withTone(e, tone)}
 		</button>
 	);
@@ -54,12 +52,12 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 			{!query && (
 				<div className="flex justify-between">
 					{recent.length > 0 && (
-						<button type="button" title="Recent" aria-label="Recent" onClick={() => jump("recent")} className={`${tab} text-neutral-500`}>
+						<button type="button" title="Recent" aria-label="Recent" onClick={() => jump("recent")} className={`${emojiTabButton} text-neutral-500`}>
 							<HistoryIcon />
 						</button>
 					)}
 					{groupIcons.map((icon, i) => (
-						<button type="button" key={icon} title={groups[i]} aria-label={groups[i]} onClick={() => jump(String(i))} className={tab}>
+						<button type="button" key={icon} title={groups[i]} aria-label={groups[i]} onClick={() => jump(String(i))} className={emojiTabButton}>
 							{icon}
 						</button>
 					))}
@@ -78,10 +76,10 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 					<>
 						{recent.length > 0 && (
 							<section data-section="recent">
-								<h3 className={`px-1 py-1 ${metadataClass}`}>Recent</h3>
+								<p className={`px-1 py-1 ${metadataClass}`}>Recent</p>
 								<div className="flex flex-wrap">
 									{recent.map((char) => (
-										<button type="button" key={char} onClick={() => pick(char)} onMouseEnter={() => setHover(index.emoji.find((e) => e.char === char || e.tones.includes(char)))} className={cell}>
+										<button type="button" key={char} onClick={() => pick(char)} onMouseEnter={() => setHover(index.emoji.find((e) => e.char === char || e.tones.includes(char)))} className={`${tileButton} text-xl`}>
 											{char}
 										</button>
 									))}
@@ -90,7 +88,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 						)}
 						{groups.map((name, i) => (
 							<section key={name} data-section={i}>
-								<h3 className={`px-1 py-1 ${metadataClass}`}>{name}</h3>
+								<p className={`px-1 py-1 ${metadataClass}`}>{name}</p>
 								<div className="flex flex-wrap">{index.emoji.filter((e) => e.group === i).map(button)}</div>
 							</section>
 						))}
@@ -108,7 +106,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 							aria-label={i === 0 ? "Default skin tone" : `Skin tone ${i}`}
 							aria-pressed={i === tone}
 							onClick={() => (setTone(i), saveTone(localStorage, i))}
-							className={`flex size-6 items-center justify-center rounded-md text-sm ${i === tone ? "bg-neutral-200" : "hover:bg-neutral-100"}`}
+							className={skinToneButton}
 						>
 							{char}
 						</button>

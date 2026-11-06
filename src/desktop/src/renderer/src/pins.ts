@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { useStoredIds } from "./arrangements";
 
 export type PinKind = "chat" | "page" | "db" | "rec";
@@ -42,3 +42,18 @@ export function pathOf(key: PinKey, typeKey?: string): string[] {
 	if (kind === "rec") return ["records", typeKey ?? "", id];
 	return ["records", id];
 }
+
+/**
+ * The pin or recent you opened from the rail: it stays lit while you're on it. Clicking a sidebar row or
+ * a tab, or going anywhere else, lets go of it, and the tab lights instead. Set on the click itself, so
+ * the rail lights the right button at once, before the address changes.
+ */
+let railVia: PinKey | undefined;
+const viaListeners = new Set<() => void>();
+export function setRailVia(key: PinKey | undefined) {
+	if (railVia === key) return;
+	railVia = key;
+	for (const l of viaListeners) l();
+}
+const subscribeVia = (l: () => void) => (viaListeners.add(l), () => void viaListeners.delete(l));
+export const useRailVia = () => useSyncExternalStore(subscribeVia, () => railVia);

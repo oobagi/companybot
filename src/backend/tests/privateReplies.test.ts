@@ -538,7 +538,8 @@ describe("private agent replies", () => {
 		await s.t.mutation(internal.recordTools.getFor, { turnId: id, id: s.deal });
 		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", id)))!.replyId!;
 		await s.t.mutation(internal.turns.updateReply, { turnId: id, text: SECRET, parts: [{ type: "text", text: SECRET }] });
-		expect((await messagesIn(s.dana, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toMatchObject({ hidden: false });
+		// Dana is everyone in her own DM and can open Deals: no lock to show, no one to share with.
+		expect((await messagesIn(s.dana, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toBeNull();
 		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [] });
 		expect((await messagesIn(s.dana, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toMatchObject({ hidden: true });
 		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [{ role: s.office, level: "view" }] });
@@ -1006,7 +1007,8 @@ describe("private agent replies", () => {
 		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
 		expect((await s.t.run((ctx) => ctx.db.get(replyId)))!.usedPlaces).toContain(s.owner.userId);
 		await s.t.mutation(internal.turns.updateReply, { turnId, text: SECRET, parts: [{ type: "text", text: SECRET }] });
-		expect((await messagesIn(s.owner, { chatId: dm })).find((m) => m._id === replyId)!.privacy!.label).toBe("Only owner@co.com can see this");
+		// Still a source (for context and other places), but in their own DM there's nobody else to label it for.
+		expect((await messagesIn(s.owner, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toBeNull();
 		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).resolves.toHaveProperty("id");
 	});
 
@@ -1035,7 +1037,7 @@ describe("private agent replies", () => {
 		});
 		const messages = await messagesIn(s.owner, { chatId: dm });
 		expect(messages).toHaveLength(200);
-		expect(messages.every((m) => m.text === SECRET && m.privacy?.hidden === false)).toBe(true);
+		expect(messages.every((m) => m.text === SECRET && m.privacy === null)).toBe(true);
 	});
 
 	// #230: listing a personal skill used to count as reading it, so one personal skill made every channel reply private.

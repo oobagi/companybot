@@ -491,3 +491,28 @@ it("gives sub-pages from before pages were blocks exactly one block in their par
 	}
 	expect((await blocks()).sort()).toEqual([old, placed].sort());
 });
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.railOrder.
+it("merges the rail's tab order and pin order into one, tabs first, and drops the old rows", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const general = (await generalOf(owner))._id;
+	await t.run(async (ctx) => {
+		const { workspaceId } = (await ctx.db.query("members").first())!;
+		const place = { workspaceId, userId: owner.userId };
+		await ctx.db.insert("arrangements", { ...place, list: "tabs", ids: ["drive", "chat"] });
+		await ctx.db.insert("arrangements", { ...place, list: "pinsOrder", ids: [`chat:${general}`] });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const lists = await t.run(async (ctx) => (await ctx.db.query("arrangements").collect()).map((r) => [r.list, r.ids]));
+	// The saved tabs, then the ones never moved, then the pins.
+	expect(lists).toEqual([["rail", ["drive", "chat", "databases", "customize", `chat:${general}`]]]);
+});

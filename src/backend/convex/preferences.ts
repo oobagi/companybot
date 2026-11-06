@@ -19,11 +19,12 @@ export const get = query({
 	handler: async (ctx) => {
 		const userId = await authUserId(ctx);
 		const prefs = userId && (await preferencesOf(ctx, userId));
-		if (!prefs) return { ...defaults, notify: defaultNotify, ...unset, image: null };
+		if (!prefs) return { ...defaults, notify: defaultNotify, showRecents: true, ...unset, image: null };
 		return {
 			displayName: prefs.displayName,
 			sendWith: prefs.sendWith,
 			notify: prefs.notify ?? defaultNotify,
+			showRecents: prefs.showRecents ?? true,
 			/** Null means automatic. */
 			timeZone: prefs.timeZone ?? null,
 			deviceTimeZone: prefs.deviceTimeZone ?? null,
@@ -37,6 +38,7 @@ const preferenceChanges = v.object({
 		displayName: v.optional(v.string()),
 		sendWith: v.optional(sendWith),
 		notify: v.optional(notify),
+		showRecents: v.optional(v.boolean()),
 		/** Null switches back to automatic. */
 		timeZone: v.optional(v.union(v.string(), v.null())),
 		deviceTimeZone: v.optional(v.string()),

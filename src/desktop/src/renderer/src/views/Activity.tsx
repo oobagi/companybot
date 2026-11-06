@@ -8,7 +8,7 @@ import { api } from "../api";
 import { usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon } from "../icons";
-import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo, toolbarClass } from "../ui";
+import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo, titleButton, PageActions } from "../ui";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
@@ -29,7 +29,7 @@ export function ActivityTab() {
 		<>
 			{(database.results.length > 0 || database.status !== "Exhausted") && <DatabaseActivity {...database} />}
 			{activity?.truncated && <p>Activity history is limited. Open a reply to see its actions.</p>}
-			<div className={toolbarClass}>
+			<PageActions>
 				<Select
 					label="Agent"
 					value={agentId ?? ""}
@@ -45,7 +45,7 @@ export function ActivityTab() {
 					]}
 					onChange={(v) => setChangesOnly(v === "changes")}
 				/>
-			</div>
+			</PageActions>
 			{shown.length === 0 && database.status !== "LoadingFirstPage" && (agentId || entries.length > 0 ? <NoMatches /> : <EmptyState icon={<HistoryIcon />} title={database.results.length ? "No agent activity yet" : "No activity yet"}>Database changes and agent actions will appear here.</EmptyState>)}
 			<div className="flex shrink-0 flex-col gap-2 empty:hidden">
 				{shown.map((e) => (
@@ -58,7 +58,7 @@ export function ActivityTab() {
 
 function DatabaseActivity({ results, status, loadMore }: { results: FunctionReturnType<typeof api.records.activity>["page"]; status: string; loadMore: (count: number) => void }) {
 	return (
-		<Section title="Database changes" hint="Records, fields, databases and shared views, including changes made by agents.">
+		<Section title="Database changes">
 			{results.map((e) => {
 				const [kind, action] = e.action.includes(".") ? e.action.split(".") : ["record", e.action];
 				return <div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>
@@ -79,7 +79,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className={`flex flex-col gap-2 text-sm ${cardClass}`}>
-			<button type="button" onClick={() => setOpen(!open)} className="flex items-baseline gap-2 text-left">
+			<button type="button" onClick={() => setOpen(!open)} className={`${titleButton} flex items-baseline gap-2`}>
 				<span className="font-medium">{entry.agent}</span>
 				<span className="text-neutral-600">{entry.label}</span>
 				{entry.status === "error" && <span className="text-xs text-red-600">failed</span>}
@@ -108,12 +108,11 @@ function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["al
 			{text}
 			{allowed.ruleStillOn === false && " · rule since removed"}
 			{allowed.ruleStillOn && mine && (
-				<>
-					{" · "}
-					<button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
+				<span>
+					{" "}· <button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
 						See rule
 					</button>
-				</>
+				</span>
 			)}
 		</p>
 	);

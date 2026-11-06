@@ -1,3 +1,4 @@
+import { composerButton, cornerCloseButton, imageButton } from "../../ui";
 import { DOCX, FILES_PER_MESSAGE, XLSX, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "../../convex";
@@ -99,7 +100,7 @@ export function AttachButton({ attachments }: { attachments: Attachments }) {
 				onClick={() => input.current?.click()}
 				title="Attach files"
 				aria-label="Attach files"
-				className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+				className={composerButton}
 			>
 				<AttachIcon />
 			</button>
@@ -144,7 +145,7 @@ export function PendingFiles({ attachments }: { attachments: Attachments }) {
 								onClick={() => attachments.remove(item.key)}
 								title="Remove"
 								aria-label={`Remove ${item.name}`}
-								className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900"
+								className={`absolute top-1 right-1 ${cornerCloseButton}`}
 							>
 								<CloseIcon />
 							</button>
@@ -217,7 +218,7 @@ export function MessageFiles({ files }: { files: Message["attachments"] }) {
 			{pictures.length > 0 && (
 				<div className="flex flex-wrap gap-2">
 					{pictures.map((f, i) => (
-						<button type="button" key={i} onClick={() => setOpen(f)} title={f.name} className="overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300">
+						<button type="button" key={i} onClick={() => setOpen(f)} title={f.name} className={imageButton}>
 							<img src={f.url!} alt={f.name} loading="lazy" className="max-h-60 max-w-xs object-contain" />
 						</button>
 					))}

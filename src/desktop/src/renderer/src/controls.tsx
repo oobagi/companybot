@@ -193,3 +193,29 @@ export function Checkbox({ checked, disabled, onChange, label, className = "" }:
 		</span>
 	);
 }
+
+/** An on/off switch. */
+export function Toggle({ checked, disabled, onChange }: { checked: boolean; disabled?: boolean; onChange: (on: boolean) => void }) {
+	return (
+		<button
+			type="button"
+			role="switch"
+			aria-checked={checked}
+			disabled={disabled}
+			onClick={() => onChange(!checked)}
+			className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-neutral-900" : "bg-neutral-300"} ${disabledButtonClass}`}
+		>
+			<span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : ""}`} />
+		</button>
+	);
+}
+
+// Record fields edit in place: no box until you hover, so a record's fields read as text. Their
+// pickers (`Select`, `RecordPicker`) share that look instead of the boxed `compactControlClass`.
+/** One box for every value, so each kind (text, pickers, chips, checkbox) lines up under the others. */
+export const fieldCellClass = "flex min-h-[calc(1.5em+0.5rem+2px)] w-full items-center rounded-lg border border-transparent px-2 py-1";
+export const fieldEditClass = `${fieldCellClass} outline-none hover:border-neutral-200 focus:border-neutral-400`;
+/** "Pick…" / "Add…" beside a field's value: the same hover border as the field itself. */
+export const fieldPickerClass = "inline-flex shrink-0 items-center rounded-lg border border-transparent px-2 py-1 text-left hover:border-neutral-200 focus:border-neutral-400 outline-none";
+/** The currency beside an amount: a picker, quieter than the amount. */
+export const currencyPickerClass = "inline-flex shrink-0 rounded-lg border border-transparent px-2 py-1 text-neutral-500 hover:border-neutral-200";

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { Notice, secondaryButton, useRun } from "../../ui";
+import { Notice, actionButton, useRun } from "../../ui";
 import { AgentBadge, Avatar, Popover, clock, zoneLabel } from "./common";
 import type { Participant } from "./data";
 import { roleNames } from "../Members";
@@ -62,16 +62,21 @@ function ProfileCard({ who, onClose, onFor }: { who: Participant; onClose: () =>
 			)}
 			{agent?.description && <p className="text-neutral-600">{agent.description}</p>}
 			{who.for && onFor && (
-				<button type="button" onClick={onFor} className="flex items-center gap-1.5 self-start text-neutral-600 hover:underline">
-					Sent for <Avatar name={who.for.name} image={who.for.image} size="xs" /> {who.for.name}
-				</button>
+				<p className="text-neutral-600">
+					Sent for{" "}
+					<button type="button" onClick={onFor} className="inline-flex items-center gap-1.5 align-middle hover:underline">
+						<Avatar name={who.for.name} image={who.for.image} size="xs" /> {who.for.name}
+					</button>
+				</p>
 			)}
 			{gone && <p className="text-neutral-500">No longer in this workspace.</p>}
 			<Notice>{error}</Notice>
 			{!gone && !person?.isYou && (
-				<button type="button" onClick={message} className={`${secondaryButton} self-start`}>
-					Message
-				</button>
+				<div className="flex">
+					<button type="button" onClick={message} className={actionButton}>
+						Message
+					</button>
+				</div>
 			)}
 		</div>
 	);

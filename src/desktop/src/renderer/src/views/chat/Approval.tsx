@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Segmented } from "../../controls";
-import { Notice, descriptionClass, hintClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
+import { Notice, actionButton, actionPrimaryButton, descriptionClass, hintClass, timeAgo, useRun } from "../../ui";
 import type { Message } from "./data";
 
 type ApprovalPart = Extract<Message["parts"][number], { type: "approval" }>;
@@ -90,15 +90,15 @@ function Status({
 						className="flex flex-wrap items-center gap-2"
 						title={`Expires ${timeAgo(approval.expiresAt)}. Locked to this exact content (SHA-256 ${approval.hash}).`}
 					>
-						<button type="button" disabled={busy} onClick={() => onDecide(true)} className={`${primaryButton} py-1.5`}>
+						<button type="button" disabled={busy} onClick={() => onDecide(true)} className={actionPrimaryButton}>
 							Allow once
 						</button>
 						{approval.alwaysText && (
-							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={`${secondaryButton} bg-white py-1.5`}>
+							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={`${actionButton} bg-white`}>
 								{approval.alwaysAutomation ? "Always for this automation" : "Always allow"}
 							</button>
 						)}
-						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={`${secondaryButton} bg-white py-1.5`}>
+						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={`${actionButton} bg-white`}>
 							Deny
 						</button>
 					</div>

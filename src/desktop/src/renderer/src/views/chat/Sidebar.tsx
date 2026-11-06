@@ -1,14 +1,14 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
-import { type PinKey, usePins } from "../../pins";
+import { type PinKey, setRailVia, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
-import { type DragProps, useSortable } from "../../sortable";
-import { Notice, RenameInput, useClock, useRun } from "../../ui";
+import { type DragProps, splitDrag, useSortable } from "../../sortable";
+import { CountBadge, Notice, RenameInput, chevronButton, surfaceButton, titleButton, trailingAction, useClock, useRun } from "../../ui";
 import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
@@ -77,10 +77,11 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 			{shown.map((c) => {
 				const own = threads.filter((t) => t.chatId === c._id);
 				const open = !folded.includes(c._id);
+				const d = splitDrag(drag(c._id));
 				return (
-					<Fragment key={c._id}>
+					<div key={c._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
 				<Item
-					drag={drag(c._id)}
+					drag={d.handle}
 					pin={`chat:${c._id}`}
 					icon={c.private ? <PrivateIcon /> : <ChannelIcon />}
 					label={`#${c.name}`}
@@ -113,7 +114,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 						<span className="truncate">{t.title}</span>
 					</Item>
 				))}
-					</Fragment>
+					</div>
 				);
 			})}
 			<Notice>{error}</Notice>
@@ -168,10 +169,11 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 					const parentId = d.dmId ?? (await openDm({ userIds: [], agentIds: [d.agentId!] }));
 					onOpen(await createSide({ parentId }));
 				};
+				const dd = splitDrag(drag(d.key));
 				return (
-					<Fragment key={d.key}>
+					<div key={d.key} {...dd.box} className={`flex flex-col gap-px ${dd.box.className}`}>
 				<Item
-					drag={drag(d.key)}
+					drag={dd.handle}
 					// No DM with this agent yet: pinning starts it (it's what the pin opens).
 					pin={d.dmId ? `chat:${d.dmId}` : () => openDm({ userIds: [], agentIds: [d.agentId!] }).then((id) => `chat:${id}` as const, (e) => (onError(e), Promise.reject(e)))}
 					icon={<Avatar name={d.name} image={d.image} agent={d.agent} size="row" />}
@@ -226,7 +228,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 						<span className="truncate">{c.label}</span>
 					</Item>
 				))}
-					</Fragment>
+					</div>
 				);
 			})}
 			<Notice>{error}</Notice>
@@ -247,14 +249,14 @@ export type SectionProps = { collapsed: boolean; onToggle: () => void; drag: Dra
  * `add` sits at the header's right end, showing on hover.
  */
 export function Group({ title, section, add, children }: { title: string; section?: SectionProps; add?: React.ReactNode; children: React.ReactNode }) {
-	const { draggable, onDragStart, onDragEnd, className = "", ...target } = section?.drag ?? {};
+	const { onPointerDown, className = "", ...box } = section?.drag ?? {};
 	return (
 		// Folded, ⌥1–9 skip its rows (`sidebarRow`).
-		<section {...target} data-collapsed={section?.collapsed || undefined} className={`group/section relative flex flex-col gap-px ${className}`}>
-			<div draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} className="flex items-center justify-between px-2 pb-1">
+		<section {...box} data-collapsed={section?.collapsed || undefined} className={`group/section relative flex flex-col gap-px ${className}`}>
+			<div onPointerDown={onPointerDown} className="flex items-center justify-between px-2 pb-1">
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500">
 					{section ? (
-						<button type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className="flex max-w-full items-center gap-0.5 hover:text-neutral-900">
+						<button type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className={`${titleButton} flex max-w-full items-center gap-0.5`}>
 							<span className="truncate">{title}</span>
 							<CaretRightIcon className={`shrink-0 ${section.collapsed ? "" : "rotate-90 opacity-0 group-hover/section:opacity-100"}`} />
 						</button>
@@ -296,10 +298,6 @@ export function AddButton({ label, onClick }: { label: string; onClick: () => vo
 		</button>
 	);
 }
-
-/** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
-export const trailingAction =
-	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
 
 /**
  * A sidebar row. The row is the only hover surface; its controls show on hover at its right end.
@@ -387,7 +385,7 @@ export function Item({
 		<div
 			{...drag}
 			// While renaming, a drag would take the text selection, and right-click is the input's own.
-			draggable={renaming ? false : drag?.draggable}
+			onPointerDown={renaming ? undefined : drag?.onPointerDown}
 			onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt({ x: e.clientX, y: e.clientY })) : undefined}
 			className={`group/item relative flex items-stretch text-sm ${drag?.className ?? ""}`}
 		>
@@ -401,13 +399,7 @@ export function Item({
 					{onToggle ? (
 						<>
 							<span className="contents group-hover/item:hidden">{icon}</span>
-							<button
-								type="button"
-								aria-label={`${expanded ? "Collapse" : "Expand"} ${label ?? ""}`.trim()}
-								aria-expanded={expanded}
-								onClick={onToggle}
-								className="relative z-10 hidden size-5 items-center justify-center text-neutral-400 hover:text-neutral-800 group-hover/item:flex"
-							>
+							<button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${label ?? ""}`.trim()} aria-expanded={expanded} onClick={onToggle} className={`relative z-10 hidden group-hover/item:flex ${chevronButton}`}>
 								<CaretRightIcon className={expanded ? "rotate-90" : ""} />
 							</button>
 						</>
@@ -425,19 +417,20 @@ export function Item({
 					title={title}
 					// ⌥1–9 count the list's top-level rows (`sidebarRow`).
 					data-sidebar-item={!guides.length && !create ? "" : undefined}
-					onClick={onClick}
+					// A sidebar click is a choice too: the rail's tab lights, not a pin you came through.
+					onClick={() => (setRailVia(undefined), onClick())}
 					onDoubleClick={rename && (() => setRenaming(true))}
 					onKeyDown={rename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(true)))}
-					className="flex min-w-0 flex-1 items-center gap-2 text-left after:absolute after:inset-0 after:rounded-lg"
+					className={`${surfaceButton} flex flex-1 items-center gap-2 after:absolute after:inset-0 after:rounded-lg`}
 				>
 					{/* A plain label ellipsizes like the others; richer children truncate their own text. */}
 					{typeof children === "string" ? <span className="truncate">{children}</span> : children}
-					{draft && !active && <span className="ml-auto shrink-0 text-[10px] font-normal text-neutral-400">Draft</span>}
+					{draft && !active && <span className="ml-auto shrink-0 text-xs font-normal text-neutral-400">Draft</span>}
 					{mentioned && !active && (
-						<span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-medium text-white">
-							@
-						</span>
+						<CountBadge count="@" dark className="ml-auto" />
 					)}
+					{/* Unread, besides the bold name: a dot at the row's end, as on the rail. */}
+					{unread && !mentioned && !active && <span aria-hidden className="ml-auto size-2 shrink-0 rounded-full bg-sky-500" />}
 				</button>
 			)}
 			{(items || actions) && !renaming && (
@@ -479,7 +472,7 @@ function Guide({ continues, elbow }: { continues: boolean; elbow: boolean }) {
 	return (
 		<span aria-hidden className="relative w-7 shrink-0">
 			{continues && <span className="absolute -top-px bottom-0 left-[18.25px] w-[1.5px] bg-neutral-300" />}
-			{elbow && <span className="absolute -top-px left-[18.25px] h-[calc(50%+1px)] w-2 rounded-bl-lg border-neutral-300 border-b-[1.5px] border-l-[1.5px]" />}
+			{elbow && <span className="absolute -top-px left-[18.25px] h-[calc(50%+1px)] w-2 tree-elbow rounded-bl-lg" />}
 		</span>
 	);
 }

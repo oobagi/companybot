@@ -7,7 +7,7 @@ import { useMutation, usePaginatedQuery } from "../convex";
 import { navigate } from "../router";
 import { ArchiveIcon, RestoreIcon, TrashIcon } from "../icons";
 import { useConfirm } from "./chat/common";
-import { EmptyState, LoadMore, NoMatches, Notice, Page, compactButton, iconDangerButton, listClass, metadataClass, timeAgo, toolbarClass, useDebounced, useRun, wideControlClass } from "../ui";
+import { EmptyState, LoadMore, NoMatches, Notice, Page, PageActions, compactButton, iconDangerButton, linkButton, listClass, metadataClass, timeAgo, useDebounced, useRun, wideControlClass } from "../ui";
 import { recordPath, whoLabel } from "./records/logic";
 
 // Archive keeps content indefinitely. Roles with trash.manage can explicitly delete forever.
@@ -49,8 +49,8 @@ export function TrashView({ access }: { access: Access }) {
 	const { confirm, dialog } = useConfirm();
 	const canPurge = can(access, "trash.manage");
 	return (
-		<Page title="Archive" description="Archived items are kept here until you restore them or explicitly delete them forever.">
-			<div className={toolbarClass}>
+		<Page title="Archive" description="Kept until you restore or delete them">
+			<PageActions>
 				<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Archive" className={wideControlClass} />
 				<Select
 					label="Kind"
@@ -58,7 +58,7 @@ export function TrashView({ access }: { access: Access }) {
 					options={[{ value: "", label: "Everything" }, ...kinds.map((k) => ({ value: k.id, label: k.label }))]}
 					onChange={setKind}
 				/>
-			</div>
+			</PageActions>
 			<Notice>{error}</Notice>
 			{dialog}
 			{results.length > 0 && (
@@ -70,7 +70,7 @@ export function TrashView({ access }: { access: Access }) {
 								<span className="w-24 shrink-0 text-neutral-500">{kinds.find((k) => k.id === e.kind)!.one}</span>
 								<span className="min-w-0 truncate">
 									{to ? (
-										<button type="button" onClick={() => navigate(...to)} className="font-medium hover:underline">{e.name}</button>
+									<button type="button" onClick={() => navigate(...to)} className={`${linkButton} font-medium`}>{e.name}</button>
 									) : (
 										<span className="font-medium">{e.name}</span>
 									)}

@@ -10,8 +10,8 @@ import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute, views } from "./router";
-import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
+import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, updateButton, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
 import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
@@ -20,15 +20,15 @@ import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
 import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
-import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
+import { AppRail } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
-import { RailPins } from "./views/RailPins";
+import { type AppTab, type TabBadge, appTabs } from "./views/RailPins";
 import { type PinKey, pinOf, usePins } from "./pins";
 import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps, SidebarList } from "./views/chat/Sidebar";
+import { AddButton, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
@@ -179,6 +179,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
+	const createPage = useMutation(api.pages.create);
 	const { status: update } = useUpdates();
 
 	const chatId = view === "chat" ? (route[1] as Id<"chats"> | undefined) : undefined;
@@ -206,7 +207,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
 
 	return (
-		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
+		<div className="flex h-screen flex-col bg-neutral-100 text-body text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
 			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
 			<Notice>{arrangements?.error}</Notice>
@@ -218,7 +219,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 					badges={badges}
 					workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />}
 					workspaceName={workspace}
-					below={(tipFor, hideTip) => <RailPins open={here} tipFor={tipFor} hideTip={hideTip} />}
+					open={here}
 					you={prefs?.displayName || email}
 					youMenu={
 						<YouMenu
@@ -235,14 +236,27 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
 					{/* The sidebar lists the open tab's things, scrolling under its name. */}
 					{sidebar && (
-						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
+						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 select-none [--scrim:var(--color-neutral-50)]">
 							<Scroll
 								className="no-drag"
 								header={
 									// pt-2.5: its name sits on the same line as the top bar's title.
 									<div className="drag px-3 pt-2.5 pb-4">
 										{tab ? (
-											<h1 className="truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+											<div className="flex items-center gap-1 pr-2">
+												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+												{/* A tab with one list (Drive, Databases) has its + here, with no heading repeating the name; Chat's lists each have their own. */}
+												{tab === "drive" && can(access, "pages.edit") && (
+													<span className="no-drag flex">
+														<AddButton label="New page" onClick={() => createPage({ title: "Untitled" }).then((id) => navigate("pages", id), fail)} />
+													</span>
+												)}
+												{tab === "databases" && can(access, "fields.edit") && (
+													<span className="no-drag flex">
+														<AddButton label="New database" onClick={() => setNewDatabase(true)} />
+													</span>
+												)}
+											</div>
 										) : (
 											<div className="no-drag flex flex-col">
 												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
@@ -257,7 +271,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										<GettingStarted agent={chats?.agents[0]?.name ?? "an agent"} />
 										{update?.state === "ready" && (
 											<div className="flex flex-col px-3 pt-4 pb-3">
-												<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
+												<button type="button" onClick={() => void desktop?.updates.install()} className={updateButton}>
 													Update ready · Restart
 												</button>
 											</div>
@@ -275,7 +289,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
 										})}
 									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</SidebarList>
 							</Scroll>
@@ -313,30 +327,23 @@ const sectionIds = ["channels", "dms"];
 const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { _id: string }) => t._id;
 
-/** Databases' sidebar: your databases, in your order. `canCreate` (fields.edit) also edits and deletes. */
+/** Databases' sidebar: your databases, in your order. New ones come from the + by the tab's name. */
 function DatabasesNav({
 	types,
 	openKey,
-	canCreate,
-	onCreate,
-	section,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
-	canCreate: boolean;
-	onCreate: () => void;
-	section?: SectionProps;
 }) {
 	const { sorted, drag } = useSortable("databases", types, typeKeyOf);
-	const shown = section?.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
 	const [editing, setEditing] = useState<RecordType>();
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	return (
-		<Group title="Databases" section={section} add={canCreate && <AddButton label="New database" onClick={onCreate} />}>
-			{shown.map((type) => (
+		<div className="flex flex-col gap-px">
+			{sorted.map((type) => (
 				<Item
 					key={type._id}
 					drag={drag(type._id)}
@@ -366,12 +373,7 @@ function DatabasesNav({
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
-			{!types.length && canCreate && !section?.collapsed && (
-				<Item icon={<PlusIcon />} muted create onClick={onCreate}>
-					New database
-				</Item>
-			)}
-		</Group>
+		</div>
 	);
 }
 

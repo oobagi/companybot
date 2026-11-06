@@ -1,14 +1,14 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from "../../convex";
 import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, PageIcon, PlusIcon, PrivateIcon } from "../../icons";
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
-import { type DragProps, useSortable } from "../../sortable";
-import { LoadMore, Notice, inputClass, useDebounced, useRun } from "../../ui";
-import { AddButton, Group, Item, type SectionProps, trailingAction } from "../chat/Sidebar";
+import { type DragProps, splitDrag, useSortable } from "../../sortable";
+import { LoadMore, Notice, compactControlClass, descriptionClass, useDebounced, useRun, trailingAction } from "../../ui";
+import { Item } from "../chat/Sidebar";
 import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 
 type PageId = Id<"pages">;
@@ -16,11 +16,11 @@ type PageId = Id<"pages">;
 type Row = { _id: PageId; title: string; hasChildren?: boolean; parentId?: PageId | null; lock?: { who: string; edit: boolean } | null; canEdit?: boolean };
 
 /** Each expanded level loads independently; no workspace-wide list or fixed tree-size cutoff. */
-export function PagesNav({ openId, canEdit, section }: { openId: string | undefined; canEdit: boolean; section?: SectionProps }) {
+export function PagesNav({ openId, canEdit }: { openId: string | undefined; canEdit: boolean }) {
 	const workspace = useWorkspace();
-	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} section={section} />;
+	return <PageNavTree key={workspace?.id} openId={openId} canEdit={canEdit} />;
 }
-function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: boolean; section?: SectionProps }) {
+function PageNavTree({ openId, canEdit }: { openId?: string; canEdit: boolean }) {
 	const [expandedIds, changeExpanded] = useStoredIds("expanded");
 	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
 	const batches = useMemo(() => {
@@ -41,12 +41,13 @@ function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: b
 	const add = (parentId?: PageId) => run(create({ title: "Untitled", parentId }).then((id) => { if (parentId) toggle(parentId, true); navigate("pages", id); }));
 	/** `above`: for each level above this one, whether its line continues past these rows. */
 	const level = (parentId?: PageId, above: boolean[] = []): React.ReactNode => (
-		<PageLevel parentId={parentId} sortable empty={!above.length && canEdit && <Item icon={<PlusIcon />} onClick={() => add()} muted create>New page</Item>} render={(p, drag, last) => {
+		<PageLevel parentId={parentId} sortable render={(p, drag, last) => {
 			const open = p.hasChildren && expanded.has(p._id);
 			const guides = parentId ? [...above, !last] : [];
+			const d = splitDrag(drag);
 			return (
-				<Fragment key={p._id}>
-					<Item drag={drag} pin={`page:${p._id}`} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
+				<div key={p._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
+					<Item drag={d.handle} pin={`page:${p._id}`} icon={<PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
 						rename={p.canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
 						menu={p.canEdit ? (close) => <>
 							<MenuItem onClick={() => { close(); add(p._id); }}><PlusIcon /> New page inside</MenuItem>
@@ -59,19 +60,19 @@ function PageNavTree({ openId, canEdit, section }: { openId?: string; canEdit: b
 						<AccessLock lock={p.lock ?? null} />
 					</Item>
 					{open && level(p._id, guides)}
-				</Fragment>
+				</div>
 			);
 		}} />
 	);
 	return (
-		<Group title="Pages" section={section} add={canEdit && <AddButton label="New page" onClick={() => add()} />}>
+		<div className="flex flex-col gap-px">
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
-			{!section?.collapsed && level()}
+			{level()}
 			{dialog}
 			<Notice>{error}</Notice>
 			{moving && <MovePage page={moving} onClose={() => setMoving(undefined)} />}
 			{sharing && <PageAccess pageId={sharing} onClose={() => setSharing(undefined)} />}
-		</Group>
+		</div>
 	);
 }
 
@@ -114,7 +115,7 @@ export function MovePage({ page, onClose }: { page: Row; onClose: () => void }) 
 	);
 	return (
 		<Modal title={`Move ${page.title}`} onClose={onClose}>
-			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search pages…" aria-label="Search pages" className={inputClass} />
+			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search pages…" aria-label="Search pages" className={`${compactControlClass} w-full`} />
 			<Notice>{error}</Notice>
 			<div className="flex max-h-72 flex-col overflow-y-auto">
 				{text ? (
@@ -146,16 +147,16 @@ export function PageAccess({ pageId, onClose }: { pageId: PageId; onClose: () =>
 	const page = useQuery(api.pages.get, { pageId });
 	const setAccess = useMutation(api.pages.setAccess);
 	return (
-		<Modal title={page ? `Who can access ${page.title || "this page"}` : "Who can access"} onClose={onClose}>
+		<Modal title={page ? page.title || "Untitled" : "Who can access"} onClose={onClose}>
 			{page?.recordId ? (
-				<p className="text-sm text-neutral-500">A record's page follows its database's list.</p>
+				<p className={descriptionClass}>A record's page follows its database's list.</p>
 			) : (
 				page && (
 					<WhoCanAccess
 						kind="page"
 						access={page.access}
 						onSave={page.canManageAccess ? (access) => setAccess({ pageId, access }) : undefined}
-						follow={page.canManageAccess ? { following: !page.ownAccess, onFollow: () => setAccess({ pageId, access: null }) } : undefined}
+						follow={page.canManageAccess ? { following: !page.ownAccess, parent: !!page.parentId, onFollow: () => setAccess({ pageId, access: null }) } : undefined}
 					/>
 				)
 			)}

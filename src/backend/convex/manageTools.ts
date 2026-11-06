@@ -1,12 +1,12 @@
 import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import type { Id, TableNames } from "./_generated/dataModel";
+import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { createAgent, setAgentTrashed, updateAgent } from "./agents";
 import { automationName, automationScope, canView, definitionOf, installOf, outcomeText, privateTo, seenChannel, shownTrigger } from "./automationOps";
 import { runNowAs } from "./automationRuns";
 import { removeAutomation, saveAutomation, updateAutomation } from "./automations";
-import { canSee, chatByRef, namer, requireChat, setChannelTrashed } from "./chatOps";
+import { OTHER_AGENTS_DM, canSee, chatByRef, chatMembersOf, namer, requireChat, setChannelTrashed } from "./chatOps";
 import { addChannelMembers, markReadAs, createChannelAs, joinChannel, leaveChannel, openDirectMessage, removeChannelMember, updateChannelAs } from "./chats";
 import { setImage } from "./images";
 import { canSeeSkill, accessOf, asToolResult, checkPermission, type Member, nameOf, rolesOf, normalizeEmail, preferencesOf, requireAgent, skillOf, timeZoneOf } from "./lib";
@@ -41,10 +41,26 @@ async function chatId(ctx: MutationCtx, member: Member, ref: string) {
  * A chat a write changes: by id, or "here" (the turn's chat), never by #name, so a held call runs where it
  * was approved even if that channel is renamed and another takes its name meanwhile.
  */
-async function chatToChange(ctx: MutationCtx, member: Member, ref: string, here: Id<"chats">) {
+async function chatToChange(ctx: MutationCtx, member: Member, ref: string, here: Id<"chats">, post = false) {
 	if (ref === "here") return here;
-	if (!ctx.db.normalizeId("chats", ref)) throw new ConvexError(`Name the chat by its id or "here", not “${ref}”: names can change. channels list and list_chats give ids.`);
-	return chatId(ctx, member, ref);
+	const id = ctx.db.normalizeId("chats", ref);
+	if (!id) throw new ConvexError(`Name the chat by its id or "here", not “${ref}”: names can change. channels list and list_chats give ids.`);
+	// Posting reads nothing there: sendMessage checks the chat without making it a source of the reply.
+	return post ? id : chatId(ctx, member, ref);
+}
+/**
+ * Where a DM or post went, in words the model can say back. Without them it lost track of what it sent
+ * where ("I never sent anyone a DM", after dealing cards into four).
+ */
+async function placeWords(ctx: MutationCtx, member: Member, agentId: Id<"agents">, chat: Doc<"chats">) {
+	if (chat.kind === "channel") return `#${chat.name}`;
+	const names = namer(ctx);
+	const person = (await names.user(member.userId)).name;
+	const seats = await chatMembersOf(ctx, chat._id);
+	const others = await Promise.all(seats.filter((m) => m.userId !== member.userId && m.agentId !== agentId).map(async (m) => (await names.of(m)).name));
+	if (!others.length) return `your own DM with ${person}`;
+	const list = others.length > 1 ? `${others.slice(0, -1).join(", ")} and ${others.at(-1)}` : others[0];
+	return seats.some((m) => m.agentId === agentId) ? `a group DM with ${person}, ${list} and you` : `${person}'s DM with ${list}`;
 }
 const participants = (ctx: MutationCtx, r: { userIds?: string[]; agentIds?: string[] }) => ({
 	userIds: (r.userIds ?? []).map((i) => rowId(ctx, "users", i)),
@@ -122,17 +138,23 @@ export const runFor = internalMutation({
 						return { done: r.action, messageId: id };
 					}
 					if (r.action === "open_dm") {
-						// Nobody but the person (they're always added): a DM with themselves isn't what
-						// "DM me" means. It's this agent's own DM with them.
 						const others = participants(ctx, r);
-						const alone = others.agentIds.length === 0 && others.userIds.every((id) => id === member.userId);
-						return { chatId: await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others) };
+						// The person is always in it, so with another agent it would be the person's own DM with that agent.
+						if (others.agentIds.some((id) => id !== turn.agentId)) throw new ConvexError(OTHER_AGENTS_DM);
+						// Nobody but the person: a DM with themselves isn't what "DM me" means. It's this agent's own DM with them.
+						const alone = others.userIds.every((id) => id === member.userId);
+						const id = await openDirectMessage(ctx, member, alone ? { userIds: [], agentIds: [turn.agentId] } : others);
+						const where = await placeWords(ctx, member, turn.agentId, (await ctx.db.get(id))!);
+						return { chatId: id, note: alone ? `Opened ${where}: what you send there is from you.` : `Opened ${where}. What you send there shows as from you, for them.` };
 					}
-					const to = { chatId: await chatToChange(ctx, member, r.chat, chat._id), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
+					const to = { chatId: await chatToChange(ctx, member, r.chat, chat._id, true), threadId: r.threadId ? rowId(ctx, "chatMessages", r.threadId) : undefined };
 					const messageId = await sendMessage(ctx, who, { ...to, text: r.text ?? "", mentions: participants(ctx, r), attachments: r.files?.map(copyOf) });
 					// Posted right where the agent is replying: its reply shouldn't say it again.
 					const here = to.chatId === turn.chatId && to.threadId === turn.threadId;
-					return { messageId, ...to, ...(here && { note: "Posted here, above your reply. Don't repeat it." }) };
+					if (here) return { messageId, ...to, note: "Posted here, above your reply. Don't repeat it." };
+					const sent = (await ctx.db.get(messageId))!;
+					const where = await placeWords(ctx, member, turn.agentId, (await ctx.db.get(to.chatId))!);
+					return { messageId, ...to, posted: `Posted in ${where}${to.threadId ? ", in a thread" : ""}${sent.actingFor ? ", as you for them" : ""}.` };
 				}
 				case "channels.manage": {
 					const r = manageInputs[tool].parse(input).request;

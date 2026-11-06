@@ -29,12 +29,12 @@ import {
 	buildTurnPrompt,
 	builtinTools,
 	canonicalJson,
+	connectLimitMs,
 	cleanWhy,
 	createResultStore,
 	createWebTurn,
 	keptStep,
 	emptyUsage,
-	findConnector,
 	gatewayCost,
 	whyPrompt,
 	grantedConnectorIds,
@@ -67,7 +67,7 @@ import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
 import { action } from "./functions";
 import type { Op } from "./approvals";
-import { oauthRedirectUrl } from "./connectors";
+import { fetchFor, oauthRedirectUrl } from "./connectors";
 import { decrypt, encrypt } from "./crypto";
 import type { messagePart } from "./schema";
 
@@ -84,8 +84,6 @@ const STOP_CHECK_MS = 1_000;
  * that arrives while it writes waits for the follow-up.
  */
 export const STEER_WINDOW_MS = 60_000;
-/** A connector that doesn't connect this fast is skipped for the turn, not waited on. */
-const CONNECTOR_CONNECT_MS = 10_000;
 
 /** Runs one agent turn (see turns.ts): streams the reply into the database, then starts the next queued turn. */
 export const respond = internalAction({
@@ -135,6 +133,8 @@ type LoadedConnectors = {
 	oauth: { connectionId: Id<"connectorConnections">; provider: ConnectorOAuth }[];
 	/** The install each connector was loaded under, by connector id. */
 	installs: Record<string, Id<"connectorInstalls">>;
+	/** Each loaded connector's definition (the catalog's or the workspace's own), by id. */
+	definitions: Record<string, { name: string; description: string }>;
 };
 
 /**
@@ -192,11 +192,10 @@ async function loadConnectors(
 ): Promise<LoadedConnectors> {
 	const connectorIds = grantedConnectorIds(agent);
 	const oauth: LoadedConnectors["oauth"] = [];
-	if (connectorIds.length === 0) return { sessions: [], unavailable: [], oauth, installs: {} };
+	if (connectorIds.length === 0) return { sessions: [], unavailable: [], oauth, installs: {}, definitions: {} };
 	const usable = await ctx.runQuery(internal.connectors.forTurn, { userId, workspaceId, connectorIds });
 	const results = await Promise.all(
-		usable.map(async ({ connectorId, connectionId, credentials }) => {
-			const connector = findConnector(connectorId)!;
+		usable.map(async ({ connectorId, connector, connectionId, credentials }) => {
 			try {
 				const creds: ConnectorCredentials = credentials ? await decrypt(credentials) : { type: "none" };
 				let authProvider: ConnectorOAuth | undefined;
@@ -204,7 +203,8 @@ async function loadConnectors(
 					authProvider = new ConnectorOAuth(creds.oauth, oauthRedirectUrl(), false);
 					oauth.push({ connectionId, provider: authProvider });
 				}
-				const opened = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider }));
+				// Custom connectors resolve and check their server's addresses on every connection (connectors.fetchFor).
+				const opened = await openWithTimeout(openConnector(connector, { credentials: creds, authProvider, fetch: fetchFor(ctx, connector) }), connectLimitMs(connector));
 				if (connectionId) await ctx.runMutation(internal.connectors.setConnectionError, { connectionId });
 				// Access is read fresh before every call, so a role change or disconnect applies mid-reply.
 				const stillAllowed = async () =>
@@ -236,17 +236,21 @@ async function loadConnectors(
 		unavailable: results.flatMap((r) => (r.unavailable ? [r.unavailable] : [])),
 		oauth,
 		installs: Object.fromEntries(usable.map((u) => [u.connectorId, u.installId])),
+		definitions: Object.fromEntries(usable.map((u) => [u.connectorId, u.connector])),
 	};
 }
 
-/** Gives up after CONNECTOR_CONNECT_MS. A session that connects later anyway is closed, not leaked. */
-function openWithTimeout(opening: Promise<ConnectorSession>): Promise<ConnectorSession> {
+/**
+ * Gives up after `limitMs` (core `connectLimitMs`): a connector that doesn't connect this fast is
+ * skipped for the turn, not waited on. A session that connects later anyway is closed, not leaked.
+ */
+function openWithTimeout(opening: Promise<ConnectorSession>, limitMs: number): Promise<ConnectorSession> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, reject) => {
 		timer = setTimeout(() => {
 			reject(new Error("Timed out connecting."));
 			opening.then((s) => s.close()).catch(() => {});
-		}, CONNECTOR_CONNECT_MS);
+		}, limitMs);
 	});
 	return Promise.race([opening, timeout]).finally(() => clearTimeout(timer));
 }
@@ -354,7 +358,7 @@ async function streamReply(
 
 	// Stored before the call: later turns replay this exact text, so the cache keeps hitting.
 	const connected = connectors.sessions.flatMap(({ connector }) => {
-		const entry = findConnector(connector.id);
+		const entry = connectors.definitions[connector.id];
 		return entry ? [{ name: entry.name, description: entry.description }] : [];
 	});
 	const promptInput = {

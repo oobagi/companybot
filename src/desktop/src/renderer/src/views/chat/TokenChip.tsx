@@ -3,7 +3,7 @@ import { useQuery } from "../../convex";
 import { SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { secondaryButton } from "../../ui";
+import { actionButton, linkButton } from "../../ui";
 import { Popover } from "./common";
 import type { SkillRef } from "./data";
 import { ProfileLink } from "./Profile";
@@ -16,7 +16,7 @@ import type { Token } from "./tokens";
 export function TokenChip({ token }: { token: Token }) {
 	if (token.kind === "person")
 		return (
-			<ProfileLink who={token.ref} className="token hover:underline">
+			<ProfileLink who={token.ref} className={`token ${linkButton}`}>
 				{token.text}
 			</ProfileLink>
 		);
@@ -30,7 +30,7 @@ export function TokenChip({ token }: { token: Token }) {
 	}
 	const { id } = token.ref;
 	return (
-		<button type="button" onClick={() => navigate("chat", id)} className="token hover:underline">
+		<button type="button" onClick={() => navigate("chat", id)} className={`token ${linkButton}`}>
 			{token.text}
 		</button>
 	);
@@ -51,9 +51,11 @@ function SkillCard({ skill, onClose }: { skill: SkillRef; onClose: () => void })
 			{full?.instructions && (
 				<Markdown className="max-h-64 overflow-y-auto rounded-xl bg-neutral-50 px-3 py-2 text-sm leading-relaxed">{full.instructions}</Markdown>
 			)}
-			<button type="button" onClick={() => (onClose(), navigate("settings", "skills", skill.id))} className={`${secondaryButton} self-start`}>
-				Open skill
-			</button>
+			<div className="flex">
+				<button type="button" onClick={() => (onClose(), navigate("settings", "skills", skill.id))} className={actionButton}>
+					Open skill
+				</button>
+			</div>
 		</div>
 	);
 }

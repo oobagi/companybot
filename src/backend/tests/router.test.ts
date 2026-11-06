@@ -380,6 +380,29 @@ describe("reply router", () => {
 		expect((await turnsOf(t)).filter((x) => x.agentId === scribe._id && x.triggerId === lead.replyId)).toEqual([]);
 	});
 
+	it("one agent, one answer: naming an agent that's already answering there starts no second turn beside it", async () => {
+		const { t, member, companybot, scribe, send, decide } = await setUp();
+		withProbabilities({ a2: ["reply", 0.9] });
+		await decide(await send(member, "let's play poker, settle the rules"));
+		const settling = (await turnsOf(t)).find((x) => x.agentId === scribe._id && x.status === "running")!;
+		const say = (text: string) => t.mutation(internal.turns.updateReply, { turnId: settling._id, text, parts: text ? [{ type: "text", text }] : [] });
+		await say("Hold'em, 1/2 blinds");
+		// It started over (steering): still shown, with nothing to read yet.
+		await say("");
+		// The person writes meanwhile, and the dispatcher picks Companybot for that.
+		const again = await send(member, "IDK you pick");
+		withProbabilities({ a1: ["reply", 0.9] });
+		await decide(again);
+		const pick = (await turnsOf(t)).find((x) => x.agentId === companybot._id && x.triggerId === again)!;
+		expect(pick.status).toBe("running");
+		// Scribe's empty restart isn't in its prompt as a reply that said nothing.
+		const context = await t.mutation(internal.turns.turnContext, { turnId: pick._id });
+		expect(context.messages.map((m) => m.id)).not.toContain(settling.replyId);
+		// Scribe ends naming Companybot: it's already answering at the top level, so no second turn in a thread under Scribe's post.
+		await finishTurn(t, settling._id, "Settled. Companybot, deal the first hand.", { to: "Companybot" });
+		expect((await turnsOf(t)).filter((x) => x.agentId === companybot._id).map((x) => x._id)).toEqual([pick._id]);
+	});
+
 	it("wakes an agent on a near miss (\"might be for you\"), up to the hourly cap per channel", async () => {
 		const { t, member, companybot, send, decide } = await setUp();
 		withProbabilities({ a1: ["quiet", 0.45], a2: ["quiet", 0.2] });

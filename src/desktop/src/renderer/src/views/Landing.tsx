@@ -1,4 +1,5 @@
 import { Art } from "./Art";
+import { heroButton } from "../ui";
 
 /** The first screen when nobody's signed in: what Companybot is, in a line, and one way forward. */
 export function Landing({ onStart }: { onStart: () => void }) {
@@ -9,7 +10,7 @@ export function Landing({ onStart }: { onStart: () => void }) {
 				<h1 className="text-3xl font-semibold tracking-tight text-neutral-900">Companybot</h1>
 				<p className="text-base text-neutral-500">Chat, CRM and AI agents for your company, in one place.</p>
 			</div>
-			<button type="button" onClick={onStart} className="rounded-xl bg-neutral-900 px-6 py-2.5 text-base text-white hover:bg-neutral-800">
+			<button type="button" onClick={onStart} className={heroButton}>
 				Get started
 			</button>
 		</Split>

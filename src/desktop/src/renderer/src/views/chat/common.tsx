@@ -1,7 +1,7 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CloseIcon, PlusIcon } from "../../icons";
-import { Notice, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
+import { Notice, Scroll, ScrollUnder, Stacked, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
@@ -196,22 +196,59 @@ export function Layer({ onClose, className, overlayClassName, children }: { onCl
 	);
 }
 
-/** `wide` for side-by-side content (page history). */
-export function Modal({ title, wide, onClose, children }: { title: string; wide?: boolean; onClose: () => void; children: React.ReactNode }) {
+/**
+ * A dialog. Its fields are `Settings`/`Setting` rows in a card, exactly as on a settings screen (never
+ * stacked fields); a form (create, rename, invite) ends with `DialogButtons` (Cancel, then the action) at
+ * the bottom right. Leave, Archive and the like go in `menu`, the ⋯ beside Close. `size="md"` for a yes/no
+ * question with no rows; `size="xl"` for side-by-side content (page history).
+ */
+export function Modal({ title, size = "lg", menu, onClose, children }: { title: string; size?: "md" | "lg" | "xl"; menu?: (close: () => void) => React.ReactNode; onClose: () => void; children: React.ReactNode }) {
 	return (
 		<Layer
 			onClose={onClose}
 			overlayClassName="bg-neutral-900/20"
-			className={`flex max-h-[85vh] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-6 text-[15px] text-neutral-900 shadow-xl`}
+			className={`dialog flex max-h-[85vh] w-full ${widths[size]} flex-col overflow-hidden rounded-2xl bg-white text-body text-neutral-900 shadow-xl`}
 		>
-			<header className="flex items-center justify-between">
-				<MantineModal.Title className="text-lg font-medium">{title}</MantineModal.Title>
-				<IconButton label="Close" onClick={onClose}>
-					<CloseIcon />
-				</IconButton>
-			</header>
-			{children}
+			{/* The title stays put and the content scrolls under it, fading out as in chat (`Scroll`); `DialogButtons` stick to the bottom the same way. */}
+			<Scroll
+				header={
+					<header className="flex items-center gap-1 px-6 pt-6 pb-5">
+						<MantineModal.Title className="min-w-0 flex-1 truncate text-lg font-medium">{title}</MantineModal.Title>
+						{menu && <MoreMenu label="More">{menu}</MoreMenu>}
+						<IconButton label="Close" onClick={onClose}>
+							<CloseIcon />
+						</IconButton>
+					</header>
+				}
+			>
+				<div className="flex flex-col gap-5 px-6 pb-6">
+					<Stacked>{children}</Stacked>
+				</div>
+			</Scroll>
 		</Layer>
+	);
+}
+const widths = { md: "max-w-md", lg: "max-w-xl", xl: "max-w-4xl" };
+
+/**
+ * A dialog's buttons: bottom right, Cancel first, the action last. They stick to the dialog's bottom
+ * while the content scrolls under them; the negative margins keep them where they'd sit unstuck.
+ */
+export function DialogButtons({ children }: { children: React.ReactNode }) {
+	const under = useContext(ScrollUnder);
+	return (
+		<div className="scrim-bottom sticky bottom-0 z-30 -mt-4 -mb-6 flex justify-end gap-2 pt-4 pb-6" data-under={under || undefined}>
+			{children}
+		</div>
+	);
+}
+
+/** ⋯ opening a menu of `MenuItem`s: a row's or a dialog's other actions. */
+export function MoreMenu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
+	return (
+		<Popover label={label} trigger={<MoreIcon />} className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100" panelClassName="w-56 p-1">
+			{children}
+		</Popover>
 	);
 }
 
@@ -344,12 +381,14 @@ export function PopoverPanel({
 }
 
 /** A row in a popover menu. */
-export function MenuItem({ onClick, danger, children }: { onClick: () => void; danger?: boolean; children: React.ReactNode }) {
+export function MenuItem({ onClick, danger, disabled, title, children }: { onClick: () => void; danger?: boolean; disabled?: boolean; title?: string; children: React.ReactNode }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${danger ? "text-red-600 hover:bg-red-50" : "hover:bg-neutral-100"}`}
+			disabled={disabled}
+			title={title}
+			className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${danger ? "text-red-600 hover:bg-red-50" : "hover:bg-neutral-100"}`}
 		>
 			{children}
 		</button>
@@ -359,14 +398,14 @@ export function MenuItem({ onClick, danger, children }: { onClick: () => void; d
 /** A yes/no question: Cancel, or `action` (red when `danger`). */
 export function Confirm(props: { title: string; action: string; danger?: boolean; busy?: boolean; error?: string; onConfirm: () => void; onClose: () => void; children?: React.ReactNode }) {
 	return (
-		<Modal title={props.title} onClose={props.onClose}>
+		<Modal title={props.title} size="md" onClose={props.onClose}>
 			<div className="flex flex-col gap-4 text-sm">
 				{props.children && <p className="text-neutral-600">{props.children}</p>}
 				<Notice>{props.error}</Notice>
-				<div className="flex justify-end gap-2">
+				<DialogButtons>
 					<button autoFocus type="button" disabled={props.busy} onClick={props.onClose} className={secondaryButton}>Cancel</button>
 					<button type="button" disabled={props.busy} onClick={props.onConfirm} className={props.danger ? dangerButton : primaryButton}>{props.action}</button>
-				</div>
+				</DialogButtons>
 			</div>
 		</Modal>
 	);

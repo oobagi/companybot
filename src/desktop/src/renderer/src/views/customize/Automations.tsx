@@ -11,7 +11,7 @@ import { useMutation, useQuery } from "../../convex";
 import { AutomationIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Page, Section, descriptionClass, inputClass, secondaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { Loading, Notice, Page, Section, Setting, Settings, compactButton, compactControlClass, descriptionClass, pillButton, timeAgo, useDraft, useRun, wideControlClass } from "../../ui";
 import { useTurnOn } from "../Permissions";
 import { PendingWakeups } from "../Wakeups";
 import { deviceTimeZone, useConfirm } from "../chat/common";
@@ -48,7 +48,7 @@ export function AutomationsTab() {
 				error={error}
 				card={card}
 			/>
-			<PendingWakeups title="Follow-ups" hint="Times an agent will check back on its own, in the chat where it was asked." />
+			<PendingWakeups title="Follow-ups" note="Times an agent will check back on its own, in the chat where it was asked." />
 		</div>
 	);
 }
@@ -78,7 +78,7 @@ function SubscribeButton({ automation: a, onError }: { automation: AutomationIte
 				type="button"
 				title={on ? "Turn off for you" : undefined}
 				onClick={() => onError(on ? subscribe({ automationId: a.id, on: false }) : Promise.resolve(turnOn.start()))}
-				className={`shrink-0 rounded-full px-3 py-1 text-sm ${on ? "bg-emerald-50 text-emerald-700" : "bg-neutral-900 text-white"}`}
+				className={`${pillButton} ${on ? "bg-emerald-50 text-emerald-700" : "bg-neutral-900 text-white"}`}
 			>
 				{on ? "On for you" : "Turn on for me"}
 			</button>
@@ -100,18 +100,21 @@ export function AutomationScreen({ access, id }: { access: Access; id: string })
 
 const defaultSchedule = { type: "schedule" as const, cron: DEFAULT_CRON };
 
-/** Name, when, and what to ask: the parts of an automation someone writes. */
+/** Name, when, and what to ask: the parts of an automation someone writes, as one card. `children` are rows under them (Agent, Runs for). */
 function AutomationFields({
+	title,
 	value,
 	onChange,
 	channels,
 	timeZone,
-}: {
+	children,
+}: { title?: string;
 	value: CustomAutomationConfig;
 	onChange: (value: CustomAutomationConfig) => void;
 	channels: Channel[];
 	/** Schedules run in it: the maker's, or this device's for a new one. */
 	timeZone: string;
+	children?: React.ReactNode;
 }) {
 	const { trigger } = value;
 	const setTrigger = (t: CustomAutomationConfig["trigger"]) => onChange({ ...value, trigger: t });
@@ -122,20 +125,19 @@ function AutomationFields({
 		{ label: "When another app sends a webhook", value: { type: "webhook" } },
 	];
 	return (
-		<>
-			<Field label="Name">
+		<Settings title={title}>
+			<Setting label="Name">
 				<input
-					className={inputClass}
+					aria-label="Name"
+					className={wideControlClass}
 					value={value.name}
 					maxLength={CUSTOM_NAME_MAX}
 					placeholder="e.g. Weekly team update"
 					onChange={(e) => onChange({ ...value, name: e.target.value })}
 				/>
-			</Field>
-			{/* Not a Field: a <label> around buttons would press the first one when its text is clicked. */}
-			<div role="group" aria-label="When" className="flex flex-col gap-1.5">
-				<span className="text-sm font-medium">When</span>
-				<div className="flex flex-col gap-3">
+			</Setting>
+			<Setting wide label="When">
+				<div role="group" aria-label="When" className="flex min-w-0 flex-1 flex-col gap-3">
 					<div>
 						<Segmented
 							value={trigger.type}
@@ -182,16 +184,18 @@ function AutomationFields({
 						</p>
 					)}
 				</div>
-			</div>
-			<Field label="What to ask the agent" hint="Sent to the agent each run, as if the person it runs for asked it.">
+			</Setting>
+			<Setting wide label="What to ask the agent" hint="Sent to the agent each run, as if the person it runs for asked it.">
 				<textarea
-					className={`${inputClass} min-h-32`}
+					aria-label="What to ask the agent"
+					className={`${compactControlClass} min-h-32 w-full`}
 					value={value.prompt}
 					placeholder="e.g. Summarize this week's conversations and highlight follow-ups."
 					onChange={(e) => onChange({ ...value, prompt: e.target.value })}
 				/>
-			</Field>
-		</>
+			</Setting>
+			{children}
+		</Settings>
 	);
 }
 
@@ -223,7 +227,7 @@ function RunsForSelect({
 		<Select
 			label="Runs for"
 			disabled={disabled}
-			className={inputClass}
+			className={wideControlClass}
 			value={value}
 			options={[
 				...(allowCreator ? [{ value: "creator", label: "Just me" }] : []),
@@ -274,27 +278,28 @@ function NewAutomation({ team }: { team: boolean }) {
 				run(create({ config, agentId: agent as Id<"agents">, ...audience, timeZone: deviceTimeZone() }).then((id) => { draft.discard(); navigate("settings", "automations", id); }))
 			}
 		>
-			<AutomationFields value={config} onChange={setConfig} channels={channels} timeZone={deviceTimeZone()} />
-			<Field label="Agent">
-				<Select className={inputClass} value={agent} options={agentOptions(agents)} onChange={setAgentId} />
-			</Field>
-			<Field
-				label="Runs for"
-				hint={
-					team
-						? "Nobody gets messages they didn't ask for: others choose whether to turn it on."
-						: "Just for you. Sharing it with the team needs a role that can make and change team automations."
-				}
-			>
-				<RunsForSelect
-					audience={audience.audience}
-					channelId={audience.channelId ?? null}
-					channels={channels}
-					allowCreator
-					team={team}
-					onChange={(a, channelId) => setAudience({ audience: a, channelId })}
-				/>
-			</Field>
+			<AutomationFields value={config} onChange={setConfig} channels={channels} timeZone={deviceTimeZone()}>
+				<Setting label="Agent">
+					<Select label="Agent" className={wideControlClass} value={agent} options={agentOptions(agents)} onChange={setAgentId} />
+				</Setting>
+				<Setting
+					label="Runs for"
+					hint={
+						team
+							? "Nobody gets messages they didn't ask for: others choose whether to turn it on."
+							: "Just for you. Sharing it with the team needs a role that can make and change team automations."
+					}
+				>
+					<RunsForSelect
+						audience={audience.audience}
+						channelId={audience.channelId ?? null}
+						channels={channels}
+						allowCreator
+						team={team}
+						onChange={(a, channelId) => setAudience({ audience: a, channelId })}
+					/>
+				</Setting>
+			</AutomationFields>
 		</NewItem>
 	);
 }
@@ -316,7 +321,7 @@ function CustomAutomationDetail({ automation: a, custom, team }: { automation: A
 			trash={a.trash}
 			onDelete={() => remove({ automationId: a.id })}
 			onSave={(config, expectedVersion) => save({ automationId: a.id, config, expectedVersion })}
-			fields={(value, onChange) => <AutomationFields value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
+			fields={(value, onChange) => <AutomationFields title="Automation" value={value} onChange={onChange} channels={channels} timeZone={a.timeZone} />}
 		>
 			{!a.trash && <AutomationSettings automation={a} team={team} />}
 		</MadeItemDetail>
@@ -349,7 +354,7 @@ function AutomationDetail({ automation: a, canManage }: { automation: Automation
 				]}
 			/>
 			{a.installed && !a.trash && <AutomationSettings automation={a} team={canManage} />}
-			<Section title="What the agent is asked" hint="Sent to the agent each run, as if the person it runs for asked it.">
+			<Section title="What the agent is asked" note="Sent to the agent each run, as if the person it runs for asked it.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{a.prompt}</Markdown>
 			</Section>
 		</Detail>
@@ -369,46 +374,38 @@ function AutomationSettings({ automation: a, team }: { automation: AutomationIte
 	const [copied, setCopied] = useState(false);
 	const resume = useTurnOn(a.name, () => update({ automationId: a.id, enabled: true }));
 	const active = agents?.filter((x) => !x.archived) ?? [];
-	const row = "flex items-center gap-2";
-	const label = "w-20 shrink-0 text-neutral-500";
 
 	return (
-		<Section title="Settings" flush>
+		<>
 			{dialog}
-			<div className="flex flex-col gap-3 text-sm">
-				<Notice>{error}</Notice>
+			{resume.dialog}
+			<Notice>{error}</Notice>
+			<Settings title="Settings" note={a.lastRunAt ? `Last ran ${timeAgo(a.lastRunAt)}. ${a.lastResult ?? ""}` : "Hasn't run yet."}>
 				{a.audience === "subscribers" && (
-					<div className={row}>
-						<span className={label}>For you</span>
+					<Setting label="For you" hint={`${a.subscriberCount} ${a.subscriberCount === 1 ? "person has" : "people have"} it on`}>
 						<SubscribeButton automation={a} onError={run} />
-						<span className="text-neutral-400">
-							{a.subscriberCount} {a.subscriberCount === 1 ? "person has" : "people have"} it on
-						</span>
-					</div>
+					</Setting>
 				)}
 				{a.canEdit && (
 					<>
-						<div className={row}>
-							<span className={label}>Status</span>
-							<button
-								type="button"
-								onClick={() => run(a.enabled ? update({ automationId: a.id, enabled: false }) : Promise.resolve(resume.start()))}
-								className={`rounded-full px-3 py-1 ${a.enabled ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-600"}`}
-							>
-								{a.enabled ? "Running" : "Paused"}
-							</button>
-							{resume.dialog}
-						</div>
-						<label className={row}>
-							<span className={label}>Agent</span>
+						<Setting label="Status" hint={a.enabled ? "It runs on its own." : "It won't run until you resume it."}>
+							<Segmented
+								label="Status"
+								value={a.enabled ? "running" : "paused"}
+								options={[{ value: "running" as const, label: "Running" }, { value: "paused" as const, label: "Paused" }]}
+								onChange={(v) => (v === "running") !== a.enabled && run(a.enabled ? update({ automationId: a.id, enabled: false }) : Promise.resolve(resume.start()))}
+							/>
+						</Setting>
+						<Setting label="Agent">
 							<Select
+								label="Agent"
+								className={wideControlClass}
 								value={a.agentId ?? ""}
 								options={[...(a.agentArchived ? [{ value: a.agentId ?? "", label: `${a.agentName} (deleted)` }] : []), ...agentOptions(active)]}
 								onChange={(id) => run(update({ automationId: a.id, agentId: id as Id<"agents"> }))}
 							/>
-						</label>
-						<div className={row}>
-							<span className={label}>Runs for</span>
+						</Setting>
+						<Setting label="Runs for">
 							<RunsForSelect
 								audience={a.audience ?? "subscribers"}
 								channelId={a.channelId}
@@ -426,61 +423,47 @@ function AutomationSettings({ automation: a, team }: { automation: AutomationIte
 									run(audience === "channel" ? Promise.resolve(resume.start(save)) : save());
 								}}
 							/>
-						</div>
+						</Setting>
 					</>
 				)}
 				{a.webhookUrl && (
-					<div className="flex flex-col gap-1">
-						<div className={row}>
-							<span className={label}>Webhook</span>
-							<input
-								readOnly
-								value={a.webhookUrl}
-								onFocus={(e) => e.target.select()}
-								className={`${inputClass} min-w-0 flex-1 py-1 font-mono text-xs`}
-							/>
-							<button
-								type="button"
-								className={secondaryButton}
-								onClick={() => navigator.clipboard.writeText(a.webhookUrl!).then(() => setCopied(true))}
-							>
-								{copied ? "Copied" : "Copy"}
-							</button>
-							<button
-								type="button"
-								className={secondaryButton}
-								onClick={() =>
-									confirm({ title: "Make a new URL?", action: "Make a new URL", body: "The current one stops working right away.", onConfirm: () => resetWebhook({ automationId: a.id }).then(() => setCopied(false)) })
-								}
-							>
-								New URL
-							</button>
-						</div>
-						<p className="pl-[5.5rem] text-neutral-400">
-							Paste this into the app that sends the webhook. Keep it secret: anyone with it can trigger this automation.
-						</p>
-					</div>
-				)}
-				<p className="text-neutral-500">{a.lastRunAt ? `Last ran ${timeAgo(a.lastRunAt)}. ${a.lastResult ?? ""}` : "Hasn't run yet."}</p>
-				{a.canEdit && (
-					<div className="flex items-center gap-3">
+					<Setting wide label="Webhook" hint="Paste this into the app that sends the webhook. Keep it secret: anyone with it can trigger this automation.">
+						<input
+							readOnly
+							aria-label="Webhook URL"
+							value={a.webhookUrl}
+							onFocus={(e) => e.target.select()}
+							className={`${compactControlClass} min-w-0 flex-1 font-mono text-xs`}
+						/>
 						<button
 							type="button"
-							className={`${secondaryButton} self-start`}
-							onClick={() => run(runNow({ automationId: a.id }), () => setRan(true))}
+							className={compactButton}
+							onClick={() => navigator.clipboard.writeText(a.webhookUrl!).then(() => setCopied(true))}
 						>
+							{copied ? "Copied" : "Copy"}
+						</button>
+						<button
+							type="button"
+							className={compactButton}
+							onClick={() =>
+								confirm({ title: "Make a new URL?", action: "Make a new URL", body: "The current one stops working right away.", onConfirm: () => resetWebhook({ automationId: a.id }).then(() => setCopied(false)) })
+							}
+						>
+							New URL
+						</button>
+					</Setting>
+				)}
+				{a.canEdit && (
+					<Setting
+						label="Try it"
+						hint={ran ? `Sent. Check your chat with ${a.agentName}.` : a.scheduled ? "Runs once, just for you." : "Runs once with a sample, just for you."}
+					>
+						<button type="button" className={compactButton} onClick={() => run(runNow({ automationId: a.id }), () => setRan(true))}>
 							Run now
 						</button>
-						<span className="text-neutral-400">
-							{ran
-								? `Sent. Check your chat with ${a.agentName}.`
-								: a.scheduled
-									? "Runs once, just for you."
-									: "Runs once with a sample, just for you."}
-						</span>
-					</div>
+					</Setting>
 				)}
-			</div>
-		</Section>
+			</Settings>
+		</>
 	);
 }

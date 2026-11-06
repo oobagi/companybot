@@ -8,7 +8,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardClass, compactButton, descriptionClass, insetClass, listClass, metadataClass, timeAgo, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardButton, cardClass, compactButton, descriptionClass, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -140,7 +140,7 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 			{/* The label opens the field's settings, for whoever may change them. */}
 			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
 				{onEditField ? (
-					<button type="button" onClick={onEditField} title="Edit field" className="-mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 text-left hover:bg-neutral-100 hover:text-neutral-900">
+					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
 						{field.label}
 					</button>
 				) : (
@@ -191,7 +191,7 @@ function Linked({ recordId }: { recordId: Id<"records"> }) {
 									key={r._id}
 									type="button"
 									onClick={() => navigate(...recordPath(type.key, r._id))}
-									className="flex items-baseline gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50"
+									className={`${listRowButton} items-baseline`}
 								>
 									<span className="font-medium">{r.title}</span>
 									<span className="truncate text-neutral-500">{summary(type, r.values, r.refs)}</span>
@@ -227,7 +227,7 @@ function Discussion({ recordId }: { recordId: Id<"records"> }) {
 						key={m.messageId}
 						type="button"
 						onClick={() => navigate("chat", m.chatId, ...(m.threadId ? ["thread", m.threadId] : ["message", m.messageId]))}
-						className={`flex flex-col gap-1 text-left text-sm hover:bg-neutral-50 ${cardClass}`}
+						className={`flex-col gap-1 text-sm ${cardButton}`}
 					>
 						<span className="flex items-baseline gap-2">
 							<span className="font-medium">{m.author}</span>
@@ -296,5 +296,5 @@ function RecordHistory({ open, onClose, type, recordId, pageId, canUndo, canRest
 	const [tab, setTab] = useState<"properties" | "body">("properties");
 	if (!open) return null;
 	const tabs = <Tabs tabs={[{ id: "properties", label: "Properties" }, { id: "body", label: "Page body" }]} value={tab} onChange={setTab} />;
-	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" wide onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
+	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" size="xl" onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
 }
