@@ -34,10 +34,10 @@ it("lands a row from another list before the one it's dropped over, filling in w
 	expect(dropAt(["b"], ["a", "b", "c"], "x", 1)).toEqual({ beforeId: "b", fill: ["a"] });
 	expect(dropAt(["a", "b"], ["a", "b"], "x", 2)).toEqual({ beforeId: null, fill: [] });
 	// A section's header ends the list above and starts its own, so both take drops while empty.
-	const header = { key: "h", start: 0, size: 20, pitch: 24, endOf: "none", startOf: "s1" };
-	const row = { key: "r", list: "s1", id: "r", start: 24, size: 30, pitch: 32 };
-	expect(place([header, row], 1, -30, () => true)!.target).toMatchObject({ list: "none", index: 0 });
-	expect(place([header, row], 1, 24, () => true)!.target).toMatchObject({ list: "s1", index: 0 });
+	const header = { key: "h", start: 0, size: 20, gap: 4, pitch: 24, endOf: "none", startOf: "s1" };
+	const row = { key: "r", list: "s1", id: "r", start: 24, size: 30, gap: 2, pitch: 32 };
+	expect(place([header, row], 1, -30, { along: -15, across: 0 }, () => true)!.target).toMatchObject({ list: "none", index: 0 });
+	expect(place([header, row], 1, 24, { along: 39, across: 0 }, () => true)!.target).toMatchObject({ list: "s1", index: 0 });
 });
 
 it("keeps only what needs you while folded, and gives people who can't arrange no controls or empty sections", () => {

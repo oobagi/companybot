@@ -22,8 +22,9 @@ import { type DriveUpload, useDriveUploads } from "../drive/upload";
 // people add, each holding top-level ones with what's under them. Folders hold all three; pages hold
 // sub-pages; files sit in folders or at the top level. Each expanded level loads on its own. A
 // section's + makes a page or folder at the top level, or uploads there, and puts it in that section.
-// The whole sidebar is one drag group, drawn as a tree (`line` in sortable.ts): rows move between
-// levels and sections, onto a folder or page, or onto Home (the top level).
+// The whole sidebar is one drag group (sortable.ts; each level's `inset` is its depth, so a dragged row
+// steps between levels with the pointer's x): rows move between levels and sections, onto a folder or
+// page, or onto Home (the top level).
 
 type PageId = Id<"pages">;
 type FileId = Id<"driveFiles">;
@@ -63,7 +64,7 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 	const moves = useDriveMoves(run);
 	const group = itemsGroup("drive");
 	// Home is the top level: a row dropped on it leaves its folder.
-	const home = useDragList({ group, enabled: false, line: true, holds: (_, from) => { const item = asItem(from); return item.canEdit && !!item.parentId; }, onDropOn: (from) => moves.into(asItem(from), undefined) });
+	const home = useDragList({ group, enabled: false, holds: (_, from) => { const item = asItem(from); return item.canEdit && !!item.parentId; }, onDropOn: (from) => moves.into(asItem(from), undefined) });
 	const toggle = (id: string, open = !expanded.has(id)) => changeExpanded({ op: open ? "add" : "remove", id });
 	const sections = useSections("drive");
 	/** `sectionId`: made by a section's +, so it goes in that section. */
@@ -121,13 +122,13 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 		<DriveLevel
 			parentId={parent?._id}
 			parentKind={parent ? (parent.kind ?? "page") : undefined}
-			drag={{ group, moves, line: true, inset: (parent ? above.length + 1 : 0) * GUIDE_WIDTH, open: !parent || !!parent.canEdit }}
+			drag={{ group, moves, inset: (parent ? above.length + 1 : 0) * GUIDE_WIDTH, open: !parent || !!parent.canEdit }}
 			top={parent ? undefined : top}
 			{...draw(parent, above)}
 		/>
 	);
 	const { renderPage, renderFile } = draw();
-	// Its header starts the top-level list, so a drop into it while empty draws its line under the title.
+	// Its header starts the top-level list, so a drop just under its title goes in while it's empty.
 	const allFiles = useDragStatic(group, { startOf: unsectionedList("drive") });
 	return (
 		// Home, then the section, spaced like Chat's channels and Direct messages (`SidebarList`).
@@ -189,7 +190,6 @@ function DriveSection({ section, at, moves, renderPage, renderFile, keep, add, c
 	return (
 		<SectionGroup {...at} tab="drive" section={section} rows={rows} keep={keep} add={add}
 			rowDrag={{
-				line: true,
 				data: item,
 				// Only top-level rows come in (a nested one goes to Home first); it leaves its old section with the move.
 				accepts: (from) => !asItem(from).parentId,
@@ -253,9 +253,9 @@ function PruneExpanded({ ids, onPrune }: { ids: string[]; onPrune: (ids: string[
 /**
  * Dragging a level's rows (the sidebar's tree, a folder's listing): their group and what drops do.
  * `open`: rows from other levels may come in (its folder or page is editable; the top level always is).
- * `line` and `inset` draw the drag as a tree (sortable.ts).
+ * `inset`: how far in its rows start, the level's depth in the sidebar's tree (sortable.ts).
  */
-export type LevelDrag = { group: string; moves: DriveMoves; open?: boolean; line?: boolean; inset?: number };
+export type LevelDrag = { group: string; moves: DriveMoves; open?: boolean; inset?: number };
 
 /** A level's row: a page or folder, or a file. */
 export type DriveRow = Row | FileRow;
@@ -290,7 +290,6 @@ export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder",
 		...(drag && {
 		id: top ? unsectionedList("drive") : undefined,
 		group: drag.group,
-		line: drag.line,
 		inset: drag.inset,
 		data: (id): DriveItem => { const row = find(id); return { kind: row ? kindOf(row) : "page", id, canEdit: !!row?.canEdit, parentId }; },
 		// Its own rows reorder (that needs only `sidebar.arrange`), and at the top a section's come back.

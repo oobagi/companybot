@@ -4,14 +4,13 @@ import type { ArrangementCommand, ArrangementList } from "@companybot/core/arran
 
 // Drag to reorder, with the pointer (not the browser's drag-and-drop, which drags a picture of the
 // row and drops only on an exact line). Press and move a few pixels to pick a row up; it follows the
-// pointer along the list while the others slide out of its way; let go anywhere and it lands in the
-// gap that's open. Escape puts it back. Lists in one `group` (the rail's pins and recents, Drive's
+// pointer along the list while the others slide out of its way; let go anywhere and it glides into the
+// gap that's open. Escape glides it back. Lists in one `group` (the rail's pins and recents, Drive's
 // sidebar) take rows from each other. A row can take the dragged one into it (`holds`: a Drive folder):
-// let go over its middle and it goes there. A tree (`line`: Drive's sidebar) works like Notion's
-// instead: nothing slides; the row stays where it is, faded, a copy of it follows the pointer along the list, and a
-// line marks the gap it would land in, at the level the pointer's x picks (left to leave a folder,
-// right to stay in it); let go and the copy glides into the gap before the row appears there. Rows can sit in another row's box (a folder's open level): they're rows of the
-// group too, and a dragged box carries its own.
+// let go over its middle and it goes there. Rows can sit in another row's box (an open folder's level):
+// they're rows of the group too, and a dragged box carries its own. In a tree (Drive's sidebar) a gap
+// where levels meet (under an open folder's last row) can take the row at either level: the pointer's x
+// picks, and the row steps across to the level it's in (`inset`: how far in a level's rows start).
 
 type Axis = "x" | "y";
 
@@ -62,7 +61,6 @@ type ListEntry = {
 	axis: Axis;
 	els: Map<string, HTMLElement>;
 	enabled: boolean;
-	line: boolean;
 	inset: number;
 	accepts: (from: Dragged) => boolean;
 	holds: (id: string, from: Dragged) => boolean;
@@ -76,20 +74,21 @@ const statics = new Map<string, StaticEntry>();
 
 /**
  * One thing in the group, in order along the axis: a row, or a divider between lists. `parent`: the
- * row whose box it sits in (an open folder's). `holds`: it takes the dragged row into it. `left` and
- * `right` are its edges across the axis, `inset` how far in from `left` its list's rows start (a tree
- * level's depth), for the line.
+ * row whose box it sits in (an open folder's). `holds`: it takes the dragged row into it. `left` is its
+ * edge across the axis, `inset` how far in from `left` its list's rows start (a tree level's depth).
+ * `gap`: its list's, between its rows; `pitch`: the room it takes, its size and that gap (`arrange`).
  */
-export type Slot = { key: string; list?: string; id?: string; start: number; size: number; pitch: number; endOf?: string; startOf?: string; parent?: string; holds?: boolean; left?: number; right?: number; inset?: number };
+export type Slot = { key: string; list?: string; id?: string; start: number; size: number; gap: number; pitch: number; endOf?: string; startOf?: string; parent?: string; holds?: boolean; left?: number; inset?: number };
+/** A slot as measured, before `arrange` gives it its pitch. */
+export type Measured = Omit<Slot, "pitch">;
 /**
  * Where it'd land: a gap (`at`), as a list and an index in it (without the dragged row), or `onto` a
- * row that takes it in. `inset`: where the line starts, in a tree.
+ * row that takes it in. `inset`: where the list's rows start across the axis (the level it steps to).
  */
-type Target = { list: string; index: number; at: number; onto?: { list: string; id: string }; inset?: number };
+type Target = { list: string; index: number; at: number; onto?: { list: string; id: string }; inset: number };
 type Session = {
 	group: string;
 	axis: Axis;
-	line: boolean;
 	from: Dragged;
 	el: HTMLElement;
 	slots: Slot[];
@@ -122,20 +121,28 @@ function scroller(el: HTMLElement, axis: Axis): HTMLElement | undefined {
 }
 
 function measure(group: string, axis: Axis, from: Dragged): Slot[] {
-	const raw: { slot: Omit<Slot, "pitch">; el: HTMLElement }[] = [];
-	const across = (r: DOMRect) => (axis === "y" ? { left: r.left, right: r.right } : { left: r.top, right: r.bottom });
+	const raw: { slot: Measured; el: HTMLElement }[] = [];
+	const left = (r: DOMRect) => (axis === "y" ? r.left : r.top);
+	// The gap between the rows of the container it's in: the room a row leaves when it goes, and takes
+	// where it lands. Not the space to the next thing in the group, which can be another list's margin.
+	// A row alone in its container goes with it (Chat's last channel): the gap around the container, then.
+	const gap = (el: HTMLElement, row: boolean) => {
+		const box = el.parentElement ?? el;
+		const s = getComputedStyle(row && box.childElementCount < 2 ? (box.parentElement ?? box) : box);
+		return parseFloat(axis === "y" ? s.rowGap : s.columnGap) || 0;
+	};
 	for (const [list, l] of lists) {
 		if (l.group !== group) continue;
 		for (const [id, el] of l.els) {
 			if (!el.isConnected) continue;
 			const r = el.getBoundingClientRect();
-			raw.push({ el, slot: { key: slotKey(list, id), list, id, start: start(r, axis), size: extent(r, axis), holds: (list !== from.list || id !== from.id) && l.holds(id, from), ...across(r), inset: l.inset } });
+			raw.push({ el, slot: { key: slotKey(list, id), list, id, start: start(r, axis), size: extent(r, axis), gap: gap(el, true), holds: (list !== from.list || id !== from.id) && l.holds(id, from), left: left(r), inset: l.inset } });
 		}
 	}
 	for (const [key, s] of statics) {
 		if (s.group !== group || !s.el.isConnected) continue;
 		const r = s.el.getBoundingClientRect();
-		raw.push({ el: s.el, slot: { key, start: start(r, axis), size: extent(r, axis), endOf: s.endOf, startOf: s.startOf, ...across(r), inset: lists.get(s.startOf ?? s.endOf ?? "")?.inset ?? 0 } });
+		raw.push({ el: s.el, slot: { key, start: start(r, axis), size: extent(r, axis), gap: gap(s.el, false), endOf: s.endOf, startOf: s.startOf, left: left(r), inset: lists.get(s.startOf ?? s.endOf ?? "")?.inset ?? 0 } });
 	}
 	// The row each sits in: its nearest ancestor that's a row of the group too.
 	const owner = new Map(raw.map((r) => [r.el, r.slot.key]));
@@ -148,25 +155,18 @@ function measure(group: string, axis: Axis, from: Dragged): Slot[] {
 /**
  * The group in order along the axis, without the rows inside the dragged one's box (they go with it,
  * and it can't go into them). A row with rows in its box (an open folder) counts only up to the first
- * of them, so it's passed like a row, not like its whole box. A slot's pitch runs from its start to the
- * next one's, so gaps and margins move with it.
+ * of them, so it's passed like a row, not like its whole box.
  */
-export function arrange(raw: readonly Omit<Slot, "pitch">[], dragged: string): Slot[] {
+export function arrange(raw: readonly Measured[], dragged: string): Slot[] {
 	const byKey = new Map(raw.map((s) => [s.key, s]));
-	const carried = (s: Omit<Slot, "pitch">) => {
+	const carried = (s: Measured) => {
 		for (let p = s.parent; p; p = byKey.get(p)?.parent) if (p === dragged) return true;
 		return false;
 	};
 	const kept = raw.filter((s) => !carried(s)).sort((a, b) => a.start - b.start);
-	const sized = kept.map((s, i) => {
+	return kept.map((s, i) => {
 		const next = kept[i + 1];
-		return next && next.start < s.start + s.size ? { ...s, size: next.start - s.start } : s;
-	});
-	return sized.map((s, i) => {
-		const next = sized[i + 1];
-		const prev = sized[i - 1];
-		const gap = next ? next.start - (s.start + s.size) : prev ? s.start - (prev.start + prev.size) : 0;
-		return { ...s, pitch: s.size + Math.max(0, gap) };
+		return next && next.start < s.start + s.size ? { ...s, size: next.start - s.start, pitch: next.start - s.start } : { ...s, pitch: s.size + s.gap };
 	});
 }
 
@@ -201,11 +201,14 @@ function spots(others: readonly Slot[], gap: number): Spot[] {
 }
 const count = (others: readonly Slot[], list: string, gap: number) => others.slice(0, gap).filter((s) => s.list === list).length;
 
+/** The pointer: `along` the axis, and `across` it. */
+export type Point = { along: number; across: number };
+
 /**
  * Where a row whose leading edge is at `edge` lands, with the pointer at `point`, and how everything
  * else slides to make room.
  */
-export function place(slots: readonly Slot[], source: number, edge: number, enabled: (list: string) => boolean, point?: number): Pick<Session, "target" | "shifts"> {
+export function place(slots: readonly Slot[], source: number, edge: number, point: Point, enabled: (list: string) => boolean): Pick<Session, "target" | "shifts"> {
 	const dragged = slots[source]!;
 	const others = slots.filter((_, i) => i !== source);
 	// The gap it's over. It passes a row once the edge it leads with (its top going up, its bottom going
@@ -215,9 +218,8 @@ export function place(slots: readonly Slot[], source: number, edge: number, enab
 	// pointer: over its middle half drops it in; it's passed once the pointer reaches its far quarter.
 	const d = edge - dragged.start;
 	const quarter = (s: Slot) => s.size / 4;
-	const takesIn = (s: Slot) => !!s.holds && point !== undefined;
 	const passed = (s: Slot) => {
-		if (takesIn(s)) return d > 0 ? point! >= s.start + s.size - quarter(s) : point! <= s.start + quarter(s);
+		if (s.holds) return d > 0 ? point.along >= s.start + s.size - quarter(s) : point.along <= s.start + quarter(s);
 		const middle = s.start + s.size / 2 + (s.list ? 0 : (Math.sign(d) * dragged.size) / 4);
 		return d > 0 ? edge + dragged.size > middle : edge < middle;
 	};
@@ -225,47 +227,14 @@ export function place(slots: readonly Slot[], source: number, edge: number, enab
 	if (d > 0) while (at < others.length && passed(others[at]!)) at++;
 	else if (d < 0) while (at > 0 && passed(others[at - 1]!)) at--;
 	const over = d > 0 ? others[at] : d < 0 ? others[at - 1] : undefined;
-	const onto = over && takesIn(over) && point! > over.start + quarter(over) && point! < over.start + over.size - quarter(over) ? over : undefined;
+	const onto = over?.holds && point.along > over.start + quarter(over) && point.along < over.start + over.size - quarter(over) ? over : undefined;
+	// A list, by one of its rows, else by the divider that starts or ends it: where its rows start, and its gap.
+	const of = (list: string) => slots.find((o) => o.list === list) ?? others.find((o) => o.startOf === list || o.endOf === list);
+	const insetOf = (list: string) => { const s = of(list); return (s?.left ?? dragged.left ?? 0) + (s?.inset ?? 0); };
 	// Gaps a row can't go into (a list it can't join) fall back to the nearest one it can. Where it was is
-	// always open, so a row whose list keeps no order of its own (Drive's files) can go back. The last row
-	// in an open folder has no gap below it but its own: pulled half a row down past it, it leaves.
-	const own = { list: dragged.list!, index: count(others, dragged.list!, source) };
-	const pulled = d > dragged.size / 2;
-	let found: Target | undefined;
-	for (let k = 0; k <= others.length && !found; k++) {
-		for (const g of [at - k, at + k]) {
-			if (g < 0 || g > others.length) continue;
-			const t = g === source ? (pulled && spots(others, g).find((t) => enabled(t.list))) || own : spots(others, g).find((t) => enabled(t.list));
-			if (t) { found = { ...t, at: g }; break; }
-		}
-	}
-	const target: Target = { ...found!, ...(onto && { onto: { list: onto.list!, id: onto.id! } }) };
-	const shifts = new Map<string, number>();
-	// Everything between where it was and where it goes slides one row's worth toward where it was.
-	others.forEach((s, i) => {
-		if (target.at <= i && i < source) shifts.set(s.key, dragged.pitch);
-		else if (source <= i && i < target.at) shifts.set(s.key, -dragged.pitch);
-	});
-	return { target, shifts };
-}
-
-/**
- * Where a row lands in a tree, with the pointer at `point` along the axis and `x` across it: the gap
- * under the pointer (before the first row whose middle is below it), in the deepest of the levels that
- * end there whose rows start left of the pointer, or the outermost if none does; where it was is
- * always open. Over the middle half of a row that takes it in, it goes into that row. Nothing slides.
- */
-export function placeLine(slots: readonly Slot[], source: number, point: number, x: number, enabled: (list: string) => boolean): Pick<Session, "target" | "shifts"> {
-	const dragged = slots[source]!;
-	const others = slots.filter((_, i) => i !== source);
-	let at = others.findIndex((s) => point < s.start + s.size / 2);
-	if (at < 0) at = others.length;
-	const over = others.find((s) => s.holds && point >= s.start + s.size / 4 && point <= s.start + (s.size * 3) / 4);
-	// Where a list's rows start: from one of its rows, else from the divider that starts or ends it.
-	const insetOf = (list: string) => {
-		const s = [dragged, ...others].find((o) => o.list === list) ?? others.find((o) => o.startOf === list || o.endOf === list);
-		return (s?.left ?? dragged.left ?? 0) + (s?.inset ?? 0);
-	};
+	// always open, so a row whose list keeps no order of its own (Drive's files) can go back. Of the levels
+	// that meet at a gap (an open folder's rows and the rows around it), the deepest whose rows start left
+	// of the pointer, else the outermost: drag left to leave a folder, right to stay in it.
 	const own = { list: dragged.list!, index: count(others, dragged.list!, source), inset: insetOf(dragged.list!) };
 	const choices = (g: number) => {
 		const out = spots(others, g).filter((t) => enabled(t.list)).map((t) => ({ ...t, inset: insetOf(t.list) }));
@@ -277,44 +246,21 @@ export function placeLine(slots: readonly Slot[], source: number, point: number,
 		for (const g of [at - k, at + k]) {
 			if (g < 0 || g > others.length) continue;
 			const c = choices(g);
-			const t = c.find((t) => t.inset <= x) ?? c.at(-1);
+			const t = c.find((t) => t.inset <= point.across) ?? c.at(-1);
 			if (t) { found = { ...t, at: g }; break; }
 		}
 	}
-	const target: Target = { ...found!, ...(over && { onto: { list: over.list!, id: over.id! } }) };
-	return { target, shifts: new Map() };
-}
-
-/** Where the tree's line goes, in the coordinates the slots were measured in; none over its own gap, or when it'd go into a row. */
-/** Where the line goes for a tree drag's target: its left edge, its y along the axis, and its width. */
-export function lineAt(s: Pick<Session, "slots" | "source" | "target">): { x: number; y: number; width: number } | undefined {
-	const { target, source } = s;
-	if (target.onto || target.inset === undefined) return undefined;
-	const dragged = s.slots[source]!;
-	const others = s.slots.filter((_, i) => i !== source);
-	const own = target.at === source && target.list === dragged.list;
-	if (own) return undefined;
-	const prev = others[target.at - 1];
-	const next = others[target.at];
-	const end = (o: Slot) => o.start + o.size;
-	// On the edge of the target list's own row beside the gap (between two of them, in the middle), so
-	// a header or another list's row between the neighbours isn't crossed. An empty list sits between
-	// the dividers that start and end it: the line goes in the middle of that room, under its title.
-	const edge = () => {
-		const inList = (o?: Slot) => o?.list === target.list;
-		const bounds = (o?: Slot) => o?.startOf === target.list || o?.endOf === target.list;
-		if (inList(prev) && inList(next)) return (end(prev!) + next!.start) / 2;
-		if (inList(next)) return next!.start;
-		if (inList(prev)) return end(prev!);
-		if (bounds(prev) && bounds(next)) return (end(prev!) + next!.start) / 2;
-		if (bounds(prev)) return end(prev!);
-		if (bounds(next)) return next!.start;
-		return next ? (prev ? (end(prev) + next.start) / 2 : next.start) : prev ? end(prev) : dragged.start;
-	};
-	// Its own gap is the row itself: a level further out goes under it, a deeper one above it.
-	const y = target.at === source ? (target.inset < (dragged.left ?? 0) + (dragged.inset ?? 0) ? end(dragged) : dragged.start) : edge();
-	const right = Math.max(...s.slots.map((o) => o.right ?? 0));
-	return { x: target.inset, y, width: Math.max(0, right - target.inset) };
+	const target: Target = { ...found!, ...(onto && { onto: { list: onto.list!, id: onto.id! } }) };
+	const shifts = new Map<string, number>();
+	// Everything between where it was and where it goes slides toward where it was, by the room it takes
+	// there; past both, by the difference, if the room it leaves (`pitch`) isn't the room it takes.
+	const room = dragged.size + (of(target.list)?.gap ?? dragged.gap);
+	others.forEach((s, i) => {
+		if (target.at <= i && i < source) shifts.set(s.key, room);
+		else if (source <= i && i < target.at) shifts.set(s.key, -dragged.pitch);
+		else if (i >= source && i >= target.at && room !== dragged.pitch) shifts.set(s.key, room - dragged.pitch);
+	});
+	return { target, shifts };
 }
 
 /** Dropped into a row, it leaves its list: everything after where it was closes up. */
@@ -323,7 +269,7 @@ function closed(s: Session) {
 	return new Map(s.slots.slice(s.source + 1).map((o) => [o.key, -pitch]));
 }
 
-/** How far the dragged row moves to sit in its gap, or on the row it goes into. */
+/** How far along the axis the dragged row moves to sit in its gap, or on the row it goes into. */
 function landing(s: Session): number {
 	const others = s.slots.filter((_, i) => i !== s.source);
 	const dragged = s.slots[s.source]!;
@@ -333,13 +279,21 @@ function landing(s: Session): number {
 		return others[i]!.start - (i >= s.source ? dragged.pitch : 0) - dragged.start;
 	}
 	if (at === s.source) return 0;
-	if (at < s.source) return (others[at]?.start ?? dragged.start) - dragged.start;
-	const last = others[at - 1]!;
-	return last.start + last.pitch - (dragged.start + dragged.pitch);
+	// Right after the thing before the gap (which slid up if it was past the row), or where the first was.
+	const prev = others[at - 1];
+	const to = prev ? prev.start + prev.pitch : others[0]!.start;
+	return to - (at < s.source ? 0 : dragged.pitch) - dragged.start;
 }
+
+/** How far across the axis the dragged row steps, to the level its target is at. */
+const step = (s: Session) => {
+	const dragged = s.slots[s.source]!;
+	return s.target.inset - ((dragged.left ?? 0) + (dragged.inset ?? 0));
+};
 
 const THRESHOLD = 4;
 const EDGE = 40;
+const GLIDE = 160;
 
 function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEvent) {
 	const l = lists.get(list);
@@ -348,7 +302,7 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	// landing transition, so moving only the handle would snap into place instead of gliding.
 	const el = l.els.get(id) ?? handle;
 	if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable=true]")) return;
-	const { axis, group, line } = l;
+	const { axis, group } = l;
 	const from: Dragged = { list, id, data: l.data(id) };
 	// Lists a row may land in: the ones in its group that take it (recents take pins, not tabs; Drive's files take none of their own).
 	const takes = (k: string) => { const t = lists.get(k); return !!t?.enabled && t.accepts(from); };
@@ -359,29 +313,14 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	const p0 = pointer(e, axis);
 	const pointerId = e.pointerId;
 	let last = p0;
-	let lastX = e.clientX;
-	let lastY = e.clientY;
+	let across = axis === "y" ? e.clientX : e.clientY;
 	let frame = 0;
 	let live: Session | undefined;
-	// In a tree: the copy that follows the pointer, and the line at the gap. `along0`/`across0`: where
-	// the copy started (its edge on the axis, and its content's edge across it), for the glide at the end.
-	let ghost: HTMLElement | undefined;
-	let mark: HTMLElement | undefined;
-	let along0 = 0;
-	let across0 = 0;
 
 	const offset = () => last - p0 + (area ? scrollOf(area, axis) - scroll0 : 0);
-	const show = () => {
-		if (!live || !ghost || !mark) return;
-		// Along the axis only, like a sliding row; across it the pointer picks the level, which the line shows.
-		ghost.style.transform = `${axis === "y" ? `translate3d(0, ${lastY - y0}px, 0)` : `translate3d(${lastX - x0}px, 0, 0)`} scale(1.02)`;
-		const at = lineAt(live);
-		if (!at) return void (mark.style.display = "none");
-		const scrolled = area ? scrollOf(area, axis) - scroll0 : 0;
-		mark.style.display = "";
-		mark.style.left = `${axis === "y" ? at.x : at.y - scrolled}px`;
-		mark.style.top = `${axis === "y" ? at.y - scrolled : at.x}px`;
-		mark.style[axis === "y" ? "width" : "height"] = `${at.width}px`;
+	/** Moves the row `along` the axis and `across` it (to the level it's over); `lifted`, a touch bigger. */
+	const put = (along: number, across: number, lifted: boolean) => {
+		el.style.transform = `${axis === "y" ? `translate3d(${across}px, ${along}px, 0)` : `translate3d(${along}px, ${across}px, 0)`}${lifted ? " scale(1.03)" : ""}`;
 	};
 	const update = () => {
 		if (!live || live.dropping) return;
@@ -390,15 +329,14 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		const first = live.slots[0]!;
 		const end = live.slots.at(-1)!;
 		const d = Math.min(Math.max(offset(), first.start - dragged.start - dragged.size), end.start + end.size - dragged.start);
-		const next = line ? placeLine(live.slots, live.source, p0 + offset(), axis === "y" ? lastX : lastY, takes) : place(live.slots, live.source, dragged.start + d, takes, p0 + offset());
-		if (!line) el.style.transform = axis === "y" ? `translate3d(0, ${d}px, 0) scale(1.03)` : `translate3d(${d}px, 0, 0) scale(1.03)`;
+		const next = place(live.slots, live.source, dragged.start + d, { along: p0 + offset(), across }, takes);
 		const was = live.target;
 		const is = next.target;
 		if (is.at !== was.at || is.list !== was.list || is.inset !== was.inset || is.onto?.list !== was.onto?.list || is.onto?.id !== was.onto?.id) {
 			session = live = { ...live, ...next };
 			notify();
 		}
-		show();
+		put(d, step(live), true);
 	};
 	const autoscroll = () => {
 		frame = 0;
@@ -413,39 +351,19 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		update();
 		frame = requestAnimationFrame(autoscroll);
 	};
-	const lift = () => {
-		if (!line) return;
-		// From where the row's own content starts (a tree's guides come first; the copy leaves them out), so
-		// the copy sits where the row did under the pointer.
-		const r = handle.getBoundingClientRect();
-		const left = (handle.querySelector(":scope > :not([data-guide])") ?? handle).getBoundingClientRect().left;
-		ghost = handle.cloneNode(true) as HTMLElement;
-		ghost.className = "sortable-ghost";
-		ghost.style.left = `${left}px`;
-		ghost.style.top = `${r.top}px`;
-		ghost.style.width = `${r.right - left}px`;
-		ghost.style.height = `${r.height}px`;
-		along0 = axis === "y" ? r.top : left;
-		across0 = axis === "y" ? left : r.top;
-		mark = document.createElement("div");
-		mark.className = `sortable-line sortable-line-${axis}`;
-		document.body.append(ghost, mark);
-	};
 	const move = (ev: PointerEvent) => {
 		last = pointer(ev, axis);
-		lastX = ev.clientX;
-		lastY = ev.clientY;
+		across = axis === "y" ? ev.clientX : ev.clientY;
 		if (!live) {
 			if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < THRESHOLD) return;
 			const slots = measure(group, axis, from);
 			const source = slots.findIndex((s) => s.key === slotKey(list, id));
 			if (source < 0) return stop();
 			scroll0 = area ? scrollOf(area, axis) : 0;
-			const placed = line ? placeLine(slots, source, p0, axis === "y" ? x0 : y0, takes) : place(slots, source, slots[source]!.start, takes);
-			session = live = { group, axis, line, from, el, slots, source, dropping: false, ...placed };
+			const placed = place(slots, source, slots[source]!.start, { along: p0, across }, takes);
+			session = live = { group, axis, from, el, slots, source, dropping: false, ...placed };
 			document.documentElement.classList.add("sorting");
 			window.getSelection()?.removeAllRanges();
-			lift();
 			// Keep getting the pointer if it leaves the window, so letting go out there still drops.
 			try {
 				el.setPointerCapture(pointerId);
@@ -455,20 +373,6 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		ev.preventDefault();
 		update();
 		if (!frame) frame = requestAnimationFrame(autoscroll);
-	};
-	/**
-	 * Glides the copy to where its row will be (`to`, along and across the axis; fading when it goes into a
-	 * row), the line gone, then `then` lands it: the row appears where the copy stopped, as a sliding row does.
-	 */
-	const settle = (to: { along: number; across: number }, fade: boolean, then: () => void) => {
-		if (!ghost || !mark) return then();
-		mark.style.display = "none";
-		ghost.classList.add("sortable-ghost-landing");
-		if (fade) ghost.style.opacity = "0";
-		const dAlong = to.along - along0;
-		const dAcross = to.across - across0;
-		ghost.style.transform = axis === "y" ? `translate3d(${dAcross}px, ${dAlong}px, 0)` : `translate3d(${dAlong}px, ${dAcross}px, 0)`;
-		setTimeout(then, 160);
 	};
 	const cleanup = () => {
 		window.removeEventListener("pointermove", move);
@@ -480,24 +384,24 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		if (frame) cancelAnimationFrame(frame);
 		document.documentElement.classList.remove("sorting");
 	};
-	const reset = () => {
-		el.style.transform = "";
-		ghost?.remove();
-		mark?.remove();
-		ghost = mark = undefined;
-	};
 	function stop() {
 		cleanup();
-		reset();
+		el.style.transform = "";
 		session = live = undefined;
 		notify();
 	}
-	/** Put back: the copy glides home first. */
+	/** Glides the row to `along` and `across` with its landing transition (the others slide too), then `then`. */
+	const glide = (s: Session, along: number, across: number, then: () => void) => {
+		session = live = s;
+		notify();
+		requestAnimationFrame(() => put(along, across, false));
+		setTimeout(then, GLIDE);
+	};
+	/** Put back: it glides home and the others close up. */
 	const back = () => {
-		if (!live || !line || live.dropping) return stop();
+		if (!live || live.dropping) return stop();
 		cleanup();
-		session = live = { ...live, dropping: true };
-		settle({ along: along0, across: across0 }, false, stop);
+		glide({ ...live, dropping: true, shifts: new Map() }, 0, 0, stop);
 	};
 	const up = () => {
 		cleanup();
@@ -509,28 +413,14 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		const done = live;
 		const { onto } = done.target;
 		const finish = () => {
-			reset();
+			el.style.transform = "";
 			session = undefined;
 			// The drop and the end of the drag render together, so nothing flickers back.
 			if (onto) lists.get(onto.list)?.onDropOn(done.from, onto.id);
 			else lists.get(done.target.list)?.onDrop(done.from, done.target.index);
 			notify();
 		};
-		if (line) {
-			session = live = { ...done, dropping: true };
-			notify();
-			const scrolled = area ? scrollOf(area, axis) - scroll0 : 0;
-			const into = onto && done.slots.find((o) => o.list === onto.list && o.id === onto.id);
-			const at = lineAt(done);
-			const to = into ? { along: into.start - scrolled, across: (into.left ?? 0) + (into.inset ?? 0) } : at ? { along: at.y - scrolled, across: at.x } : { along: along0, across: across0 };
-			return settle(to, !!into, finish);
-		}
-		session = live = { ...done, dropping: true, ...(onto && { shifts: closed(done) }) };
-		notify();
-		// Once it has its landing transition, glide into the gap.
-		const to = landing(done);
-		requestAnimationFrame(() => void (el.style.transform = axis === "y" ? `translate3d(0, ${to}px, 0)` : `translate3d(${to}px, 0, 0)`));
-		setTimeout(finish, 160);
+		glide({ ...done, dropping: true, ...(onto && { shifts: closed(done) }) }, landing(done), step(done), finish);
 	};
 	const cancel = () => back();
 	// Pressing on selected text, a picture or a link would start the browser's own drag, which cancels
@@ -557,8 +447,7 @@ export type DragListOptions = {
 	/** Names the list, for a divider elsewhere to end it. */
 	id?: string;
 	group?: string;
-	/** A tree: a line marks the gap instead of rows sliding; `inset` is how far in its rows start (its depth). */
-	line?: boolean;
+	/** A tree level: how far in its rows start (its depth), so a dragged row steps between levels with the pointer's x. */
 	inset?: number;
 	accepts?: (from: Dragged) => boolean;
 	holds?: (id: string, from: Dragged) => boolean;
@@ -573,7 +462,7 @@ export type DragListOptions = {
  * says which of its rows take the dragged one into them (`onDropOn`). `data` describes a row of this
  * list to the others, as `from.data`.
  */
-export function useDragList({ id, group, axis = "y", enabled, line = false, inset = 0, accepts, holds, data, onDrop, onDropOn }: DragListOptions & {
+export function useDragList({ id, group, axis = "y", enabled, inset = 0, accepts, holds, data, onDrop, onDropOn }: DragListOptions & {
 	axis?: Axis;
 	enabled: boolean;
 	onDrop?: (from: Dragged, index: number) => void;
@@ -590,14 +479,13 @@ export function useDragList({ id, group, axis = "y", enabled, line = false, inse
 		axis,
 		els,
 		enabled,
-		line,
 		inset,
 		accepts: (f) => latest.current.accepts?.(f) ?? true,
 		holds: (id, f) => latest.current.holds?.(id, f) ?? false,
 		data: (id) => latest.current.data?.(id),
 		onDrop: (f, i) => latest.current.onDrop?.(f, i),
 		onDropOn: (f, id) => latest.current.onDropOn?.(f, id),
-	}), [g, axis, els, enabled, line, inset]);
+	}), [g, axis, els, enabled, inset]);
 	useEffect(() => {
 		lists.set(key, entry);
 		return () => void lists.delete(key);
@@ -615,8 +503,8 @@ export function useDragList({ id, group, axis = "y", enabled, line = false, inse
 			const lifted = mine && now.from.list === key && now.from.id === id;
 			return {
 				ref,
-				lift: lifted ? (now.line ? "sortable-source" : now.dropping ? "sortable-landing" : "sortable-lifted") : "",
-				shift: mine && !lifted && !now.line ? { className: `sortable-shift sortable-${axis}`, style: shiftStyle(now.shifts.get(slotKey(key, id))) } : { className: "", style: undefined },
+				lift: lifted ? (now.dropping ? "sortable-landing" : "sortable-lifted") : "",
+				shift: mine && !lifted ? { className: `sortable-shift sortable-${axis}`, style: shiftStyle(now.shifts.get(slotKey(key, id))) } : { className: "", style: undefined },
 				onPointerDown: enabled && pickable ? (e: React.PointerEvent) => begin(key, id, e.currentTarget as HTMLElement, e) : undefined,
 			};
 		},
@@ -651,7 +539,7 @@ export function useDragStatic(group: string, { endOf, startOf }: { endOf?: strin
 	const key = useId();
 	const now = useSyncExternalStore(subscribe, snapshot, snapshot);
 	const ref = useCallback((el: HTMLElement | null) => void (el ? statics.set(key, { group, el, endOf, startOf }) : statics.delete(key)), [key, group, endOf, startOf]);
-	const mine = now?.group === group && !now.line;
+	const mine = now?.group === group;
 	return { ref, style: mine ? shiftStyle(now.shifts.get(key)) : undefined, className: mine ? `sortable-shift sortable-${now.axis}` : "" };
 }
 

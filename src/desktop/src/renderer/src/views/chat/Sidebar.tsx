@@ -361,7 +361,7 @@ const homeOf: Record<SectionTab, string> = { chat: "Its channels move back above
  * `sidebar.arrange`, rows drag in, out and within it, and its header has `add` (a new thing in it) and
  * ⋯ (Rename, Delete section) on hover. Without, an empty one isn't shown. `children` follow its rows
  * (uploads in flight into it). `rowDrag`: what its rows say to the group's drags (Drive's folders take
- * rows in; its sidebar draws drags as a tree).
+ * rows in).
  */
 export function SectionGroup({ tab, section, drag, first, rows, keep, render, rowDrag, add, children }: {
 	tab: SectionTab;
@@ -657,7 +657,7 @@ export function Item({
 export const GUIDE_WIDTH = 28;
 function Guide({ continues, elbow }: { continues: boolean; elbow: boolean }) {
 	return (
-		<span aria-hidden data-guide className="relative w-7 shrink-0">
+		<span aria-hidden className="relative w-7 shrink-0">
 			{/* A border, like the elbow's: a 1.5px fill and a 1.5px border round to different device pixels, so
 			    where they overlapped the line read as double thick. Same stroke, so the overlap is exact. */}
 			{continues && <span className="absolute -top-px bottom-0 left-[18.25px] tree-line" />}
