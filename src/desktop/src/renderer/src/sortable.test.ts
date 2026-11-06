@@ -40,7 +40,7 @@ const row = (list: string, id: string, start: number) => ({ key: `${list}:${id}`
 const slots = [row("p", "a", 0), row("p", "b", 32), { key: "div", start: 64, size: 1, pitch: 8, endOf: "p" }, row("r", "x", 72), row("r", "y", 104)];
 const any = () => true;
 
-it("lands a dragged row in the gap nearest its middle, anywhere along the list", () => {
+it("lands a dragged row once its leading edge passes a row's middle, anywhere along the list", () => {
 	// a dragged down past b: lands after b, b slides up a row.
 	const down = place(slots, 0, 40, any)!;
 	expect(down.target).toMatchObject({ list: "p", index: 1 });
@@ -52,14 +52,18 @@ it("lands a dragged row in the gap nearest its middle, anywhere along the list",
 });
 
 it("moves a row between lists in a group, and the divider slides with the rows", () => {
-	// y dragged up just under b: joins p at its end; the divider and x slide down a row.
-	const up = place(slots, 4, 40, any)!;
+	// y dragged up, its top past the divider but not b's middle: joins p at its end; the divider and x slide down a row.
+	const up = place(slots, 4, 50, any)!;
 	expect(up.target).toMatchObject({ list: "p", index: 2 });
 	expect(up.shifts.get("div")).toBe(32);
 	expect(up.shifts.get("r:x")).toBe(32);
 	expect(up.shifts.has("p:b")).toBe(false);
 	// A list it can't join is skipped for the nearest one it can.
-	expect(place(slots, 4, 40, (l) => l !== "p")!.target).toMatchObject({ list: "r", index: 0 });
+	expect(place(slots, 4, 50, (l) => l !== "p")!.target).toMatchObject({ list: "r", index: 0 });
+	// A tall row passes a short one once its leading edge crosses the short one's middle.
+	const tall = [{ key: "s:a", list: "s", id: "a", start: 0, size: 30, pitch: 46 }, { key: "s:b", list: "s", id: "b", start: 46, size: 150, pitch: 150 }];
+	expect(place(tall, 1, 46 - 32, any)!.target).toMatchObject({ list: "s", index: 0 });
+	expect(place(tall, 1, 46 - 30, any)!.target).toMatchObject({ list: "s", index: 1 });
 });
 
 const saved = vi.hoisted(() => ({ ids: [] as string[], writable: true, writes: 0 }));

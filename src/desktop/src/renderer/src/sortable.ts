@@ -117,10 +117,18 @@ function measure(group: string, axis: Axis): Slot[] {
 export function place(slots: readonly Slot[], source: number, edge: number, enabled: (list: string) => boolean): Pick<Session, "target" | "shifts"> | undefined {
 	const dragged = slots[source]!;
 	const others = slots.filter((_, i) => i !== source);
-	const center = edge + dragged.size / 2;
-	// The gap it's over: before the first thing whose middle is past its middle.
-	let at = others.findIndex((s) => s.start + s.size / 2 > center);
-	if (at < 0) at = others.length;
+	// The gap it's over. It passes a row once the edge it leads with (its top going up, its bottom going
+	// down) crosses that row's middle: comparing middles instead, a tall row (an open sidebar section) had
+	// to be dragged far past a short one before they swapped. A divider is thin, so it takes a quarter row
+	// past its middle, else a pin would unpin at a twitch.
+	const d = edge - dragged.start;
+	const passed = (s: Slot) => {
+		const middle = s.start + s.size / 2 + (s.list ? 0 : (Math.sign(d) * dragged.size) / 4);
+		return d > 0 ? edge + dragged.size > middle : edge < middle;
+	};
+	let at = source;
+	if (d > 0) while (at < others.length && passed(others[at]!)) at++;
+	else if (d < 0) while (at > 0 && passed(others[at - 1]!)) at--;
 	const list = (gap: number): { list: string; index: number } | undefined => {
 		const prev = others[gap - 1];
 		const next = others[gap];
