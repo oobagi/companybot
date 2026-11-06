@@ -854,6 +854,8 @@ export default defineSchema({
 		stopping: v.optional(v.object({ by: v.id("users"), at: v.number() })),
 	})
 		.index("by_place", ["agentId", "chatId", "threadId", "status"])
+		// One agent runs one turn at a time in a chat, across its threads (turns.startNext).
+		.index("by_agent_chat", ["agentId", "chatId", "status"])
 		.index("by_session", ["sessionId"])
 		.index("by_workspace", ["workspaceId"])
 		// Also: who's replying in a place right now (typing.ts).

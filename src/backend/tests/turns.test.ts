@@ -2,7 +2,7 @@ import { automationJobs } from "./automationJobs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch, messagesIn } from "./helpers";
+import { agentsOf, finishTurn, ownerAndMember, noMentions, generalOf, turnsOf, setMemberSwitch, messagesIn } from "./helpers";
 
 const usage = (costUsd: number) => ({
 	model: "anthropic/claude-haiku-5.5",
@@ -187,8 +187,11 @@ describe("agent turns", () => {
 		const ask = { text: "@Companybot summarize this", mentions: { userIds: [], agentIds: [companybot._id] } };
 		await owner.mutation(api.messages.send, { chatId, threadId: mine, ...ask });
 		await owner.mutation(api.messages.send, { chatId, threadId: theirs, ...ask });
-		const asked = async (threadId: typeof mine) => (await t.mutation(internal.turns.turnContext, { turnId: (await turnsOf(t)).find((x) => x.threadId === threadId)!._id })).asked;
+		const turnIn = async (threadId: typeof mine) => (await turnsOf(t)).find((x) => x.threadId === threadId)!._id;
+		const asked = async (threadId: typeof mine) => (await t.mutation(internal.turns.turnContext, { turnId: await turnIn(threadId) })).asked;
 		expect(await asked(mine)).toEqual(["@Companybot summarize this", "https://acme.com/report"]);
+		// One turn at a time in a chat: the second thread's starts when the first ends.
+		await finishTurn(t, await turnIn(mine), "");
 		expect(await asked(theirs)).toEqual(["@Companybot summarize this"]);
 	});
 

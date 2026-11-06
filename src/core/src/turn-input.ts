@@ -93,6 +93,11 @@ export interface TurnPromptInput {
 	 * oldest first: a reaction it added in its last turn lands on a message this turn doesn't show.
 	 */
 	reacted?: PlaceMessage[];
+	/**
+	 * Its own replies in this chat outside this place since its last reply here (the main chat, or another
+	 * thread), oldest first: each place has its own session, so this is how it stays consistent across them.
+	 */
+	elsewhere?: { thread: boolean; message: PlaceMessage }[];
 	/** Null when nobody asked (a turn after an approval on an old welcome turn). */
 	triggerId: string | null;
 	/** Whether the agent's model sees pictures: they're sent with the prompt (`buildTurnInput`'s `images`). */
@@ -157,6 +162,15 @@ export function buildTurnPrompt(input: TurnPromptInput): string {
 	const line = (m: PlaceMessage) => chatLine(m, actor);
 	if (place.thread?.first) sections.push(`The thread is under this message:\n${line(place.thread.parent)}`);
 	if (input.reacted?.length) sections.push(["Reacted to since your last reply:", ...input.reacted.map(line)].join("\n"));
+	if (input.elsewhere?.length) {
+		const where = (thread: boolean) => (thread ? "In a thread" : place.kind === "channel" ? "In the channel" : "In the DM");
+		sections.push(
+			[
+				"What you said elsewhere in this chat since your last reply here. It's the same conversation: stay consistent with it.",
+				...input.elsewhere.map((e) => `${where(e.thread)}: ${line({ ...e.message, text: clip(e.message.text, ELSEWHERE_CHARS) })}`),
+			].join("\n"),
+		);
+	}
 	if (shown.length > 0) {
 		sections.push(
 			[
@@ -374,6 +388,8 @@ const listed = (names: string[], more = 0) => {
  * a new instruction line. `\s` covers line and paragraph separators; U+0085 isn't in it.
  */
 const clean = (s: string) => s.replace(/[[\]\s\u0085]+/g, " ").trim();
+/** Characters of each reply elsewhere the prompt shows: enough to stay consistent, not a second transcript. */
+const ELSEWHERE_CHARS = 600;
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}…` : s);
 
 /** Untrusted text as a JSON string (Anthropic's advice), with the line breaks JSON leaves raw escaped too. */
