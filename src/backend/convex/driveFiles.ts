@@ -12,6 +12,7 @@ import { type FileState, fileState, fileStates, keptAccess, kindOf, pageRow, pag
 import { accessInfo, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
 import { changeAccessSources, notePlace, readArtifact, writeSources } from "./replySources";
 import { accessArg } from "./schema";
+import { leaveSections } from "./sectionOps";
 import { toggleTrash, trashInfo } from "./trashOps";
 
 // Files in Drive: PDFs, Office files, pictures and text, in folders (pages rows with `kind: "folder"`,
@@ -115,6 +116,8 @@ export async function moveFile(ctx: MutationCtx, who: Who, file: Doc<"driveFiles
 	const destination = parentId ? await parentFor(ctx, who.member, parentId, "file") : null;
 	const kept = keptAccess(who.member, file, before.access, destination ? destination.access : undefined);
 	await ctx.db.patch(file._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId, ...kept });
+	// Sidebar sections hold top-level things only.
+	if (!file.parentId) await leaveSections(ctx, file.workspaceId, "drive", file._id);
 }
 
 /** Moves a file to Archive or back. One in Archive with its folder comes back with the folder. */
@@ -141,6 +144,7 @@ export async function deleteDriveFile(ctx: MutationCtx, fileId: Id<"driveFiles">
 	if (!file) return;
 	await ctx.db.delete(fileId);
 	await deleteFile(ctx, file.storageId);
+	if (!file.parentId) await leaveSections(ctx, file.workspaceId, "drive", file._id);
 }
 
 /** Whether a folder (or the top level) can list files for this person. */

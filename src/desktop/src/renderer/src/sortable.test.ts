@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { create } from "react-test-renderer";
 import { applyCommand, type ArrangementCommand } from "@companybot/core/arrangements";
-import { applyOrder, arrange, moveCommand, place, useSortable } from "./sortable";
+import { applyOrder, arrange, moveCommand, place, placeLine, useSortable } from "./sortable";
 
 const id = (s: string) => s;
 
@@ -130,6 +130,25 @@ it("drops onto a row that takes it over its middle half, and passes it beyond", 
 	// A row whose list takes nothing (a file, kept by name) slides nothing and can still go onto F.
 	expect(place(rows, 0, 70, () => false, 85)).toMatchObject({ target: { list: "t", index: 0, at: 0 }, shifts: new Map() });
 	expect(place(rows, 0, 32, () => false, 47).target.onto).toEqual({ list: "t", id: "F" });
+});
+
+it("in a tree, marks the gap under the pointer at the level its x picks, and goes into a row over its middle", () => {
+	// F's rows start 28px further in than the top level's.
+	const deep = tree.map((s) => ({ ...s, left: 0, inset: s.list === "f" ? 28 : 0 }));
+	const slots = arrange(deep, "t:X");
+	// X below c2: at the end of F's rows with the pointer right of where they start; after F, a level up, with it left of them. Nothing slides.
+	expect(placeLine(slots, 0, 127, 60, any)).toMatchObject({ target: { list: "f", index: 2, inset: 28 }, shifts: new Map() });
+	expect(placeLine(slots, 0, 127, 10, any).target).toMatchObject({ list: "t", index: 1, inset: 0 });
+	// Over F's middle half, when F takes it: into F; near its top edge it's the gap before F, where X already is.
+	const holding = slots.map((s) => (s.id === "F" ? { ...s, holds: true } : s));
+	expect(placeLine(holding, 0, 48, 60, any).target.onto).toEqual({ list: "t", id: "F" });
+	const edge = placeLine(holding, 0, 36, 60, any).target;
+	expect(edge).toMatchObject({ list: "t", index: 0, at: 0 });
+	expect(edge.onto).toBeUndefined();
+	// c2, F's last row, over its own place: it stays, unless the pointer is left of F's rows, which puts it after F.
+	const last = arrange(deep, "f:c2");
+	expect(placeLine(last, 3, 111, 60, any).target).toMatchObject({ list: "f", index: 1, at: 3 });
+	expect(placeLine(last, 3, 111, 10, any).target).toMatchObject({ list: "t", index: 2, at: 3 });
 });
 
 const saved = vi.hoisted(() => ({ ids: [] as string[], writable: true, writes: 0 }));

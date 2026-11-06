@@ -69,6 +69,13 @@ const roleAccess = <T extends "chats" | "recordTypes" | "pages" | "driveFiles">(
 	scrub: (row, _get, root) => ({ access: withoutRole(row.access as NonNullable<AccessList>, root.roleId!) }) as unknown as Partial<Doc<T>>,
 });
 
+/** Sidebar sections holding what's going (`root[key]`): they let go of it. A workspace has few. */
+const heldIn = (key: "chatId" | "typeId" | "pageId"): Edge<"sidebarSections"> => ({
+	index: "by_workspace", eq: ["workspaceId"],
+	where: (_get, row, root) => row.ids.includes(root[key]!),
+	scrub: (row, _get, root) => ({ ids: row.ids.filter((id) => id !== root[key]) }),
+});
+
 /** A channel seat, not a DM: DMs keep people who left as past participants. */
 const inChannel = async (get: Get, row: { chatId: Id<"chats"> }) => (await get(row.chatId))?.kind === "channel";
 const inWorkspace = async (get: Get, id: Id<"chats"> | Id<"automationInstalls">, root: Root) => (await get(id))?.workspaceId === root.workspaceId;
@@ -190,6 +197,15 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_list", eq: ["workspaceId"] },
 		member: { index: "by_user", eq: ["userId", "workspaceId"] },
 		user: { index: "by_user", eq: ["userId"] },
+	},
+	// The workspace's sidebar layout. What a section holds leaves it when deleted forever (a top-level file,
+	// which has no cascade, in deleteDriveFile); archived things stay in it, unseen, and come back on restore.
+	sidebarSections: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: heldIn("chatId"),
+		database: heldIn("typeId"),
+		page: heldIn("pageId"),
+		keep: "Sections are the workspace's layout, like shared arrangements: they stay when whoever made them leaves.",
 	},
 	preferences: {
 		user: { index: "by_user", eq: ["userId"] },

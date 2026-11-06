@@ -28,8 +28,9 @@ import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsAdd, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
-import { useSortable } from "./sortable";
+import { AddButton, AddMenu, ChannelsAdd, ChannelsNav, DmsNav, Item, NewSection, SectionGroup, SectionsNav, SidebarList } from "./views/chat/Sidebar";
+import type { DragProps } from "./sortable";
+import { type SectionId, useSections, useUnsectioned } from "./sections";
 import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
@@ -164,6 +165,9 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		view === "chat" ? "chat" : view === "pages" || view === "files" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
+	const [newSection, setNewSection] = useState(false);
+	const sectionTab = tab === "chat" || tab === "drive" || tab === "databases" ? tab : undefined;
+	const addSection = can(access, "sidebar.arrange") ? { label: "New section", onClick: () => setNewSection(true) } : undefined;
 	// The database on screen, by key, and the record open in it.
 	const typeKey = view === "records" ? route[1] : undefined;
 	const recordId = view === "records" ? route[2] : undefined;
@@ -244,15 +248,15 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
 												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
-												{/* The + here adds to the rows right under the name (channels, databases); a section (Direct messages, All files) has its own on its header. */}
+												{/* The + here adds to the rows right under the name (channels, databases) and adds sections; a section (Direct messages, All files, the ones people add) has its own on its header. */}
 												{tab === "chat" && (
 													<span className="no-drag flex">
-														<ChannelsAdd onOpen={open} />
+														<ChannelsAdd onOpen={open} onNewSection={addSection?.onClick} />
 													</span>
 												)}
-												{tab === "databases" && can(access, "fields.edit") && (
+												{(tab === "databases" || tab === "drive") && (
 													<span className="no-drag flex">
-														<AddButton label="New database" onClick={() => setNewDatabase(true)} />
+														<AddMenu label="New" actions={[...(tab === "databases" && can(access, "fields.edit") ? [{ label: "New database", onClick: () => setNewDatabase(true) }] : []), ...(addSection ? [addSection] : [])]} />
 													</span>
 												)}
 											</div>
@@ -287,7 +291,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										</>
 									)}
 									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</SidebarList>
 							</Scroll>
@@ -296,6 +300,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 					)}
 
 					{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
+					{newSection && sectionTab && <NewSection tab={sectionTab} onClose={() => setNewSection(false)} />}
 					<main className="flex min-w-0 flex-1 flex-col">
 						<Notice>{error}</Notice>
 						{view === "chat" &&
@@ -323,53 +328,78 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 
 const typeKeyOf = (t: { _id: string }) => t._id;
 
-/** Databases' sidebar: your databases, in your order. New ones come from the + by the tab's name. */
+/**
+ * Databases' sidebar: the databases in no section, in the workspace's order, then the sections people
+ * add (`SectionsNav`). New ones come from the + by the tab's name, or a section's own +.
+ */
 function DatabasesNav({
 	types,
 	openKey,
+	canCreate,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
+	/** `fields.edit`: a section's + makes a database in it. */
+	canCreate: boolean;
 }) {
-	const { sorted, drag } = useSortable("databases", types, typeKeyOf);
+	const { place } = useSections("databases");
+	const { sorted, drag } = useUnsectioned("databases", types, typeKeyOf);
+	const byId = useMemo(() => new Map<string, RecordType>(types.map((t) => [t._id, t])), [types]);
 	const [editing, setEditing] = useState<RecordType>();
+	const [creatingIn, setCreatingIn] = useState<SectionId>();
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
+	const row = (type: RecordType, drag: DragProps | undefined) => (
+		<Item
+			key={type._id}
+			drag={drag}
+			pin={`db:${type.key}`}
+			icon={<DatabaseIcon />}
+			label={type.plural}
+			active={openKey === type.key}
+			onClick={() => navigate(...recordPath(type.key))}
+			rename={type.canManage ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
+			menu={
+				type.canManage
+					? (close) => (
+							<>
+								<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
+								<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("records")), "Its records will be archived with it.")))}>
+									<ArchiveIcon /> Archive database
+								</MenuItem>
+							</>
+						)
+					: undefined
+			}
+		>
+			<span className="truncate">{type.plural}</span>
+			<AccessLock lock={type.lock} />
+		</Item>
+	);
 	return (
-		<div className="flex flex-col gap-px">
-			{sorted.map((type) => (
-				<Item
-					key={type._id}
-					drag={drag(type._id)}
-					pin={`db:${type.key}`}
-					icon={<DatabaseIcon />}
-					label={type.plural}
-					active={openKey === type.key}
-					onClick={() => navigate(...recordPath(type.key))}
-					rename={type.canManage ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
-					menu={
-						type.canManage
-							? (close) => (
-									<>
-										<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
-										<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("records")), "Its records will be archived with it.")))}>
-											<ArchiveIcon /> Archive database
-										</MenuItem>
-									</>
-								)
-							: undefined
-					}
-				>
-					<span className="truncate">{type.plural}</span>
-					<AccessLock lock={type.lock} />
-				</Item>
-			))}
+		<>
+			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((type) => row(type, drag(type._id)))}</div>}
+			<SectionsNav tab="databases">
+				{(section, at) => (
+					<SectionGroup
+						{...at}
+						tab="databases"
+						section={section}
+						rows={section.ids.filter((id) => byId.has(id))}
+						// Folded, the open database stays.
+						keep={(id) => byId.get(id)!.key === openKey}
+						render={(id, drag) => row(byId.get(id)!, drag?.item)}
+						add={canCreate && <AddButton label={`New database in ${section.name}`} onClick={() => setCreatingIn(section._id)} />}
+					/>
+				)}
+			</SectionsNav>
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
+			{creatingIn && <DatabaseDialog onCreated={(id) => place(id, creatingIn)} onClose={() => setCreatingIn(undefined)} />}
 			{dialog}
-		</div>
+		</>
 	);
 }
 

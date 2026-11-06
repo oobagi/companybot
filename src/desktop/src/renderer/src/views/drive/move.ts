@@ -82,7 +82,7 @@ export function useDriveMoves(run: (action: Promise<unknown>) => unknown) {
 			void moved.then(async () => {
 				const level = await read(api.pages.children, { parentId, paginationOpts: { numItems: 50, cursor: null } });
 				const saved = arrangements.ids("pages", parentId);
-				const shown = applyOrder(saved, level.page.filter((p) => (p.kind ?? "page") === item.kind), rowId).map(rowId);
+				const shown = applyOrder(saved, level.page, rowId).map(rowId);
 				const command = moveCommand(saved, shown, item.id, shown.length);
 				if (command) arrangements.change("pages", parentId, command);
 			}).catch(() => {});

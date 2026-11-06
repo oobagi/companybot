@@ -7,7 +7,7 @@ import { ArrangementProvider, useArrangementState } from "./arrangements";
 import { Notice } from "./ui";
 import type { Arrangement } from "@companybot/core/arrangements";
 
-const live = vi.hoisted(() => ({ data: { rows: [] as Arrangement[], writable: true }, listeners: new Set<() => void>(), reject: false }));
+const live = vi.hoisted(() => ({ data: { rows: [] as Arrangement[], sections: [], writable: true }, listeners: new Set<() => void>(), reject: false }));
 vi.mock("./convex", async () => {
 	const { useCallback } = await import("react");
 	return {
@@ -33,7 +33,7 @@ const store = new Map<string, string>();
 beforeEach(() => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 	store.clear();
-	live.data = { rows: [], writable: true };
+	live.data = { rows: [], sections: [], writable: true };
 	live.reject = false;
 	vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
 });

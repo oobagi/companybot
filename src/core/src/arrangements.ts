@@ -4,6 +4,8 @@ export const arrangementLists = {
 	dms: { scope: "personal", entity: undefined },
 	databases: { scope: "shared", entity: undefined },
 	pages: { scope: "shared", entity: "pages" },
+	/** The order of the sections people add (`sidebarSections`), every tab's in one list. */
+	sectionOrder: { scope: "shared", entity: undefined },
 	views: { scope: "shared", entity: "recordTypes" },
 	columns: { scope: "shared", entity: "recordTypes" },
 	folded: { scope: "personal", entity: undefined },
@@ -52,8 +54,22 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
-/** Sidebar sections that fold (`folded`): Chat's Direct messages and Drive's All files. Channels and Home sit above them, in no section. */
-export const sidebarSections = ["dms", "files"];
+/**
+ * Built-in sidebar sections that fold (`folded`): Chat's Direct messages and Drive's All files. Sections
+ * people add (`sidebarSections` rows) fold by their ids in the same list.
+ */
+export const builtInSections = ["dms", "files"];
+/**
+ * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
+ * orders their items in no section: Chat's channels, Drive's top-level pages and folders (its files go
+ * by name), the databases. Each item is in at most one of its tab's sections.
+ */
+export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases" } as const;
+export type SectionTab = keyof typeof sectionTabs;
+/** Sections one tab can have, and items one section holds, so the sidebar's reads stay bounded. */
+export const SECTIONS_MAX = 50;
+export const SECTION_ITEMS_MAX = 500;
+export const SECTION_NAME_MAX = 80;
 export const railTabs = ["chat", "drive", "databases", "customize"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);

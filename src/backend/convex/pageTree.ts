@@ -5,6 +5,7 @@ import { type AccessLevel, EVERYONE, can, widens } from "@companybot/core";
 import { type Member, type Who, memo } from "./lib";
 import { type AccessList, accessInfo } from "./placeAccess";
 import { appendPageBlock, removePageBlock, requireEditable, requirePage } from "./pageOps";
+import { leaveSections } from "./sectionOps";
 
 // A deleted ancestor gates the whole subtree immediately; no fan-out on trash/restore.
 export const PAGE_DEPTH_MAX = 32;
@@ -29,6 +30,11 @@ export const pageRow = (p: Doc<"pages">, member: Member, level: AccessLevel, par
 	lock: accessInfo(member, p.access).lock,
 	canEdit: level === "edit" && can(member, "pages.edit"),
 });
+
+/** Whether a tree row has rows under it: sub-pages, or a folder's files. */
+export const hasChildren = async (ctx: QueryCtx, p: Doc<"pages">) =>
+	!!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", p.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first()) ||
+	(kindOf(p) === "folder" && !!(await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", p.workspaceId).eq("parentId", p._id).eq("archived", false)).first()));
 
 /**
  * What a page or file leaving its parent's list keeps (a move, or a restore to the top level): never more people.
@@ -120,6 +126,8 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 	// Moving never opens a page to more people. Moving somewhere stricter makes it stricter.
 	const kept = keptAccess(who.member, page, before.access, destination ? destination.access : undefined);
 	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId, ...kept });
+	// Sidebar sections hold top-level things only.
+	if (!page.parentId) await leaveSections(ctx, page.workspaceId, "drive", page._id);
 	if (before.ancestors[0]) await removePageBlock(ctx, who, before.ancestors[0], page._id);
 	if (destination) await appendPageBlock(ctx, who, destination.parent, page._id);
 	const latest = await ctx.db.query("pageMoves").withIndex("by_page", (q) => q.eq("pageId", page._id)).order("desc").first();

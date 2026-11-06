@@ -77,6 +77,8 @@ import type * as replyPrivacy from "../replyPrivacy.js";
 import type * as replySources from "../replySources.js";
 import type * as roles from "../roles.js";
 import type * as router from "../router.js";
+import type * as sectionOps from "../sectionOps.js";
+import type * as sidebarSections from "../sidebarSections.js";
 import type * as skills from "../skills.js";
 import type * as trash from "../trash.js";
 import type * as trashOps from "../trashOps.js";
@@ -163,6 +165,8 @@ declare const fullApi: ApiFromModules<{
   replySources: typeof replySources;
   roles: typeof roles;
   router: typeof router;
+  sectionOps: typeof sectionOps;
+  sidebarSections: typeof sidebarSections;
   skills: typeof skills;
   trash: typeof trash;
   trashOps: typeof trashOps;
