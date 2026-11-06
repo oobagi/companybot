@@ -11,7 +11,9 @@ import { resetChains } from "./chains";
 import {
 	type Namer,
 	type Participant,
+	OTHER_AGENTS_DM,
 	addToChat,
+	reachOf,
 	addUserMentions,
 	agentOfDm,
 	chatMembersOf,
@@ -22,6 +24,7 @@ import {
 	reactionsOf,
 	replyAuthorsOf,
 	requireChat,
+	requireChatToPost,
 	requirePost,
 	requireReactionAudience,
 	shownAt,
@@ -196,7 +199,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		threadId: m.threadId ?? null,
 		author: await names.of(m),
 		text: m.text,
-		parts: m.sharedBy && !(await canReadReplyDetails(ctx, member, m)) ? genericToolParts(m.parts) : m.parts,
+		parts: m.sharedBy && !(await canReadReplyDetails(ctx, member, m)) ? genericToolParts(m.parts) : await sentLines(ctx, m, member, names),
 		status: m.status,
 		error: m.error ?? null,
 		stoppedBy: m.stoppedBy ? await nameOf(ctx, m.stoppedBy) : null,
@@ -215,6 +218,25 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		// Only an ask is quiet and still listed: as its thread's parent.
 		ask: m.quiet && m.authorAgentId ? { from: (await names.agent(m.authorAgentId)).name, to: (await names.agent(m.mentions.agentIds[0]!)).name } : null,
 	};
+}
+
+/**
+ * A message an agent sent, as its line reads to this viewer: where it went ("posted in #sales", "posted in your DM
+ * with Pip") when they can see that chat, else the stored "posted in a chat" (calls name chats by id).
+ */
+async function sentLines(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Doc<"chatMessages">["parts"]> {
+	return Promise.all(m.parts.map(async (part) => {
+		if (part.type !== "tool" || part.name !== "chat_manage" || !part.opens || part.status !== "done") return part;
+		const chat = await ctx.db.get(part.opens.chatId);
+		if (!chat || (await reachOf(ctx, chat, member)) !== "ok") return part;
+		const thread = part.opens.kind ? "" : "a thread in ";
+		if (chat.kind === "channel") return { ...part, label: `Post in ${thread}#${chat.name}` };
+		// A DM they're in, named by who else is in it: everyone but them and the agent that sent it.
+		const others = (await chatMembersOf(ctx, chat._id)).filter((s) => s.userId !== member.userId && s.agentId !== m.authorAgentId);
+		const list = await Promise.all(others.map(async (s) => (await names.of(s)).name));
+		if (!list.length) return { ...part, label: thread ? "Post in a thread in your DM" : "Send you a DM" };
+		return { ...part, label: `Post in ${thread}your DM with ${list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : list[0]}` };
+	}));
 }
 
 async function pauseOf(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Message["pause"]> {
@@ -257,9 +279,14 @@ export const send = mutation({
 
 export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
 	const { member } = who;
-	const chat = await requireChat(ctx, member, chatId);
+	const chat = await requireChatToPost(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This chat is in Archive.");
 	requirePost(member, chat);
+	// A DM with agents is theirs and the people's: another agent posting there would sit in the person's
+	// chat with that agent, where the agent never sees it as a message to answer. Agents don't DM each other.
+	if (who.agentId && chat.kind === "dm" && chat.dmKey?.includes("a:") && !chat.dmKey.split(",").includes(`a:${who.agentId}`)) {
+		throw new ConvexError(OTHER_AGENTS_DM);
+	}
 	text = text.trim();
 	if (!text && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {

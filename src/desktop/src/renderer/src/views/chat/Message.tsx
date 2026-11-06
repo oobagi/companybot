@@ -111,8 +111,9 @@ export function MessageRow({
 					)}
 					{message.privacy && (
 						<div className="flex items-center gap-3 text-xs text-neutral-500">
-							<span title={message.privacy.why ?? undefined} className="italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
-							{message.privacy.share && message.status !== "streaming" && <button type="button" className={smallButton} onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}><ChannelIcon /> Share to channel</button>}
+							<span title={message.privacy.why ?? undefined} className="min-w-0 italic">{message.privacy.sharedBy ? "" : "🔒 "}{message.privacy.label}</span>
+							{/* The label wraps, never the button. */}
+							{message.privacy.share && message.status !== "streaming" && <button type="button" className={`${smallButton} shrink-0 whitespace-nowrap`} onClick={() => confirm({ title: message.privacy!.share!, action: "Share to channel", onConfirm: () => share({ messageId: message._id }) })}><ChannelIcon /> Share to channel</button>}
 						</div>
 					)}
 					{message.deleted ? (
@@ -330,8 +331,8 @@ function AgentBody({ message, tokens }: { message: Message; tokens: TokenNames }
 					Array.isArray(run) ? (
 						// A run of tool lines stays together, as tight as the stats line under the reply.
 						<div key={run[0]!.id} className="flex flex-col gap-1">
-							{run.map((part) => (
-								<ToolPart key={part.id} replyId={message._id} part={part} author={message.author.name} />
+							{sameLines(run).map((same) => (
+								<ToolPart key={same[0]!.id} replyId={message._id} parts={same} author={message.author.name} />
 							))}
 						</div>
 					) : run.part.type === "text" ? (
@@ -367,13 +368,27 @@ function runs(parts: Part[]) {
 	return out;
 }
 
+// Replies from before tool lines had labels: make one from the name.
+const lineOf = (part: ToolPart) => toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
+
+/** Back-to-back lines that read the same ("Opened a DM" for each player) show once, with a count. */
+function sameLines(run: ToolPart[]) {
+	const out: ToolPart[][] = [];
+	for (const part of run) {
+		const last = out.at(-1);
+		if (last && lineOf(last[0]!) === lineOf(part) && !!last[0]!.opens === !!part.opens) last.push(part);
+		else out.push([part]);
+	}
+	return out;
+}
+
 /** "Sent SMS with Fake CRM"; click to see what went in and came out (from the activity log). */
-function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: ToolPart; author: string }) {
-	// Replies from before tool lines had labels: make one from the name.
-	const label = toolLine(part.label ?? (part.name === "connectors_search" ? "Look up connected actions" : actionLabel(part.name)), part.status);
+function ToolPart({ replyId, parts, author }: { replyId: Message["_id"]; parts: ToolPart[]; author: string }) {
+	const part = parts.at(-1)!;
+	const label = `${lineOf(part)}${parts.length > 1 ? ` ×${parts.length}` : ""}`;
 	if (part.status === "running") return <p className="text-xs text-neutral-400">{label}</p>;
 	// A call that made a thread (an ask to another agent) is a chip that opens it, read-only: "Scout asked Quill →".
-	// One that sent a message jumps to it: "Companybot posted in #sales →".
+	// One that sent a message jumps to it: "Companybot posted in #sales →". Several to the same place open the last.
 	if (part.opens) {
 		const { chatId, messageId, kind } = part.opens;
 		return (
@@ -390,19 +405,29 @@ function ToolPart({ replyId, part, author }: { replyId: Message["_id"]; part: To
 	}
 	return (
 		<div className="flex">
-			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="w-[32rem] p-3">
-				<CallPanel replyId={replyId} callId={part.id} />
+			<Popover trigger={label} className="text-left text-xs text-neutral-400 hover:text-neutral-600" panelClassName="max-h-[32rem] w-[32rem] overflow-y-auto p-3">
+				<CallPanel replyId={replyId} callIds={parts.map((p) => p.id)} />
 			</Popover>
 		</div>
 	);
 }
 
-/** Loaded only when opened. */
-function CallPanel({ replyId, callId }: { replyId: Message["_id"]; callId: string }) {
+/** Loaded only when opened: each call of the line, in order. */
+function CallPanel({ replyId, callIds }: { replyId: Message["_id"]; callIds: string[] }) {
 	const calls = useQuery(api.activity.forReply, { replyId });
 	if (!calls) return <p className="text-xs text-neutral-400">Loading…</p>;
-	const call = calls.find((c) => c.callId === callId);
-	return call ? <CallDetails entry={call} /> : <p className="text-xs text-neutral-400">No details saved.</p>;
+	const found = callIds.flatMap((id) => calls.filter((c) => c.callId === id).slice(0, 1));
+	if (!found.length) return <p className="text-xs text-neutral-400">No details saved.</p>;
+	return (
+		<div className="flex flex-col gap-3">
+			{found.map((call, i) => (
+				<Fragment key={call.callId}>
+					{i > 0 && <hr className="border-neutral-200" />}
+					<CallDetails entry={call} />
+				</Fragment>
+			))}
+		</div>
+	);
 }
 
 type Stats = NonNullable<Message["stats"]>;

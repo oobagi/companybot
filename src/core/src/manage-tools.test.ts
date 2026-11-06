@@ -119,6 +119,10 @@ describe("grouped tools", () => {
 		expect(label("members.invite", { action: "resend", email: "ben@acme.com" })).toBe("Resend the invitation to ben@acme.com");
 		expect(label("members.invite", { action: "cancel", email: "ben@acme.com" })).toBe("Cancel the invitation for ben@acme.com");
 		expect(label("chat.manage", { action: "send", chat: "general", text: "hi" })).toBe("Post in #general");
+		// Repeated calls each say what they did, not just "Used Manage messages and DMs".
+		expect(label("chat.manage", { action: "open_dm", userIds: [], agentIds: [] })).toBe("Open a DM");
+		expect(label("chat.manage", { action: "find_people", kind: "agents" })).toBe("Find agents");
+		expect(label("chat.manage", { action: "list_chats" })).toBe("List your chats");
 	});
 
 	it("refuses authority escalation, unrelated action fields and invalid parameter combinations", () => {

@@ -6,7 +6,7 @@ import { type Member, nameOf } from "./lib";
 import { pageStates } from "./pageTree";
 import { type AccessList, chatAccess, reach } from "./placeAccess";
 import { allowedRoles, connectorIn } from "./connectorAccess";
-import { inheritPlaces, type UsedPlace } from "./replySources";
+import { inheritPlaces, placeAudience, type UsedPlace } from "./replySources";
 
 export type Source = { deletedConnector?: boolean; exclusiveTo?: Id<"users">; membersOnly: boolean; users?: Id<"users">[]; person?: string; where: string; access: AccessList; visible: boolean; name: string; why: string };
 type SourceReader = { pages: ReturnType<typeof pageStates>; sources: Map<string, Promise<Source>> };
@@ -139,23 +139,41 @@ export async function replyPrivacy(ctx: QueryCtx, member: Member, message: Doc<"
 	const chat = await ctx.db.get(message.chatId);
 	const sources = await Promise.all(places.map((id) => source(ctx, member, id)));
 	const hidden = sources.some((s) => !s.visible);
+	// Everyone who can see the chat can open every source (your own DM, say): nobody to keep it from, nothing to share.
+	if (!hidden && chat && await (await fitsChat(ctx, member, chat._id))(places)) return null;
 	// Membership is an additional limit that roles alone cannot describe.
 	const roles = member.workspaceRoles.filter((r) => !r.owner && sources.every((s) => !!reach({ ...member, owner: false, roles: [r.id] }, s.access)));
 	const list: AccessList = roles.map((r) => ({ role: r.id, level: "view" }));
 	const who = whoCan(list, member.workspaceRoles);
-	const membership = sources.filter((s) => s.membersOnly).map((s) => s.where);
+	// Several sources can name the same person or place (four DMs, each with Jaden): each once.
+	const membership = [...new Set(sources.filter((s) => s.membersOnly).map((s) => s.where))];
 	const roleLimit = sources.some((s) => s.access && !s.access.some((e) => e.role === EVERYONE));
-	const personal = sources.flatMap((s) => s.person ? [s.person] : []);
+	const personal = [...new Set(sources.flatMap((s) => s.person ? [s.person] : []))];
 	const audience = personal.length ? personal.join(" and ") : membership.length ? `${roleLimit ? who : "people"} in ${membership.join(" and ")}` : who;
 	const label = `Only ${audience} can see this`;
 	const asker = message.repliedTo;
 	return {
 		hidden,
 		label: hidden ? `Replied to ${asker ? await nameOf(ctx, asker) : "someone"}. ${label}.` : label,
-		why: hidden ? null : `Uses ${sources.map((s) => s.why).join(", ")}`,
-		share: hidden || !chat || !canPost(member, chat) ? null : `Only ${audience} can see ${sources.map((s) => s.name).join(", ")}. Share just the answer? Tool inputs, outputs and approval reasons stay private.`,
+		why: hidden ? null : `Uses ${[...new Set(sources.map((s) => s.why))].join(", ")}`,
+		share: hidden || !chat || !canPost(member, chat) ? null : `Only ${audience} can see ${[...new Set(sources.map((s) => s.name))].join(", ")}. Share just the answer? Tool inputs, outputs and approval reasons stay private.`,
 		sharedBy: null,
 	};
+}
+
+const fits = new WeakMap<QueryCtx, Map<string, ReturnType<typeof placeAudience>>>();
+
+/** `placeAudience` for a list of replies: built once per query, viewer and chat, reading sources through the same cache. */
+function fitsChat(ctx: QueryCtx, member: Member, chatId: Id<"chats">) {
+	// Users matter only for a chat source; pages and databases reuse what the label already loaded.
+	const read = (id: UsedPlace) => source(ctx, member, id, !!ctx.db.normalizeId("chats", id));
+	if ("patch" in ctx.db) return placeAudience(ctx, member, chatId, read);
+	let byChat = fits.get(ctx);
+	if (!byChat) fits.set(ctx, (byChat = new Map()));
+	const key = `${member.workspaceId}/${member.userId}/${member.owner}/${[...member.roles].sort().join(",")}/${chatId}`;
+	let check = byChat.get(key);
+	if (!check) byChat.set(key, (check = placeAudience(ctx, member, chatId, read)));
+	return check;
 }
 
 /** The server is the security boundary for every client, including those that ignore privacy metadata. */
