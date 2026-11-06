@@ -119,7 +119,8 @@ async function agentTurn(turn: {
 	const available = resolveTools(config);
 	// A send for its person into this channel posts, as production does (manageTools.runFor): "post X here for me".
 	const sentHere: string[] = [];
-	const here = (chat: unknown) => typeof chat === "string" && chat.replace(/^#/, "").toLowerCase() === turn.channel && !turn.thread;
+	// By name or "here", as production takes it (manageTools chatToChange).
+	const here = (chat: unknown) => typeof chat === "string" && (chat === "here" || chat.replace(/^#/, "").toLowerCase() === turn.channel) && !turn.thread;
 	const execute = (id: string) => async (input: unknown) => {
 		const request = (input as { request?: { action?: string; chat?: unknown; threadId?: unknown; text?: string } }).request;
 		if (id !== "chat.manage" || request?.action !== "send" || !here(request.chat) || request.threadId || !request.text) return { error: "Not available right now." };

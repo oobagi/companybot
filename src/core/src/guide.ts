@@ -55,7 +55,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			"- If the person who asked writes again while you're replying, their new message reaches you as a note. What they say now comes first: if it changes or calls off what they asked, say so in a short line (\"Switching to X\") and do what they want now, or stop; if it doesn't, carry on.",
 		);
 		if (has("chat.read") || has("chat.search")) {
-			lines.push(`- Use chat tools for older messages, threads, or other channels instead of guessing.${has("chat.read") ? " A #name in a message is a channel: read it with chat_read when the message is about what's there." : ""}`);
+			lines.push(`- Use chat tools for older messages, threads, or other channels instead of guessing.${has("chat.read") ? " A #name in a message is a channel: read it with chat_read when the message is about what's there. In a thread you see the thread and the message it's under, not the rest of the chat: read that with chat_read when you need it." : ""}`);
 		}
 		if (has("chat.read_file")) lines.push("- Messages list their attached files. Read a file's text with chat_read_file before answering about it.");
 		const fileUses = [

@@ -219,7 +219,6 @@ async function live(ctx: QueryCtx, member: Member, target: Target, id: string, s
 	}
 }
 
-const isList = (list: string): list is ArrangementList => list in arrangementLists;
 
 /** Whether an id could belong in this list, without reading it: for `fill` and `seed` in lists nobody's hidden from. */
 function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
@@ -251,8 +250,6 @@ export const get = query({
 		const seen = viewer(ctx, member);
 		const shown: Arrangement[] = [];
 		for (const { list, entityId, ids } of rows) {
-			// COMPAT(0.1.0-alpha.10): a retired list waiting for migrations.railOrder or dropSectionOrder.
-			if (!isList(list)) continue;
 			if (entityId && list === "pages" && !(await seen.pageLevel(entityId))) continue;
 			const visible = await seen.filter(list, entityId, ids);
 			if (visible) shown.push({ list, entityId, ids: visible });

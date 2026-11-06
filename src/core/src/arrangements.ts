@@ -73,12 +73,6 @@ export const SECTION_NAME_MAX = 80;
 export const railTabs = ["chat", "drive", "databases", "customize"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
-/**
- * Lists the rail had before tabs and pins became one (`rail`; `migrations.railOrder` merges them), and the
- * order of Chat's sections from when Channels was one (`migrations.dropSectionOrder` deletes it).
- * COMPAT(0.1.0-alpha.10): delete with them.
- */
-export const retiredLists = ["tabs", "pinsOrder", "sections"] as const;
 
 type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */

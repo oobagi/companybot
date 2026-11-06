@@ -1,4 +1,4 @@
-import { CHAIN_MAX_HOPS, ROUTER_MODEL } from "@companybot/core";
+import { CHAIN_MAX_HOPS, ROUTER_MODEL, buildTurnPrompt } from "@companybot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scribe } from "../../core/test/fixtures";
 import { api, internal } from "../convex/_generated/api";
@@ -53,6 +53,27 @@ async function say(t: T, agentId: Id<"agents">, text: string) {
 const pauses = (t: T) => t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).filter((m) => m.pause));
 
 describe("handoffs by @mention", () => {
+	it("one agent, one turn at a time in a chat: an @mention for an agent answering elsewhere waits, then sees what it said there", async () => {
+		const { t, companybot, scribe, ask } = await setUp();
+		await ask("@Companybot start a poker game", companybot);
+		const game = await running(t, companybot);
+		// Meanwhile Scribe, asked separately, hands Companybot work in a thread under its post.
+		await ask("@Scribe what's the plan?", scribe);
+		const plan = await say(t, scribe, "@Companybot deal the first hand");
+		const hop = (await turnsOf(t)).find((x) => x.agentId === companybot && x.triggerId === plan.replyId)!;
+		// Not a second Companybot beside the first: it waits.
+		expect(hop.status).toBe("queued");
+		expect((await running(t, companybot))._id).toBe(game._id);
+		// The game turn ends; then the handed turn starts, and sees what Companybot said in the channel.
+		await say(t, companybot, "Hold'em, 1/2 blinds. Roxy deals.");
+		// Its own place first: the follow-up for the channel message sent meanwhile, which stays quiet.
+		await say(t, companybot, "");
+		expect((await running(t, companybot))._id).toBe(hop._id);
+		const context = await t.mutation(internal.turns.turnContext, { turnId: hop._id });
+		expect(context.elsewhere).toEqual([expect.objectContaining({ thread: false, message: expect.objectContaining({ text: "Hold'em, 1/2 blinds. Roxy deals." }) })]);
+		expect(buildTurnPrompt({ ...context, approval: undefined, agentId: companybot, now: Date.now(), connectors: { connected: [], unavailable: [] } })).toContain("What you said elsewhere in this chat");
+	});
+
 	it("ping-pong stops at the limit with the paused line, and Continue resumes for the person only", async () => {
 		const { t, owner, member, chatId, companybot, scribe, ask } = await setUp();
 		await ask("@Companybot get Scribe to draft it", companybot);
