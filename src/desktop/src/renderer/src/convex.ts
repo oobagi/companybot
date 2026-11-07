@@ -29,6 +29,12 @@ export function useQuery<Q extends FunctionReference<"query">>(query: Q, ...[arg
 	return useCachedQuery(query as FunctionReference<"query">, args === "skip" ? "skip" : withWorkspace(args as Args, workspaceId));
 }
 
+/**
+ * Keeps a query live in the cache (main.tsx) without adding the workspace: to hold a read another library
+ * makes on its own, with its own args (the page sync's snapshot, views/pages/PageEditor.tsx).
+ */
+export const useHeldQuery = useCachedQuery;
+
 export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 	query: Q,
 	args: Parameters<typeof useCachedPaginatedQuery<Q>>[1],
@@ -70,6 +76,13 @@ export function useMutation<M extends FunctionReference<"mutation">>(mutation: M
 		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => (optimistic ? plain.withOptimisticUpdate(optimistic()) : plain)(withWorkspace(args as Args, workspaceId)),
 		[plain, optimistic, workspaceId],
 	);
+}
+
+/** A one-time read, not a subscription (what a folder holds now, to place a row last in it), in the open workspace like the hooks. */
+export function useFetch() {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	const convex = useConvex();
+	return useCallback(<Q extends FunctionReference<"query">>(query: Q, ...[args]: Rest<Q>): Promise<FunctionReturnType<Q>> => convex.query(query, withWorkspace(args as Args, workspaceId)), [convex, workspaceId]);
 }
 
 export function useAction<A extends FunctionReference<"action">>(action: A) {

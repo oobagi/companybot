@@ -21,6 +21,8 @@ const kinds: { id: Kind; label: string; one: string }[] = [
 	{ id: "database", label: "Databases", one: "Database" },
 	{ id: "field", label: "Fields", one: "Field" },
 	{ id: "page", label: "Pages", one: "Page" },
+	{ id: "folder", label: "Folders", one: "Folder" },
+	{ id: "file", label: "Files", one: "File" },
 	{ id: "channel", label: "Chats", one: "Chat" },
 	{ id: "agent", label: "Agents", one: "Agent" },
 	{ id: "skill", label: "Skills", one: "Skill" },
@@ -31,7 +33,8 @@ const kinds: { id: Kind; label: string; one: string }[] = [
 /** Where an item in Trash opens, read-only, if it has its own screen. */
 function pathOf(e: TrashRow): string[] | undefined {
 	if (e.kind === "record" && e.typeKey) return recordPath(e.typeKey, e.itemId);
-	if (e.kind === "page") return ["pages", e.itemId];
+	if (e.kind === "page" || e.kind === "folder") return ["pages", e.itemId];
+	if (e.kind === "file") return ["files", e.itemId];
 	if (e.kind === "channel") return ["chat", e.itemId];
 	if (e.kind === "agent") return ["settings", "agents", e.itemId];
 	if ((e.kind === "skill" || e.kind === "automation") && e.screenId) return ["settings", `${e.kind}s`, e.screenId];
@@ -74,7 +77,7 @@ export function TrashView({ access }: { access: Access }) {
 									) : (
 										<span className="font-medium">{e.name}</span>
 									)}
-									{e.hasChildren && <span className={`ml-2 ${metadataClass}`}>includes sub-pages</span>}
+									{e.hasChildren && <span className={`ml-2 ${metadataClass}`}>{e.kind === "folder" ? "includes its contents" : "includes sub-pages"}</span>}
 									{e.in && <span className={`ml-2 ${metadataClass}`}>in {e.in}</span>}
 								</span>
 								<span className={`ml-auto shrink-0 ${metadataClass}`}>

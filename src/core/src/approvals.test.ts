@@ -32,11 +32,11 @@ describe("approvals", () => {
 		expect(toolRisk(find)).toBe("none");
 		const risk = (id: string) => toolRisk(builtinTools.find((t) => t.id === id)!);
 		// Acting as the person, or reading what only they see: "inside". Shared reads and display: "none".
-		expect(["memory.remember", "memory.search", "chat.read", "chat.search", "chat.manage", "records.save", "pages.write"].map(risk)).toEqual(Array(7).fill("inside"));
+		expect(["memory.remember", "memory.search", "chat.read", "chat.search", "chat.manage", "records.save", "pages.write", "files.write"].map(risk)).toEqual(Array(8).fill("inside"));
 		expect(["records.find", "pages.read", "clock.now", "skills.load", "widgets.table"].map(risk)).toEqual(Array(5).fill("none"));
 		// Exhaust the low-risk list: new private reads cannot silently inherit `none`.
 		expect(builtinTools.filter(t => toolRisk(t) === "none" && !t.id.startsWith("widgets.")).map(t => t.id).sort()).toEqual([
-			"automations.list", "chat.ask_agent", "clock.now", "help.read", "pages.find", "pages.read", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load", "web.fetch", "web.save", "web.search",
+			"automations.list", "chat.ask_agent", "clock.now", "files.find", "files.read", "help.read", "pages.find", "pages.read", "records.find", "records.get", "records.history", "records.types", "records.views", "skills.load", "web.fetch", "web.save", "web.search",
 		]);
 		// A built-in opts in by declaring risk; payments-style ones lock.
 		expect(toolRisk({ ...builtinTools[0]!, risk: "outside" })).toBe("outside");

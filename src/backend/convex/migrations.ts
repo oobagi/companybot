@@ -113,6 +113,21 @@ export const companybotFollowupTools = migrations.define({
 	},
 });
 
+// Drive got files (driveFiles.ts) and Companybot the tools for them. New workspaces get them from
+// default-agents.ts; this adds them to each existing Companybot that still has its default skills.load
+// grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
+export const companybotFileTools = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("files.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "files.*"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
 // Schedules became cron (core schedules.ts). This writes each stored "one time on some weekdays"
 // schedule (made ones and retained library definitions) as its cron, unchanged in meaning and not a
 // new version, and starts its runs after its last one, so nothing runs twice or makes up a run.
@@ -484,6 +499,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.usageThisMonth,
 	internal.migrations.companybotImageTool,
 	internal.migrations.companybotFollowupTools,
+	internal.migrations.companybotFileTools,
 	internal.migrations.cronSchedules,
 	internal.migrations.customRoles,
 	internal.migrations.customRolesMembers,

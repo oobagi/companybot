@@ -18,7 +18,8 @@ import {
 	withPageTitles,
 	writeBlocks,
 } from "./pageOps";
-import { movePage, pageState, pageStates } from "./pageTree";
+import { kindOf, movePage, pageState, pageStates } from "./pageTree";
+import { fileVisible } from "./driveFiles";
 import { claimUpload } from "./images";
 import { pageHistory, requireVersion, versionContent } from "./pages";
 import { inTrash, recordById } from "./recordOps";
@@ -82,7 +83,7 @@ export const findFor = internalMutation({
 		const { search, cursor, trashed = false, parent } = findInput.parse(input);
 		const parentPage = !parent ? null : ctx.db.normalizeId("records", parent.trim()) ? await recordPage(ctx, { member }, parent, false) : await pageNamed(ctx, member, parent);
 		if (parent && !parentPage) return { rows: [], more: false };
-		const row = (p: Doc<"pages">, parentSeen: boolean) => ({ id: p._id, title: p.title, parentId: parentSeen ? (p.parentId ?? null) : null, edited: new Date(p.updatedAt).toISOString() });
+		const row = (p: Doc<"pages">, parentSeen: boolean) => ({ id: p._id, kind: kindOf(p), title: p.title, parentId: parentSeen ? (p.parentId ?? null) : null, edited: new Date(p.updatedAt).toISOString() });
 		const pages = ctx.db.query("pages");
 		const found = parent !== undefined
 			? pages.withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentPage?._id).eq("recordId", undefined))
@@ -132,14 +133,21 @@ export const readFor = internalMutation({
 			const ancestors = [];
 			for (const p of state?.ancestors.slice().reverse() ?? []) if (await seen(p)) ancestors.push({ id: p._id, title: await titleOf(ctx, p), ...(p.recordId && { record: p.recordId }) });
 			// Page blocks titled as this person may see them, never as the document stores them.
-			const stored = old ? await versionContent(ctx, old.page, old.row) : page ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
+			// A folder has no content: it reads as its contents (sub-pages and folders above, files here).
+			const stored = old ? await versionContent(ctx, old.page, old.row) : page && kindOf(page) !== "folder" ? JSON.stringify((await readDoc(ctx, page._id)).toJSON()) : null;
+			const files = [];
+			if (page && kindOf(page) === "folder") {
+				const seenFile = fileVisible(ctx, member);
+				for (const f of await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", page._id).eq("archived", false)).take(51)) if (await seenFile(f)) files.push(f);
+			}
 			const doc = stored === null ? null : await withPageTitles(ctx, member, stored);
 			if (old && doc === null) throw new ConvexError("This version is no longer available.");
 			return {
-				...(page && { id: page._id, parentId: state?.ancestors[0] && (await seen(state.ancestors[0])) ? state.ancestors[0]._id : null }),
+				...(page && { id: page._id, kind: kindOf(page), parentId: state?.ancestors[0] && (await seen(state.ancestors[0])) ? state.ancestors[0]._id : null }),
 				ancestors,
-				subpages: children.slice(0, 50).map((p) => ({ id: p._id, title: p.title })),
+				subpages: children.slice(0, 50).map((p) => ({ id: p._id, kind: kindOf(p), title: p.title })),
 				subpagesMore: children.length > 50,
+				...(page && kindOf(page) === "folder" && { files: files.slice(0, 50).map((f) => ({ id: f._id, name: f.name, type: f.type })), filesMore: files.length > 50 }),
 				title: page ? await titleOf(ctx, page) : record!.title,
 				...(record && { record: record._id }),
 				...((state?.archived || (record && (await inTrash(ctx, record)))) && { inTrash: true }),
@@ -211,7 +219,7 @@ export const writeChecked = internalMutation({
 	args: writeArgs,
 	handler: async (ctx, { turnId, input, blocks, pictures = [] }) => {
 		const { member, who } = await runningTurn(ctx, turnId);
-		const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore, parent, action = "write" } = writeInput.parse(input);
+		const { page: name, record, title, markdown, blocks: rich, mode = "append", trash, restore, parent, action = "write", kind } = writeInput.parse(input);
 		if (record && parent !== undefined) throw new ConvexError("A record's page stays with its record. To put a page inside it, give the record's id as parent.");
 		// A record as parent: its page, made if nobody has opened it yet.
 		const parentId = !parent ? undefined : ctx.db.normalizeId("records", parent.trim()) ? (await recordPage(ctx, who, parent, true))!._id : (await pageById(ctx, member, parent))._id;
@@ -219,7 +227,7 @@ export const writeChecked = internalMutation({
 			if (!name || parent === undefined || record || [title, markdown, rich, trash, restore].some((x) => x !== undefined)) throw new ConvexError("Move with page and parent only; parent null means top level.");
 			const page = await pageById(ctx, member, name);
 			await movePage(ctx, who, page, parentId);
-			return { id: page._id, title: page.title, parentId: parentId ?? null };
+			return { id: page._id, kind: kindOf(page), title: page.title, parentId: parentId ?? null };
 		}
 		if (name && parent !== undefined) throw new ConvexError("Use action move to change a page's parent.");
 		if (rich !== undefined && markdown !== undefined) throw new ConvexError("Use blocks or markdown, not both.");
@@ -237,11 +245,12 @@ export const writeChecked = internalMutation({
 			await restoreVersion(ctx, who, page, row);
 			return { id: page._id, title: await titleOf(ctx, page), restored: row._id };
 		}
+		if (kind && (name || record)) throw new ConvexError("kind only makes a new folder: leave page and record out.");
 		if (record) page = (await ctx.db.get(await createPage(ctx, who, { recordId: (await recordNamed(ctx, member, record))._id })))!;
 		else if (name) page = await pageById(ctx, member, name);
 		else {
-			if (!title) throw new ConvexError("Give the new page a title.");
-			page = (await ctx.db.get(await createPage(ctx, who, { title, parentId })))!;
+			if (!title) throw new ConvexError(`Give the new ${kind ?? "page"} a title.`);
+			page = (await ctx.db.get(await createPage(ctx, who, { title, parentId, kind })))!;
 		}
 		if (trash !== undefined) await setPageTrashed(ctx, who, page, trash);
 		if (title !== undefined && (name || record)) await renamePage(ctx, who, page, title);
@@ -256,6 +265,6 @@ export const writeChecked = internalMutation({
 		}
 		const wrote = content !== undefined && (await writeBlocks(ctx, who, page, content, mode));
 		const after = (await ctx.db.get(page._id))!;
-		return { id: page._id, title: await titleOf(ctx, after), ...((markdown !== undefined || rich !== undefined) && !wrote && { unchanged: true }) };
+		return { id: page._id, kind: kindOf(after), title: await titleOf(ctx, after), ...((markdown !== undefined || rich !== undefined) && !wrote && { unchanged: true }) };
 	},
 });

@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
 import { type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
 import { authUserId, memberOf } from "./lib";
-import { pageSchema, requireEditable, requirePageAccess, saveTransform, sync } from "./pageOps";
+import { pageSchema, requireContent, requireEditable, requirePageAccess, saveTransform, sync } from "./pageOps";
 import { withoutPageTitles } from "./pageBlocks";
 
 // Sync names a page alone, so resolve its workspace before checking access.
@@ -13,6 +13,7 @@ async function pageFor(ctx: QueryCtx, id: string) {
 	const userId = await authUserId(ctx);
 	const member = page && userId && (await memberOf(ctx, userId, page.workspaceId));
 	if (!page || !member) throw new ConvexError("Page not found.");
+	requireContent(page);
 	await requirePageAccess(ctx, member, page, "view");
 	return { page, member };
 }

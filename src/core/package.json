@@ -28,6 +28,7 @@
     "./images": "./src/images.ts",
     "./files": "./src/files.ts",
     "./file-text": "./src/file-text.ts",
+    "./office-text": "./src/office-text.ts",
     "./onboarding": "./src/onboarding.ts",
     "./memory": "./src/memory.ts",
     "./widgets": "./src/widgets.ts",

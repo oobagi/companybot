@@ -24,7 +24,7 @@ export const permissions = {
 	"workspace.reset": { label: "reset the workspace", ownerOnly: true },
 	/** Make, rename and delete roles and choose their switches. Owner-only, so nobody can give themselves more than an owner chose. */
 	"roles.manage": { label: "change roles", ownerOnly: true },
-	/** Reorder shared sidebar lists: channels, page siblings, databases, view tabs, a database's All tab layout. */
+	/** Reorder shared sidebar lists (channels, page siblings, databases, view tabs, a database's All tab layout) and lay out the sidebar's sections. */
 	"sidebar.arrange": { label: "rearrange shared sidebar lists", member: true },
 	/** Invite and remove people and give them roles. Only owners give or take the Owner role, or remove an owner. */
 	"members.manage": { label: "invite and remove people and change their roles", member: false },
@@ -43,7 +43,7 @@ export const permissions = {
 	/** Add, change, delete (to Archive) and restore records (clients, deals, tasks…), and undo changes. */
 	"records.edit": { label: "add and change records", member: true },
 	/** Write, rename, delete (to Archive) and restore pages, and restore old versions (wiki/pages.md). */
-	"pages.edit": { label: "write and change pages", member: true },
+	"pages.edit": { label: "write and change pages, folders and files", member: true },
 	/** Add, change and delete (to Archive) databases and their fields. */
 	"fields.edit": { label: "add and change databases and fields", member: false },
 	/** Make channels, and rename, delete and add people to any channel. */
@@ -121,12 +121,14 @@ export const deniedMessage = (permission: Permission, roles: readonly RoleLike[]
 export const canEditAutomation = (who: Access & { userId: string }, privateTo: string | null) =>
 	privateTo ? privateTo === who.userId : can(who, "automations.edit");
 
-export const trashKinds = ["record", "database", "field", "page", "channel", "agent", "skill", "automation", "memory"] as const;
+export const trashKinds = ["record", "database", "field", "page", "folder", "file", "channel", "agent", "skill", "automation", "memory"] as const;
 export type TrashKind = (typeof trashKinds)[number];
 
 const trashPermission: Record<TrashKind, Permission> = {
 	record: "records.edit",
 	page: "pages.edit",
+	folder: "pages.edit",
+	file: "pages.edit",
 	memory: "memory.team.write",
 	database: "fields.edit",
 	field: "fields.edit",
