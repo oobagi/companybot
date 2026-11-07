@@ -471,7 +471,7 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
 /** An input, select or textarea: the same box as `buttonBox`, so a row of fields and buttons lines up. */
-export const compactControlClass = `rounded-lg px-3 py-[5px] text-sm ${controlClass}`;
+export const compactControlClass = `rounded-lg px-3 py-1.25 text-sm ${controlClass}`;
 /**
  * Every text button's box: one height, padding and corner. The looks below only add color, so
  * buttons can't drift apart. Their names say where they go (the lint rules check that).
