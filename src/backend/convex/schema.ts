@@ -196,7 +196,7 @@ export const fieldKind = oneOf(fieldKinds);
 /** core's FieldShape, with the linked database by id: what a field's values depend on. */
 export const fieldShape = v.object({
 	kind: fieldKind,
-	options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()) }))),
+	options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
 	linkTypeId: v.optional(v.id("recordTypes")),
 	multiple: v.optional(v.boolean()),
 });
@@ -1248,8 +1248,10 @@ export default defineSchema({
 		key: v.string(),
 		label: v.string(),
 		kind: fieldKind,
-		/** Removed options stay, `retired`, so records using them keep their meaning. */
-		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()) }))),
+		/** One of core's `fieldIcons`; without one the app shows the kind's icon. */
+		icon: v.optional(v.string()),
+		/** Removed options stay, `retired`, so records using them keep their meaning. `color`: one of core's `optionColors`. */
+		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
 		linkTypeId: v.optional(v.id("recordTypes")),
 		multiple: v.optional(v.boolean()),
 		/**
@@ -1401,7 +1403,7 @@ export default defineSchema({
 			v.literal("field.archived"),
 			v.literal("field.restored"),
 		),
-		/** Records: changed values by field key. Fields: changed settings ("label", "options"). */
+		/** Records: changed values by field key. Fields: changed settings ("label", "icon", "options", "colors"). */
 		changes: v.array(v.object({ key: v.string(), old: v.optional(fieldValue), new: v.optional(fieldValue) })),
 		userId: v.id("users"),
 		agentId: v.optional(v.id("agents")),

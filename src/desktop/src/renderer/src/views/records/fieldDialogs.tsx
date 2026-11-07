@@ -1,29 +1,32 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Checkbox, Select } from "../../controls";
-import { type FieldKind, NAME_KEY, fieldKinds } from "@companybot/core/records";
+import { type FieldKind, NAME_KEY, autoColor, fieldIcons, fieldKinds, optionColors } from "@companybot/core/records";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Form, Notice, Setting, Settings, compactControlClass, hintClass, iconDangerButton, metadataClass, notePanelClass, primaryButton, secondaryButton, smallButton, timeAgo, useDebounced, useRun, wideControlClass } from "../../ui";
-import { ArchiveIcon, TrashIcon } from "../../icons";
-import { DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
+import { Form, MenuDivider, Notice, Setting, Settings, compactControlClass, hintClass, iconDangerButton, metadataClass, notePanelClass, pickedTileButton, primaryButton, secondaryButton, smallButton, swatchButton, timeAgo, useDebounced, useRun, wideControlClass } from "../../ui";
+import { ArchiveIcon, CheckIcon, RestoreIcon, TrashIcon, fieldIconSet } from "../../icons";
+import { DialogButtons, MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
+import { FieldIcon, tintOf } from "./fields";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
 
 // Adding a field, and changing any of its settings later (anyone with `fields.edit` and Edit in the
 // database): the same form for both, so they can't drift. A new kind, one ↔ several or another linked
-// database converts existing values in the background, after a preview; it can be undone.
+// database converts existing values in the background, after a preview; it can be undone. Its icon and
+// its options' colors are only looks: they change nothing stored in records.
 
 const severalKinds: FieldKind[] = ["choice", "user", "link"];
 
-type Option = { id?: string; label: string; retired?: boolean };
+type Option = { id?: string; label: string; color?: string; retired?: boolean };
 
 /** What the form holds. Options are the field's live ones, plus any typed. */
-type Draft = { label: string; kind: FieldKind; options: Option[]; added: string; linkTypeId: string; multiple: boolean };
+type Draft = { label: string; icon?: string; kind: FieldKind; options: Option[]; added: string; linkTypeId: string; multiple: boolean };
 
 const draftOf = (field?: TypeField, kind: FieldKind = "text"): Draft => ({
 	label: field?.label ?? "",
+	icon: field?.icon,
 	kind: field?.kind ?? kind,
 	options: field?.options?.filter((o) => !o.retired) ?? [],
 	added: "",
@@ -31,8 +34,9 @@ const draftOf = (field?: TypeField, kind: FieldKind = "text"): Draft => ({
 	multiple: !!field?.multiple,
 });
 
-/** The options to send: the list, plus what's typed in New option. */
-const optionsOf = (draft: Draft) => [...draft.options, ...(draft.added.trim() ? [{ label: draft.added.trim() }] : [])].map(({ id, label }) => ({ ...(id && { id }), label }));
+/** The options to send: the list, plus what's typed in New option (the server gives it the next color in turn). */
+const optionsOf = (draft: Draft) =>
+	[...draft.options, ...(draft.added.trim() ? [{ label: draft.added.trim() }] : [])].map(({ id, label, color }: Option) => ({ ...(id && { id }), label, ...(color && { color }) }));
 
 /** Whether the draft changes how values are stored: its kind, one/several, or the linked database. */
 const reshapes = (field: TypeField, d: Draft) =>
@@ -43,14 +47,16 @@ function FieldSettings({ draft, set, field }: { draft: Draft; set: (d: Partial<D
 	const types = useTypes();
 	const wasChoice = field?.kind === "choice";
 	const retired = draft.kind === "choice" && wasChoice ? (field.options?.filter((o) => o.retired) ?? []) : [];
-	const addOption = () => draft.added.trim() && set({ options: [...draft.options, { label: draft.added.trim() }], added: "" });
 	const optionsHint = !field || wasChoice
 		? field ? "Removing an option keeps it on the records that have it, but it can't be picked again." : "The values people can pick."
 		: "Each different value already in this field becomes an option too.";
 	return (
 		<Settings>
 			<Setting label="Name">
-				<input autoFocus aria-label="Name" value={draft.label} onChange={(e) => set({ label: e.target.value })} placeholder="Roof type" className={wideControlClass} />
+				<span className="flex gap-2">
+					<IconPicker kind={draft.kind} icon={draft.icon} onChange={(icon) => set({ icon })} />
+					<input autoFocus aria-label="Name" value={draft.label} onChange={(e) => set({ label: e.target.value })} placeholder="Roof type" className={`${wideControlClass} flex-1`} />
+				</span>
 			</Setting>
 			<Setting label="Kind" hint={field?.key === NAME_KEY ? "A record's name is always text." : field ? "Changing it converts the values already here." : undefined}>
 				<Select
@@ -64,30 +70,9 @@ function FieldSettings({ draft, set, field }: { draft: Draft; set: (d: Partial<D
 			</Setting>
 			{draft.kind === "choice" && (
 				<Setting label="Options" hint={optionsHint} wide>
-					<div className="flex w-full flex-col gap-2">
-						{draft.options.map((o, i) => (
-							<span key={o.id ?? `new-${i}`} className="flex items-center gap-2">
-								<input
-									aria-label={`Option ${i + 1}`}
-									value={o.label}
-									onChange={(e) => set({ options: draft.options.map((p, j) => (j === i ? { ...p, label: e.target.value } : p)) })}
-									className={`${compactControlClass} flex-1`}
-								/>
-								<button type="button" onClick={() => set({ options: draft.options.filter((_, j) => j !== i) })} aria-label="Remove" title="Remove option" className={iconDangerButton}>
-									<TrashIcon size={16} />
-								</button>
-							</span>
-						))}
-						<input
-							aria-label="New option"
-							value={draft.added}
-							onChange={(e) => set({ added: e.target.value })}
-							onKeyDown={(e) => e.key === "Enter" && draft.added.trim() && (e.preventDefault(), addOption())}
-							placeholder="New option"
-							className={compactControlClass}
-						/>
+					<OptionsEditor options={draft.options} onChange={(options) => set({ options })} added={draft.added} onAdded={(added) => set({ added })} before={retired.length}>
 						{retired.length > 0 && <p className={metadataClass}>Removed: {retired.map((o) => o.label).join(", ")}</p>}
-					</div>
+					</OptionsEditor>
 				</Setting>
 			)}
 			{draft.kind === "link" && (
@@ -131,6 +116,7 @@ export function AddField({
 			create({
 				typeId: type._id,
 				label: draft.label,
+				...(draft.icon && { icon: draft.icon }),
 				kind: draft.kind,
 				...(draft.kind === "choice" && { options: optionsOf(draft) }),
 				...(draft.kind === "link" && draft.linkTypeId && { linkTypeId: draft.linkTypeId as Id<"recordTypes"> }),
@@ -142,7 +128,7 @@ export function AddField({
 		<Modal title={`Add a field to ${type.plural.toLowerCase()}`} onClose={onClose}>
 			<Form onSubmit={() => submit()}>
 				<Notice>{error}</Notice>
-				<FieldSettings draft={draft} set={(d) => setDraft({ ...draft, ...d })} />
+				<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} />
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
 					<button type="submit" className={primaryButton}>Add field</button>
@@ -174,6 +160,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 			update({
 				fieldId,
 				label: draft.label,
+				...(draft.icon !== field.icon && { icon: draft.icon ?? null }),
 				...(draft.kind === "choice" && { options: optionsOf(draft) }),
 				...(reshaping && {
 					kind: draft.kind,
@@ -207,7 +194,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 						<p>{(changes?.running?.converted ?? 0).toLocaleString()} done so far. You can change this field again once it's finished.</p>
 					</div>
 				) : (
-					<FieldSettings draft={draft} set={(d) => setDraft({ ...draft, ...d })} field={field} />
+					<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} field={field} />
 				)}
 				{preview && <ChangeWarning preview={preview} />}
 				{!converting && !reshaping && last && (
@@ -277,5 +264,127 @@ function ChangeWarning({ preview }: { preview: NonNullable<FunctionReturnType<ty
 		<p className={hintClass}>
 			{lines.join(" ")} You can undo this for 30 days.
 		</p>
+	);
+}
+
+/**
+ * Choice options as rows, Notion's way: a color swatch, the name, remove. Enter in "New option"
+ * adds it (pasting several lines adds one each); a new option takes the next color in turn.
+ */
+function OptionsEditor({
+	options,
+	onChange,
+	added,
+	onAdded,
+	before,
+	children,
+}: {
+	options: Option[];
+	onChange: (options: Option[]) => void;
+	added: string;
+	onAdded: (text: string) => void;
+	before: number;
+	children?: React.ReactNode;
+}) {
+	const add = (labels: string[]) => {
+		const fresh = labels.map((l) => l.trim()).filter(Boolean);
+		if (fresh.length) onChange([...options, ...fresh.map((label, i) => ({ label, color: autoColor(before + options.length + i) }))]);
+		onAdded("");
+	};
+	return (
+		<div className="flex w-full flex-col gap-2">
+			{options.map((o, i) => (
+				<span key={o.id ?? `new-${i}`} className="flex items-center gap-2">
+					<ColorPicker color={o.color} onChange={(color) => onChange(options.map((p, j) => (j === i ? { ...p, color } : p)))} />
+					<input
+						aria-label={`Option ${i + 1}`}
+						value={o.label}
+						onChange={(e) => onChange(options.map((p, j) => (j === i ? { ...p, label: e.target.value } : p)))}
+						className={`${compactControlClass} flex-1`}
+					/>
+					<button type="button" onClick={() => onChange(options.filter((_, j) => j !== i))} aria-label="Remove" title="Remove option" className={iconDangerButton}>
+						<TrashIcon size={16} />
+					</button>
+				</span>
+			))}
+			<input
+				aria-label="New option"
+				value={added}
+				onChange={(e) => onAdded(e.target.value)}
+				onKeyDown={(e) => {
+					if (e.key !== "Enter" || !added.trim()) return;
+					e.preventDefault();
+					add([added]);
+				}}
+				onPaste={(e) => {
+					const lines = e.clipboardData.getData("text").split(/\r?\n/);
+					if (lines.length < 2) return;
+					e.preventDefault();
+					add([added + lines[0], ...lines.slice(1)]);
+				}}
+				placeholder="Add an option"
+				className={compactControlClass}
+			/>
+			{children}
+		</div>
+	);
+}
+
+const colorNames: Record<(typeof optionColors)[number], string> = {
+	default: "Default",
+	gray: "Gray",
+	brown: "Brown",
+	orange: "Orange",
+	yellow: "Yellow",
+	green: "Green",
+	blue: "Blue",
+	purple: "Purple",
+	pink: "Pink",
+	red: "Red",
+};
+
+/** An option's color: its swatch, opening Notion's palette of named tints. */
+function ColorPicker({ color = "default", onChange }: { color?: string; onChange: (color: string) => void }) {
+	return (
+		<Popover label="Color" trigger={<span className={`size-4 rounded ring-1 ring-black/5 ${tintOf(color)}`} />} className={swatchButton} panelClassName="flex w-44 flex-col gap-px p-1">
+			{(close) => (
+				<>
+					<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Color</p>
+					{optionColors.map((c) => (
+						<MenuItem key={c} onClick={() => (close(), onChange(c))}>
+							<span className={`size-4 shrink-0 rounded ring-1 ring-black/5 ${tintOf(c)}`} />
+							<span className="flex-1">{colorNames[c]}</span>
+							{c === color && <CheckIcon className="text-neutral-500" />}
+						</MenuItem>
+					))}
+				</>
+			)}
+		</Popover>
+	);
+}
+
+/** A field's icon beside its name: a grid of business icons, or back to its kind's. */
+function IconPicker({ kind, icon, onChange }: { kind: FieldKind; icon?: string; onChange: (icon: string | undefined) => void }) {
+	return (
+		<Popover label="Icon" trigger={<FieldIcon field={{ kind, icon }} className="text-neutral-500" />} className={swatchButton} panelClassName="flex w-[19rem] flex-col gap-1 p-2">
+			{(close) => (
+				<>
+					<div className="grid grid-cols-8 gap-0.5">
+						{fieldIcons.map((id) => {
+							const Icon = fieldIconSet[id];
+							return (
+								<button key={id} type="button" title={id.replace(/-/g, " ")} aria-label={id.replace(/-/g, " ")} aria-pressed={icon === id} onClick={() => (close(), onChange(id))} className={pickedTileButton}>
+									<Icon />
+								</button>
+							);
+						})}
+					</div>
+					<MenuDivider />
+					<MenuItem disabled={!icon} onClick={() => (close(), onChange(undefined))}>
+						<RestoreIcon className="text-neutral-400" /> Reset to default
+					</MenuItem>
+				</>
+			)}
+		</Popover>
 	);
 }

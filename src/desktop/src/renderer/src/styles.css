@@ -18,6 +18,23 @@
 	/* The app's body size (between text-sm and text-base), and a size under text-xs for a message's hover time. */
 	--text-body: 15px;
 	--text-2xs: 10px;
+	/* Choice option tints, Notion's: a soft background and dark text in the same hue (`optionTints` in views/records/fields.tsx). */
+	--color-option-brown: #eee0da;
+	--color-option-brown-ink: #442a1e;
+	--color-option-orange: #fadec9;
+	--color-option-orange-ink: #49290e;
+	--color-option-yellow: #fdecc8;
+	--color-option-yellow-ink: #402c1b;
+	--color-option-green: #dbeddb;
+	--color-option-green-ink: #1c3829;
+	--color-option-blue: #d3e5ef;
+	--color-option-blue-ink: #183347;
+	--color-option-purple: #e8deee;
+	--color-option-purple-ink: #412454;
+	--color-option-pink: #f5e0e9;
+	--color-option-pink-ink: #4c2337;
+	--color-option-red: #ffe2dd;
+	--color-option-red-ink: #5d1715;
 }
 
 html,

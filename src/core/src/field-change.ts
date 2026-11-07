@@ -12,6 +12,7 @@ import {
 	MULTI_MAX,
 	OPTIONS_MAX,
 	TEXT_MAX,
+	autoColor,
 	formatDate,
 	formatMoney,
 	isCurrencyCode,
@@ -238,7 +239,8 @@ export function parseDay(text: string): string | null {
 
 /**
  * Options for a field becoming a choice: `start` (typed by the person, or kept from before), then one
- * per distinct value met, matched by label in any case, up to OPTIONS_MAX. `made` lists the new ones.
+ * per distinct value met, matched by label in any case, up to OPTIONS_MAX. `made` lists the new ones; each
+ * new one takes the next color in turn, as an added option does.
  */
 export function optionMaker(start: ChoiceOption[] = []) {
 	const options = start.map((o) => ({ ...o }));
@@ -248,7 +250,7 @@ export function optionMaker(start: ChoiceOption[] = []) {
 		if (found) return found.id;
 		if (options.length >= OPTIONS_MAX) return null;
 		const id = keyOf(label, options.map((o) => o.id));
-		options.push({ id, label });
+		options.push({ id, label, color: autoColor(options.length) });
 		made.push(label);
 		return id;
 	};

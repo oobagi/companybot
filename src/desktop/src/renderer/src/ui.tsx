@@ -488,8 +488,8 @@ export const toolButton = `inline-flex h-7 shrink-0 items-center gap-1.5 rounded
 export const filterChip = "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-neutral-300 px-2.5 text-sm text-neutral-500 hover:bg-neutral-50 data-active:border-solid data-active:border-neutral-200 data-active:bg-neutral-100 data-active:text-neutral-900 data-active:hover:bg-neutral-200/70";
 /** A field in `toolButton`'s row (the search box): its height. */
 export const toolControlClass = `h-7 rounded-md px-2 text-sm ${controlClass}`;
-/** An action at the end of a list of field labels, in their look (Add field). */
-export const labelButton = `-mx-1.5 flex w-fit items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+/** An action at the end of a list of field labels, in their look and size (Add field). */
+export const labelButton = `-mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
@@ -559,6 +559,10 @@ export const rowButton = `flex w-full rounded-lg px-2 py-1.5 text-left text-sm h
 export const listRowButton = "flex w-full gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50";
 /** A square in a grid of choices (an emoji). */
 export const tileButton = "flex size-8 items-center justify-center rounded-lg hover:bg-neutral-100";
+/** `tileButton` that shows which one is picked (`aria-pressed`): a field's icon. */
+export const pickedTileButton = `${tileButton} text-lg text-neutral-600 hover:text-neutral-900 aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900`;
+/** A square beside an input that opens a picker for it: a field's icon beside its name, an option's color. */
+export const swatchButton = "inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white text-lg text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 aria-expanded:bg-neutral-50";
 /** A picture that opens full size. */
 export const imageButton = "overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300";
 /** An on/off pill with a count (a reaction): filled while on (`aria-pressed`). */
