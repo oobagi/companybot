@@ -4,12 +4,13 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { ArchiveIcon, FileIcon, OpenOutsideIcon, PrivateIcon } from "../icons";
-import { NotFound, Notice, Page, barButton, useRun } from "../ui";
+import { ArchiveIcon, ArrowRightIcon, FileIcon, OpenOutsideIcon, PrivateIcon } from "../icons";
+import { NotFound, Notice, Page, useRun } from "../ui";
 import { FileViewer } from "./drive/FileViewer";
 import { FileAccess, MoveItem } from "./pages/PageTree";
 import { PageTitle } from "./pages/PageTitle";
-import { archiveQuestion, useConfirm } from "./chat/common";
+import { MenuItem, MoreMenu, archiveQuestion, useConfirm } from "./chat/common";
+import { AccessLock } from "./access";
 import { TrashNotice } from "./Trash";
 
 // A file in Drive, at /files/<id>: shown inline where we can, with rename, move, access and Archive
@@ -38,23 +39,16 @@ function FileScreen({ fileId }: { fileId: Id<"driveFiles"> }) {
 			heading={<PageTitle title={file.name} editable={file.canEdit} onSave={(name) => rename({ fileId, name })} />}
 			description={`${file.kind} · ${formatFileSize(file.size)}`}
 			wide
+			badge={<AccessLock lock={file.lock ?? null} />}
 			actions={
-				<>
-					{file.url && (
-						<button type="button" onClick={() => window.open(file.url!, "_blank")} className={barButton}>
-							<OpenOutsideIcon /> Open in browser
-						</button>
-					)}
-					{file.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}>Move to…</button>}
-					<button type="button" onClick={() => setSharing(true)} title={file.lock ? (file.lock.edit ? `Only ${file.lock.who} can edit it` : `Only ${file.lock.who} can see it`) : "Everyone can access it"} className={barButton}>
-						{file.restricted && <PrivateIcon />} Who can access
-					</button>
-					{file.canEdit && !file.archived && (
-						<button type="button" onClick={() => confirm(archiveQuestion(file.name, () => run(remove({ kind: "file", id: fileId }), back)))} className={barButton}>
-							<ArchiveIcon /> Archive
-						</button>
-					)}
-				</>
+				<MoreMenu label="File actions">
+					{(close) => <>
+						{file.url && <MenuItem onClick={() => { close(); window.open(file.url!, "_blank"); }}><OpenOutsideIcon /> Open in browser</MenuItem>}
+						{file.canEdit && <MenuItem onClick={() => { close(); setMoving(true); }}><ArrowRightIcon /> Move to…</MenuItem>}
+						<MenuItem onClick={() => { close(); setSharing(true); }}><PrivateIcon /> Who can access</MenuItem>
+						{file.canEdit && !file.archived && <MenuItem onClick={() => { close(); confirm(archiveQuestion(file.name, () => run(remove({ kind: "file", id: fileId }), back))); }}><ArchiveIcon /> Archive</MenuItem>}
+					</>}
+				</MoreMenu>
 			}
 		>
 			{dialog}

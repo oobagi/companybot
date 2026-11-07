@@ -249,6 +249,7 @@ const actionSlot = createContext<HTMLElement | null>(null);
  */
 export function Page({
 	title,
+	badge,
 	crumbs,
 	heading,
 	description,
@@ -257,6 +258,8 @@ export function Page({
 	children,
 }: {
 	title: string;
+	/** After the title in the bar: its access lock (`AccessLock`), as the sidebar shows it on the row. */
+	badge?: React.ReactNode;
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
 	description?: string;
@@ -270,7 +273,7 @@ export function Page({
 		<Scroll
 			className="@container"
 			header={
-				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>} description={description}>
+				<TopBar crumbs={crumbs} title={<><span className="truncate">{title}</span>{badge}</>} description={description}>
 					{actions}
 					<span ref={setSlot} className="contents" />
 				</TopBar>

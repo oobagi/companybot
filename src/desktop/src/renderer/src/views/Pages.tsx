@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
-import { ArchiveIcon, HistoryIcon, MembersIcon, MoveIcon, PageIcon, PlusIcon, PrivateIcon } from "../icons";
+import { ArchiveIcon, ArrowRightIcon, HistoryIcon, PageIcon, PlusIcon, PrivateIcon } from "../icons";
 import { NotFound, Notice, Page, barButton, useRun } from "../ui";
 import { DriveEmpty, DriveListing } from "./drive/DriveListing";
 import { useDriveUploads } from "./drive/upload";
@@ -11,7 +11,8 @@ import { MovePage, NewMenu, PageAccess } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
 import { PageTitle } from "./pages/PageTitle";
-import { archiveQuestion, useConfirm } from "./chat/common";
+import { MenuItem, MoreMenu, archiveQuestion, useConfirm } from "./chat/common";
+import { AccessLock } from "./access";
 import { TrashNotice } from "./Trash";
 
 // Drive: folders, standalone pages (wiki, SOPs, meeting notes) and files. Its sidebar is the tree;
@@ -74,18 +75,15 @@ function useItemActions(page: Loaded) {
 	const { confirm, dialog } = useConfirm();
 	const folder = page.kind === "folder";
 	const back = () => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : ["pages"]));
-	const actions = (
+	// The bar's ⋯ menu: the same items as the row's in the sidebar.
+	const menu = (close: () => void) => (
 		<>
-			{page.canEdit && <button type="button" onClick={() => setMoving(true)} className={barButton}><MoveIcon /> Move to…</button>}
-			{!page.recordId && (
-				<button type="button" onClick={() => setSharing(true)} title={page.lock ? (page.lock.edit ? `Only ${page.lock.who} can edit it` : `Only ${page.lock.who} can see it`) : "Everyone can access it"} className={barButton}>
-					{page.restricted ? <PrivateIcon /> : <MembersIcon />} Who can access
-				</button>
-			)}
+			{page.canEdit && <MenuItem onClick={() => { close(); setMoving(true); }}><ArrowRightIcon /> Move to…</MenuItem>}
+			{!page.recordId && <MenuItem onClick={() => { close(); setSharing(true); }}><PrivateIcon /> Who can access</MenuItem>}
 			{page.canEdit && !page.archived && (
-				<button type="button" onClick={() => confirm(archiveQuestion(page.title, () => run(remove({ kind: page.kind, id: page._id }), back), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it."))} className={barButton}>
+				<MenuItem onClick={() => { close(); confirm(archiveQuestion(page.title, () => run(remove({ kind: page.kind, id: page._id }), back), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it.")); }}>
 					<ArchiveIcon /> Archive
-				</button>
+				</MenuItem>
 			)}
 		</>
 	);
@@ -99,7 +97,7 @@ function useItemActions(page: Loaded) {
 			{sharing && <PageAccess pageId={page._id} onClose={() => setSharing(false)} />}
 		</>
 	);
-	return { actions, dialogs };
+	return { menu, badge: <AccessLock lock={page.lock ?? null} />, dialogs };
 }
 
 function FolderScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
@@ -111,7 +109,8 @@ function FolderScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
 			title={page.title}
 			crumbs={crumbs}
 			heading={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId: page._id, title })} />}
-			actions={<>{folder.actions}{item.actions}</>}
+			badge={item.badge}
+			actions={<>{folder.actions}<MoreMenu label="Folder actions">{item.menu}</MoreMenu></>}
 		>
 			{folder.dialogs}
 			{item.dialogs}
@@ -131,13 +130,14 @@ function PageScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
 			title={page.title}
 			crumbs={crumbs}
 			heading={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId, title })} onEnter={() => setFocusBody((n) => n + 1)} />}
+			badge={item.badge}
 			actions={
-				<>
-					<button type="button" onClick={() => setHistory(true)} className={barButton}>
-						<HistoryIcon /> History
-					</button>
-					{item.actions}
-				</>
+				<MoreMenu label="Page actions">
+					{(close) => <>
+						<MenuItem onClick={() => { close(); setHistory(true); }}><HistoryIcon /> History</MenuItem>
+						{item.menu(close)}
+					</>}
+				</MoreMenu>
 			}
 		>
 			{item.dialogs}

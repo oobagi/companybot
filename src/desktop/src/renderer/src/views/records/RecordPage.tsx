@@ -8,8 +8,8 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardButton, cardClass, compactButton, descriptionClass, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
-import { Modal, archiveQuestion, useConfirm } from "../chat/common";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, cardButton, cardClass, compactButton, descriptionClass, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
+import { MenuItem, Modal, MoreMenu, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
@@ -47,21 +47,13 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 			crumbs={crumbs}
 			heading={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
 			actions={
-				<>
-					{!record.archived && (
-						<button type="button" onClick={() => toggle(`rec:${recordId}`)} className={barButton}>
-							{pinned ? <UnpinIcon /> : <PinIcon />} {pinned ? "Unpin" : "Pin"}
-						</button>
-					)}
-					<button type="button" onClick={() => setHistory(true)} className={barButton}>
-						<HistoryIcon /> History
-					</button>
-					{canEdit && !record.archived && (
-						<button type="button" onClick={() => confirm(archiveQuestion(record.title, () => remove({ kind: "record", id: recordId })))} className={barButton}>
-							<ArchiveIcon /> Archive
-						</button>
-					)}
-				</>
+				<MoreMenu label={`${type.name} actions`}>
+					{(close) => <>
+						{!record.archived && <MenuItem onClick={() => { close(); toggle(`rec:${recordId}`); }}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
+						<MenuItem onClick={() => { close(); setHistory(true); }}><HistoryIcon /> History</MenuItem>
+						{canEdit && !record.archived && <MenuItem onClick={() => { close(); confirm(archiveQuestion(record.title, () => remove({ kind: "record", id: recordId }))); }}><ArchiveIcon /> Archive</MenuItem>}
+					</>}
+				</MoreMenu>
 			}
 		>
 			<Notice>{error}</Notice>

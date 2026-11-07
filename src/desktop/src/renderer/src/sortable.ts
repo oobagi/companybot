@@ -583,3 +583,7 @@ export function useSortable<T>(
 	self.current = key;
 	return { sorted, drag: item, tree, onto, row, key };
 }
+
+// Its state lives in this module (the lists, the drag in flight): a hot update can't swap it under
+// mounted rows, so a change here reloads the window instead.
+if (import.meta.hot) import.meta.hot.accept(() => window.location.reload());
