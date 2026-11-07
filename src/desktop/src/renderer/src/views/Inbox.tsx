@@ -270,11 +270,11 @@ const GROUP_GAP_MS = 15 * 60_000;
 const sideOf = (m: Message) => (m.direction === "in" ? "them" : "us");
 
 /**
- * Who wrote it: their picture, then their name. Our people and agents open their card; `them` is the
- * customer, by name only.
+ * Who wrote it, with their picture: on our side, the name then the picture; on theirs, the other way
+ * round. Our people and agents open their card; `them` is the customer, by name only.
  */
-function Sender({ author, them }: { author: Participant | null; them?: string }) {
-	const line = "flex items-center gap-2 text-sm text-neutral-600";
+function Sender({ author, them, mine }: { author: Participant | null; them?: string; mine: boolean }) {
+	const line = `flex items-center gap-2 text-sm text-neutral-600 ${mine ? "flex-row-reverse" : ""}`;
 	if (!author)
 		return (
 			<p className={`${line} pb-1.5`}>
@@ -321,7 +321,7 @@ function MessageItem({ message: m, them, channel, subject, named, last }: { mess
 	const forWho = m.author?.for;
 	return (
 		<div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${named ? "" : "pt-1.5"}`}>
-			{named && <Sender author={m.author} them={them} />}
+			{named && <Sender author={m.author} them={them} mine={mine} />}
 			{body}
 			{(failed || m.status === "sending") && <p className={`pt-1 text-xs ${failed ? "text-red-600" : "text-neutral-400"}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 			{!failed && m.status !== "sending" && last && forWho && (
@@ -344,7 +344,7 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 	const { error, busy, run } = useRun();
 	return (
 		<div className="flex flex-col items-end">
-			<Sender author={agent} them="Agent" />
+			<Sender author={agent} them="Agent" mine />
 			<div className="flex w-[85%] flex-col gap-2 rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-3">
 				<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
 				<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className="w-full resize-none bg-transparent text-sm outline-none" />
