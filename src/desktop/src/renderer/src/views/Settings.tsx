@@ -40,7 +40,7 @@ const sections = [
 			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
 			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
 			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
-			{ id: "channels", label: "Channels", description: "Where people reach your agents", icon: <ReachIcon /> },
+			{ id: "channels", label: "Channels", description: "Talk to your agents from other apps", icon: <ReachIcon /> },
 			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "usage", label: "Usage", description: "What AI cost this month", icon: <UsageIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
@@ -111,18 +111,16 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 	);
 }
 
-/** Ways to reach a workspace's agents from outside the app. None are built yet. */
+/** Other apps your team talks to agents from. None are built yet. An agent's own number and email are on its page. */
 const channels = [
-	{ label: "Text messages", hint: "Staff and customers text an agent's own phone number." },
-	{ label: "Phone calls", hint: "An agent answers and makes calls." },
-	{ label: "Email", hint: "Each agent gets its own email address." },
-	{ label: "Slack", hint: "Talk to agents from your Slack workspace." },
-	{ label: "Website chat", hint: "A chat box on your website, answered by an agent." },
+	{ label: "Slack", hint: "Message agents from your Slack workspace." },
+	{ label: "Microsoft Teams", hint: "Message agents from Teams." },
+	{ label: "Text messages", hint: "Text agents from your own phone." },
 ];
 
 function ChannelsTab() {
 	return (
-		<Settings note="Agents reply in chat today. These are on the way.">
+		<Settings note="Agents reply in chat today. An agent's own phone number and email are on its page.">
 			{channels.map((c) => (
 				<Setting key={c.label} label={c.label} hint={c.hint}>
 					<span className={hintClass}>Coming soon</span>

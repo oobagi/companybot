@@ -20,11 +20,11 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 | [Roles](#/settings/roles) | What each role can do; new roles | Everyone can look; owners change them |
 | [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); roles that can lock (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |
-| [Channels](#/settings/channels) | Text, phone, email, Slack and website chat for agents. All coming soon | Nobody yet |
+| [Channels](#/settings/channels) | Talk to agents from Slack, Teams or text. All coming soon | Nobody yet |
 | [Activity](#/settings/activity) | Database changes and agent activity | Read only |
 | [Usage](#/settings/usage) | What AI cost, by month | Read only (roles that can see everyone do; others their own) |
 | [Archive](#/settings/archive) | Deleted things; restore | Anyone restores what they could delete; roles that can delete forever do |
-| [Agents](#/settings/agents) | Agents, models, tools, instructions | Roles that can change agents |
+| [Agents](#/settings/agents) | Agents, models, tools, instructions; phone number, email and website chat (coming soon) | Roles that can change agents |
 | [Connectors](#/settings/connectors) | Outside services | Roles that can install connectors; everyone allowed connects their own |
 | [Skills](#/settings/skills) | Personal or team instructions | Everyone for Just me; roles that can make and change team skills do the rest |
 | [Automations](#/settings/automations) | Jobs on a schedule or event | Anyone makes personal ones; roles that can make and change team automations do the rest |
