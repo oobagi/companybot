@@ -138,8 +138,11 @@ export const manageInputs = {
 				text: z.string().min(1).max(20_000),
 			}),
 			z.strictObject({ action: z.literal("reply"), id: id.describe("Conversation id"), text: z.string().min(1).max(20_000) }),
-			z.strictObject({ action: z.literal("take_over"), id: id.describe("Conversation id: its agent stops replying; staff answer") }),
-			z.strictObject({ action: z.literal("hand_back"), id: id.describe("Conversation id: its agent answers again") }),
+			z.strictObject({
+				action: z.literal("assign"),
+				id: id.describe("Conversation id"),
+				to: z.string().min(1).describe('"agent" for its agent to answer, or a teammate\'s user id (its agent stops answering)'),
+			}),
 		]),
 	}),
 	"workspace.settings": z.object({
@@ -221,10 +224,8 @@ function manageLabel(input: unknown): string | undefined {
 			return `${r.channel === "sms" ? "Text" : "Email"} ${at("to")}`;
 		case "reply":
 			return "Reply to a customer";
-		case "take_over":
-			return "Take over a conversation";
-		case "hand_back":
-			return "Hand a conversation back to its agent";
+		case "assign":
+			return r.to === "agent" ? "Give a conversation back to its agent" : "Assign a conversation to someone";
 		case "add_contact":
 			return r.kind === "phone" ? "Get a phone number for an agent" : "Get an email address for an agent";
 		case "remove_contact":

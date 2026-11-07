@@ -191,7 +191,6 @@ export {
 	TrayIcon as InboxIcon,
 	UserIcon,
 	UserMinusIcon,
-	UserSwitchIcon as TakeOverIcon,
 	UsersIcon as MembersIcon,
 	XIcon as CloseIcon,
 } from "@phosphor-icons/react";

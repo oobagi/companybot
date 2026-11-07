@@ -337,6 +337,8 @@ export const team = query({
 					image: await imageUrl(ctx, profile.image),
 					email: r.email ?? "",
 					isYou: r.userId === member.userId,
+					/** Their role lets them use Inbox: who a conversation can be assigned to. */
+					inbox: can(access, "inbox.use"),
 					/** For profiles: the zone they picked, else their computer's. */
 					timeZone: profile.timeZone,
 				};

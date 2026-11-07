@@ -121,8 +121,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"contactPoints.setAnnounce": { agent: ["agents.manage:set_announce"] },
 	"inbox.reply": { agent: ["inbox.manage:reply"] },
 	"inbox.start": { agent: ["inbox.manage:start"] },
-	"inbox.takeOver": { agent: ["inbox.manage:take_over"] },
-	"inbox.handBack": { agent: ["inbox.manage:hand_back"] },
+	"inbox.assign": { agent: ["inbox.manage:assign"] },
 	"inbox.sendDraft": { agent: ["inbox.manage:reply"], humanOnly: "Sending an agent's held reply to a customer is a staff member's consent to it, like approving a held call; agents answer with their own reply." },
 	"inbox.discardDraft": { humanOnly: "Rejecting an agent's held reply to a customer is staff reviewing it, like denying a held call." },
 };

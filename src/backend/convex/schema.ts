@@ -402,7 +402,7 @@ export default defineSchema({
 		recordId: v.optional(v.id("records")),
 		/** `agent`: its agent answers each new message; `staff`: people do, and the agent stays quiet. */
 		mode: v.union(v.literal("agent"), v.literal("staff")),
-		/** Who took it over, while `mode` is staff because someone did. */
+		/** Who on staff it's assigned to, while `mode` is staff. */
 		takenBy: v.optional(v.id("users")),
 		/** Why someone on staff should look: a reply waiting to be sent, or the agent handed it off. */
 		needsStaff: v.optional(v.union(v.literal("draft"), v.literal("handoff"))),

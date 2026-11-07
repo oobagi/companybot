@@ -24,7 +24,7 @@ import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, smsProvider } from "./channelProviders";
 import { insertMessage, namer } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, checkPermission, getMember, liveWorkspace, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
+import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { typeVisible } from "./recordOps";
 
 // Inbox: conversations with people outside the workspace, by email and text. Each agent's address and
@@ -172,19 +172,12 @@ export const start = mutation({
 	handler: async (ctx, args) => startAs(ctx, { member: await requirePermission(ctx, "inbox.use") }, args),
 });
 
-export const takeOver = mutation({
-	args: { id: v.id("inboxConversations") },
-	handler: async (ctx, { id }) => {
+/** Who answers it: its agent, or someone on staff (the agent stops answering). */
+export const assign = mutation({
+	args: { id: v.id("inboxConversations"), to: v.union(v.literal("agent"), v.id("users")) },
+	handler: async (ctx, { id, to }) => {
 		const member = await requirePermission(ctx, "inbox.use");
-		await setMode(ctx, member, await requireConversation(ctx, member, id), "staff");
-	},
-});
-
-export const handBack = mutation({
-	args: { id: v.id("inboxConversations") },
-	handler: async (ctx, { id }) => {
-		const member = await requirePermission(ctx, "inbox.use");
-		await setMode(ctx, member, await requireConversation(ctx, member, id), "agent");
+		await assignTo(ctx, member, await requireConversation(ctx, member, id), to);
 	},
 });
 
@@ -280,14 +273,21 @@ export async function startAs(ctx: MutationCtx, who: Who, args: { agentId: Id<"a
 	return replyAs(ctx, who, (await ctx.db.get(id))!, args.text);
 }
 
-/** Staff take a conversation from its agent, or hand it back. Taking over answers a hand-off. */
-export async function setMode(ctx: MutationCtx, member: Member, c: Doc<"inboxConversations">, mode: "agent" | "staff") {
+/**
+ * Gives a conversation to its agent, or to someone on staff who can use Inbox (the agent stops
+ * answering it). Either answers a hand-off.
+ */
+export async function assignTo(ctx: MutationCtx, member: Member, c: Doc<"inboxConversations">, to: "agent" | Id<"users">) {
 	checkPermission(member, "inbox.use");
-	if (mode === "staff") await ctx.db.patch(c._id, { mode, takenBy: member.userId, ...(c.needsStaff === "handoff" && { needsStaff: undefined }) });
-	else {
-		if (!(await ctx.db.get(c.agentId))) throw new ConvexError("Its agent was deleted. Staff answer this one.");
-		await ctx.db.patch(c._id, { mode, takenBy: undefined, ...(c.needsStaff === "handoff" && { needsStaff: undefined }) });
+	const answered = c.needsStaff === "handoff" && { needsStaff: undefined };
+	if (to === "agent") {
+		if (!(await ctx.db.get(c.agentId))) throw new ConvexError("Its agent was deleted. Someone on staff answers this one.");
+		await ctx.db.patch(c._id, { mode: "agent", takenBy: undefined, ...answered });
+		return;
 	}
+	const them = await memberOf(ctx, to, member.workspaceId);
+	if (!them || !can(them, "inbox.use")) throw new ConvexError("They can't use Inbox. Pick someone whose role can.");
+	await ctx.db.patch(c._id, { mode: "staff", takenBy: to, ...answered });
 }
 
 const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>

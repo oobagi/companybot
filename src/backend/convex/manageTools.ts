@@ -21,7 +21,7 @@ import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
 import { addContact, removeContact, setAnnounceChannel } from "./contactPoints";
-import { replyAs, setMode, startAs } from "./inbox";
+import { replyAs, assignTo, startAs } from "./inbox";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 
 const paging = (cursor?: string) => ({ cursor: cursor ?? null, numItems: 30 });
@@ -356,8 +356,8 @@ export const runFor = internalMutation({
 						};
 					}
 					if (r.action === "reply") return replyAs(ctx, { member, agentId: turn.agentId }, c, r.text);
-					await setMode(ctx, member, c, r.action === "take_over" ? "staff" : "agent");
-					return { done: r.action, id: c._id };
+					await assignTo(ctx, member, c, r.to === "agent" ? "agent" : rowId(ctx, "users", r.to));
+					return { done: r.action, id: c._id, to: r.to };
 				}
 				case "workspace.settings": {
 					const r = manageInputs[tool].parse(input).request;

@@ -110,7 +110,7 @@ describe("the Public role", () => {
 		expect(await act("hand_off", "Needs a person")).toMatch(/isn't allowed/);
 		expect((await conversations(t))[0]!.mode).toBe("agent");
 
-		await owner.mutation(api.inbox.takeOver, { id: c!._id });
+		await owner.mutation(api.inbox.assign, { id: c!._id, to: (await owner.query(api.workspace.team))!.members[0]!.userId });
 		expect(await act("take_message", "Call me back")).toMatch(/taken/);
 		expect((await inboxMessages(t)).filter((m) => m.direction === "note")).toHaveLength(0);
 	});

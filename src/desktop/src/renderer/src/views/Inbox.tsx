@@ -6,7 +6,7 @@ import { Fragment, useState } from "react";
 import { api } from "../api";
 import { Segmented, Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { ArrowUpIcon, CaretRightIcon, MailIcon, InboxIcon, PaperPlaneTiltIcon, RecordIcon, TakeOverIcon, TextMessageIcon, TrashIcon } from "../icons";
+import { ArrowUpIcon, CaretRightIcon, CaretUpDownIcon, CheckIcon, MailIcon, InboxIcon, PaperPlaneTiltIcon, RecordIcon, TextMessageIcon, TrashIcon } from "../icons";
 import { navigate } from "../router";
 import {
 	EmptyState,
@@ -36,7 +36,7 @@ import {
 	wideControlClass,
 } from "../ui";
 import { recordPath } from "./records/logic";
-import { Avatar, DialogButtons, Modal, clock, dayLabel } from "./chat/common";
+import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
 import { AddButton, Item } from "./chat/Sidebar";
 import { ProfileLink } from "./chat/Profile";
 import type { Participant } from "./chat/data";
@@ -151,18 +151,14 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 
 /**
  * Who this is with and who's handling it, in a small card at the top right (like Getting started):
- * the customer, their address and record; then who it's assigned to, with Take over or Hand back.
+ * the customer, their address and record; then who it's assigned to, as a picker.
  * Its title folds it away (kept per computer).
  */
 function Details({ conversation: c }: { conversation: Opened }) {
-	const takeOver = useMutation(api.inbox.takeOver);
-	const handBack = useMutation(api.inbox.handBack);
-	const { error, busy, run } = useRun();
 	const [folded, setFolded] = useState(() => localStorage.getItem("inbox.details.folded") === "true");
 	const fold = (next: boolean) => (setFolded(next), localStorage.setItem("inbox.details.folded", String(next)));
 	const them = contactLabel(c);
 	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
-	const assignee = c.mode === "agent" ? c.agent : c.takenBy;
 	return (
 		<section aria-label="Details" className="absolute top-1 right-3 flex w-72 flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-sm shadow-sm">
 			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className={`${titleButton} group/fold -m-1 flex items-center gap-2 rounded-lg p-1`}>
@@ -183,32 +179,65 @@ function Details({ conversation: c }: { conversation: Opened }) {
 							</button>
 						)}
 					</div>
-					<div className="flex flex-col gap-1.5 border-t border-neutral-100 pt-3">
+					<div className="flex flex-col gap-1 border-t border-neutral-100 pt-3">
 						<p className="text-xs font-medium text-neutral-500">Assigned to</p>
-						<div className="flex items-center gap-2">
-							{assignee ? (
-								<ProfileLink who={assignee} className="flex min-w-0 flex-1 items-center gap-2 rounded-md">
-									<Avatar name={assignee.name} image={assignee.image} agent={assignee.type === "agent"} size="sm" />
-									<span className="truncate hover:underline">{assignee.name}</span>
-								</ProfileLink>
-							) : (
-								<span className="min-w-0 flex-1 truncate text-neutral-600">Staff</span>
-							)}
-							{c.mode === "agent" ? (
-								<button type="button" disabled={busy} className={compactButton} onClick={() => run(takeOver({ id: c.id }))}>
-									<TakeOverIcon /> Take over
-								</button>
-							) : (
-								<button type="button" disabled={busy} title={`Hand back to ${c.agentName}`} className={compactButton} onClick={() => run(handBack({ id: c.id }))}>
-									<TakeOverIcon /> Hand back
-								</button>
-							)}
-						</div>
-						<Notice>{error}</Notice>
+						<Assignee conversation={c} />
 					</div>
 				</>
 			)}
 		</section>
+	);
+}
+
+/** Who answers it, as a picker: its agent, or anyone on staff who can use Inbox (the agent stops answering). */
+function Assignee({ conversation: c }: { conversation: Opened }) {
+	const team = useQuery(api.workspace.team);
+	const assign = useMutation(api.inbox.assign);
+	const { error, run } = useRun();
+	const current = c.mode === "agent" ? c.agent : c.takenBy;
+	const people = (team?.members ?? []).filter((m) => m.inbox).sort((a, b) => Number(b.isYou) - Number(a.isYou));
+	const pick = (to: "agent" | Id<"users">) => run(assign({ id: c.id, to }));
+	return (
+		<>
+			<Popover
+				label="Assigned to"
+				trigger={
+					<>
+						{current ? <Avatar name={current.name} image={current.image} agent={current.type === "agent"} size="sm" /> : null}
+						<span className="min-w-0 flex-1 truncate text-left">{current?.name ?? "Someone on staff"}</span>
+						<CaretUpDownIcon className="shrink-0 text-neutral-400" />
+					</>
+				}
+				className={`-mx-1.5 flex items-center gap-2 ${bareSelectClass}`}
+				panelClassName="flex w-64 flex-col p-1"
+			>
+				{(close) => (
+					<>
+						{c.agent && (
+							<MenuItem onClick={() => (close(), c.mode !== "agent" && pick("agent"))}>
+								<Avatar name={c.agent.name} image={c.agent.image} agent size="sm" />
+								<span className="min-w-0 flex-1 truncate">{c.agent.name}</span>
+								{c.mode === "agent" && <CheckIcon className="shrink-0" />}
+							</MenuItem>
+						)}
+						{people.map((m) => {
+							const on = c.mode === "staff" && c.takenBy?.id === m.userId;
+							return (
+								<MenuItem key={m.userId} onClick={() => (close(), !on && pick(m.userId))}>
+									<Avatar name={m.name || m.email} image={m.image} size="sm" />
+									<span className="min-w-0 flex-1 truncate">
+										{m.name || m.email}
+										{m.isYou && <span className="text-neutral-400"> (you)</span>}
+									</span>
+									{on && <CheckIcon className="shrink-0" />}
+								</MenuItem>
+							);
+						})}
+					</>
+				)}
+			</Popover>
+			<Notice>{error}</Notice>
+		</>
 	);
 }
 
