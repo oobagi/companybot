@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Form, Notice, Setting, Settings, compactControlClass, descriptionClass, primaryButton, secondaryButton, useRun } from "../ui";
+import { Form, Notice, Question, descriptionClass, questionControlClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { Mark, Split } from "./Landing";
 
 /**
@@ -42,9 +42,8 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 					<h1 className="text-xl font-semibold tracking-tight text-neutral-900">{sentTo ? "Check your email" : "Sign in to Companybot"}</h1>
 					{sentTo && <p className={descriptionClass}>We sent a 6-digit code to {sentTo}.</p>}
 				</div>
-				<Settings>
 					{sentTo ? (
-						<Setting label="Code" wide>
+						<Question label="Code">
 							<input
 								autoFocus
 								aria-label="Code"
@@ -53,15 +52,14 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 								value={code}
 								onChange={(e) => setCode(e.target.value)}
 								placeholder="123456"
-								className={`${compactControlClass} w-full tracking-widest`}
+								className={`${questionControlClass} tracking-widest`}
 							/>
-						</Setting>
+						</Question>
 					) : (
-						<Setting label="Email" wide>
-							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={`${compactControlClass} w-full`} />
-						</Setting>
+						<Question label="Email">
+							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={questionControlClass} />
+						</Question>
 					)}
-				</Settings>
 				<Notice>{error}</Notice>
 				<div className="flex flex-col gap-4">
 					<button type="submit" disabled={busy} className={primaryButton}>

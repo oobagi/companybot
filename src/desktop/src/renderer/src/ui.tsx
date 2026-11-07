@@ -404,6 +404,22 @@ export function Setting({ label, hint, wide, children }: { label: string; hint?:
 	);
 }
 
+/**
+ * A question on sign-in or onboarding: its label (and hint) over a full-width control, no card.
+ * Those screens ask one thing at a time; settings, on a screen or in a dialog, are `Settings` rows.
+ */
+export function Question({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+	return (
+		<div className="flex flex-col gap-1.5">
+			<div className="flex min-w-0 flex-col gap-0.5">
+				<p className="text-sm font-medium">{label}</p>
+				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
+			</div>
+			{children}
+		</div>
+	);
+}
+
 /** A form that stays put on submit; `onSubmit` gets the form, for `FormData`. Fields stack unless `className` says otherwise. */
 export function Form({ className = "flex flex-col gap-4", onSubmit, children }: { className?: string; onSubmit: (form: HTMLFormElement) => void; children: React.ReactNode }) {
 	return (
@@ -574,6 +590,8 @@ export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl b
 export const toolbarClass = "flex flex-wrap items-center gap-2 text-sm";
 /** A compact control in a screen's toolbar or a settings row: search boxes, pickers. */
 export const wideControlClass = `${compactControlClass} w-64`;
+/** A `Question`'s control: full width and a size up, so it reads at a glance. */
+export const questionControlClass = `min-h-10 w-full rounded-xl px-3 py-2 text-body ${controlClass}`;
 
 /** A line between groups in a menu. */
 export function MenuDivider() {
