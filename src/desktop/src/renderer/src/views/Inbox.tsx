@@ -122,7 +122,11 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 		<Scroll
 			overlayScrollbar
 			header={
-				<TopBar title={<span className="truncate">{contactLabel(c)}</span>} description={`${c.contactName ? `${address} · ` : ""}${c.channel === "email" ? "Email" : "Text"} · ${who}`}>
+				<TopBar title={<span className="truncate">{contactLabel(c)}</span>} description={`${c.contactName ? `${address} · ` : ""}${c.channel === "email" ? "Email" : "Text"}`}>
+					<span title={who} className="flex h-7 items-center gap-1.5 rounded-full border border-neutral-200 pr-2.5 pl-1 text-sm text-neutral-600">
+						{c.mode === "agent" ? <Avatar name={c.agentName} image={c.agentImage} agent size="xs" /> : <Avatar name={c.takenByName ?? "Staff"} image={c.takenByImage} size="xs" />}
+						{c.mode === "agent" ? `${c.agentName} is answering` : c.takenByName ? `${c.takenByName} is answering` : "Staff answer"}
+					</span>
 					{c.mode === "agent" ? (
 						<button type="button" className={barButton} onClick={() => run(takeOver({ id }))}>
 							<TakeOverIcon /> Take over

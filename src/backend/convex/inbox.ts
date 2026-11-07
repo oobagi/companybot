@@ -141,6 +141,8 @@ export const get = query({
 			subject: c.subject ?? null,
 			mode: c.mode,
 			takenByName: c.takenBy ? await nameOf(ctx, c.takenBy) : null,
+			/** Their picture, for who has it (Inbox's top bar). */
+			takenByImage: c.takenBy ? (await person(c.takenBy)).image : null,
 			needsStaff: c.needsStaff ?? null,
 			replying: !!c.replyingSince && Date.now() - c.replyingSince < REPLY_STALE_MS,
 			/** The agent's address or number it goes from; null once removed (replies can't go out). */
