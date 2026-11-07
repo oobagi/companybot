@@ -327,7 +327,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 						const address = p?.status === "active" ? (kind === "sms" ? formatPhone(p.address) : p.address) : null;
 						return (
 							<button key={kind} type="button" aria-pressed={channel === kind && has[kind]} disabled={!has[kind]} onClick={() => setPicked(kind)} className={choiceCardButton}>
-								<span className="pt-0.5 text-xl text-neutral-700">{kind === "email" ? <MailIcon /> : <TextMessageIcon />}</span>
+								<span className="text-xl text-neutral-700">{kind === "email" ? <MailIcon /> : <TextMessageIcon />}</span>
 								<span className="flex min-w-0 flex-col">
 									<span className="font-medium">{kind === "email" ? "Email" : "Text message"}</span>
 									<span className="truncate text-xs text-neutral-500">{address ?? (points ? `No ${kind === "email" ? "address" : "number"} yet` : "")}</span>
