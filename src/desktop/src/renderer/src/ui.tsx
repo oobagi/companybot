@@ -453,26 +453,40 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
-/** An input, select or textarea: the same height as `secondaryButton` so a row of them lines up. */
+/** An input, select or textarea: the same box as `buttonBox`, so a row of fields and buttons lines up. */
 export const compactControlClass = `rounded-xl px-3 py-2 text-sm ${controlClass}`;
-/** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
-export const compactButton = `inline-flex min-h-9.5 items-center justify-center gap-1.5 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): the same box, smaller. */
+/**
+ * Every text button's box: one height, padding and corner. The looks below only add color, so
+ * buttons can't drift apart. Their names say where they go (the lint rules check that).
+ */
+const buttonBox = `inline-flex min-h-9.5 shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm ${disabledButtonClass}`;
+const outlined = `${buttonBox} border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`;
+const filled = `${buttonBox} border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700`;
+const quiet = `${buttonBox} border-transparent text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900`;
+/** On a screen, beside fields (Filter, Columns, Discard). */
+export const compactButton = outlined;
+/** `compactButton` for a destructive action (Leave channel). */
+export const compactDangerButton = `${buttonBox} border-neutral-200 bg-white text-red-600 hover:bg-red-50`;
+/** Submits a row of fields on a screen (Invite, Add, Save). */
+export const compactPrimaryButton = filled;
+/** A dialog's buttons, in `DialogButtons`. */
+export const primaryButton = filled;
+export const dangerButton = `${buttonBox} border-red-600 bg-red-600 text-white hover:bg-red-700`;
+export const secondaryButton = outlined;
+/** The top bar: quiet actions (Edit, History), and the create action (`NewButton`). */
+export const barButton = quiet;
+export const barDangerButton = `${buttonBox} border-transparent text-neutral-600 hover:bg-red-50 hover:text-red-700`;
+export const barPrimaryButton = filled;
+/** Where a card, popover or settings row acts on its own (Deny, Upload, Check for updates). */
+export const actionButton = outlined;
+export const actionPrimaryButton = filled;
+/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): smaller. */
 export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** `compactButton` for a destructive action (Leave channel): the same box, red text. */
-export const compactDangerButton = `inline-flex min-h-9.5 items-center justify-center gap-1.5 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 ${disabledButtonClass}`;
-/** Submits a row of compact controls (Invite, Add, Save): their box, filled. */
-export const compactPrimaryButton = `inline-flex min-h-9.5 items-center justify-center gap-1.5 rounded-xl border border-neutral-900 bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
-export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
-export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
-export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
-export const barButton = `flex min-h-9.5 items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+/** An action at the end of a list of field labels, in their look (Add field). */
+export const labelButton = `-mx-1.5 flex w-fit items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
-export const barDangerButton = `flex min-h-9.5 items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-export const barPrimaryButton = `flex min-h-9.5 items-center gap-1.5 rounded-xl bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 /** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
 export const trailingAction =
 	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
@@ -480,10 +494,6 @@ export const trailingAction =
 export const composerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50";
 /** The composer's Send: a round dark button with an arrow, grey until there's something to send. */
 export const sendButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200";
-/** `secondaryButton`'s size where a card, popover or settings row acts on its own (Deny, Message, Join, Check for updates). */
-export const actionButton = secondaryButton;
-/** `primaryButton`'s size where a card, popover or settings row acts on its own (Allow once, Connect, Restart to update). */
-export const actionPrimaryButton = primaryButton;
 /** The landing screen's one big dark button (Get started). */
 export const heroButton = "rounded-xl bg-neutral-900 px-6 py-2.5 text-base text-white hover:bg-neutral-800";
 /** The sidebar footer's "Update ready · Restart": small dark text block. */
@@ -844,10 +854,10 @@ export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discar
 	return (
 		<div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 			<p className="flex-1">{who || "Someone"} saved a change while you were editing.</p>
-			<button type="button" onClick={draft.discard} className={`${compactButton} bg-white`}>
+			<button type="button" onClick={draft.discard} className={compactButton}>
 				Use theirs
 			</button>
-			<button type="button" onClick={draft.keepMine} className={`${compactButton} bg-white`}>
+			<button type="button" onClick={draft.keepMine} className={compactButton}>
 				Keep mine
 			</button>
 		</div>

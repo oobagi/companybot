@@ -64,16 +64,16 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 				</Settings></Stacked>
 				<Notice>{error}</Notice>
 				<div className="flex flex-col gap-4">
-					<button type="submit" disabled={busy} className={`${primaryButton} py-2.5`}>
+					<button type="submit" disabled={busy} className={primaryButton}>
 						{sentTo ? "Sign in" : "Email me a code"}
 					</button>
 					{sentTo ? (
-						<button type="button" onClick={() => (setSentTo(undefined), setCode(""), fail())} className={`${secondaryButton} py-2.5`}>
+						<button type="button" onClick={() => (setSentTo(undefined), setCode(""), fail())} className={secondaryButton}>
 							Use a different email
 						</button>
 					) : (
 						onBack && (
-							<button type="button" onClick={onBack} className={`${secondaryButton} py-2.5`}>
+							<button type="button" onClick={onBack} className={secondaryButton}>
 								Back
 							</button>
 						)

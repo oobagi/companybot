@@ -106,11 +106,11 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 
 					<Notice>{error}</Notice>
 					<div className="flex flex-col gap-4">
-						<button type="submit" disabled={busy} className={`${primaryButton} py-2.5`}>
+						<button type="submit" disabled={busy} className={primaryButton}>
 							{step !== "team" ? "Continue" : busy ? "Creating…" : "Create workspace"}
 						</button>
 						{at > 0 && (
-							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={`${secondaryButton} py-2.5`}>
+							<button type="button" onClick={() => go(onboardingSteps[at - 1]!)} disabled={busy} className={secondaryButton}>
 								Back
 							</button>
 						)}
@@ -309,7 +309,7 @@ export function NameOnboarding() {
 				<NameField name={name} onChange={setTyped} />
 				<Notice>{error}</Notice>
 				<button type="submit" disabled={busy} className={primaryButton}>Continue</button>
-				<button type="button" onClick={() => void signOut()} className={`${secondaryButton} inline-flex items-center justify-center gap-1.5`}><SignOutIcon /> Sign out</button>
+				<button type="button" onClick={() => void signOut()} className={secondaryButton}><SignOutIcon /> Sign out</button>
 			</Form>
 		</div>
 	);

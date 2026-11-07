@@ -8,7 +8,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardButton, cardClass, compactButton, descriptionClass, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardButton, cardClass, compactButton, descriptionClass, labelButton, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -118,9 +118,9 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 					/>
 				))}
 			</dl>
-			<div className="flex gap-4 pt-2 text-sm">
+			<div className="pt-2">
 				{type.canManage && !record.archived && (
-					<button type="button" onClick={() => setAdding(true)} className={compactButton}>
+					<button type="button" onClick={() => setAdding(true)} className={labelButton}>
 						<PlusIcon /> Add field
 					</button>
 				)}
@@ -264,7 +264,7 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 								<span className={metadataClass}>Undone</span>
 							) : (
 								canUndo && (
-									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className={`shrink-0 ${compactButton}`}>
+									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className={compactButton}>
 										<RestoreIcon /> Undo
 									</button>
 								)
