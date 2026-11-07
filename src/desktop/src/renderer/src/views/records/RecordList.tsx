@@ -430,7 +430,12 @@ function RecordResults({
  * long values truncate. Updated, last, takes what's left of the screen, at least UPDATED_WIDTH.
  */
 const columnWidth = (f: TypeField) =>
-	f.key === NAME_KEY ? 256 : f.kind === "checkbox" ? 112 : f.kind === "number" || f.kind === "currency" || f.kind === "date" ? 144 : 208;
+	f.key === NAME_KEY ? 240
+	: f.kind === "checkbox" ? 96
+	: f.kind === "number" ? 112
+	: f.kind === "currency" || f.kind === "date" ? 144
+	: f.kind === "choice" || f.kind === "user" || f.kind === "link" ? 160
+	: 192;
 const UPDATED_WIDTH = 128;
 
 function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[]; stale?: boolean }) {
@@ -482,7 +487,7 @@ function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs
 	if (!editable) return <span className="block truncate px-2 py-1"><ValueView field={field} value={value} refs={refs} /></span>;
 	return (
 		<span className="block" title={error}>
-			<ValueEditor field={field} value={value} refs={refs} onSave={(next) => run(update({ recordId: row._id, values: { [field.key]: next } }))} />
+			<ValueEditor field={field} value={value} refs={refs} oneLine onSave={(next) => run(update({ recordId: row._id, values: { [field.key]: next } }))} />
 			{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
 		</span>
 	);
