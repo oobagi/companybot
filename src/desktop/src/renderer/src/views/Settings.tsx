@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, ReachIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -40,7 +40,6 @@ const sections = [
 			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
 			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
 			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
-			{ id: "channels", label: "Channels", description: "Talk to your agents from other apps", icon: <ReachIcon /> },
 			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "usage", label: "Usage", description: "What AI cost this month", icon: <UsageIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
@@ -81,7 +80,6 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 			{tab === "memory" && <MemoryTab access={access} />}
 			{tab === "activity" && <ActivityTab />}
 			{tab === "usage" && <UsageTab />}
-			{tab === "channels" && <ChannelsTab />}
 			{tab === "permissions" && (
 				<>
 					<YourPermissions />
@@ -108,24 +106,6 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 				</Group>
 			))}
 		</>
-	);
-}
-
-/** Other apps your team talks to agents from. None are built yet. An agent's own number and email are on its page. */
-const channels = [
-	{ label: "Slack", hint: "Message agents from your Slack workspace." },
-	{ label: "Microsoft Teams", hint: "Message agents from Teams." },
-];
-
-function ChannelsTab() {
-	return (
-		<Settings note="Agents reply in chat today. To text or email an agent, use its own number or address, on its page.">
-			{channels.map((c) => (
-				<Setting key={c.label} label={c.label} hint={c.hint}>
-					<span className={hintClass}>Coming soon</span>
-				</Setting>
-			))}
-		</Settings>
 	);
 }
 

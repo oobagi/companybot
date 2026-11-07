@@ -20,7 +20,6 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 | [Roles](#/settings/roles) | What each role can do; new roles | Everyone can look; owners change them |
 | [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); roles that can lock (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |
-| [Channels](#/settings/channels) | Talk to agents from Slack or Teams. Coming soon | Nobody yet |
 | [Activity](#/settings/activity) | Database changes and agent activity | Read only |
 | [Usage](#/settings/usage) | What AI cost, by month | Read only (roles that can see everyone do; others their own) |
 | [Archive](#/settings/archive) | Deleted things; restore | Anyone restores what they could delete; roles that can delete forever do |
