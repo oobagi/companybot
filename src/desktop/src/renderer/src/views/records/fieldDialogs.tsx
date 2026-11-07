@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Checkbox, Select } from "../../controls";
 import { type FieldKind, NAME_KEY, fieldKinds } from "@companybot/core/records";
-import type { FunctionArgs } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
@@ -153,8 +153,9 @@ export function AddField({
 }
 
 /**
- * Every setting of a field, changeable. A new kind, one ↔ several or linked database shows what it will
- * do to the values first; Change applies it in the background. Archive is in the menu (to Trash).
+ * Every setting of a field, changeable. A new kind, one ↔ several or linked database converts the values
+ * in the background on Save, like Notion; only a change that loses something says so first. Undoable for
+ * 30 days. Archive is in the menu (to Trash).
  */
 export function EditField({ field, onClose }: { field: TypeField; onClose: () => void }) {
 	const update = useMutation(api.fields.update);
@@ -167,6 +168,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 	const changes = useQuery(api.fields.changes, { fieldId });
 	const converting = !!field.changing || !!changes?.running;
 	const reshaping = reshapes(field, draft);
+	const preview = usePreview(field, draft, reshaping && !converting);
 	const save = () =>
 		run(
 			update({
@@ -207,7 +209,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 				) : (
 					<FieldSettings draft={draft} set={(d) => setDraft({ ...draft, ...d })} field={field} />
 				)}
-				{!converting && reshaping && <ChangePreview field={field} draft={draft} />}
+				{preview && <ChangeWarning preview={preview} />}
 				{!converting && !reshaping && last && (
 					<div className={`flex items-center gap-3 ${hintClass}`}>
 						<span className="min-w-0 flex-1">
@@ -235,15 +237,15 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 				)}
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
-					<button type="submit" className={primaryButton} disabled={converting}>{reshaping ? "Change" : "Save"}</button>
+					<button type="submit" className={primaryButton} disabled={converting || (reshaping && preview === undefined)}>Save</button>
 				</DialogButtons>
 			</Form>
 		</Modal>
 	);
 }
 
-/** What changing the field would do to its values, before anything changes. */
-function ChangePreview({ field, draft }: { field: TypeField; draft: Draft }) {
+/** What changing the field would do to its values: undefined while checking, null when nothing changes shape. */
+function usePreview(field: TypeField, draft: Draft, reshaping: boolean) {
 	// Settles as text, so each render's new object doesn't restart the wait.
 	const settled = useDebounced(
 		JSON.stringify({
@@ -254,45 +256,26 @@ function ChangePreview({ field, draft }: { field: TypeField; draft: Draft }) {
 			...(draft.kind === "choice" && field.kind !== "choice" && { options: optionsOf(draft) }),
 		}),
 	);
-	const waiting = draft.kind === "link" && !draft.linkTypeId;
-	const preview = useQuery(api.fields.preview, waiting ? "skip" : (JSON.parse(settled) as FunctionArgs<typeof api.fields.preview>));
-	if (waiting) return null;
-	if (!preview) return <div className={notePanelClass}><p className={hintClass}>Checking the values…</p></div>;
+	const skip = !reshaping || (draft.kind === "link" && !draft.linkTypeId);
+	const preview = useQuery(api.fields.preview, skip ? "skip" : (JSON.parse(settled) as FunctionArgs<typeof api.fields.preview>));
+	return skip ? null : preview;
+}
+
+/** Says only what a change loses (values cleared or cut, view filters dropped); a lossless one says nothing. */
+function ChangeWarning({ preview }: { preview: NonNullable<FunctionReturnType<typeof api.fields.preview>> }) {
 	if ("error" in preview) return <Notice>{preview.error}</Notice>;
-	const count = (n: number) => `${n.toLocaleString()}${preview.more ? "+" : ""}`;
-	const plural = (n: number, one: string, many: string) => (n === 1 && !preview.more ? one : many);
+	const n = (count: number) => `${count.toLocaleString()}${preview.more ? "+" : ""}`;
+	const values = (count: number) => `${n(count)} ${count === 1 && !preview.more ? "value" : "values"}`;
+	const examples = preview.examples.length ? `: ${preview.examples.map((e) => `“${e}”`).join(", ")}` : "";
+	const lines = [
+		preview.cleared > 0 && `${values(preview.cleared)} will be cleared${examples}.`,
+		preview.partly > 0 && `${values(preview.partly)} will keep only their first pick${preview.cleared ? "" : examples}.`,
+		preview.views.length > 0 && `Filters or grouping on it in ${preview.views.map((v) => `“${v}”`).join(", ")} will be removed.`,
+	].filter(Boolean);
+	if (!lines.length) return null;
 	return (
-		<div className={notePanelClass}>
-			<p className="font-medium">{preview.change}</p>
-			{preview.checked === 0 ? (
-				<p>No records have a value here yet.</p>
-			) : (
-				<>
-					<p>
-						{count(preview.converted)} {plural(preview.converted, "value converts", "values convert")}
-						{preview.partly > 0 && `, ${count(preview.partly)} keeping only part of what ${plural(preview.partly, "it has", "they have")}`}.
-					</p>
-					{preview.cleared > 0 && (
-						<p>
-							{count(preview.cleared)} {plural(preview.cleared, "doesn't fit and will be cleared", "don't fit and will be cleared")}
-							{preview.examples.length > 0 && `: ${preview.examples.map((e) => `“${e}”`).join(", ")}`}.
-						</p>
-					)}
-					{preview.cleared === 0 && preview.partly > 0 && preview.examples.length > 0 && <p>Dropped: {preview.examples.map((e) => `“${e}”`).join(", ")}.</p>}
-					{preview.options.length > 0 && (
-						<p>
-							New options: {preview.options.slice(0, 12).join(", ")}
-							{preview.options.length > 12 && ` and ${preview.options.length - 12} more`}
-							{preview.options.length >= 100 && " (a choice field holds up to 100; other values will be cleared)"}.
-						</p>
-					)}
-				</>
-			)}
-			{preview.views.length > 0 && <p>Filters, sorts or grouping on it in {preview.views.map((v) => `“${v}”`).join(", ")} will be removed.</p>}
-			<p className={metadataClass}>
-				{preview.more ? "Counted from the first 500 records; the rest convert the same way. " : ""}
-				Old values are kept for 30 days: undo it from here or Settings → Activity.
-			</p>
-		</div>
+		<p className={hintClass}>
+			{lines.join(" ")} You can undo this for 30 days.
+		</p>
 	);
 }
