@@ -270,14 +270,12 @@ body {
 	border-radius: var(--radius-lg);
 	background: var(--color-white);
 }
-/* A page's block picked up by its ⋮⋮ (PageEditor.tsx): an opaque, rounded card over the blocks sliding under it, at
-   its size and in its place (BlockNote animates a block's margin, so no inset: it would slide sideways on pickup);
-   the + and ⋮⋮ stay out of the way until it's let go. */
+/* A page's block picked up by its ⋮⋮ (PageEditor.tsx) moves as it is: no card, no shadow, its own size and place
+   (BlockNote animates a block's margin, so no inset either); the + and ⋮⋮ stay out of the way until it's let go. */
 .page-editor .sortable-lifted,
 .page-editor .sortable-landing {
 	scale: 1;
-	border-radius: 8px;
-	background: var(--color-white);
+	filter: none;
 }
 .sorting .bn-side-menu {
 	visibility: hidden;
