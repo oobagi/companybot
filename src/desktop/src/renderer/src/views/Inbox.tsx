@@ -296,7 +296,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 	const agents = useQuery(api.agents.list);
 	const start = useMutation(api.inbox.start);
 	const [agentId, setAgentId] = useState<string>();
-	const [channel, setChannel] = useState<"email" | "sms">("email");
+	const [picked, setPicked] = useState<"email" | "sms">("email");
 	const [to, setTo] = useState("");
 	const [subject, setSubject] = useState("");
 	const [text, setText] = useState("");
@@ -304,6 +304,9 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 	const live = (agents ?? []).filter((a) => !a.archived);
 	const chosen = agentId ?? live[0]?._id;
 	const points = useQuery(api.contactPoints.forAgent, chosen ? { agentId: chosen as Id<"agents"> } : "skip");
+	const has = { email: points?.email?.status === "active", sms: points?.phone?.status === "active" };
+	// The one they picked, unless this agent can't send that way and can the other.
+	const channel = !has[picked] && has[picked === "email" ? "sms" : "email"] ? (picked === "email" ? "sms" : "email") : picked;
 	const point = channel === "email" ? points?.email : points?.phone;
 	const from = point?.status === "active" ? (channel === "sms" ? formatPhone(point.address) : point.address) : null;
 	const row = "flex items-center gap-3 border-b border-neutral-100 px-4";
@@ -323,7 +326,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 						const p = kind === "email" ? points?.email : points?.phone;
 						const address = p?.status === "active" ? (kind === "sms" ? formatPhone(p.address) : p.address) : null;
 						return (
-							<button key={kind} type="button" aria-pressed={channel === kind} onClick={() => setChannel(kind)} className={choiceCardButton}>
+							<button key={kind} type="button" aria-pressed={channel === kind && has[kind]} disabled={!has[kind]} onClick={() => setPicked(kind)} className={choiceCardButton}>
 								<span className="pt-0.5 text-xl text-neutral-700">{kind === "email" ? <MailIcon /> : <TextMessageIcon />}</span>
 								<span className="flex min-w-0 flex-col">
 									<span className="font-medium">{kind === "email" ? "Email" : "Text message"}</span>
