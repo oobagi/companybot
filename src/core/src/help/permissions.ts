@@ -39,6 +39,9 @@ Each channel, database and page has a **Who can access** list: **Everyone**, or 
 - **Private channels** keep their members; the list applies on top.
 - **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." It names the place only if they asked for it by that name; otherwise it's "this database". In a channel they can only view, agents don't reply or follow up for them, and a reply already under way stops when they lose Post.
 
+## Customers
+When a customer emails or texts an agent, nobody on the team asked, so the agent acts as the **Public** role: it can only answer, take a message or hand off, as owners allow in [Roles](#/settings/roles). Unless agents may reply on their own, each reply waits in [Inbox](#/inbox) for someone to send it. When you ask an agent to email or text someone, that's yours: it asks first, like any message leaving the workspace.
+
 ## Roles
 What else a person can do comes from their roles (managing members, agents, connectors, locks and more). See **help: members**.
 `,

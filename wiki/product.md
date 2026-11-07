@@ -25,6 +25,14 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - People with `fields.edit` create databases from the sidebar and rename or delete them from the list. Everything deleted sits in Trash for 30 days ([Data → Trash](data.md#trash)). Saved views share sorting, filtering and columns with the workspace; people and agents can create, update and delete them.
 - Next: record triggers for automations, a pipeline board.
 
+## Inbox (email and texts built)
+- **Customers write to an agent, not to the team's chat.** Each agent can get its own email address (`name@<EMAIL_DOMAIN>`, through Resend) and phone number (through Twilio) on its page, under Contact. What customers send lands in **Inbox**, a top-level screen: one conversation per person, per agent, per channel (email or text). Website chat comes next.
+- **The agent answers as the Public role** ([Permissions](permissions.md#public)): it can reply, take a message for staff, or hand the conversation to staff, as owners allow. It can't read the business's records, pages, chats or memories for a customer. Replies wait for staff to check and send unless an owner lets agents reply on their own.
+- **Staff watch, jump in or take over.** Anyone with `inbox.use` replies from the agent's address or number, takes a conversation over (the agent stops answering it), hands it back, or starts a new one. The rail's Inbox button counts conversations waiting for someone.
+- **Linked to the record.** A sender whose email or phone matches a record's email or phone field links the conversation to that record.
+- **Chat gets one line.** An agent can post "New conversation from … [Open in Inbox]" to a channel picked on its page; the conversation itself never goes to chat.
+- **Not yet:** calls (Retell, #118), the Public role saving a lead record or reading public pages, website chat, and US texting registration (A2P 10DLC) for production numbers.
+
 ## Calls (not built yet)
 - Voice agents (like Night Owl's receptionist) run from Companybot.
 - Every call lands on the client's record: recording, transcript, AI summary, next steps. Summaries can post to chat, and call events can start automations.
@@ -40,7 +48,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - **Start from what they have.** Optionally, hand the agent the current site. It pulls the logo, colors, fonts, photos and copy, and fills the databases (services, team, locations, hours). What it pulls is a draft until someone confirms it.
 - **The site reads from the databases.** Services, hours, team and reviews come from records, so editing a record updates the site. Content is data; layout and design are a versioned site.
 - **Funnels write to the databases.** Forms and landing pages create or update records (a lead in Clients) and can start automations.
-- **Leads land in chat.** Form fills, texts, emails and calls show up in chat like Night Owl's. Agents answer there while the team watches or jumps in. Each lead is a record with its conversation. Replies to customers follow [Permissions](permissions.md) (ask first).
+- **Leads land in Inbox** (built for email and texts, see Inbox above). Form fills and calls will too. Agents answer there while the team watches or jumps in; chat only gets a one-line "New conversation from …". Each lead is a record with its conversation. Replies to customers follow the Public role ([Permissions](permissions.md#public)).
 - **Agents keep it up.** Edits, new pages, seasonal changes, fixes and upgrades happen by asking in chat. Nobody signs in to a CMS, GitHub or a host.
 - **Making a site is table stakes.** ChatGPT Sites, Wix in ChatGPT and Teable's app builder all make one from a prompt ([Competitors](competitors.md)). What they lack is the loop: records behind the forms, someone answering leads, and upkeep.
 - **Rules, from the Cottonwood Library site** (built by hand: chat → CMS → preview → "Ready to save?" → live):
@@ -49,7 +57,7 @@ This page is the vision. What's built today: [Architecture](architecture.md).
   - The business owns its domain, billing and the final publish. Domain transfers take 5–15 days, so start early.
   - Scheduled jobs report; they don't change the live site on their own.
   - Picture generation matters: it was the library staff's favorite part.
-- **Depends on** the [Sandbox](sandbox.md) (to build and preview sites) and email and phone (to answer leads).
+- **Depends on** the [Sandbox](sandbox.md) (to build and preview sites) and Inbox (to answer leads; email and texts are built).
 
 ## Later
 - **Ads manager:** run marketing campaigns from Companybot, with results tied back to the leads they brought in.

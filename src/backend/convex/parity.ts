@@ -107,5 +107,15 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"recordTypes.setAccess": { humanOnly: "Who can see or change a database decides what everyone else may see; a direct person decides, like roles." },
 	"pages.setAccess": { humanOnly: "Who can see or edit a page decides what everyone else may see; a direct person decides, like roles." },
 	"workspace.updateSettings": { agent: ["workspace.settings:update"] },
+	"roles.setPublicAbility": { humanOnly: "What agents may do for strangers outside the workspace is an owner's call, like any role's switches." },
+	"contactPoints.add": { agent: ["agents.manage:add_contact"] },
+	"contactPoints.remove": { agent: ["agents.manage:remove_contact"] },
+	"contactPoints.setAnnounce": { agent: ["agents.manage:set_announce"] },
+	"inbox.reply": { agent: ["inbox.manage:reply"] },
+	"inbox.start": { agent: ["inbox.manage:start"] },
+	"inbox.takeOver": { agent: ["inbox.manage:take_over"] },
+	"inbox.handBack": { agent: ["inbox.manage:hand_back"] },
+	"inbox.sendDraft": { agent: ["inbox.manage:reply"], humanOnly: "Sending an agent's held reply to a customer is a staff member's consent to it, like approving a held call; agents answer with their own reply." },
+	"inbox.discardDraft": { humanOnly: "Rejecting an agent's held reply to a customer is staff reviewing it, like denying a held call." },
 };
 

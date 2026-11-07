@@ -10,11 +10,11 @@ Companybot is where a team's chat, business data and AI agents live together. Pe
 A new workspace starts with one channel, #general, and one agent, Companybot. Databases, pages, skills and automations start empty: the team makes what it needs, and Companybot can help.
 
 ## Finding your way around
-- **Rail** (far left): the parts of the app. [Chat](#/chat), Drive (your pages, #/pages), Databases (#/records) and Customize (agents, connectors, skills, automations). Press ⌘1–9 to jump to one, in the order shown (Ctrl+1–9 on Windows and Linux); it works while you type a message too. Chat shows a red count for unread mentions and DMs, or a dot when something is unread. Drag a tab to reorder them.
+- **Rail** (far left): the parts of the app. [Chat](#/chat), [Inbox](#/inbox) (customers' emails and texts to your agents), Drive (your pages, #/pages), Databases (#/records) and Customize (agents, connectors, skills, automations). Press ⌘1–9 to jump to one, in the order shown (Ctrl+1–9 on Windows and Linux); it works while you type a message too. Chat shows a red count for unread mentions and DMs, or a dot when something is unread; Inbox, a count of conversations waiting for someone. Drag a tab to reorder them.
 - **Pins and recents** (in the rail, under the tabs): anything you pin, then what you opened lately. Pin a channel, DM, side chat, page or database with **Pin to rail** in its ⋯ menu in the sidebar, a single record (one client, one job) with **Pin** atop its page, or right-click any of them in the rail; drag pins to reorder. Pins, recents and the rail's order sync with your account, per workspace.
 - **Your avatar** (bottom of the rail): [Your preferences](#/settings/preferences) and Sign out.
 - **Workspace logo** (top of the rail): the open workspace. Its menu switches to another (⌃⌘1–9 also do; Ctrl+Shift+1–9 on Windows and Linux), answers invites, starts a new one, and opens Workspace settings or lets you leave. A red count means a mention or DM in another workspace; a dot means something unread there, or an invite.
-- **Sidebar**: the open tab's things. For Chat: Channels and Direct messages (click a section title to fold it; drag to reorder). For Drive: pages. For Databases: each database. For Customize: Agents, Connectors, Skills and Automations. Press ⌥1–9 (Alt+1–9) to open the Nth item as shown, top level only; a folded section's items are skipped. Works while typing unless the key produces printable ASCII other than a digit (such as @, # or brackets). Shortcuts leave composing text alone.
+- **Sidebar**: the open tab's things. For Chat: Channels and Direct messages (click a section title to fold it; drag to reorder). For Inbox: conversations, the latest first. For Drive: pages. For Databases: each database. For Customize: Agents, Connectors, Skills and Automations. Press ⌥1–9 (Alt+1–9) to open the Nth item as shown, top level only; a folded section's items are skipped. Works while typing unless the key produces printable ASCII other than a digit (such as @, # or brackets). Shortcuts leave composing text alone.
 - **Top bar**: where you are, plus that screen's actions.
 - **Help button** (top right): What's new and Report a problem.
 
@@ -35,6 +35,6 @@ See the **help: settings** topic for who can change what.
 Each person holds one or more roles in each workspace, like **Owner** or **Member**. Roles decide what they can do; owners can do everything. See the **help: members** topic.
 
 ## Links
-Screens have addresses you can link to: [Chat](#/chat), a database (#/records/<key>), a page (#/pages/<page id>), and each settings tab (#/settings/<tab>).
+Screens have addresses you can link to: [Chat](#/chat), [Inbox](#/inbox) (a conversation is #/inbox/<id>), a database (#/records/<key>), a page (#/pages/<page id>), and each settings tab (#/settings/<tab>).
 `,
 } satisfies HelpPage;

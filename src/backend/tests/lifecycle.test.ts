@@ -145,6 +145,11 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("usage", { workspaceId, month: "2026-10", userId: memberId, agentId, kind: "chat", model: "openai/gpt-6-luna", costUsd: 0.1 });
 		await ctx.db.insert("imageHolds", { workspaceId, costUsd: 0.04 });
 
+		// An agent's address, a conversation with a customer and its message: the workspace's, not the member's.
+		await ctx.db.insert("contactPoints", { workspaceId, agentId, kind: "email", address: `helper@${workspaceId}.test`, status: "active", createdBy: memberId });
+		const conversationId = await ctx.db.insert("inboxConversations", { workspaceId, agentId, channel: "email", contact: "dana@acme.com", mode: "staff", takenBy: memberId, lastAt: now, preview: "Hi" });
+		await ctx.db.insert("inboxMessages", { workspaceId, conversationId, direction: "in", text: "Hi", status: "received", providerId: `p-${workspaceId}` });
+
 		const install = { workspaceId, agentId, enabled: true, timeZone: "UTC" };
 		const trigger = { type: "webhook" as const };
 		const justMine = await ctx.db.insert("automationInstalls", {

@@ -6,6 +6,7 @@ import chat from "./chat";
 import connectors from "./connectors";
 import databases from "./databases";
 import general from "./general";
+import inbox from "./inbox";
 import members from "./members";
 import memory from "./memory";
 import overview from "./overview";
@@ -30,7 +31,7 @@ export interface HelpPage {
 	text: string;
 }
 
-export const helpPages: readonly HelpPage[] = [overview, chat, agents, memory, skills, automations, databases, pages, connectors, permissions, members, trash, activity, usage, settings, accountSettings, general];
+export const helpPages: readonly HelpPage[] = [overview, chat, inbox, agents, memory, skills, automations, databases, pages, connectors, permissions, members, trash, activity, usage, settings, accountSettings, general];
 
 export const helpTopics = () => helpPages.map(({ id, title, summary }) => ({ id, title, summary }));
 

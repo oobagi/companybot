@@ -46,6 +46,8 @@ export const permissions = {
 	"pages.edit": { label: "write and change pages", member: true },
 	/** Add, change and delete (to Archive) databases and their fields. */
 	"fields.edit": { label: "add and change databases and fields", member: false },
+	/** See Inbox (conversations with customers by email and text), reply as the business, and take conversations over from agents. */
+	"inbox.use": { label: "see Inbox and reply to customers", member: true },
 	/** Make channels, and rename, delete and add people to any channel. */
 	"channels.edit": { label: "make and change channels", member: true },
 	/** Delete forever from Archive (wiki/data.md#trash). Agents never delete forever. */

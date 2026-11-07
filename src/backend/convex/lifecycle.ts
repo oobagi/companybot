@@ -13,6 +13,7 @@ import { deletePage, pageOfRecord } from "./pageOps";
 import { forgetTrashEntry } from "./memoryOps";
 import { trashEntry } from "./trashOps";
 import { toField } from "./recordOps";
+import { releaseLater } from "./contactPoints";
 
 // What happens to every table's rows when what they belong to goes: a workspace is deleted (or
 // reset: the same, minus what `keepOnReset` names), a member removed, an account erased, a
@@ -210,6 +211,23 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		childOf: { table: "agents", index: "by_agent", field: "agentId" },
 		agent: { index: "by_agent", eq: ["agentId"] },
 	},
+	// A phone number is released with the provider as its row goes, so nobody keeps paying for it (contactPoints.ts).
+	contactPoints: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: releaseLater },
+		agent: { index: "by_agent", eq: ["agentId"], onDelete: releaseLater },
+		keep: "An agent's address and number are the agent's, not whoever added them.",
+	},
+
+	// ---- Inbox ----
+	inboxConversations: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		// They're with its address or number, which goes with it.
+		agent: { index: "by_agent", eq: ["agentId"] },
+		// The customer's record went: the conversation stays, unlinked.
+		record: { index: "by_record", eq: ["recordId"], scrub: () => ({ recordId: undefined }) },
+		keep: "Conversations with customers are the workspace's. Whoever took one over shows as a former member once they go.",
+	},
+	inboxMessages: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" } },
 	memories: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		// Team memories in Archive take their entry: it couldn't be restored anymore.

@@ -41,7 +41,7 @@ it("opens the Nth rail tab with ⌘N, in the order shown, even after a reorder",
 	const onOpen = vi.fn();
 	render(rail(onOpen));
 	press("Digit2", { metaKey: true });
-	expect(onOpen).toHaveBeenLastCalledWith("drive");
+	expect(onOpen).toHaveBeenLastCalledWith("inbox");
 
 	saved.rail = ["customize", "databases"];
 	render(rail(onOpen));
@@ -59,7 +59,7 @@ it("opens a tab with ⌘N while typing a message, as in Slack", () => {
 	const composer = document.body.appendChild(document.createElement("div"));
 	composer.contentEditable = "true";
 	press("Digit2", { metaKey: true }, composer);
-	expect(onOpen).toHaveBeenCalledWith("drive");
+	expect(onOpen).toHaveBeenCalledWith("inbox");
 	composer.remove();
 });
 
@@ -75,7 +75,7 @@ it("does nothing while a dialog or menu is open, so a half-filled form isn't los
 	// Closed, they work again.
 	render(h("div", null, rail(onOpen)));
 	press("Digit2", { metaKey: true });
-	expect(onOpen).toHaveBeenCalledWith("drive");
+	expect(onOpen).toHaveBeenCalledWith("inbox");
 });
 
 it("no longer opens tabs with G then a letter", () => {

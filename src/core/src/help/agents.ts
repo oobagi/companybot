@@ -17,6 +17,7 @@ The main agent, in every workspace. It can search and save memory, work with dat
 - **Reasoning**: how hard it thinks before answering: Off, Low, Medium (the default) or High. More is slower and costs more, but handles hard or many-step work better.
 - **Tools**: what it may do, as groups (memory, chat, records, pages and more). A tool also needs one of the person's roles to allow it; if none does, the agent says which roles can. Help is its own group; grant it to let an agent answer "how do I…" questions.
 - **Instructions**: who the agent is and how it works. Changes apply from its next reply.
+- **Contact**: its own email address and phone number, so customers can reach it, and the channel where it posts when someone new writes. They apply at once. What customers send lands in [Inbox](#/inbox); see **help: inbox**. Website chat is coming soon.
 - **History**: every save is kept. Restore an old version from there.
 - Deleting an agent moves it to [Archive](#/settings/archive). The last agent can't be deleted.
 

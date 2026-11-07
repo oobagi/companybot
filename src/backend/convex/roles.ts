@@ -1,4 +1,4 @@
-import { type BuiltInRole, canGrantRole, flipSwitch, roleSwitches, switches } from "@companybot/core";
+import { type BuiltInRole, canGrantRole, flipAbility, flipSwitch, isPublicAbility, publicAbilities, publicAbilityIds, publicSwitches, roleSwitches, switches } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -46,6 +46,32 @@ export const list = query({
 			/** Pending invites that give it: deleting it moves those left with none to Member. */
 			invited: invited.get(r._id) ?? 0,
 		}));
+	},
+});
+
+/**
+ * The Public role: what agents may do for people outside the workspace (core public-role.ts). Built in,
+ * never held by a member, never deleted; owners switch its customer-safe abilities on or off, and nothing
+ * past that ceiling can be switched on. Everyone can see it.
+ */
+export const publicRole = query({
+	args: {},
+	handler: async (ctx) => {
+		const member = await getMember(ctx);
+		if (!member) return null;
+		const on = publicSwitches((await ctx.db.get(member.workspaceId))?.publicAbilities);
+		return { abilities: publicAbilityIds.map((id) => ({ id, label: publicAbilities[id].label, on: on.includes(id) })) };
+	},
+});
+
+/** Turns one of Public's abilities on or off. Anything that isn't one (a staff permission) is refused. */
+export const setPublicAbility = mutation({
+	args: { ability: v.string(), on: v.boolean() },
+	handler: async (ctx, { ability, on }) => {
+		const member = await requirePermission(ctx, "roles.manage");
+		if (!isPublicAbility(ability)) throw new ConvexError("Public can't be given that. It only ever has what's safe for customers: staff powers stay with staff.");
+		const workspace = (await ctx.db.get(member.workspaceId))!;
+		await ctx.db.patch(workspace._id, { publicAbilities: flipAbility(workspace.publicAbilities, ability, on) });
 	},
 });
 

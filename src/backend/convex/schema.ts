@@ -1,4 +1,4 @@
-import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { accessLevels, builtInRoles, fieldKinds, fileTypes, inboxChannels, permissions, publicAbilityIds, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
@@ -246,6 +246,11 @@ export default defineSchema({
 	workspaces: defineTable({
 		name: v.string(),
 		version: v.optional(v.number()),
+		/**
+		 * The Public role (core public-role.ts): what agents may do for people outside the workspace. Only the
+		 * abilities an owner flipped from their default; nothing outside the ceiling can be stored.
+		 */
+		publicAbilities: v.optional(v.array(v.object({ ability: oneOf(publicAbilityIds), on: v.boolean() }))),
 		/** ISO 4217: the default for new amounts. Each amount stores its own. Unset means DEFAULT_CURRENCY. */
 		currency: v.optional(v.string()),
 		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
@@ -343,7 +348,81 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Its picture (images.ts): not part of its config, so versions and restores leave it alone. Unset shows its initials. */
 		image: v.optional(v.id("_storage")),
+		/** Where "New conversation from …" is posted when someone new emails or texts it (inbox.ts). Outside its config, like `image`. */
+		announceChatId: v.optional(v.id("chats")),
 	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
+
+	// An agent's own email address or phone number (contactPoints.ts): how people outside reach it. One of each per agent.
+	contactPoints: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		kind: v.union(v.literal("email"), v.literal("phone")),
+		/** Lowercased email, or E.164 phone. Empty while a number is still being bought. Unique among live rows. */
+		address: v.string(),
+		/** `getting`: a number is being bought from the provider; `failed`: it couldn't be (`error` says why). */
+		status: v.union(v.literal("active"), v.literal("getting"), v.literal("failed")),
+		/** The provider's id for a phone number (Twilio's PN…), needed to release it. */
+		providerId: v.optional(v.string()),
+		/** A phone number asked for in this US area code. */
+		areaCode: v.optional(v.string()),
+		error: v.optional(v.string()),
+		createdBy: v.id("users"),
+	})
+		.index("by_address", ["kind", "address"])
+		.index("by_agent", ["agentId", "kind"])
+		.index("by_workspace", ["workspaceId"]),
+
+	// Inbox (inbox.ts): one conversation per outside contact per channel per agent. Staff see them in Inbox; the agent answers as Public.
+	inboxConversations: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		channel: oneOf(inboxChannels),
+		/** Their address: lowercased email, or E.164 phone. */
+		contact: v.string(),
+		/** The name their email gave, if any. Their words, shown as text. */
+		contactName: v.optional(v.string()),
+		/** Email: the thread's subject, from its first message. */
+		subject: v.optional(v.string()),
+		/** The record whose email or phone field matches `contact`, once found. */
+		recordId: v.optional(v.id("records")),
+		/** `agent`: its agent answers each new message; `staff`: people do, and the agent stays quiet. */
+		mode: v.union(v.literal("agent"), v.literal("staff")),
+		/** Who took it over, while `mode` is staff because someone did. */
+		takenBy: v.optional(v.id("users")),
+		/** Why someone on staff should look: a reply waiting to be sent, or the agent handed it off. */
+		needsStaff: v.optional(v.union(v.literal("draft"), v.literal("handoff"))),
+		/** Its last message's time and first line, for the list. */
+		lastAt: v.number(),
+		preview: v.string(),
+		/** While the agent is answering (inboxAgent.ts): when it started. One at a time; a message meanwhile sets `replyAgain`. */
+		replyingSince: v.optional(v.number()),
+		replyAgain: v.optional(v.boolean()),
+	})
+		.index("by_contact", ["workspaceId", "agentId", "channel", "contact"])
+		.index("by_workspace", ["workspaceId", "lastAt"])
+		.index("by_needs", ["workspaceId", "needsStaff"])
+		.index("by_agent", ["agentId"])
+		.index("by_record", ["recordId"]),
+
+	inboxMessages: defineTable({
+		workspaceId: v.id("workspaces"),
+		conversationId: v.id("inboxConversations"),
+		/** `in` from the customer; `out` to them; `note` for staff only, never sent. */
+		direction: v.union(v.literal("in"), v.literal("out"), v.literal("note")),
+		text: v.string(),
+		/** `draft`: the agent's reply waiting for staff (Public can't reply on its own); `sending` until the provider takes it. */
+		status: v.union(v.literal("received"), v.literal("draft"), v.literal("sending"), v.literal("sent"), v.literal("failed")),
+		/** Who wrote it on our side: a person (staff), or an agent. Neither on `in`. */
+		authorUserId: v.optional(v.id("users")),
+		authorAgentId: v.optional(v.id("agents")),
+		/** The provider's id (Resend email id, Twilio MessageSid): an inbound one is stored once however often it's delivered. */
+		providerId: v.optional(v.string()),
+		/** Email Message-ID, for threading replies (In-Reply-To, References). */
+		messageId: v.optional(v.string()),
+		error: v.optional(v.string()),
+	})
+		.index("by_conversation", ["conversationId"])
+		.index("by_provider", ["providerId"]),
 
 	agentVersions: defineTable({
 		agentId: v.id("agents"),

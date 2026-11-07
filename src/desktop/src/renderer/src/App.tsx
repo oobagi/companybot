@@ -31,6 +31,7 @@ import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm 
 import { AddButton, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
+import { InboxNav, InboxView } from "./views/Inbox";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
@@ -147,7 +148,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /inbox[/<conversation>], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -160,7 +161,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
 	// The rail's tab on screen. Customize's tabs (Agents, Connectors, Skills, Automations) keep their /settings/<tab> addresses; the rest of Settings lights none.
 	const tab: AppTab | undefined =
-		view === "chat" ? "chat" : view === "pages" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
+		view === "chat" ? "chat" : view === "inbox" ? "inbox" : view === "pages" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
@@ -176,7 +177,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const lastIn = useRef<Partial<Record<AppTab, string[]>>>({});
 	if (tab) lastIn.current[tab] = route;
 	const startOf = (t: AppTab): string[] =>
-		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
+		({ chat: ["chat"], inbox: ["inbox"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
 	const createPage = useMutation(api.pages.create);
@@ -196,7 +197,9 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		if (here && canSaveRecent) visit(here);
 	}, [here, visit, canSaveRecent]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
-	const badges: Partial<Record<AppTab, TabBadge>> = { chat: chats ? chatBadge(chats) : { mentions: 0, unread: false } };
+	// Inbox: conversations waiting for someone on staff (a reply to send, or a hand-off).
+	const waiting = useQuery(api.inbox.waiting) ?? 0;
+	const badges: Partial<Record<AppTab, TabBadge>> = { chat: chats ? chatBadge(chats) : { mentions: 0, unread: false }, inbox: { mentions: waiting, unread: waiting > 0 } };
 	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
 	const sections = useSortable("sections", sectionIds, sectionKey);
 	const [folded, changeFolded] = useStoredIds("folded");
@@ -288,6 +291,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 											const props = { chats, openId, openThread: route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(access, "agents.manage"), section };
 											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
 										})}
+									{tab === "inbox" && <InboxNav openId={route[1]} />}
 									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
@@ -312,6 +316,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							) : (
 								<TopBar title="" />
 							))}
+						{view === "inbox" && <InboxView access={access} conversationId={route[1]} />}
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
 						{view === "pages" && <PagesView pageId={route[1]} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
