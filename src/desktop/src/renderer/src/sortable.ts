@@ -403,13 +403,16 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		cleanup();
 		glide({ ...live, dropping: true, shifts: new Map() }, 0, 0, stop);
 	};
-	const up = () => {
-		cleanup();
-		if (!live) return;
-		// The click that ends a drag isn't a click on the row.
+	/** The click that ends a drag isn't a click on the row. */
+	const swallowClick = () => {
 		const swallow = (ev: MouseEvent) => (ev.stopPropagation(), ev.preventDefault());
 		window.addEventListener("click", swallow, { capture: true, once: true });
 		setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+	};
+	const up = () => {
+		cleanup();
+		if (!live) return;
+		swallowClick();
 		const done = live;
 		const { onto } = done.target;
 		const finish = () => {
@@ -430,6 +433,8 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		if (ev.key !== "Escape" || !live) return;
 		ev.stopPropagation();
 		back();
+		// The row is still held: letting go of it later isn't a click on it either.
+		window.addEventListener("pointerup", swallowClick, { once: true });
 	};
 	window.addEventListener("pointermove", move, { passive: false });
 	window.addEventListener("pointerup", up);
