@@ -336,11 +336,12 @@ export function Tabs<T extends string>({
 	end?: React.ReactNode;
 }) {
 	const tabClass = (open: boolean) =>
-		`-mb-px max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
+		`max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
 	return (
 		<nav className="flex items-end gap-2 border-b border-neutral-200">
-			{/* -mb-px: the open tab's underline sits on the row's line, inside the scroll box. */}
-			<div className="-mb-px flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none]">
+			{/* -mb-px: the open tab's underline sits on the row's line. The tabs stay inside the box, which
+			    scrolls only sideways (overflow-x alone would let it scroll up and down by anything poking out). */}
+			<div className="-mb-px flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
 			{tabs.map((t) => {
 				const d = drag?.(t.id);
 				return (
