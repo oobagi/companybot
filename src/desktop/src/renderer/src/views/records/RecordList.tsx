@@ -293,11 +293,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				</>
 			) : (
 				<>
-					{sortField && sortField.key !== NAME_KEY && (
-						<p className="-mt-2 text-xs text-neutral-500">
-							Sorted by {sortField.label}: {noun} without one aren't listed.
-						</p>
-					)}
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
 					<ErrorBoundary key={JSON.stringify([args, layout, group?.key])}>
 						<RecordResults
