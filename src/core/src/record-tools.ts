@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fieldKinds } from "./records";
+import { fieldIcons, fieldKinds, optionColors } from "./records";
 import { type ToolDef, defineTool, jsonOutput, resultText as text } from "./tools";
 
 /**
@@ -33,7 +33,7 @@ export interface RecordTypesResult {
 		inTrash?: boolean;
 		/** Add without View: the person adds records here and sees and changes only the ones they made. */
 		onlyYours?: true;
-		fields: { key: string; label: string; kind: string; options?: string[]; choices?: { id: string; label: string; retired?: boolean }[]; position?: number; inTrash?: boolean; linksTo?: string; multiple?: true }[];
+		fields: { key: string; label: string; kind: string; icon?: string; options?: string[]; choices?: { id: string; label: string; retired?: boolean; color?: string }[]; position?: number; inTrash?: boolean; linksTo?: string; multiple?: true }[];
 	}[];
 }
 
@@ -105,14 +105,16 @@ export const fieldInput = z.object({
 	type: z.string().describe("Database key or id from records_types (not its name)"),
 	field: z.string().optional().describe("An existing field's key (not its label), to rename it or change its options. Omit to add a field."),
 	label: z.string().optional().describe('The field\'s name, e.g. "Roof type". Required when adding.'),
-	kind: z.enum(fieldKinds).optional().describe("Required when adding; can't change later. user = a teammate; link = another record."),
+	kind: z.enum(fieldKinds).optional().describe("Required when adding. On an existing field, a new kind converts its values (Text → Number parses, → Choice makes an option per distinct value, anything → Text keeps how it reads; what doesn't fit is cleared, and the change can be undone). user = a teammate; link = another record."),
+	icon: z.enum(fieldIcons).nullable().optional().describe("The icon shown beside the field's name instead of its kind's; null puts the kind's back."),
 	options: z
-		.array(z.union([z.string(), z.strictObject({ id: z.string().optional(), label: z.string() })])).max(100)
+		.array(z.union([z.string(), z.strictObject({ id: z.string().optional(), label: z.string(), color: z.enum(optionColors).optional() })])).max(100)
 		.optional()
-		.describe("Choice fields: every option, in order. Use {id,label} from records_types choices to rename without changing stored values. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
+		.describe("Choice fields: every option, in order. Use {id,label} from records_types choices to rename without changing stored values. When changing, list all to keep: one left out is retired (records keep it; it can't be picked). Without a color, an option keeps its own; a new one gets the next in turn."),
 	position: z.number().int().min(1).max(100).optional().describe("Move an existing field to this display position, starting at 1 after Name."),
-	linksTo: z.string().optional().describe("Link fields: the key or id of the database it points at"),
-	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
+	linksTo: z.string().optional().describe("Link fields: the key or id of the database it points at. On an existing link field, another database matches values by name."),
+	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several. Several → one keeps each record's first value."),
+	preview: z.boolean().optional().describe("With kind, multiple or linksTo on an existing field: say what the change would do (values converted, cleared, options made, views losing a filter) without changing anything. Preview first and tell the person."),
 	trash: z.boolean().optional().describe("true archives `field` (to Archive: records keep its values until it's gone for good); false restores it. On its own."),
 });
 export type FieldSaveInput = z.infer<typeof fieldInput>;
@@ -229,8 +231,13 @@ function fieldLabel(input: FieldSaveInput, output: unknown) {
 	const types = text(output, "typePlural");
 	if (!label) return;
 	if (!input.field) return `Add field ${label}${types ? ` to ${types}` : ""}`;
+	if (input.preview) return `Checked changing field ${label}${types ? ` on ${types}` : ""}`;
+	if (changesSetup(input)) return `Changed field ${label}${types ? ` on ${types}` : ""}`;
 	return `${input.trash === undefined ? "Update" : input.trash ? "Archive" : "Restore"} field ${label}${types ? ` on ${types}` : ""}`;
 }
+
+/** A change to an existing field's kind, one/several or linked database: it rewrites every record's value. */
+const changesSetup = (input: FieldSaveInput) => !!input.field && (input.kind !== undefined || input.multiple !== undefined || input.linksTo !== undefined);
 
 export const recordTools: ToolDef[] = [
 	defineTool({
@@ -336,13 +343,14 @@ export const recordTools: ToolDef[] = [
 		id: "records.save_field",
 		title: "Save a field",
 		description:
-			'Add a field to a database ("add a Priority field"), rename one, change its choice options, delete it (to Archive) or restore it. Only after the person asked for it or confirmed it.',
+			'Add a field to a database ("add a Priority field"), rename one, set its icon, change its choice options and their colors, change its kind, one/several or linked database (preview first: values convert in the background, can be undone with records_undo and the returned change id, and wait for confirmation), delete it (to Archive) or restore it. Only after the person asked for it or confirmed it.',
 		input: fieldInput,
-		riskFor: (input) => input.trash === true ? "locked" : "inside",
+		// Changing a field's setup rewrites every record's value for everyone, so it always asks, like archiving.
+		riskFor: (input) => (input.preview ? "none" : input.trash === true || changesSetup(input) ? "locked" : "inside"),
 		execute: (input, { records }) => records.saveField(input),
 		label: fieldLabel,
-		action: (input) => !input.field ? "Add field" : input.trash === undefined ? "Update field" : input.trash ? "Archive field" : "Restore field",
-		actionKeys: ["trash"],
+		action: (input) => !input.field ? "Add field" : input.preview ? "Preview field change" : changesSetup(input) ? "Change field kind" : input.trash === undefined ? "Update field" : input.trash ? "Archive field" : "Restore field",
+		actionKeys: ["trash", "preview"],
 	}),
 	defineTool({
 		id: "records.save_database",

@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Checkbox, Select, currencyPickerClass, fieldCellClass, fieldEditClass, fieldPickerClass } from "../../controls";
-import { type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
+import { type FieldIconId, type FieldKind, type FieldValue, type Money, type OptionColor, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
@@ -9,7 +9,7 @@ import { bareIconButton, compactControlClass, hintClass, linkButton, useDebounce
 import { MenuItem, Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
-import { CaretUpDownIcon, CloseIcon, PrivateIcon } from "../../icons";
+import { AmountIcon, CalendarIcon, CaretUpDownIcon, CheckboxIcon, ChoiceIcon, CloseIcon, EmailIcon, LinkFieldIcon, NumberIcon, PhoneIcon, PrivateIcon, TextIcon, UserIcon, WebsiteIcon, fieldIconSet } from "../../icons";
 
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
@@ -19,6 +19,7 @@ const empty = "text-neutral-400";
 /** A value, read-only. Links open their record; ones to a deleted record say so and don't open. */
 export function ValueView({ field, value, refs }: { field: TypeField; value: FieldValue | undefined; refs: Refs }) {
 	if (value === undefined) return <span className={empty}>—</span>;
+	if (field.kind === "choice") return <ChoiceChips field={field} ids={[value].flat().map(String)} />;
 	if (field.kind === "link") return <LinkChips field={field} ids={[value].flat().map(String)} refs={refs} />;
 	if (field.kind === "url") {
 		return (
@@ -55,9 +56,43 @@ function LinkChips({ field, ids, refs, onRemove }: { field: TypeField; ids: stri
 	);
 }
 
-export function Chip({ children, onRemove }: { children: React.ReactNode; onRemove?: () => void }) {
+/**
+ * Choice option tints, Notion's: a soft background with dark text in its hue, so a colored chip
+ * reads as calmly as a gray one. Tokens in styles.css (`--color-option-*`).
+ */
+const optionTints: Record<OptionColor, string> = {
+	default: "bg-neutral-100 text-neutral-800",
+	gray: "bg-neutral-200/80 text-neutral-700",
+	brown: "bg-option-brown text-option-brown-ink",
+	orange: "bg-option-orange text-option-orange-ink",
+	yellow: "bg-option-yellow text-option-yellow-ink",
+	green: "bg-option-green text-option-green-ink",
+	blue: "bg-option-blue text-option-blue-ink",
+	purple: "bg-option-purple text-option-purple-ink",
+	pink: "bg-option-pink text-option-pink-ink",
+	red: "bg-option-red text-option-red-ink",
+};
+
+/** An option's tint; options from before colors, and unknown colors, are `default`. */
+export const tintOf = (color?: string) => optionTints[color as OptionColor] ?? optionTints.default;
+
+/** A choice field's values as chips in their options' colors. */
+export function ChoiceChips({ field, ids }: { field: TypeField; ids: string[] }) {
 	return (
-		<span className="flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-sm">
+		<span className="flex flex-wrap gap-1.5">
+			{ids.map((id) => (
+				<Chip key={id} color={field.options?.find((o) => o.id === id)?.color}>
+					<span className="truncate">{valueText(field, id)}</span>
+				</Chip>
+			))}
+		</span>
+	);
+}
+
+/** A value as a chip: a pick, a person, a linked record. `color`: a choice option's (`optionColors`). */
+export function Chip({ children, color, onRemove }: { children: React.ReactNode; color?: string; onRemove?: () => void }) {
+	return (
+		<span className={`flex max-w-full items-center gap-1 rounded-md px-1.5 text-sm leading-5 ${tintOf(color)}`}>
 			{children}
 			{onRemove && (
 				<button type="button" onClick={onRemove} className={bareIconButton} title="Remove" aria-label="Remove">
@@ -104,11 +139,7 @@ export function ValueEditor({
 		case "choice":
 		case "user":
 		case "link":
-			return field.multiple ? (
-				<MultiEditor field={field} ids={(value as string[] | undefined) ?? []} refs={refs} onSave={onSave} />
-			) : (
-				<OneEditor field={field} id={value as string | undefined} refs={refs} onSave={onSave} />
-			);
+			return <PickEditor field={field} ids={value === undefined ? [] : [value].flat().map(String)} refs={refs} onSave={onSave} />;
 		default:
 			return <TextEditor field={field} value={value === undefined ? "" : String(value)} onSave={onSave} />;
 	}
@@ -181,71 +212,63 @@ function MoneyEditor({ value, onSave }: { value: Money | undefined; onSave: (val
 	);
 }
 
-/** One choice, person or record. A removed option stays shown until it's changed. */
-function OneEditor({ field, id, refs, onSave }: { field: TypeField; id: string | undefined; refs: Refs; onSave: (value: unknown) => void }) {
+/**
+ * A choice, person or record field, one or several, Notion's way: the whole cell is the button,
+ * showing the picks as chips (or — when empty). It opens a panel to remove picks and add others.
+ * One pick replaces the last and closes; several stay open to keep adding.
+ */
+function PickEditor({ field, ids, refs, onSave }: { field: TypeField; ids: string[]; refs: Refs; onSave: (value: unknown) => void }) {
 	const options = useOptions(field);
-	if (field.kind === "link") {
-		return (
-			<span className={`${fieldCellClass} gap-2`}>
-				{id && <LinkChips field={field} ids={[id]} refs={refs} onRemove={() => onSave(null)} />}
-				{/* No database to pick from when it links to one you can't see (linksHidden). */}
-				{field.linkType && <RecordPicker typeId={field.linkType} exclude={id ? [id] : []} label={id ? "Change" : "Pick"} caret={false} className={fieldPickerClass} onPick={(picked) => onSave(picked)} />}
-			</span>
-		);
-	}
-	const current = id && !options.some((o) => o.id === id) ? { id, label: valueText(field, id, refs) } : null;
+	const save = (next: string[]) => onSave(field.multiple ? next : (next[0] ?? null));
+	const label = (id: string) => (refs[id]?.locked ? "Locked" : valueText(field, id, refs));
+	const color = (id: string) => field.options?.find((o) => o.id === id)?.color;
 	return (
-		<Select
-			value={id ?? ""}
-			placeholder="—"
-			caret={false}
-			options={[
-				...(id ? [{ value: "", label: "Clear" }] : []),
-				...(current ? [{ value: current.id, label: current.label, disabled: true }] : []),
-				...options.map((o) => ({ value: o.id, label: o.label })),
-			]}
-			onChange={(v) => onSave(v || null)}
-			className={fieldEditClass}
-		/>
-	);
-}
-
-/** Several choices, people or records: chips, each removable, and a way to add one. */
-function MultiEditor({ field, ids, refs, onSave }: { field: TypeField; ids: string[]; refs: Refs; onSave: (value: unknown) => void }) {
-	const options = useOptions(field).filter((o) => !ids.includes(o.id));
-	const remove = (id: string) => onSave(ids.filter((i) => i !== id));
-	const add = (id: string) => onSave([...ids, id]);
-	return (
-		<span className={`${fieldCellClass} flex-wrap gap-1.5`}>
-			{field.kind === "link" ? (
-				<LinkChips field={field} ids={ids} refs={refs} onRemove={remove} />
-			) : (
-				ids.map((id) => (
-					<Chip key={id} onRemove={() => remove(id)}>
-						{valueText(field, id, refs)}
-					</Chip>
-				))
-			)}
-			{field.kind === "link" ? (
-				field.linkType && <RecordPicker typeId={field.linkType} exclude={ids} label="Add" caret={false} className={fieldPickerClass} onPick={(picked) => add(picked)} />
-			) : (
-				options.length > 0 && (
-					<Select
-						value=""
-						placeholder="Add…"
-						options={options.map((o) => ({ value: o.id, label: o.label }))}
-						onChange={add}
-						caret={false}
-						className={fieldPickerClass}
-					/>
+		<Popover
+			trigger={
+				ids.length ? (
+					ids.map((id) => <Chip key={id} color={color(id)}><span className="truncate">{label(id)}</span></Chip>)
+				) : (
+					<span className="text-neutral-400">—</span>
 				)
-			)}
-		</span>
+			}
+			className={`${fieldEditClass} flex-wrap gap-1.5 text-left`}
+			panelClassName="flex w-64 flex-col gap-1 p-2"
+		>
+			{(close) => {
+				const pick = (id: string) => (field.multiple ? save([...ids, id]) : (save([id]), close()));
+				return (
+					<>
+						{ids.length > 0 && (
+							<span className="flex flex-wrap gap-1.5 px-1 pb-1">
+								{field.kind === "link" ? (
+									<LinkChips field={field} ids={ids} refs={refs} onRemove={(id) => save(ids.filter((i) => i !== id))} />
+								) : (
+									ids.map((id) => <Chip key={id} color={color(id)} onRemove={() => save(ids.filter((i) => i !== id))}>{label(id)}</Chip>)
+								)}
+							</span>
+						)}
+						{field.kind === "link" ? (
+							// No database to pick from when it links to one you can't see (linksHidden).
+							field.linkType && <RecordSearch typeId={field.linkType} exclude={ids} onPick={pick} />
+						) : (
+							options
+								.filter((o) => !ids.includes(o.id))
+								.map((o) => (
+									<MenuItem key={o.id} onClick={() => pick(o.id)}>
+										{field.kind === "choice" ? <Chip color={o.color}><span className="truncate">{o.label}</span></Chip> : <span className="min-w-0 truncate">{o.label}</span>}
+									</MenuItem>
+								))
+						)}
+						{field.kind !== "link" && options.every((o) => ids.includes(o.id)) && <span className={`px-2 py-1 ${hintClass}`}>{options.length ? "All picked." : "No options yet."}</span>}
+					</>
+				);
+			}}
+		</Popover>
 	);
 }
 
 /** What a choice or person field can be set to: live options, or the workspace's people. */
-export function useOptions(field: TypeField): { id: string; label: string }[] {
+export function useOptions(field: TypeField): { id: string; label: string; color?: string }[] {
 	const team = useQuery(api.workspace.team, field.kind === "user" ? {} : "skip");
 	if (field.kind === "user") return team?.members.map((m) => ({ id: m.userId, label: m.name || m.email })) ?? [];
 	return field.options?.filter((o) => !o.retired) ?? [];
@@ -301,4 +324,25 @@ function RecordSearch({ typeId, exclude, onPick }: { typeId: string; exclude: st
 			{results?.length === 0 && <span className={`px-2 py-1 ${hintClass}`}>No matches.</span>}
 		</>
 	);
+}
+
+const kindIcons: Record<FieldKind, typeof TextIcon> = {
+	text: TextIcon,
+	number: NumberIcon,
+	currency: AmountIcon,
+	date: CalendarIcon,
+	checkbox: CheckboxIcon,
+	choice: ChoiceIcon,
+	email: EmailIcon,
+	phone: PhoneIcon,
+	url: WebsiteIcon,
+	user: UserIcon,
+	link: LinkFieldIcon,
+};
+
+/** A field's icon beside its name, like Notion's properties: the one picked for it, else its kind's. */
+export function FieldIcon({ field, large, className = "" }: { field: { kind: FieldKind; icon?: string }; large?: boolean; className?: string }) {
+	const Icon = fieldIconSet[field.icon as FieldIconId] ?? kindIcons[field.kind];
+	// `large` beside body-sized text (a record's properties): a touch bigger than the text and darker, so it doesn't look faint.
+	return <Icon className={`shrink-0 ${large ? "size-[1.125em] text-neutral-500" : "text-neutral-400"} ${className}`} />;
 }

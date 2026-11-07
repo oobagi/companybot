@@ -5,6 +5,7 @@ import { useMutation } from "../../convex";
 import { navigate } from "../../router";
 import { LoadMore, Loading, Notice, boardCardButton, useRun } from "../../ui";
 import { type ListArgs, type RecordType, usePagedRows } from "./data";
+import { ChoiceChips, Chip } from "./fields";
 import { type TypeField, recordPath, valueText } from "./logic";
 
 // A database view as a board: cards in a column per option of a choice field. See wiki/data.md.
@@ -18,7 +19,10 @@ import { type TypeField, recordPath, valueText } from "./logic";
 export function Board({ type, args, group, cards, canEdit }: { type: RecordType; args: ListArgs; group: TypeField; cards: TypeField[]; canEdit: boolean }) {
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
-	const lanes = [{ id: "", label: `No ${group.label}`, retired: false }, ...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired }))];
+	const lanes: { id: string; label: string; retired: boolean; color?: string }[] = [
+		{ id: "", label: `No ${group.label}`, retired: false },
+		...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired })),
+	];
 	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
 	return (
 		// Fills the rest of the screen, so lanes are full-height drop targets and the scrollbar sits at the bottom.
@@ -33,6 +37,7 @@ export function Board({ type, args, group, cards, canEdit }: { type: RecordType;
 						groupBy={group.key}
 						type={type}
 						label={lane.label}
+						color={lane.color}
 						retired={lane.retired}
 						args={{ ...args, group: { field: group.key, option: lane.id || null } }}
 						name={type.fields.find((f) => f.key === "name") as TypeField}
@@ -58,6 +63,7 @@ function Lane({
 	groupBy,
 	type,
 	label,
+	color,
 	retired,
 	args,
 	name,
@@ -69,6 +75,8 @@ function Lane({
 	groupBy: string;
 	type: RecordType;
 	label: string;
+	/** The option's, shown as its chip; none for "No <field>". */
+	color?: string;
 	retired: boolean;
 	args: ListArgs;
 	name: TypeField;
@@ -97,7 +105,13 @@ function Lane({
 			className={`flex w-64 shrink-0 flex-col gap-2 rounded-xl p-2 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}
 		>
 			<div className="flex items-center gap-2 px-1 text-sm font-medium text-neutral-700">
-				<span className="truncate">{retired ? `${label} (removed)` : label}</span>
+				{id ? (
+					<Chip color={color}>
+						<span className="truncate">{retired ? `${label} (removed)` : label}</span>
+					</Chip>
+				) : (
+					<span className="truncate">{label}</span>
+				)}
 				<span className="text-neutral-400">{status === "LoadingFirstPage" ? "" : `${rows.length}${status === "Exhausted" ? "" : "+"}`}</span>
 			</div>
 			{rows.map((r) => (
@@ -112,11 +126,16 @@ function Lane({
 					<span className="font-medium break-words">{valueText(name, r.values[name.key], refs) || "Untitled"}</span>
 					{props.map(
 						(f) =>
-							r.values[f.key] !== undefined && (
+							r.values[f.key] !== undefined &&
+							(f.kind === "choice" ? (
+								<span key={f.key} title={f.label}>
+									<ChoiceChips field={f} ids={[r.values[f.key]!].flat().map(String)} />
+								</span>
+							) : (
 								<span key={f.key} title={f.label} className="truncate text-xs text-neutral-500">
 									{valueText(f, r.values[f.key], refs)}
 								</span>
-							),
+							)),
 					)}
 				</button>
 			))}

@@ -5,7 +5,7 @@ export default {
 	title: "Settings: every tab and who can change it",
 	summary: "Where each setting lives, account and workspace, and who can change it.",
 	text: `# Settings
-Open settings from your avatar (account) or the workspace logo at the top of the rail (workspace). Agents, Connectors, Skills and Automations keep settings addresses but open from Customize in the rail. Each tab has its own address, #/settings/<tab>.
+Open settings from your avatar (account) or the workspace logo at the top of the rail (workspace). Workspace settings has four sections: Workspace (General, Usage, Activity, Archive), People (Members, Roles), Agents (Agents, Skills, Memory, Permissions) and Connections (Connectors, Automations). Each tab has its own address, #/settings/<tab>.
 
 ## Account settings (only you)
 | Tab | What | Topic |
@@ -20,7 +20,6 @@ Open settings from your avatar (account) or the workspace logo at the top of the
 | [Roles](#/settings/roles) | What each role can do, Public (customers) included; new roles | Everyone can look; owners change them |
 | [Permissions](#/settings/permissions) | Your Always/Never rules; action locks | You (rules); roles that can lock (locks) |
 | [Memory](#/settings/memory) | Team and personal memories | Everyone (personal: only you) |
-| [Channels](#/settings/channels) | Talk to agents from Slack or Teams. Coming soon | Nobody yet |
 | [Activity](#/settings/activity) | Database changes and agent activity | Read only |
 | [Usage](#/settings/usage) | What AI cost, by month | Read only (roles that can see everyone do; others their own) |
 | [Archive](#/settings/archive) | Deleted things; restore | Anyone restores what they could delete; roles that can delete forever do |

@@ -45,7 +45,7 @@ describe("web pages", () => {
 		expect(await page("application/xml", "<a/>")).toMatchObject({ content: "<a/>" });
 		expect(await page("text/plain", "x".repeat(30_000))).toMatchObject({ truncated: true, content: expect.stringMatching(/\[Cut at 20,000 characters\.\]$/) });
 		expect(await page("text/plain", "start", { cut: true })).toMatchObject({ content: expect.stringContaining("only its start was read") });
-		expect(await page("application/zip", "PK")).toEqual({ error: expect.stringMatching(/application\/zip.*PDF, Word and Excel/) });
+		expect(await page("application/zip", "PK")).toEqual({ error: expect.stringMatching(/application\/zip.*PDF, Word, Excel and PowerPoint/) });
 		expect(await page("text/html", "", { status: 404 })).toEqual({ error: "The page answered 404." });
 	});
 

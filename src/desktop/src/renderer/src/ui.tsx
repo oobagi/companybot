@@ -249,19 +249,28 @@ const actionSlot = createContext<HTMLElement | null>(null);
  */
 export function Page({
 	title,
+	menu,
+	badge,
 	crumbs,
 	heading,
 	description,
 	actions,
 	wide,
+	gutter,
 	children,
 }: {
 	title: string;
+	/** Actions for what's on screen (History, Move to…, Archive): the title opens them, with a caret to say so. */
+	menu?: (close: () => void) => React.ReactNode;
+	/** After the title in the bar: its access lock (`AccessLock`), as the sidebar shows it on the row. */
+	badge?: React.ReactNode;
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
 	description?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
+	/** Room beside the column, title included, for the page editor's + and ⋮⋮ (54px): they never hang over the sidebar. */
+	gutter?: boolean;
 	children: React.ReactNode;
 }) {
 	// Where `PageActions` from the content land, after `actions`.
@@ -270,18 +279,32 @@ export function Page({
 		<Scroll
 			className="@container"
 			header={
-				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>} description={description}>
+				<TopBar
+					crumbs={crumbs}
+					title={
+						<>
+							{menu ? (
+								<Popover trigger={<><span className="truncate">{title}</span><CaretDownIcon className="shrink-0 text-neutral-400" /></>} className="no-drag -mx-1 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-neutral-100 aria-expanded:bg-neutral-100" panelClassName="w-56 p-1">
+									{menu}
+								</Popover>
+							) : (
+								<span className="truncate">{title}</span>
+							)}
+							{badge}
+						</>
+					}
+					description={description}
+				>
 					{actions}
 					<span ref={setSlot} className="contents" />
 				</TopBar>
 			}
 		>
 			<actionSlot.Provider value={slot}>
-				{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
+				{/* The column's text is `--text` wide, padded `--pad`. `--bleed`: from the text out to the screen's edge, for `.bleed`. */}
 				<div
-					className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
-						wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
-					}`}
+					style={{ "--text": wide ? "61rem" : "39rem", "--pad": gutter ? "4rem" : "1.5rem" } as React.CSSProperties}
+					className="mx-auto flex w-full max-w-[calc(var(--text)+2*var(--pad))] flex-1 flex-col gap-6 px-(--pad) pt-page-top pb-10 [--bleed:max(var(--pad),calc((100cqw-var(--text))/2))]"
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
 					{children}
@@ -298,6 +321,7 @@ export function Tabs<T extends string>({
 	menu,
 	drag,
 	children,
+	end,
 }: {
 	tabs: readonly { id: T; label: string }[];
 	value: T;
@@ -308,11 +332,16 @@ export function Tabs<T extends string>({
 	menu?: (close: () => void) => React.ReactNode;
 	/** Extra controls after the last tab. */
 	children?: React.ReactNode;
+	/** Controls at the row's far end, like a view's search and filters. They keep their place; the tabs scroll. */
+	end?: React.ReactNode;
 }) {
 	const tabClass = (open: boolean) =>
-		`-mb-px max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
+		`max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
 	return (
-		<nav className="flex flex-wrap gap-1 border-b border-neutral-200">
+		<nav className="flex items-end gap-2 border-b border-neutral-200">
+			{/* -mb-px: the open tab's underline sits on the row's line. The tabs stay inside the box, which
+			    scrolls only sideways (overflow-x alone would let it scroll up and down by anything poking out). */}
+			<div className="-mb-px flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]">
 			{tabs.map((t) => {
 				const d = drag?.(t.id);
 				return (
@@ -330,6 +359,8 @@ export function Tabs<T extends string>({
 				);
 			})}
 			{children}
+			</div>
+			{end && <div className="flex shrink-0 items-center gap-1.5 self-center pb-1 text-sm">{end}</div>}
 		</nav>
 	);
 }
@@ -341,12 +372,11 @@ export function Tabs<T extends string>({
  * that needs one, is a small footnote under its content, as in macOS settings.
  */
 export function Section({ title, note, flush, action, children }: { title: string; note?: string; flush?: boolean; action?: React.ReactNode; children: React.ReactNode }) {
-	const edge = flush || useContext(StackedContext);
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} flush={edge} action={action} />
+			<Heading title={title} flush={flush} action={action} />
 			{children}
-			<Note text={note} flush={edge} />
+			<Note text={note} flush={flush} />
 		</section>
 	);
 }
@@ -366,56 +396,50 @@ function Note({ text, flush }: { text?: string; flush?: boolean }) {
 	return text ? <p className={`text-xs text-neutral-500 ${flush ? "" : insetClass}`}>{text}</p> : null;
 }
 
-/** Inside a dialog (and on sign-in), forms stack: each label over its control, full width, no card. */
-const StackedContext = createContext(false);
-
-/** Makes the `Settings` forms under it stack (`Modal` does this for every dialog). */
-export function Stacked({ children }: { children: React.ReactNode }) {
-	return <StackedContext.Provider value>{children}</StackedContext.Provider>;
-}
-
 /**
  * Settings, one per row in a card: what it is and a one-line hint on the left, its
- * control on the right. Every settings screen uses it, so labels and controls line up.
- * In a dialog (`Stacked`) the same rows stack: label and hint over a full-width control.
+ * control on the right. Every form uses it, on a settings screen and in a dialog alike, so they
+ * look the same everywhere.
  */
 export function Settings({ title, note, action, children }: { title?: string; note?: string; action?: React.ReactNode; children: React.ReactNode }) {
-	const stacked = useContext(StackedContext);
 	return (
 		<section className="flex flex-col gap-2">
-			<Heading title={title} action={action} flush={stacked} />
-			<div className={stacked ? "flex flex-col gap-4" : listClass}>{children}</div>
-			<Note text={note} flush={stacked} />
+			<Heading title={title} action={action} />
+			<div className={listClass}>{children}</div>
+			<Note text={note} />
 		</section>
 	);
 }
 
 /**
  * One setting in a `Settings` card. Every form uses these rows, on a screen or in a dialog.
- * `wide` is for long text (a textarea, instructions): the label and hint on top, the control
- * across the card under them (give it `compactControlClass w-full`). `inline` keeps a checkbox
- * or switch beside its label even where forms stack.
+ * `wide` is for long text and lists (a textarea, instructions, options): the label and hint on
+ * top, the control across the card under them (give it `compactControlClass w-full`).
  */
-export function Setting({ label, hint, wide, inline, children }: { label: string; hint?: string; wide?: boolean; inline?: boolean; children: React.ReactNode }) {
-	const stacked = useContext(StackedContext);
-	if (stacked && !inline) {
-		return (
-			<div className="flex flex-col gap-1.5">
-				<div className="flex min-w-0 flex-col gap-0.5">
-					<p className="text-sm font-medium">{label}</p>
-					{hint && <p className="text-xs text-neutral-500">{hint}</p>}
-				</div>
-				<div className="stacked-control flex gap-2">{children}</div>
-			</div>
-		);
-	}
+export function Setting({ label, hint, wide, children }: { label: string; hint?: string; wide?: boolean; children: React.ReactNode }) {
 	return (
-		<div className={`flex ${stacked ? "" : "px-4 py-3"} ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
+		<div className={`flex px-4 py-2.5 ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
 			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<p className="text-sm font-medium">{label}</p>
 				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
 			</div>
 			<div className={`flex items-center gap-2 text-sm ${wide ? "" : "shrink-0"}`}>{children}</div>
+		</div>
+	);
+}
+
+/**
+ * A question on sign-in or onboarding: its label (and hint) over a full-width control, no card.
+ * Those screens ask one thing at a time; settings, on a screen or in a dialog, are `Settings` rows.
+ */
+export function Question({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+	return (
+		<div className="flex flex-col gap-1.5">
+			<div className="flex min-w-0 flex-col gap-0.5">
+				<p className="text-sm font-medium">{label}</p>
+				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
+			</div>
+			{children}
 		</div>
 	);
 }
@@ -446,44 +470,61 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
-/** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
-export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
-/** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
-export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): the same box, smaller. */
+/** An input, select or textarea: the same box as `buttonBox`, so a row of fields and buttons lines up. */
+export const compactControlClass = `rounded-lg px-3 py-1.25 text-sm ${controlClass}`;
+/**
+ * Every text button's box: one height, padding and corner. The looks below only add color, so
+ * buttons can't drift apart. Their names say where they go (the lint rules check that).
+ */
+const buttonBox = `inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-1 text-sm ${disabledButtonClass}`;
+const outlined = `${buttonBox} border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`;
+const filled = `${buttonBox} border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700`;
+const quiet = `${buttonBox} border-transparent text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900`;
+/** On a screen, beside fields (Filter, Columns, Discard). */
+export const compactButton = outlined;
+/** `compactButton` for a destructive action (Leave channel). */
+export const compactDangerButton = `${buttonBox} border-neutral-200 bg-white text-red-600 hover:bg-red-50`;
+/** Submits a row of fields on a screen (Invite, Add, Save). */
+export const compactPrimaryButton = filled;
+/** A dialog's buttons, in `DialogButtons`. */
+export const primaryButton = filled;
+export const dangerButton = `${buttonBox} border-red-600 bg-red-600 text-white hover:bg-red-700`;
+export const secondaryButton = outlined;
+/** The top bar: quiet actions (Edit, History), and the create action (`NewButton`). */
+export const barButton = quiet;
+export const barDangerButton = `${buttonBox} border-transparent text-neutral-600 hover:bg-red-50 hover:text-red-700`;
+export const barPrimaryButton = filled;
+/** Where a card, popover or settings row acts on its own (Deny, Upload, Check for updates). */
+export const actionButton = outlined;
+export const actionPrimaryButton = filled;
+/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): smaller. */
 export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** `compactButton` for a destructive action (Leave channel): the same box, red text. */
-export const compactDangerButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 ${disabledButtonClass}`;
-/** Submits a row of compact controls (Invite, Add, Save): their box, filled. */
-export const compactPrimaryButton = `rounded-lg border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
-export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
-export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
-export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
-export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+/** A database's view toolbar (Search, Filter, Columns, Layout): quiet like Notion's, gray until hovered or open. */
+export const toolButton = `inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100 aria-expanded:text-neutral-900 ${disabledButtonClass}`;
+/** A database filter, as a chip under the toolbar (`data-active` once it filters something). */
+export const filterChip = "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-neutral-300 px-2.5 text-sm text-neutral-500 hover:bg-neutral-50 data-active:border-solid data-active:border-neutral-200 data-active:bg-neutral-100 data-active:text-neutral-900 data-active:hover:bg-neutral-200/70";
+/** A field in `toolButton`'s row (the search box): its height. */
+export const toolControlClass = `h-7 rounded-md px-2 text-sm ${controlClass}`;
+/** An action at the end of a list of field labels, in their look and size (Add field). */
+export const labelButton = `-mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
-export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
-export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
-export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+/** A square button holding only an icon, everywhere (dialog headers, rows, toolbars): big enough to see at a glance. */
+export const iconButton = `no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100 ${disabledButtonClass}`;
+export const iconDangerButton = `inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-lg text-neutral-600 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 /** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
 export const trailingAction =
-	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
+	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-600 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
 /** The composer's round tools beside the text: attach, emoji, dictation. */
 export const composerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50";
 /** The composer's Send: a round dark button with an arrow, grey until there's something to send. */
 export const sendButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200";
-/** `secondaryButton`'s size where a card, popover or settings row acts on its own (Deny, Message, Join, Check for updates). */
-export const actionButton = secondaryButton;
-/** `primaryButton`'s size where a card, popover or settings row acts on its own (Allow once, Connect, Restart to update). */
-export const actionPrimaryButton = primaryButton;
 /** The landing screen's one big dark button (Get started). */
 export const heroButton = "rounded-xl bg-neutral-900 px-6 py-2.5 text-base text-white hover:bg-neutral-800";
 /** The sidebar footer's "Update ready · Restart": small dark text block. */
 export const updateButton = "rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white";
 /** The title bar's 24px icons (sidebar, back, forward, help): greyed out while disabled. */
 export const titleBarButton =
-	"no-drag flex size-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
+	"no-drag flex size-7 items-center justify-center rounded-md text-lg text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
 /** A small round × in a card's corner (a pending file, a link preview). */
 export const cornerCloseButton = "flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
 /** A 24px icon beside a title (a DM's New chat). */
@@ -498,8 +539,8 @@ export const chipRemoveButton = "rounded-full p-0.5 text-neutral-400 hover:bg-ne
 export const timeRemoveButton = "rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700";
 /** The × on a side chat tab, over the tab's pill. */
 export const tabCloseButton = "flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900";
-/** The + after a list's view tabs, sized like a tab. */
-export const tabAddButton = "flex items-center px-3 py-2 text-base text-neutral-500 hover:text-neutral-800";
+/** The + after a list's view tabs: the same button as the toolbar's at the row's other end, level with the tab names. */
+export const tabAddButton = `${toolButton} mb-1.5`;
 /** A suggested first message in an empty agent chat. */
 export const suggestionButton =
 	"rounded-xl border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400";
@@ -528,6 +569,12 @@ export const railButton = (active: boolean) =>
 	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
 /** Text that opens what it names (a record, a channel, an archived item): underlined on hover. */
 export const linkButton = "text-left hover:underline";
+// Inline, not flex: a flex chip sits on its icon's bottom edge, so its name rides above the line's text.
+const inlineIcon = "box-decoration-clone [&>svg]:mr-1 [&>svg]:inline [&>svg]:align-[-0.125em]";
+/** A record tagged in a message (`@Summit Homes`): an inline chip in the app's grays that opens the record. */
+export const recordTagButton = `rounded-sm bg-neutral-100 px-1 text-left font-medium text-neutral-800 hover:bg-neutral-200 ${inlineIcon}`;
+/** A tagged record with nothing to open: in Archive, deleted, or in a database you can't see. */
+export const recordTagMutedClass = `rounded-sm bg-neutral-50 px-1 font-medium text-neutral-400 ${inlineIcon}`;
 /** A title you click: folds its section, sorts its column, opens its field's settings. Darkens on hover. */
 export const titleButton = "min-w-0 text-left hover:text-neutral-900";
 /** One row in a list you pick from (a menu, versions, workspaces): lit on hover and while picked (`data-active`). */
@@ -536,6 +583,10 @@ export const rowButton = `flex w-full rounded-lg px-2 py-1.5 text-left text-sm h
 export const listRowButton = "flex w-full gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50";
 /** A square in a grid of choices (an emoji). */
 export const tileButton = "flex size-8 items-center justify-center rounded-lg hover:bg-neutral-100";
+/** `tileButton` that shows which one is picked (`aria-pressed`): a field's icon. */
+export const pickedTileButton = `${tileButton} text-lg text-neutral-600 hover:text-neutral-900 aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900`;
+/** A square beside an input that opens a picker for it: a field's icon beside its name, an option's color. */
+export const swatchButton = "inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white text-lg text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 aria-expanded:bg-neutral-50";
 /** A picture that opens full size. */
 export const imageButton = "overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300";
 /** An on/off pill with a count (a reaction): filled while on (`aria-pressed`). */
@@ -547,12 +598,14 @@ export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */
 export const hintClass = "text-sm text-neutral-400";
+/** A quiet panel of facts in a form, like what a change will do before it's confirmed. */
+export const notePanelClass = "flex flex-col gap-1.5 rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
 /** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
 export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
-export const insetClass = "card-inset px-[17px]";
+export const insetClass = "px-[17px]";
 /** Rows in one bordered box, split by lines. In a dialog the dialog is the box: no border, rows flush (styles.css). */
 export const listClass = "card-list flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
 /**
@@ -562,6 +615,8 @@ export const listClass = "card-list flex flex-col divide-y divide-neutral-100 ro
 export const toolbarClass = "flex flex-wrap items-center gap-2 text-sm";
 /** A compact control in a screen's toolbar or a settings row: search boxes, pickers. */
 export const wideControlClass = `${compactControlClass} w-64`;
+/** A control on its own, across its space: a `Question`'s, or a dialog's that asks one thing. */
+export const fullControlClass = `${compactControlClass} w-full`;
 
 /** A line between groups in a menu. */
 export function MenuDivider() {
@@ -613,7 +668,7 @@ export function NotFound({ crumbs, loaded, icon, title, children = "It may have 
 /** Placeholder shown only on first load; later visits come from the cache. */
 export function Loading() {
 	return (
-		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 py-10">
+		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 pt-page-top pb-10">
 			<div className="h-4 w-1/3 rounded bg-neutral-100" />
 			<div className="h-4 w-2/3 rounded bg-neutral-100" />
 			<div className="h-4 w-1/2 rounded bg-neutral-100" />
@@ -669,10 +724,14 @@ export function RenameInput({ value, onSave, onDone, className = "" }: { value: 
 }
 
 /** Shows a query's error in place of what failed, plainly. Remount (new `key`) to try again. */
-export class ErrorBoundary extends Component<{ children: React.ReactNode }, { error?: unknown }> {
+/** Shows a render error as a notice. A new `resetKey` (the query that failed changed) tries again, without remounting. */
+export class ErrorBoundary extends Component<{ children: React.ReactNode; resetKey?: string }, { error?: unknown }> {
 	state: { error?: unknown } = {};
 	static getDerivedStateFromError(error: unknown) {
 		return { error };
+	}
+	componentDidUpdate(before: { resetKey?: string }) {
+		if (before.resetKey !== this.props.resetKey && this.state.error !== undefined) this.setState({ error: undefined });
 	}
 	render() {
 		return this.state.error !== undefined ? <Notice>{errorMessage(this.state.error)}</Notice> : this.props.children;
@@ -837,10 +896,10 @@ export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discar
 	return (
 		<div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 			<p className="flex-1">{who || "Someone"} saved a change while you were editing.</p>
-			<button type="button" onClick={draft.discard} className={`${compactButton} bg-white`}>
+			<button type="button" onClick={draft.discard} className={compactButton}>
 				Use theirs
 			</button>
-			<button type="button" onClick={draft.keepMine} className={`${compactButton} bg-white`}>
+			<button type="button" onClick={draft.keepMine} className={compactButton}>
 				Keep mine
 			</button>
 		</div>

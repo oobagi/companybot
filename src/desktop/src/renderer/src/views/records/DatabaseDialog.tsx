@@ -1,15 +1,17 @@
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
 import { navigate } from "../../router";
-import { ConflictNotice, Form, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, Form, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, fullControlClass } from "../../ui";
 import { ArchiveIcon } from "../../icons";
 import { DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { recordPath } from "./logic";
 import { WhoCanAccess } from "../access";
 
-export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: () => void }) {
+/** `onCreated`: a new database's id, as soon as it's made (a section's + puts it there). */
+export function DatabaseDialog({ type, onCreated, onClose }: { type?: RecordType; onCreated?: (id: Id<"recordTypes">) => void; onClose: () => void }) {
 	const types = useTypes();
 	const [created, setCreated] = useState<string>();
 	useEffect(() => {
@@ -31,14 +33,10 @@ export function DatabaseDialog({ type, onClose }: { type?: RecordType; onClose: 
 	const set = (key: "plural" | "name") => (e: React.ChangeEvent<HTMLInputElement>) => draft.set({ ...draft.value, [key]: e.target.value });
 	if (!type)
 		return (
-			<Modal title="New database" onClose={close}>
-				<Form onSubmit={() => run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); }))}>
+			<Modal title="New database" size="md" onClose={close}>
+				<Form onSubmit={() => run(create({ plural: draft.value.plural }).then((id) => { draft.discard(); setCreated(id); onCreated?.(id); }))}>
 					<Notice>{error}</Notice>
-					<Settings>
-						<Setting label="Name">
-							<input autoFocus aria-label="Name" required maxLength={120} placeholder="e.g. Projects" className={wideControlClass} value={draft.value.plural} onChange={set("plural")} />
-						</Setting>
-					</Settings>
+					<input autoFocus aria-label="Name" required maxLength={120} placeholder="e.g. Projects" className={fullControlClass} value={draft.value.plural} onChange={set("plural")} />
 					<DialogButtons>
 						<button type="button" onClick={close} className={secondaryButton}>Cancel</button>
 						<button type="submit" disabled={busy} className={primaryButton}>Create database</button>

@@ -1,7 +1,7 @@
 import type { ArrangementCommand, ArrangementList } from "@companybot/core/arrangements";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, sideWorkspace, workspaceOf } from "./helpers";
+import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, sideWorkspace, upload, workspaceOf } from "./helpers";
 
 const idsOf = async (as: As, list: ArrangementList, entityId?: string) => (await as.query(api.arrangements.get))?.rows.find((r) => r.list === list && r.entityId === entityId)?.ids;
 const change = (as: As, list: ArrangementList, command: ArrangementCommand, entityId?: string) => as.mutation(api.arrangements.change, { list, entityId, command });
@@ -44,10 +44,10 @@ it("keeps both devices' changes when each sends a command from the same stale sn
 	expect(order.at(-1)).toBe(b);
 	await change(owner, "recent", { op: "visit", id: "chat:x" });
 	await change(owner, "recent", { op: "visit", id: "chat:y" });
-	await change(owner, "folded", add("channels"));
+	await change(owner, "folded", add("files"));
 	await change(owner, "folded", add("dms"));
 	expect(await idsOf(owner, "recent")).toEqual(["chat:y", "chat:x"]);
-	expect(await idsOf(owner, "folded")).toEqual(["channels", "dms"]);
+	expect(await idsOf(owner, "folded")).toEqual(["files", "dms"]);
 });
 
 it("needs sidebar.arrange to reorder shared lists; personal ones stay the member's to arrange", async () => {
@@ -69,16 +69,16 @@ it("needs sidebar.arrange to reorder shared lists; personal ones stay the member
 	await change(member, "rail", to("drive", "chat", ["chat"]));
 	await change(member, "pins", add(`chat:${general._id}`));
 	await change(member, "pins", add(`page:${page}`));
-	await change(member, "rail", to(`page:${page}`, "chat", ["drive", "chat", `chat:${general._id}`]));
+	await change(member, "rail", to(`page:${page}`, "chat", ["drive", "chat", `chat:${general._id}`, "file:one"]));
 	const dms = (await member.query(api.chats.list))!.agents.map((agent) => agent._id as string);
 	await change(member, "dms", to(dms[1]!, dms[0]!, [dms[0]!]));
-	await change(member, "folded", add("channels"));
+	await change(member, "folded", add("dms"));
 	await change(member, "channelFolds", add(general._id));
 	await change(member, "workspaces", add(ws));
 	// Tabs and pins mix in one order.
-	expect(await idsOf(member, "rail")).toEqual(["drive", `page:${page}`, "chat", `chat:${general._id}`]);
+	expect(await idsOf(member, "rail")).toEqual(["drive", `page:${page}`, "chat", `chat:${general._id}`, "file:one"]);
 	expect(await idsOf(member, "dms")).toEqual([dms[1], dms[0]]);
-	expect(await idsOf(member, "folded")).toEqual(["channels"]);
+	expect(await idsOf(member, "folded")).toEqual(["dms"]);
 	expect(await idsOf(member, "channelFolds")).toEqual([general._id]);
 	expect(await idsOf(owner, "rail")).toBeUndefined();
 });
@@ -313,4 +313,29 @@ it("BUG view fill rejects ids from a restricted database", async () => {
 	const elsewhere = await save(other!._id, "Elsewhere");
 	await change(member, "views", to(mine, null, [secret, elsewhere, "not-an-id"]), shown!._id);
 	expect(await idsOf(owner, "views", shown!._id)).toEqual([mine]);
+});
+
+it("orders a level's files among its folders and pages, only in the level they're in", async () => {
+	const { owner } = await ownerAndMember();
+	const plan = await owner.mutation(api.pages.create, { title: "Plan" });
+	const jobs = await owner.mutation(api.pages.create, { title: "Jobs", kind: "folder" });
+	const file = await owner.mutation(api.driveFiles.add, { file: await upload(owner) });
+	const level = async (entityId?: string) => (await owner.query(api.arrangements.get))!.rows.find((r) => r.list === "pages" && r.entityId === entityId)?.ids;
+	// Dropped after the page (never placed before: `fill`), then before it, then the page before the file.
+	await owner.mutation(api.arrangements.change, { list: "pages", command: { op: "move", id: file, beforeId: null, fill: [plan] } });
+	expect(await level()).toEqual([plan, file]);
+	await owner.mutation(api.arrangements.change, { list: "pages", command: { op: "move", id: file, beforeId: plan } });
+	expect(await level()).toEqual([file, plan]);
+	await owner.mutation(api.arrangements.change, { list: "pages", command: { op: "move", id: plan, beforeId: file } });
+	expect(await level()).toEqual([plan, file]);
+	// Not in Jobs: its level can't place it there.
+	await expect(owner.mutation(api.arrangements.change, { list: "pages", entityId: jobs, command: { op: "move", id: file, beforeId: null } })).rejects.toThrow("Not found");
+	await owner.mutation(api.driveFiles.move, { fileId: file, parentId: jobs });
+	await owner.mutation(api.arrangements.change, { list: "pages", entityId: jobs, command: { op: "move", id: file, beforeId: null } });
+	expect(await level(jobs)).toEqual([file]);
+	// Archived, it's left out of what the level returns; it's still placed once restored.
+	await owner.mutation(api.trash.move, { kind: "file", id: file });
+	expect(await level(jobs)).toEqual([]);
+	await owner.mutation(api.trash.restore, { kind: "file", id: file });
+	expect(await level(jobs)).toEqual([file]);
 });

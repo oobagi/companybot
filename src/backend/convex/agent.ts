@@ -8,6 +8,7 @@ import {
 	type MemoryStore,
 	type PostDecision,
 	type PageStore,
+	type FileStore,
 	type RecordStore,
 	type ConnectorCredentials,
 	type ConnectorSession,
@@ -761,6 +762,7 @@ function stores(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op) {
 		},
 		records: recordStore(ctx, turnId, op),
 		pages: pageStore(ctx, turnId, op),
+		files: fileStore(ctx, turnId, op),
 		// imageGen.ts checks the budget and edit files as this person, then attaches and records each picture.
 		images: { generate: (request) => ctx.runAction(internal.imageGen.generateFor, { turnId, op, ...request }) },
 		op,
@@ -834,6 +836,35 @@ function recordStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op): RecordS
 		saveDatabase: (input) => ctx.runMutation(internal.recordTools.saveDatabaseFor, { turnId, op, input }),
 		views: ({ type }) => ctx.runMutation(internal.recordTools.viewsFor, { turnId, type }),
 		saveView: (input) => ctx.runMutation(internal.recordTools.saveViewFor, { turnId, op, input }),
+	};
+}
+
+/** Files in Drive as the turn's person; driveTools.ts re-checks access on every call. Text is read like chat files (fileText.ts). */
+function fileStore(ctx: ActionCtx, turnId: Id<"agentTurns">, op?: Op): FileStore {
+	return {
+		find: (input) => ctx.runMutation(internal.driveTools.findFor, { turnId, input }),
+		async read(input) {
+			const file = await ctx.runMutation(internal.driveTools.readFor, { turnId, input });
+			if ("error" in file) return file;
+			const text = await ctx.runAction(internal.fileText.page, { storageId: file.storageId, type: file.type, page: file.page });
+			return text ? { name: file.name, type: file.type, ...text } : { error: `${file.name} was deleted.` };
+		},
+		async write(input) {
+			let upload: Id<"_storage"> | undefined;
+			if (input.from !== undefined && input.text !== undefined) return { error: "Save a copy of a chat file (from) or a new text file (text), not both." };
+			if (input.from !== undefined) {
+				const copied = await ctx.runAction(internal.files.copyFor, { turnId, ids: [input.from], picture: false });
+				if ("error" in copied) return copied;
+				upload = copied.copies[input.from];
+			} else if (input.text !== undefined) {
+				const saved = await ctx.runAction(internal.driveTools.saveText, { turnId, name: input.name ?? "", text: input.text });
+				if ("error" in saved) return saved;
+				upload = saved.storageId;
+			}
+			const result = await ctx.runMutation(internal.driveTools.writeFor, { turnId, op, input, upload });
+			if (upload && result && typeof result === "object" && "error" in result) await ctx.runMutation(internal.files.dropCopies, { turnId, storageIds: [upload] });
+			return result;
+		},
 	};
 }
 

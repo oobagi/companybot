@@ -1,5 +1,5 @@
 import { accessLevels, appEventIds, builtInRoles, fieldKinds, fileTypes, inboxChannels, permissions, publicAbilityIds, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
-import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
+import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
@@ -8,8 +8,9 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
@@ -195,6 +196,17 @@ export const fieldValue = v.union(
 
 /** core's FieldKind. */
 export const fieldKind = oneOf(fieldKinds);
+
+/** core's FieldShape, with the linked database by id: what a field's values depend on. */
+export const fieldShape = v.object({
+	kind: fieldKind,
+	options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
+	linkTypeId: v.optional(v.id("recordTypes")),
+	multiple: v.optional(v.boolean()),
+});
+
+/** core's ChangeCounts. */
+export const changeCounts = v.object({ checked: v.number(), converted: v.number(), cleared: v.number(), partly: v.number(), examples: v.array(v.string()) });
 
 /** core's AutomationAudience. */
 export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
@@ -489,6 +501,16 @@ export default defineSchema({
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_entity", ["entityId"]),
 
+	// Sections people add to a tab's sidebar (core `sectionTabs`), shared by the workspace like Discord's
+	// categories (sidebarSections.ts). `ids`: what it holds, in order; each item is in one of its tab's
+	// sections at most. Their order is the `sectionOrder` arrangement; who folds one, `folded`.
+	sidebarSections: defineTable({
+		workspaceId: v.id("workspaces"),
+		tab: sectionTab,
+		name: v.string(),
+		ids: v.array(v.string()),
+	}).index("by_workspace", ["workspaceId", "tab"]),
+
 	// Personal preferences follow the person across devices.
 	preferences: defineTable({
 		userId: v.id("users"),
@@ -507,6 +529,8 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 		/** Recents under their pins on the rail. Left out means shown. */
 		showRecents: v.optional(v.boolean()),
+		/** Drive shows each level's folders above its pages and files, as Finder can (off: one order by hand). */
+		foldersFirst: v.optional(v.boolean()),
 	}).index("by_user", ["userId"]),
 
 	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
@@ -1310,6 +1334,8 @@ export default defineSchema({
 		typeId: v.id("recordTypes"),
 		...viewConfig,
 		version: v.number(),
+		/** Why its filters, sort or grouping changed without anyone saving it (a field's kind changed). Cleared by the next save. */
+		notice: v.optional(v.string()),
 	}).index("by_type", ["typeId"]),
 
 	// A field on a database. Its values live on `records.values[key]`; renaming keeps the key.
@@ -1319,10 +1345,17 @@ export default defineSchema({
 		key: v.string(),
 		label: v.string(),
 		kind: fieldKind,
-		/** Removed options stay, `retired`, so records using them keep their meaning. */
-		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()) }))),
+		/** One of core's `fieldIcons`; without one the app shows the kind's icon. */
+		icon: v.optional(v.string()),
+		/** Removed options stay, `retired`, so records using them keep their meaning. `color`: one of core's `optionColors`. */
+		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
 		linkTypeId: v.optional(v.id("recordTypes")),
 		multiple: v.optional(v.boolean()),
+		/**
+		 * Set while its kind, one/several or linked database is changing (fieldChanges.ts): values are
+		 * converting in the background, so the field and its values can't be edited until it's unset.
+		 */
+		change: v.optional(v.id("fieldChanges")),
 		/** Display order. */
 		position: v.number(),
 		/** In Trash: its values stay on every record but can't be set, filtered or sorted. */
@@ -1363,6 +1396,8 @@ export default defineSchema({
 		.index("by_contact", ["typeId", "archived", "contact"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
+		// Every record of a database by creation time, in Archive or not: a field change converts them in this order.
+		.index("by_type_created", ["typeId"])
 		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
 
 	// A page: a standalone doc (wiki, SOP, meeting notes) or a record's body. Its content lives
@@ -1373,16 +1408,21 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
-		/** Only standalone pages can be nested. */
+		/**
+		 * A folder in Drive: a page row with no content, holding pages, files and other folders (driveFiles.ts).
+		 * Unset is a page. Folders sit in folders or at the top level; pages hold sub-pages only.
+		 */
+		kind: v.optional(v.literal("folder")),
+		/** Only standalone pages have one: inside a page (a record's too, as sub-pages) or a folder. */
 		parentId: v.optional(v.id("pages")),
-		/** Standalone pages only: a record's body shows the record's name. */
+		/** Standalone pages only: a record's body shows the record's name. A folder's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
-		/** Standalone pages: who can see and edit it. Unset follows its parent; a top-level page's is Everyone at Edit. */
+		/** Standalone pages: who can see and edit it. Unset follows its parent (inside a record's page, its database); a top-level page's is Everyone at Edit. */
 		access,
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
@@ -1423,6 +1463,29 @@ export default defineSchema({
 	// Pictures in a page: uploaded (pages.addImage), or pasted from another page in the workspace
 	// (pageOps.adoptImages). Kept while the page is, even once out of its content, so restoring an
 	// older version brings them back. The file goes with the last page that has it.
+	// A file in Drive (driveFiles.ts): uploaded like a chat file (files.upload), then put in a folder or at the
+	// top level. Its type is what its bytes said. Who can access follows its folder unless it sets its own.
+	driveFiles: defineTable({
+		/** Sources retained across edits and later audience changes. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		/** The folder it's in; unset at Drive's top level. Never a page. */
+		parentId: v.optional(v.id("pages")),
+		...fileInfo.fields,
+		storageId: v.id("_storage"),
+		/** In Archive (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Who can see and change it. Unset follows its folder; a top-level file's is Everyone at Edit. */
+		access,
+	})
+		.index("by_workspace", ["workspaceId", "archived", "name"])
+		.index("by_parent", ["workspaceId", "parentId", "archived", "name"])
+		.index("by_storage", ["storageId"])
+		.searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId", "archived"] }),
+
 	pageImages: defineTable({ workspaceId: v.id("workspaces"), pageId: v.id("pages"), storageId: v.id("_storage"), url: v.string() })
 		.index("by_page", ["pageId", "url"])
 		.index("by_url", ["workspaceId", "url"])
@@ -1476,7 +1539,7 @@ export default defineSchema({
 			v.literal("field.archived"),
 			v.literal("field.restored"),
 		),
-		/** Records: changed values by field key. Fields: changed settings ("label", "options"). */
+		/** Records: changed values by field key. Fields: changed settings ("label", "icon", "options", "colors"). */
 		changes: v.array(v.object({ key: v.string(), old: v.optional(fieldValue), new: v.optional(fieldValue) })),
 		/** Who did it. Unset when someone outside did, through `agentId` as Public (`contact`). */
 		userId: v.optional(v.id("users")),
@@ -1492,6 +1555,55 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type", ["typeId"])
 		.index("by_field", ["fieldId"]),
+
+	// A change to a field's kind, one/several or linked database, converting every record's value in
+	// batches (fieldChanges.ts). Forward changes keep each changed record's old value so the change can
+	// be undone; undoing is a change too (`undoes`), and keeps none.
+	fieldChanges: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		fieldId: v.id("recordFields"),
+		from: fieldShape,
+		to: fieldShape,
+		/** Set on an undo: the change it reverses. */
+		undoes: v.optional(v.id("fieldChanges")),
+		/** Set once this change has been undone (or is being). */
+		undoneBy: v.optional(v.id("fieldChanges")),
+		status: v.union(v.literal("running"), v.literal("done")),
+		/** Records created at or before this have been converted. */
+		doneThrough: v.number(),
+		counts: changeCounts,
+		/** Its line in the field's history. */
+		historyId: v.optional(v.id("recordHistory")),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		finishedAt: v.optional(v.number()),
+		/** Forward changes: old values are kept until then, so it can be undone. */
+		keepUntil: v.optional(v.number()),
+		/** Its kept values were deleted (keepUntil passed): it can't be undone. */
+		forgotten: v.optional(v.boolean()),
+		/** Its latest scheduled run, so `resume` can tell a failed run from a slow one. */
+		run: v.optional(v.id("_scheduled_functions")),
+		updatedAt: v.number(),
+		error: v.optional(v.string()),
+	})
+		.index("by_field", ["fieldId"])
+		.index("by_type", ["typeId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_history", ["historyId"])
+		.index("by_status", ["status", "updatedAt"])
+		.index("by_keep", ["keepUntil"]),
+
+	// A record's value before a field change rewrote it, and what it wrote, so undo restores it exactly
+	// (unless the record changed since). Only records whose value changed have one.
+	fieldChangeValues: defineTable({
+		changeId: v.id("fieldChanges"),
+		recordId: v.id("records"),
+		old: v.optional(fieldValue),
+		new: v.optional(fieldValue),
+	})
+		.index("by_change", ["changeId", "recordId"])
+		.index("by_record", ["recordId"]),
 
 	// A chat message that references a record, so the record can show where it was discussed.
 	recordMentions: defineTable({
@@ -1509,11 +1621,11 @@ export default defineSchema({
 	trash: defineTable({
 		workspaceId: v.id("workspaces"),
 		kind: trashKind,
-		/** The item's row id: record, database, field, page, chat, agent, or skill or automation install. */
+		/** The item's row id: record, database, field, page or folder, file, chat, agent, or skill or automation install. */
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
-		/** Page deletion included live children, captured when it entered Trash. */
+		/** Page or folder deletion included live children (sub-pages, or a folder's contents), captured when it entered Trash. */
 		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),

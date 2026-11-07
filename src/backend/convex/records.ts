@@ -1,6 +1,6 @@
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { emptyPage, getMember, nameOf, requireMember } from "./lib";
@@ -18,6 +18,7 @@ import {
 	updateRecord,
 } from "./recordOps";
 import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { recordTags } from "./recordTags";
 import { condition, recordGroup, recordSort } from "./recordValidators";
 import { canReadReply } from "./replyPrivacy";
 import { trashInfo } from "./trashOps";
@@ -133,6 +134,27 @@ export const search = query({
 	},
 });
 
+/**
+ * Records to tag in a message (the composer's @ menu): live ones whose title or text matches, across the
+ * databases you can see, best first. A few, for a menu; the search index does the work.
+ */
+export const mentionable = query({
+	args: { query: v.string() },
+	handler: async (ctx, { query: text }) => {
+		const member = await getMember(ctx);
+		if (!member || !text.trim()) return [];
+		const types = new Map<Id<"recordTypes">, Doc<"recordTypes"> | null>();
+		const out = [];
+		for (const { record } of (await searchRecords(ctx, member, text.slice(0, 100), { limit: MENTIONABLE_MAX })).items) {
+			if (!types.has(record.typeId)) types.set(record.typeId, await ctx.db.get(record.typeId));
+			const type = types.get(record.typeId);
+			if (type) out.push({ _id: record._id, title: record.title, typeKey: type.key, typeName: type.plural });
+		}
+		return out;
+	},
+});
+const MENTIONABLE_MAX = 6;
+
 /** A record's history, newest first. */
 export const history = query({
 	args: { recordId: v.id("records"), paginationOpts: paginationOptsValidator },
@@ -177,6 +199,7 @@ export const discussion = query({
 			.withIndex("by_record", (q) => q.eq("recordId", recordId))
 			.order("desc")
 			.take(50);
+		const tags = recordTags(ctx, member);
 		const out = [];
 		for (const m of mentions) {
 			const message = await ctx.db.get(m.messageId);
@@ -185,7 +208,9 @@ export const discussion = query({
 			const author = message.authorUserId
 				? await nameOf(ctx, message.authorUserId)
 				: ((message.authorAgentId && (await ctx.db.get(message.authorAgentId))?.name) ?? "");
-			out.push({ messageId: message._id, chatId: chat._id, threadId: message.threadId ?? null, text: message.text, author, time: message._creationTime });
+			// Where it was said, in a word: the channel, a side chat's title, else a DM.
+			const where = chat.kind === "channel" ? `#${chat.name}` : chat.title || "Direct message";
+			out.push({ messageId: message._id, chatId: chat._id, threadId: message.threadId ?? null, text: (await tags.forPeople(message.text)).text, author, where, time: message._creationTime });
 		}
 		return out;
 	},

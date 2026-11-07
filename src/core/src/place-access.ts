@@ -29,7 +29,7 @@ export interface AccessEntry {
 	level: AccessLevel;
 }
 
-export type PlaceKind = "channel" | "database" | "page";
+export type PlaceKind = "channel" | "database" | "page" | "folder" | "file";
 
 /** What no list means: anyone in the workspace can view and change it. Nobody outside. */
 export const OPEN_ACCESS: readonly AccessEntry[] = [{ role: EVERYONE, level: "edit" }];
@@ -98,6 +98,8 @@ const verbs: Record<PlaceKind, Record<AccessLevel, string>> = {
 	channel: { view: "see", add: "post in", edit: "post in" },
 	database: { view: "see", add: "add to", edit: "change" },
 	page: { view: "see", add: "edit", edit: "edit" },
+	folder: { view: "see", add: "change", edit: "change" },
+	file: { view: "see", add: "change", edit: "change" },
 };
 
 /**

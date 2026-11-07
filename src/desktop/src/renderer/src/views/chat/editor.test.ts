@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { describe, expect, it } from "vitest";
-import { emojiCandidates, type Sources, candidatesFor, findTrigger, matches, typedMentions } from "./editor";
+import { describe, expect, it, vi } from "vitest";
+import { type Menu, type Sources, SuggestionMenu, candidatesFor, emojiCandidates, findTrigger, matches, typedMentions } from "./editor";
 import { buildIndex } from "./emoji";
 
 describe("composer triggers", () => {
@@ -52,10 +52,12 @@ describe("composer triggers", () => {
 		expect(findTrigger("note:smi", ":")).toBeNull();
 	});
 
-	it("offers emoji from two letters, named by shortcode", () => {
+	it("lists the emoji panel's tiles for the typed query: the matches, everything with nothing typed, nothing for no match", () => {
 		const index = buildIndex([{ hexcode: "1F604", label: "grinning face with smiling eyes", unicode: "😄", group: 0, order: 1 }], { "1F604": "smile" });
-		expect(emojiCandidates(index, "s")).toEqual([]);
-		expect(emojiCandidates(index, "sm")).toEqual([{ kind: "emoji", id: "smile", label: "😄" }]);
+		const store = { getItem: () => null, setItem: () => {} };
+		expect(emojiCandidates(index, "sm", store)).toEqual([{ kind: "emoji", id: "😄", label: "😄" }]);
+		expect(emojiCandidates(index, "", store)).toEqual([{ kind: "emoji", id: "😄", label: "😄" }]);
+		expect(emojiCandidates(index, "zzz", store)).toEqual([]);
 	});
 });
 
@@ -74,5 +76,33 @@ describe("typed mentions", () => {
 	it("takes the longest name, and only whole names", () => {
 		expect(names("@Sam Lee can you")).toEqual(["Sam Lee"]);
 		expect(names("@Scouts @scout me@Scout Scout")).toEqual([]);
+	});
+});
+
+describe("records in the @ menu", () => {
+	it("follows people and agents, searched once typing pauses, and narrows as you type", async () => {
+		vi.useFakeTimers();
+		const search = vi.fn(async (query: string) =>
+			[{ id: "r1" as Id<"records">, name: "Summit Homes", typeKey: "client", typeName: "Clients" }, { id: "r2" as Id<"records">, name: "Sunrise Deck", typeKey: "deal", typeName: "Deals" }].filter((r) => matches(r.name, query)),
+		);
+		const sources: Sources = { people: [{ type: "user", id: "u1" as Id<"users">, name: "Sue" }], agents: [], channels: [], skills: [], records: search };
+		let menu: Menu | null = null;
+		const suggestions = new SuggestionMenu(() => sources, (m) => (menu = m));
+		const options = suggestions.suggestion("@");
+		const renderer = options.render!();
+		const type = async (query: string) => {
+			const items = await options.items!({ query, editor: undefined as never, signal: new AbortController().signal });
+			renderer.onUpdate!({ query, items, command: () => {} } as never);
+			return items.map((c) => c.label);
+		};
+		// People at once; records only after the pause, in one search.
+		expect(await type("s")).toEqual(["Sue"]);
+		expect(await type("su")).toEqual(["Sue"]);
+		await vi.advanceTimersByTimeAsync(200);
+		expect(search.mock.calls.map(([q]) => q)).toEqual(["su"]);
+		expect(menu!.items.map((c) => `${c.kind}:${c.label}`)).toEqual(["user:Sue", "record:Summit Homes", "record:Sunrise Deck"]);
+		// Typing on narrows what was found before the next search answers.
+		expect(await type("sum")).toEqual(["Summit Homes"]);
+		vi.useRealTimers();
 	});
 });

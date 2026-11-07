@@ -265,7 +265,7 @@ async function runFor(
 }
 
 /** Each page rechecks membership, visibility, and install/workspace liveness before delivery. */
-const fanOutArgs = { sources: v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))), installId: v.id("automationInstalls"), prompt: v.string(), visibleIn: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")), cursor: v.optional(v.string()), sent: v.number(), failed: v.number(), retry: v.optional(v.number()) };
+const fanOutArgs = { sources: v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))), installId: v.id("automationInstalls"), prompt: v.string(), visibleIn: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")), cursor: v.optional(v.string()), sent: v.number(), failed: v.number(), retry: v.optional(v.number()) };
 export const fanOut = internalMutation({
 	args: fanOutArgs,
 	handler: async (ctx, args): Promise<void> => {

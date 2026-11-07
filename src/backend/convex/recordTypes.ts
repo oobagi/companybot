@@ -52,6 +52,8 @@ export const list = query({
 							_id: f._id,
 							...(await shown(f)),
 							archived: f.archived,
+							/** Its kind, one/several or linked database is changing: values are converting, and it can't be edited until it's done. */
+							...(f.change && { changing: true as const }),
 							canEdit: manage,
 						})),
 					),

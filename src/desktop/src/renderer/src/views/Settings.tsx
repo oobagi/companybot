@@ -9,8 +9,8 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, ReachIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
+import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, compactDangerButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -27,8 +27,13 @@ import { UsageTab } from "./Usage";
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
 // the bottom of the rail) and the open workspace (the workspace switcher, in the title bar).
-// Customize's tabs keep their /settings/<tab> addresses but open from the rail (Customize),
-// so Settings' sidebar doesn't list them (`inRail`).
+// Workspace tabs are grouped by what they manage: the workspace, its people, its agents, and its
+// connections to other apps.
+/** Agents, Connectors, Skills or Automations (`customize/`), as a settings tab. */
+const item = <I extends CustomizeTab>(id: I) => {
+	const t = customizeTabs.find((c) => c.id === id)!;
+	return { id, label: t.label, icon: <t.icon /> };
+};
 const sections = [
 	{ title: "Account", scope: "account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
 	{
@@ -36,22 +41,30 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
-			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
-			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
-			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
-			{ id: "channels", label: "Channels", description: "Talk to your agents from other apps", icon: <ReachIcon /> },
-			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "usage", label: "Usage", description: "What AI cost this month", icon: <UsageIcon /> },
+			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
 	{
-		title: "Customize",
+		title: "People",
 		scope: "workspace",
-		inRail: true,
-		tabs: customizeTabs.map((t) => ({ id: t.id, label: t.label, icon: <t.icon /> })),
+		tabs: [
+			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
+			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
+		],
 	},
+	{
+		title: "Agents",
+		scope: "workspace",
+		tabs: [
+			item("agents"),
+			item("skills"),
+			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
+			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
+		],
+	},
+	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations")] },
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
 type SettingsTab = (typeof settingsTabs)[number]["id"];
@@ -81,7 +94,6 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 			{tab === "memory" && <MemoryTab access={access} />}
 			{tab === "activity" && <ActivityTab />}
 			{tab === "usage" && <UsageTab />}
-			{tab === "channels" && <ChannelsTab />}
 			{tab === "permissions" && (
 				<>
 					<YourPermissions />
@@ -98,7 +110,7 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 	const scope = settingsScope(tab);
 	return (
 		<>
-			{sections.filter((s) => s.scope === scope && !("inRail" in s)).map((s) => (
+			{sections.filter((s) => s.scope === scope).map((s) => (
 				<Group key={s.title} title={s.title}>
 					{s.tabs.map((t) => (
 						<Item key={t.id} icon={t.icon} active={t.id === tab} onClick={() => navigate("settings", t.id)}>
@@ -108,24 +120,6 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 				</Group>
 			))}
 		</>
-	);
-}
-
-/** Other apps your team talks to agents from. None are built yet. An agent's own number and email are on its page. */
-const channels = [
-	{ label: "Slack", hint: "Message agents from your Slack workspace." },
-	{ label: "Microsoft Teams", hint: "Message agents from Teams." },
-];
-
-function ChannelsTab() {
-	return (
-		<Settings note="Agents reply in chat today. To text or email an agent, use its own number or address, on its page.">
-			{channels.map((c) => (
-				<Setting key={c.label} label={c.label} hint={c.hint}>
-					<span className={hintClass}>Coming soon</span>
-				</Setting>
-			))}
-		</Settings>
 	);
 }
 
@@ -223,7 +217,7 @@ function DangerAction({
 	return (
 		<>
 			<Setting label={action} hint={hint}>
-				<button type="button" onClick={() => setOpen(true)} className={`${actionButton} text-red-600`}>
+				<button type="button" onClick={() => setOpen(true)} className={compactDangerButton}>
 					{action}
 				</button>
 			</Setting>
@@ -382,7 +376,7 @@ function ProfileTab() {
 	// Edited together and saved from the top bar, like General. The draft keeps `start`, your preferences
 	// as they were when you began, so Save sends only what you changed here, never another device's change
 	// back; if they changed meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
-	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true };
+	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true, foldersFirst: prefs?.foldersFirst ?? false };
 	const draft = useDraft("account:preferences", { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const { error, run } = useRun();
@@ -395,6 +389,7 @@ function ProfileTab() {
 			...(value.sendWith !== start.sendWith && { sendWith: value.sendWith }),
 			...(value.notify !== start.notify && { notify: value.notify }),
 			...(value.showRecents !== start.showRecents && { showRecents: value.showRecents }),
+			...(value.foldersFirst !== start.foldersFirst && { foldersFirst: value.foldersFirst }),
 		};
 		run(update(changed), () => draft.discard());
 	};
@@ -444,6 +439,9 @@ function ProfileTab() {
 				</Setting>
 				<Setting label="Recents on the rail" hint="The places you opened lately, under your pins. Right-click the rail to change this too.">
 					<Toggle checked={value.showRecents} onChange={(showRecents) => draft.set({ ...value, showRecents })} />
+				</Setting>
+				<Setting label="Folders on top" hint="In Drive, folders sit above the pages and files at every level, as in Finder. Off, you put everything in the order you like.">
+					<Toggle checked={value.foldersFirst} onChange={(foldersFirst) => draft.set({ ...value, foldersFirst })} />
 				</Setting>
 			</Settings>
 			<AppVersion />

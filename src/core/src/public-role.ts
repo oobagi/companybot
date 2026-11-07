@@ -46,12 +46,16 @@ export function flipAbility(stored: StoredAbilities | undefined, ability: string
 	return on === publicAbilities[ability].on ? rest : [...rest, { ability, on }];
 }
 
-/** The most Public can hold in each kind of place: never Edit, never a channel. */
-export const publicPlaceLevels: Record<PlaceKind, readonly AccessLevel[]> = { page: ["view"], database: ["view", "add"], channel: [] };
+/**
+ * The most Public can hold in each kind of place: never Edit, never a channel. Pages are shared one by
+ * one (their sub-pages follow), so a Drive folder or file is never shared with Public.
+ */
+export const publicPlaceLevels: Record<PlaceKind, readonly AccessLevel[]> = { page: ["view"], database: ["view", "add"], channel: [], folder: [], file: [] };
 
 /** Why Public can't have `level` in this kind of place, or null if it can. The only place-access rule just for Public. */
 export function publicLevelProblem(kind: PlaceKind, level: AccessLevel): string | null {
 	if (publicPlaceLevels[kind].includes(level)) return null;
 	if (kind === "channel") return "Public can't be added to a channel: people outside the workspace never see chat.";
+	if (kind === "folder" || kind === "file") return "Public can't be added to a folder or file: share the pages in it instead.";
 	return kind === "page" ? "Public can only view pages." : "Public can only view or add to databases.";
 }

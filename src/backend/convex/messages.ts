@@ -1,5 +1,6 @@
 import { emojiOf } from "@companybot/core";
 import { previewUrl } from "@companybot/core/link-preview";
+import { taggedRecordIds } from "@companybot/core/record-mentions";
 import { paginationOptsValidator, type PaginationResult } from "convex/server";
 import { ConvexError, type Infer, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -35,7 +36,7 @@ import { claimFiles, deleteAttachments } from "./files";
 import { type Who, type Member, canSeeSkill, memberOf, nameOf, requireMember } from "./lib";
 import { type LinkPreview, previewMessage, previewRow, previewsOf } from "./linkPreviews";
 import { completeSteps } from "./onboarding";
-import { noteMentions, workspaceRecords } from "./recordOps";
+import { type RecordTagView, type RecordTags, messageForPeople, recordTags, storeTags, syncRecordMentions } from "./recordTags";
 import { canReadReplyDetails, genericToolParts, canReadReply, maskedReply, replyPrivacy, type ReplyPrivacy } from "./replyPrivacy";
 import { readArtifact, writeSources } from "./replySources";
 import { routeLater } from "./router";
@@ -93,6 +94,8 @@ export type Message = {
 	pause: { status: "paused" | "continued" | "stopped"; for: string; by: string | null; canDecide: boolean } | null;
 	/** An agent's ask of another (chat.ask_agent): who asked whom. Kept out of the timeline; its thread shows read-only. */
 	ask: { from: string; to: string } | null;
+	/** Records tagged in it (recordTags.ts), as `text` reads them (`@Summit Homes`, `@Private record`), so the app shows them as chips. */
+	records: RecordTagView[];
 };
 
 /**
@@ -115,8 +118,9 @@ export const page = query({
 			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
 		const docs = result.page.sort((a, b) => shownAt(a) - shownAt(b));
 		const names = namer(ctx, { images: true });
+		const tags = recordTags(ctx, visible.member);
 		const page = parent && paginationOpts.cursor === null ? [parent, ...docs] : docs;
-		return { ...result, page: await Promise.all(page.map((m) => toMessage(ctx, m, visible.member, names))) };
+		return { ...result, page: await Promise.all(page.map((m) => toMessage(ctx, m, visible.member, names, tags))) };
 	},
 });
 
@@ -157,7 +161,8 @@ export const list = query({
 				.take(PAGE_MAX)
 		).sort((a, b) => shownAt(a) - shownAt(b));
 		const names = namer(ctx, { images: true });
-		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names)));
+		const tags = recordTags(ctx, visible.member);
+		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names, tags)));
 	},
 });
 
@@ -172,13 +177,18 @@ export const stream = query({
 		const privacy = await replyPrivacy(ctx, visible.member, message);
 		if (privacy?.hidden) return { text: `🔒 ${privacy.label}`, parts: [], privacy };
 		const stream = await streamOf(ctx, messageId);
-		return { text: stream?.text ?? "", parts: stream?.parts ?? [], ...(privacy && { privacy }) };
+		// Tags as the agent writes them, read the same way as once it's done.
+		const shown = await messageForPeople(recordTags(ctx, visible.member), { text: stream?.text ?? "", parts: stream?.parts ?? [] });
+		return { ...shown, ...(privacy && { privacy }) };
 	},
 });
 
-async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer): Promise<Message> {
+async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, names: Namer, tags: RecordTags): Promise<Message> {
 	const privacy = await replyPrivacy(ctx, member, m);
 	if (privacy?.hidden) m = maskedReply(m, privacy.label);
+	// Each tagged record by its name now, or "Private record" for a reader who can't see its database.
+	const { records, ...tagged } = await messageForPeople(tags, m);
+	m = { ...m, ...tagged };
 	const reactions: Message["reactions"] = [];
 	for (const r of privacy?.hidden ? [] : await reactionsOf(ctx, m._id)) {
 		let group = reactions.find((g) => g.emoji === r.emoji);
@@ -217,6 +227,7 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 		pause: await pauseOf(ctx, m, member, names),
 		// Only an ask is quiet and still listed: as its thread's parent.
 		ask: m.quiet && m.authorAgentId ? { from: (await names.agent(m.authorAgentId)).name, to: (await names.agent(m.mentions.agentIds[0]!)).name } : null,
+		records,
 	};
 }
 
@@ -287,8 +298,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	if (who.agentId && chat.kind === "dm" && chat.dmKey?.includes("a:") && !chat.dmKey.split(",").includes(`a:${who.agentId}`)) {
 		throw new ConvexError(OTHER_AGENTS_DM);
 	}
-	text = text.trim();
-	if (!text && files.length === 0) throw new ConvexError("Write something first.");
+	if (!text.trim() && files.length === 0) throw new ConvexError("Write something first.");
 	if (threadId) {
 		const parent = await ctx.db.get(threadId);
 		if (!parent || parent.chatId !== chatId || parent.threadId) throw new ConvexError("That thread doesn't exist.");
@@ -306,7 +316,10 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		if (agent?.workspaceId === member.workspaceId && !agent.archived) agentIds.push(id);
 	}
 
-	const recordIds = await workspaceRecords(ctx, member, mentions.recordIds ?? []);
+	// Records tagged in the text (`[@Name](record:id)`) are kept as ids; ones the writer can't see stay as their names.
+	const { text: stored, recordIds } = await storeTags(ctx, member, text.trim(), { also: mentions.recordIds });
+	text = stored;
+	const readable = () => recordTags(ctx, { ...member, replyId: undefined });
 	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
 	for (const id of new Set(mentions.skillIds ?? [])) {
@@ -319,7 +332,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	const dmAgent = agentOfDm(chat);
 	if (dmAgent && (await ctx.db.get(dmAgent))?.archived) throw new ConvexError("This agent is in Archive.");
 	// A side chat takes its name from the person's first message.
-	if (chat.parentId && !chat.title && !threadId && !who.agentId) await ctx.db.patch(chat._id, { title: titleFrom(text) });
+	if (chat.parentId && !chat.title && !threadId && !who.agentId) await ctx.db.patch(chat._id, { title: titleFrom((await readable().forPeople(text)).text) });
 	// Last: a refused message keeps its uploads, to attach again.
 	const attachments = await claimFiles(ctx, member, files);
 
@@ -337,7 +350,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 	const sent = (await ctx.db.get(messageId))!;
 	await addUserMentions(ctx, sent);
 	await previewMessage(ctx, sent);
-	await noteMentions(ctx, { _id: messageId, chatId }, recordIds);
+	await syncRecordMentions(ctx, sent, recordIds);
 	if (!who.agentId) await stopTyping(ctx, chatId, threadId, member.userId);
 	// A person writing where agents are handing work around gives those chains a fresh budget.
 	if (!who.agentId) await resetChains(ctx, chatId, threadId);
@@ -370,7 +383,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		await fireEvent(ctx, chat.workspaceId, "message.posted", {
 			channelId: chatId,
 			messageId,
-			data: { channel: `#${chat.name}`, author: await nameOf(ctx, member.userId), text },
+			data: { channel: `#${chat.name}`, author: await nameOf(ctx, member.userId), text: await readable().forModel(text) },
 		});
 	}
 	return messageId;
@@ -429,11 +442,39 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	const message = await requireOwn(ctx, who, messageId);
 	// Deleting your own message stays open in a channel that turned read-only; changing it doesn't.
 	requirePost(who.member, (await ctx.db.get(message.chatId))!);
-	text = text.trim();
+	const { text: stored, recordIds } = await retag(ctx, who.member, message, text.trim());
+	text = stored;
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	const sources = await writeSources(ctx, who.member, { filtered: true }, message);
-	await ctx.db.patch(message._id, { text, parts: text ? [{ type: "text", text }] : [], editedAt: Date.now(), sharedBy: undefined, usedPlaces: sources.length ? sources : undefined, ...(sources.length && { repliedTo: who.member.userId }) });
+	await ctx.db.patch(message._id, {
+		text,
+		parts: text ? [{ type: "text", text }] : [],
+		mentions: { ...message.mentions, recordIds: recordIds.length ? recordIds : undefined },
+		editedAt: Date.now(),
+		sharedBy: undefined,
+		usedPlaces: sources.length ? sources : undefined,
+		...(sources.length && { repliedTo: who.member.userId }),
+	});
+	await syncRecordMentions(ctx, message, recordIds);
 	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
+}
+
+/**
+ * An edited message's text to store. The edit box held it as its writer read it ("@Summit Homes"), so a
+ * record it tagged stays tagged while what they read for it is still in the text; one they took out is
+ * untagged. New tags (`[@Name](record:id)`, as agents write) are kept as on a send. Records it named by id
+ * alone (the API's `mentions.recordIds`) stay.
+ */
+async function retag(ctx: QueryCtx, member: Member, message: Doc<"chatMessages">, text: string) {
+	const before = taggedRecordIds(message.text) as Id<"records">[];
+	const tags = recordTags(ctx, { ...member, replyId: undefined });
+	for (const id of before) {
+		const read = (await tags.forPeople(`<record:${id}>`)).text;
+		const at = read.startsWith("@") ? text.indexOf(read) : -1;
+		if (at >= 0) text = `${text.slice(0, at)}<record:${id}>${text.slice(at + read.length)}`;
+	}
+	const also = (message.mentions.recordIds ?? []).filter((id) => !before.includes(id));
+	return storeTags(ctx, member, text, { also, kept: before });
 }
 
 export async function hideMessagePreview(ctx: MutationCtx, who: Who, messageId: Id<"chatMessages">, url: string) {

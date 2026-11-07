@@ -5,12 +5,12 @@ import { Fragment, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Notice, chipButton, pillLinkButton, repliesButton, smallButton, timeAgo, useTip } from "../../ui";
+import { Notice, chipButton, iconButton, pillLinkButton, repliesButton, smallButton, timeAgo, useTip } from "../../ui";
 import { WidgetView } from "../../widgets";
 import { CallDetails } from "../Activity";
 import { HeldCall } from "./Approval";
 import { AutomationIcon, CaretDownIcon, CaretRightIcon, ChannelIcon, EditIcon, MoreIcon, ReactIcon, ReplyIcon, StopIcon, TrashIcon } from "../../icons";
-import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, clock, iconButton, useConfirm } from "./common";
+import { AgentBadge, Avatar, AvatarStack, EmojiPicker, IconButton, MenuItem, PairAvatar, Popover, clock, useConfirm } from "./common";
 import type { Message, TokenNames } from "./data";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
@@ -54,6 +54,8 @@ export function MessageRow({
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
 	const sending = message.sending;
+	// Its own tagged records are chips too.
+	if (message.records.length) tokens = { ...tokens, records: message.records };
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
 	if (message.privacy?.hidden) return <p id={`message-${message._id}`} className="px-5 py-2 text-sm text-neutral-500 italic">🔒 {message.privacy.label}</p>;
