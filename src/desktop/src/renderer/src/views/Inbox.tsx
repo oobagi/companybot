@@ -325,8 +325,8 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 							<input aria-label="Subject" required value={subject} onChange={(e) => setSubject(e.target.value)} className={wideControlClass} />
 						</Setting>
 					)}
-					<Setting label="Message">
-						<textarea aria-label="Message" required rows={5} value={text} onChange={(e) => setText(e.target.value)} className={`${compactControlClass} w-full`} />
+					<Setting wide label="Message">
+						<textarea aria-label="Message" required rows={8} value={text} onChange={(e) => setText(e.target.value)} className={`${compactControlClass} w-full resize-y`} />
 					</Setting>
 				</Settings>
 				<Notice>{error}</Notice>
