@@ -94,7 +94,7 @@ function DriveNavTree({ openId, openFileId, openView, canEdit }: { openId?: stri
 						<Item drag={drag?.tree.row} over={drag?.over} pin={`page:${p._id}`} icon={folder ? <FolderIcon /> : <PageIcon />} expanded={open} onToggle={p.hasChildren ? () => toggle(p._id) : undefined} label={p.title} guides={guides} active={p._id === openId} onClick={() => navigate("pages", p._id)}
 							rename={p.canEdit ? { value: p.title, onSave: (title) => run(rename({ pageId: p._id, title })) } : undefined}
 							menu={p.canEdit ? (close) => <>
-								<MenuItem onClick={() => { close(); add("page", p._id); }}><PlusIcon /> New page inside</MenuItem>
+								{folder && <MenuItem onClick={() => { close(); add("page", p._id); }}><PlusIcon /> New page inside</MenuItem>}
 								{folder && <MenuItem onClick={() => { close(); add("folder", p._id); }}><FolderIcon /> New folder inside</MenuItem>}
 								{folder && <MenuItem onClick={() => { close(); picker.open(p._id); }}><UploadIcon /> Upload here</MenuItem>}
 								<MenuItem onClick={() => { close(); setMoving({ ...p, kind: p.kind ?? "page", parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
