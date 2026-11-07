@@ -1,24 +1,104 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Checkbox, Select } from "../../controls";
-import { type FieldKind, autoColor, fieldIcons, fieldKinds, optionColors } from "@companybot/core/records";
+import { type FieldKind, NAME_KEY, autoColor, fieldIcons, fieldKinds, optionColors } from "@companybot/core/records";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
-import { useMutation } from "../../convex";
-import { Form, MenuDivider, Notice, Setting, Settings, compactControlClass, iconDangerButton, metadataClass, pickedTileButton, primaryButton, secondaryButton, swatchButton, useRun, wideControlClass } from "../../ui";
+import { useMutation, useQuery } from "../../convex";
+import { Form, MenuDivider, Notice, Setting, Settings, compactControlClass, hintClass, iconDangerButton, metadataClass, notePanelClass, pickedTileButton, primaryButton, secondaryButton, smallButton, swatchButton, timeAgo, useDebounced, useRun, wideControlClass } from "../../ui";
 import { ArchiveIcon, CheckIcon, RestoreIcon, TrashIcon, fieldIconSet } from "../../icons";
 import { DialogButtons, MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
-import { Chip, FieldIcon, tintOf } from "./fields";
+import { FieldIcon, tintOf } from "./fields";
 import { type RecordType, useTypes } from "./data";
 import { type TypeField, kindLabels } from "./logic";
 
-// Adding a field to a type (anyone with `fields.edit`), and renaming, re-iconing, re-optioning
-// or deleting one (`canEdit` from the server: the fields.edit switch).
+// Adding a field, and changing any of its settings later (anyone with `fields.edit` and Edit in the
+// database): the same form for both, so they can't drift. A new kind, one ↔ several or another linked
+// database converts existing values in the background, after a preview; it can be undone. Its icon and
+// its options' colors are only looks: they change nothing stored in records.
 
 const severalKinds: FieldKind[] = ["choice", "user", "link"];
 
+type Option = { id?: string; label: string; color?: string; retired?: boolean };
+
+/** What the form holds. Options are the field's live ones, plus any typed. */
+type Draft = { label: string; icon?: string; kind: FieldKind; options: Option[]; added: string; linkTypeId: string; multiple: boolean };
+
+const draftOf = (field?: TypeField, kind: FieldKind = "text"): Draft => ({
+	label: field?.label ?? "",
+	icon: field?.icon,
+	kind: field?.kind ?? kind,
+	options: field?.options?.filter((o) => !o.retired) ?? [],
+	added: "",
+	linkTypeId: field?.linkType ?? "",
+	multiple: !!field?.multiple,
+});
+
+/** The options to send: the list, plus what's typed in New option (the server gives it the next color in turn). */
+const optionsOf = (draft: Draft) =>
+	[...draft.options, ...(draft.added.trim() ? [{ label: draft.added.trim() }] : [])].map(({ id, label, color }: Option) => ({ ...(id && { id }), label, ...(color && { color }) }));
+
+/** Whether the draft changes how values are stored: its kind, one/several, or the linked database. */
+const reshapes = (field: TypeField, d: Draft) =>
+	d.kind !== field.kind || (severalKinds.includes(d.kind) && d.multiple !== !!field.multiple) || (d.kind === "link" && d.linkTypeId !== (field.linkType ?? ""));
+
+/** Every setting a field has, in one place: Add field and Edit field both show these. */
+function FieldSettings({ draft, set, field }: { draft: Draft; set: (d: Partial<Draft>) => void; field?: TypeField }) {
+	const types = useTypes();
+	const wasChoice = field?.kind === "choice";
+	const retired = draft.kind === "choice" && wasChoice ? (field.options?.filter((o) => o.retired) ?? []) : [];
+	const optionsHint = !field || wasChoice
+		? field ? "Removing an option keeps it on the records that have it, but it can't be picked again." : "The values people can pick."
+		: "Each different value already in this field becomes an option too.";
+	return (
+		<Settings>
+			<Setting label="Name">
+				<span className="flex gap-2">
+					<IconPicker kind={draft.kind} icon={draft.icon} onChange={(icon) => set({ icon })} />
+					<input autoFocus aria-label="Name" value={draft.label} onChange={(e) => set({ label: e.target.value })} placeholder="Roof type" className={`${wideControlClass} flex-1`} />
+				</span>
+			</Setting>
+			<Setting label="Kind" hint={field?.key === NAME_KEY ? "A record's name is always text." : field ? "Changing it converts the values already here." : undefined}>
+				<Select
+					label="Kind"
+					className={wideControlClass}
+					value={draft.kind}
+					disabled={field?.key === NAME_KEY}
+					options={fieldKinds.map((k) => ({ value: k, label: kindLabels[k] }))}
+					onChange={(kind) => set({ kind, ...(kind === field?.kind && { multiple: !!field.multiple }) })}
+				/>
+			</Setting>
+			{draft.kind === "choice" && (
+				<Setting label="Options" hint={optionsHint} wide>
+					<OptionsEditor options={draft.options} onChange={(options) => set({ options })} added={draft.added} onAdded={(added) => set({ added })} before={retired.length}>
+						{retired.length > 0 && <p className={metadataClass}>Removed: {retired.map((o) => o.label).join(", ")}</p>}
+					</OptionsEditor>
+				</Setting>
+			)}
+			{draft.kind === "link" && (
+				<Setting label="Links to" hint={field?.kind === "link" ? "Another database matches values by their record's name." : undefined}>
+					<Select
+						label="Links to"
+						className={wideControlClass}
+						value={draft.linkTypeId}
+						placeholder="Pick a database…"
+						options={(types ?? []).map((t) => ({ value: t._id as string, label: t.plural }))}
+						onChange={(linkTypeId) => set({ linkTypeId })}
+					/>
+				</Setting>
+			)}
+			{severalKinds.includes(draft.kind) && (
+				<Setting inline label="Holds several" hint={field && field.kind === draft.kind && field.multiple && !draft.multiple ? "Each record keeps its first value." : "More than one value per record."}>
+					<Checkbox label="Holds several" checked={draft.multiple} onChange={(multiple) => set({ multiple })} />
+				</Setting>
+			)}
+		</Settings>
+	);
+}
+
 export function AddField({
 	type,
-	kind: initialKind = "text",
+	kind = "text",
 	onCreated,
 	onClose,
 }: {
@@ -28,26 +108,19 @@ export function AddField({
 	onCreated?: (key: string) => void;
 	onClose: () => void;
 }) {
-	const types = useTypes();
 	const create = useMutation(api.fields.create);
-	const [label, setLabel] = useState("");
-	const [kind, setKind] = useState(initialKind);
-	const [icon, setIcon] = useState<string>();
-	const [options, setOptions] = useState<Draft[]>([]);
-	const [added, setAdded] = useState("");
-	const [linkTypeId, setLinkTypeId] = useState<string>("");
-	const [multiple, setMultiple] = useState(false);
+	const [draft, setDraft] = useState(() => draftOf(undefined, kind));
 	const { error, run } = useRun();
 	const submit = () =>
 		run(
 			create({
 				typeId: type._id,
-				label,
-				kind,
-				...(icon && { icon }),
-				...(kind === "choice" && { options: withAdded(options, added, 0) }),
-				...(kind === "link" && linkTypeId && { linkTypeId: linkTypeId as Id<"recordTypes"> }),
-				...(severalKinds.includes(kind) && multiple && { multiple: true }),
+				label: draft.label,
+				...(draft.icon && { icon: draft.icon }),
+				kind: draft.kind,
+				...(draft.kind === "choice" && { options: optionsOf(draft) }),
+				...(draft.kind === "link" && draft.linkTypeId && { linkTypeId: draft.linkTypeId as Id<"recordTypes"> }),
+				...(severalKinds.includes(draft.kind) && draft.multiple && { multiple: true }),
 			}).then((field) => onCreated?.(field.key)),
 			onClose,
 		);
@@ -55,39 +128,7 @@ export function AddField({
 		<Modal title={`Add a field to ${type.plural.toLowerCase()}`} onClose={onClose}>
 			<Form onSubmit={() => submit()}>
 				<Notice>{error}</Notice>
-				<Settings>
-					<Setting label="Name">
-						<span className="flex gap-2">
-							<IconPicker kind={kind} icon={icon} onChange={setIcon} />
-							<input autoFocus aria-label="Name" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Roof type" className={`${wideControlClass} flex-1`} />
-						</span>
-					</Setting>
-					<Setting label="Kind" hint="A field's kind can't change later.">
-						<Select label="Kind" className={wideControlClass} value={kind} options={fieldKinds.map((k) => ({ value: k, label: kindLabels[k] }))} onChange={setKind} />
-					</Setting>
-					{kind === "choice" && (
-						<Setting label="Options" wide>
-							<OptionsEditor options={options} onChange={setOptions} added={added} onAdded={setAdded} before={0} />
-						</Setting>
-					)}
-					{kind === "link" && (
-						<Setting label="Links to">
-							<Select
-								label="Links to"
-								className={wideControlClass}
-								value={linkTypeId}
-								placeholder="Pick a database…"
-								options={(types ?? []).map((t) => ({ value: t._id as string, label: t.plural }))}
-								onChange={setLinkTypeId}
-							/>
-						</Setting>
-					)}
-					{severalKinds.includes(kind) && (
-						<Setting inline label="Holds several" hint="More than one value per record.">
-							<Checkbox label="Holds several" checked={multiple} onChange={setMultiple} />
-						</Setting>
-					)}
-				</Settings>
+				<FieldSettings draft={draft} set={(d) => setDraft({ ...draft, ...d })} />
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
 					<button type="submit" className={primaryButton}>Add field</button>
@@ -97,34 +138,45 @@ export function AddField({
 	);
 }
 
-/** Rename, change options (a removed option is retired: records keep it), or delete (to Trash). */
+/**
+ * Every setting of a field, changeable. A new kind, one ↔ several or linked database converts the values
+ * in the background on Save, like Notion; only a change that loses something says so first. Undoable for
+ * 30 days. Archive is in the menu (to Trash).
+ */
 export function EditField({ field, onClose }: { field: TypeField; onClose: () => void }) {
 	const update = useMutation(api.fields.update);
 	const remove = useMutation(api.trash.move);
+	const undo = useMutation(api.records.undo);
 	const { confirm, dialog } = useConfirm();
-	const [label, setLabel] = useState(field.label);
-	const [icon, setIcon] = useState(field.icon);
-	const [options, setOptions] = useState<Draft[]>(field.options?.filter((o) => !o.retired) ?? []);
-	const [added, setAdded] = useState("");
+	const [draft, setDraft] = useState(() => draftOf(field));
 	const { error, run } = useRun();
 	const fieldId = field._id as Id<"recordFields">;
-	const retired = field.options?.filter((o) => o.retired) ?? [];
+	const changes = useQuery(api.fields.changes, { fieldId });
+	const converting = !!field.changing || !!changes?.running;
+	const reshaping = reshapes(field, draft);
+	const preview = usePreview(field, draft, reshaping && !converting);
 	const save = () =>
 		run(
 			update({
 				fieldId,
-				label,
-				...(icon !== field.icon && { icon: icon ?? null }),
-				...(field.kind === "choice" && { options: withAdded(options, added, retired.length) }),
+				label: draft.label,
+				...(draft.icon !== field.icon && { icon: draft.icon ?? null }),
+				...(draft.kind === "choice" && { options: optionsOf(draft) }),
+				...(reshaping && {
+					kind: draft.kind,
+					multiple: severalKinds.includes(draft.kind) && draft.multiple,
+					...(draft.kind === "link" && draft.linkTypeId && { linkTypeId: draft.linkTypeId as Id<"recordTypes"> }),
+				}),
 			}),
 			onClose,
 		);
+	const last = changes?.last;
 	return (
 		<Modal
 			title={`Edit “${field.label}”`}
 			onClose={onClose}
 			menu={
-				field.key !== "name"
+				field.key !== NAME_KEY
 					? (close) => (
 							<MenuItem onClick={() => (close(), confirm(archiveQuestion(field.label, () => remove({ kind: "field", id: fieldId }).then(onClose), "The field will be hidden; its saved values are kept.")))}>
 								<ArchiveIcon /> Archive field
@@ -136,36 +188,84 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 			{dialog}
 			<Form onSubmit={() => save()}>
 				<Notice>{error}</Notice>
-				<Settings>
-					<Setting label="Name" hint={`${kindLabels[field.kind]}${field.multiple ? ", holds several" : ""}`}>
-						<span className="flex gap-2">
-							<IconPicker kind={field.kind} icon={icon} onChange={setIcon} />
-							<input autoFocus aria-label="Name" value={label} onChange={(e) => setLabel(e.target.value)} className={`${wideControlClass} flex-1`} />
+				{converting ? (
+					<div className={notePanelClass}>
+						<p className="font-medium">{changes?.running?.undoing ? "Undoing the last change…" : "Converting values…"}</p>
+						<p>{(changes?.running?.converted ?? 0).toLocaleString()} done so far. You can change this field again once it's finished.</p>
+					</div>
+				) : (
+					<FieldSettings draft={draft} set={(d) => setDraft({ ...draft, ...d })} field={field} />
+				)}
+				{preview && <ChangeWarning preview={preview} />}
+				{!converting && !reshaping && last && (
+					<div className={`flex items-center gap-3 ${hintClass}`}>
+						<span className="min-w-0 flex-1">
+							Changed {last.change} {timeAgo(last.at)}
+							{last.cleared > 0 && `, clearing ${last.cleared.toLocaleString()} ${last.cleared === 1 ? "value" : "values"}`}.
 						</span>
-					</Setting>
-					{field.kind === "choice" && (
-						<Setting label="Options" hint="Removing an option keeps it on the records that have it, but it can't be picked again." wide>
-							<OptionsEditor options={options} onChange={setOptions} added={added} onAdded={setAdded} before={retired.length}>
-								{retired.length > 0 && <p className={metadataClass}>Removed: {retired.map((o) => o.label).join(", ")}</p>}
-							</OptionsEditor>
-						</Setting>
-					)}
-				</Settings>
+						{last.undoable && (
+							<button
+								type="button"
+								className={smallButton}
+								onClick={() =>
+									confirm({
+										title: `Undo “${last.change}”?`,
+										action: "Undo",
+										danger: false,
+										body: `“${field.label}” goes back to how it was, and every record gets its old value back, unless it was changed since.`,
+										onConfirm: () => undo({ historyId: last.historyId }).then(onClose),
+									})
+								}
+							>
+								Undo
+							</button>
+						)}
+					</div>
+				)}
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
-					<button type="submit" className={primaryButton}>Save</button>
+					<button type="submit" className={primaryButton} disabled={converting || (reshaping && preview === undefined)}>Save</button>
 				</DialogButtons>
 			</Form>
 		</Modal>
 	);
 }
 
-/** An option being edited: an existing one keeps its `id`; a new one has none until it's saved. */
-type Draft = { id?: string; label: string; color?: string };
+/** What changing the field would do to its values: undefined while checking, null when nothing changes shape. */
+function usePreview(field: TypeField, draft: Draft, reshaping: boolean) {
+	// Settles as text, so each render's new object doesn't restart the wait.
+	const settled = useDebounced(
+		JSON.stringify({
+			fieldId: field._id,
+			kind: draft.kind,
+			multiple: severalKinds.includes(draft.kind) && draft.multiple,
+			...(draft.kind === "link" && draft.linkTypeId && { linkTypeId: draft.linkTypeId }),
+			...(draft.kind === "choice" && field.kind !== "choice" && { options: optionsOf(draft) }),
+		}),
+	);
+	const skip = !reshaping || (draft.kind === "link" && !draft.linkTypeId);
+	const preview = useQuery(api.fields.preview, skip ? "skip" : (JSON.parse(settled) as FunctionArgs<typeof api.fields.preview>));
+	return skip ? null : preview;
+}
 
-/** The options to send: the rows, plus what's still typed in "New option" (in its turn's color). `before`: retired options, which count toward the turn. */
-const withAdded = (options: Draft[], added: string, before: number): Draft[] =>
-	added.trim() ? [...options, { label: added.trim(), color: autoColor(before + options.length) }] : options;
+/** Says only what a change loses (values cleared or cut, view filters dropped); a lossless one says nothing. */
+function ChangeWarning({ preview }: { preview: NonNullable<FunctionReturnType<typeof api.fields.preview>> }) {
+	if ("error" in preview) return <Notice>{preview.error}</Notice>;
+	const n = (count: number) => `${count.toLocaleString()}${preview.more ? "+" : ""}`;
+	const values = (count: number) => `${n(count)} ${count === 1 && !preview.more ? "value" : "values"}`;
+	const examples = preview.examples.length ? `: ${preview.examples.map((e) => `“${e}”`).join(", ")}` : "";
+	const lines = [
+		preview.cleared > 0 && `${values(preview.cleared)} will be cleared${examples}.`,
+		preview.partly > 0 && `${values(preview.partly)} will keep only their first pick${preview.cleared ? "" : examples}.`,
+		preview.views.length > 0 && `Filters or grouping on it in ${preview.views.map((v) => `“${v}”`).join(", ")} will be removed.`,
+	].filter(Boolean);
+	if (!lines.length) return null;
+	return (
+		<p className={hintClass}>
+			{lines.join(" ")} You can undo this for 30 days.
+		</p>
+	);
+}
 
 /**
  * Choice options as rows, Notion's way: a color swatch, the name, remove. Enter in "New option"
@@ -179,8 +279,8 @@ function OptionsEditor({
 	before,
 	children,
 }: {
-	options: Draft[];
-	onChange: (options: Draft[]) => void;
+	options: Option[];
+	onChange: (options: Option[]) => void;
 	added: string;
 	onAdded: (text: string) => void;
 	before: number;

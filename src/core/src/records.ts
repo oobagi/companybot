@@ -20,6 +20,21 @@ export const fieldKinds = [
 ] as const;
 export type FieldKind = (typeof fieldKinds)[number];
 
+/** Each kind as people say it. */
+export const kindLabels: Record<FieldKind, string> = {
+	text: "Text",
+	number: "Number",
+	currency: "Amount",
+	date: "Date",
+	checkbox: "Checkbox",
+	choice: "Choice",
+	email: "Email",
+	phone: "Phone",
+	url: "Website",
+	user: "Person",
+	link: "Link to a record",
+};
+
 /**
  * A stored value. Empty values (and unchecked boxes) aren't stored. Dates are "YYYY-MM-DD";
  * currency is `Money`; choices, people and links are ids.

@@ -143,13 +143,14 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 				{onEditField ? (
 					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
 						<FieldIcon field={field} large /> <span className="truncate">{field.label}</span>
+						{field.changing && <span className={metadataClass}>Converting…</span>}
 					</button>
 				) : (
 					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} large /> <span className="truncate">{field.label}</span></span>
 				)}
 			</dt>
 			<dd className="flex min-w-0 flex-col">
-				{editable ? (
+				{editable && !field.changing ? (
 					<ValueEditor
 						field={field}
 						value={value}

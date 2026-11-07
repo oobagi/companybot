@@ -305,7 +305,19 @@ describe("records tools", () => {
 		const ownerRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "owner")!.id;
 		await owner.mutation(api.workspace.setRoles, { id: row!._id, roles: [ownerRole] });
 		expect(await tools.saveField(stages)).toMatchObject({ options: stages.options });
-		expect(await tools.saveField({ type: "deal", field: "stage", kind: "text" })).toEqual({ error: expect.stringContaining("Only a field's name, icon and options") });
+		expect(await tools.saveField({ type: "deal", field: "stage", kind: "text", preview: true })).toMatchObject({ preview: true, change: "Choice → Text" });
+		// A kind change runs in the background and undoes through records_undo.
+		const changed = await tools.saveField({ type: "deal", field: "stage", kind: "text" });
+		expect(changed).toMatchObject({ kind: "text", changed: "Choice → Text", converting: true });
+		// Runs the change's batches, not the held-back reply (it would call a model).
+		const convert = async () => {
+			for (const job of await t.run((ctx) => ctx.db.query("fieldChanges").collect()))
+				while ((await t.run((ctx) => ctx.db.get(job._id)))!.status === "running") await t.mutation(internal.fieldChanges.step, { id: job._id });
+		};
+		await convert();
+		expect(await tools.undo(changed.change!)).toMatchObject({ field: true, converting: true });
+		await convert();
+		expect((await tools.types()).types.find((x) => x.type === "deal")!.fields.find((f) => f.key === "stage")).toMatchObject({ kind: "choice" });
 		const linked = await tools.saveField({ type: "task", label: "Call", kind: "link", linksTo: "call" });
 		expect(linked).toMatchObject({ key: "call", kind: "link", linksTo: "call" });
 	});
