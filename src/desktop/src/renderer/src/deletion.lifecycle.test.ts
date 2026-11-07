@@ -25,7 +25,6 @@ vi.mock("convex/react", async (original) => ({
 	...(await original<typeof import("convex/react")>()),
 	useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
 }));
-vi.mock("./desktop", () => ({ desktop: undefined, useUpdates: () => ({}) }));
 vi.mock("./router", () => ({ navigate: vi.fn() }));
 // The test renderer has no page to put a dialog at the end of, so it stays in place.
 vi.mock("react-dom", async (actual) => ({ ...(await actual<typeof import("react-dom")>()), createPortal: (node: React.ReactNode) => node }));

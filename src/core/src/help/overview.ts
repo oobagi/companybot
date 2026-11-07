@@ -9,8 +9,10 @@ Companybot is where a team's chat, business data and AI agents live together. Pe
 
 A new workspace starts with one channel, #general, and one agent, Companybot. Databases, pages, skills and automations start empty: the team makes what it needs, and Companybot can help.
 
+It's the same app in a web browser and as the desktop app for Mac. The desktop app adds a dock count and updates itself; a browser always has the latest version.
+
 ## Finding your way around
-- **Rail** (far left): the parts of the app. Home (#/home), [Chat](#/chat), Inbox (#/inbox), Drive (pages, folders and files, #/pages), Databases (#/records) and Sites (#/sites). Home, Inbox and Sites are coming soon: for now they only say what they'll hold. The app still opens on Chat. Press ⌘1–9 to jump to one, in the order shown (Ctrl+1–9 on Windows and Linux); it works while you type a message too. Chat shows a red count for unread mentions and DMs, or a dot when something is unread. Drag a tab to reorder them.
+- **Rail** (far left): the parts of the app. Home (#/home), [Chat](#/chat), Inbox (#/inbox), Drive (pages, folders and files, #/pages), Databases (#/records) and Sites (#/sites). Home, Inbox and Sites are coming soon: for now they only say what they'll hold. The app still opens on Chat. Press ⌘1–9 to jump to one, in the order shown (Ctrl+1–9 on Windows and Linux); it works while you type a message too. In a browser, the browser may keep these keys for its own tabs. Chat shows a red count for unread mentions and DMs, or a dot when something is unread. Drag a tab to reorder them.
 - **Pins and recents** (in the rail, under the tabs): anything you pin, then what you opened lately. Pin a channel, DM, side chat, page, folder, file or database with **Pin to rail** in its ⋯ menu in the sidebar, a single record (one client, one job) with **Pin** atop its page, or right-click any of them in the rail; drag pins to reorder. Pins, recents and the rail's order sync with your account, per workspace.
 - **Your avatar** (bottom of the rail): [Your preferences](#/settings/preferences) and Sign out.
 - **Workspace logo** (top of the rail): the open workspace. Its menu switches to another (⌃⌘1–9 also do; Ctrl+Shift+1–9 on Windows and Linux), answers invites, starts a new one, and opens Workspace settings or lets you leave. A red count means a mention or DM in another workspace; a dot means something unread there, or an invite.
@@ -23,7 +25,7 @@ Your rail tabs, pins, recents, pin order, DM order, folded sections and expanded
 
 Sidebar sections (their names, order and what's in them), channel order, page sibling order, database order, database view tab order, and each database's All tab columns and layout are shared with the workspace. People whose role can **rearrange shared sidebar lists** can change these; Member can unless an owner turned it off. Moving a page to another parent works as before.
 
-Sidebar width, hidden state and chat drafts stay on this computer. On first load, existing arrangements from this computer are copied up only where nothing is saved yet, then the local keys are deleted. Recents start fresh; old pins are claimed by whoever signs in first on a shared computer. An import that fails retries next launch while you keep using the app.
+Sidebar width, hidden state and chat drafts stay on this computer (in a browser, in that browser). On first load, existing arrangements from this computer are copied up only where nothing is saved yet, then the local keys are deleted. Recents start fresh; old pins are claimed by whoever signs in first on a shared computer. An import that fails retries next launch while you keep using the app.
 
 ## Two kinds of settings
 - **Account settings** are yours alone: [Your preferences](#/settings/preferences).

@@ -29,7 +29,7 @@ A test earns its place by catching a bug a person or agent would notice. It shou
 - `src/core/src/*.test.ts`: next to the module. Pure, no Convex.
 - `src/backend/tests/*.test.ts`: Convex functions through `convex-test` (edge runtime). It doesn't enforce every Convex limit or run crons: call the cron's function yourself.
 - `src/backend/tests/*.scale.test.ts`: thousands of rows under real limits. Slow, so only in `pnpm test:scale` (CI runs both).
-- `src/desktop/src/**/*.test.ts`: the renderer's plain logic (drafts, emoji, filters, money input), plus a few flows where a regression loses data (delete-workspace confirmation, sign-out of an erased account). They run on a stand-in page (happy-dom); UI renders inside `inApp` (`testing.ts`), as `main.tsx` wraps the app.
+- `src/desktop/src/**/*.test.ts`: the renderer's plain logic (drafts, emoji, filters, money input), plus a few flows where a regression loses data (delete-workspace confirmation, sign-out of an erased account), and what the app does with and without the desktop shell (`desktop.test.ts`). Tests run without the preload bridge, as in a browser; set `window.companybot` to a fake for the desktop side. They run on a stand-in page (happy-dom); UI renders inside `inApp` (`testing.ts`), as `main.tsx` wraps the app.
 - `src/core/eval/`: model evals, paid, not in `pnpm test` ([Chat](chat.md)).
 
 ## Run

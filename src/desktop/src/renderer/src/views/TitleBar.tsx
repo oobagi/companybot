@@ -1,6 +1,7 @@
 import { useEffect, useReducer } from "react";
-import { useUpdates } from "../desktop";
-import { ArrowLeftIcon, ArrowRightIcon, BugIcon, HelpIcon, SidebarIcon, SparkleIcon } from "../icons";
+import { DOWNLOAD_URL } from "@companybot/core/invite-email";
+import { desktop, openLink, useUpdates } from "../desktop";
+import { ArrowLeftIcon, ArrowRightIcon, BugIcon, DownloadIcon, HelpIcon, SidebarIcon, SparkleIcon } from "../icons";
 import { MenuDivider, titleBarButton, useTip } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 
@@ -14,7 +15,8 @@ const navigation = (globalThis as { navigation?: Navigation }).navigation;
 
 /**
  * The strip across the top of the window, beside its buttons: hide the sidebar, step back and
- * forward through screens, and Help. Empty space in it drags the window.
+ * forward through screens, and Help. Empty space in it drags the window (in the desktop app; a
+ * browser tab has no window of its own to drag, nor buttons to leave room for).
  */
 export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: () => void }) {
 	const [, changed] = useReducer((n: number) => n + 1, 0);
@@ -38,7 +40,7 @@ export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: 
 
 	return (
 		// Starts past the window's buttons (macOS puts them at the top left).
-		<div className="drag flex h-8 shrink-0 items-center gap-0.5 pr-2 pl-21 text-base">
+		<div className={`drag flex h-8 shrink-0 items-center gap-0.5 pr-2 text-base ${desktop() ? "pl-21" : "pl-2"}`}>
 			{/* Tips go on a wrapper: a disabled button gets no mouse events. */}
 			<span className="flex" {...tipFor(`${sidebar ? "Hide" : "Show"} sidebar`, `${mod}\\`)}>
 				<button type="button" aria-label={`${sidebar ? "Hide" : "Show"} sidebar`} onClick={onSidebar} className={titleBarButton}>
@@ -77,12 +79,17 @@ function Help() {
 			className={titleBarButton} panelClassName="w-56 p-1 text-sm">
 			{(close) => (
 				<>
-					<MenuItem onClick={() => (close(), window.open(`${repo}/releases`))}>
+					<MenuItem onClick={() => (close(), openLink(`${repo}/releases`))}>
 						<SparkleIcon className="text-neutral-500" /> What's new
 					</MenuItem>
-					<MenuItem onClick={() => (close(), window.open(`${repo}/issues/new`))}>
+					<MenuItem onClick={() => (close(), openLink(`${repo}/issues/new`))}>
 						<BugIcon className="text-neutral-500" /> Report a problem
 					</MenuItem>
+					{!desktop() && (
+						<MenuItem onClick={() => (close(), openLink(DOWNLOAD_URL))}>
+							<DownloadIcon className="text-neutral-500" /> Get the desktop app
+						</MenuItem>
+					)}
 					{version && (
 						<>
 							<MenuDivider />

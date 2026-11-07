@@ -6,6 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
+import { desktop, openLinkWhenReady } from "../../desktop";
 import { navigate } from "../../router";
 import { ConnectorIcon, EditIcon, TrashIcon } from "../../icons";
 import { EmptyState, Form, Loading, Notice, Section, Setting, Settings, actionPrimaryButton, barButton, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
@@ -172,13 +173,13 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 					<button
 						type="button"
 						className={actionPrimaryButton}
-						// Opens in the browser (main process routes window.open there). The app
-						// flips to Connected on its own once the sign-in finishes.
-						onClick={() => run(startOAuth({ connectorId: connector.id }).then((url) => window.open(url)))}
+						// Opens in the browser (a new tab, or from the desktop app the default browser). The
+						// app flips to Connected on its own once the sign-in finishes.
+						onClick={() => run(openLinkWhenReady(startOAuth({ connectorId: connector.id })))}
 					>
 						Connect with {connector.name}
 					</button>
-					<span className="text-neutral-400">Opens your browser to sign in.</span>
+					<span className="text-neutral-400">{desktop() ? "Opens your browser to sign in." : "Opens a new tab to sign in."}</span>
 				</div>
 			) : connector.canUse && connector.canConnect && connector.auth.type === "api_key" ? (
 				<div className="flex items-center gap-3">
