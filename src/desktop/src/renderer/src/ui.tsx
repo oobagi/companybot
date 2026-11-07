@@ -528,6 +528,10 @@ export const railButton = (active: boolean) =>
 	`no-drag flex size-10 items-center justify-center rounded-lg transition-colors ${active ? "bg-neutral-200/90 text-neutral-900" : "text-neutral-500 hover:bg-neutral-200/60 hover:text-neutral-900"}`;
 /** Text that opens what it names (a record, a channel, an archived item): underlined on hover. */
 export const linkButton = "text-left hover:underline";
+/** A record tagged in a message (`@Summit Homes`): an inline chip in the app's grays that opens the record. */
+export const recordTagButton = "inline-flex items-center gap-1 rounded-sm bg-neutral-100 px-1 text-left font-medium text-neutral-800 hover:bg-neutral-200";
+/** A tagged record with nothing to open: in Archive, deleted, or in a database you can't see. */
+export const recordTagMutedClass = "inline-flex items-center gap-1 rounded-sm bg-neutral-50 px-1 font-medium text-neutral-400";
 /** A title you click: folds its section, sorts its column, opens its field's settings. Darkens on hover. */
 export const titleButton = "min-w-0 text-left hover:text-neutral-900";
 /** One row in a list you pick from (a menu, versions, workspaces): lit on hover and while picked (`data-active`). */

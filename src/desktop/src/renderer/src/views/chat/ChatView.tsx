@@ -108,7 +108,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			{agent && messages?.length === 0 && !chat.trash && (
 				<div className="flex flex-col items-start gap-2 pb-2" aria-label="Suggested messages">
 					{suggestions.map((suggestion) => (
-						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [] })} className={`${suggestionButton} max-w-full`}>
+						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [], recordIds: [] })} className={`${suggestionButton} max-w-full`}>
 							{suggestion}
 						</button>
 					))}

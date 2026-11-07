@@ -54,6 +54,8 @@ export function MessageRow({
 	const { confirm, dialog } = useConfirm();
 	const isAgent = message.author.type === "agent";
 	const sending = message.sending;
+	// Its own tagged records are chips too.
+	if (message.records.length) tokens = { ...tokens, records: message.records };
 	const toggle = (emoji: string) => react({ messageId: message._id, emoji }).catch(onError);
 
 	if (message.privacy?.hidden) return <p id={`message-${message._id}`} className="px-5 py-2 text-sm text-neutral-500 italic">🔒 {message.privacy.label}</p>;

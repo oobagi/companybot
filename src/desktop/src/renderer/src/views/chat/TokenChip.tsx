@@ -1,19 +1,21 @@
 import { api } from "../../api";
 import { useQuery } from "../../convex";
-import { SkillIcon } from "../../icons";
+import { DatabaseIcon, PrivateIcon, SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { actionButton, linkButton } from "../../ui";
+import { actionButton, linkButton, recordTagButton, recordTagMutedClass } from "../../ui";
+import { recordPath } from "../records/logic";
 import { Popover } from "./common";
-import type { SkillRef } from "./data";
+import type { RecordTag, SkillRef } from "./data";
 import { ProfileLink } from "./Profile";
 import type { Token } from "./tokens";
 
 /**
  * A chip does what it names: @Ada opens their card, #sales the channel, /Proposal a card with the
- * skill's instructions (its description on hover).
+ * skill's instructions (its description on hover), a tagged record the record.
  */
 export function TokenChip({ token }: { token: Token }) {
+	if (token.kind === "record") return <RecordChip tag={token.ref} />;
 	if (token.kind === "person")
 		return (
 			<ProfileLink who={token.ref} className={`token ${linkButton}`}>
@@ -32,6 +34,32 @@ export function TokenChip({ token }: { token: Token }) {
 	return (
 		<button type="button" onClick={() => navigate("chat", id)} className={`token ${linkButton}`}>
 			{token.text}
+		</button>
+	);
+}
+
+/** A tagged record by its name now. One you can't see has no name; one in Archive or deleted can't open. */
+function RecordChip({ tag }: { tag: RecordTag }) {
+	const name = tag.text.slice(1);
+	if (tag.state === "locked")
+		return (
+			<span className={recordTagMutedClass} title="Only some roles can see this record">
+				<PrivateIcon className="shrink-0" />
+				{name}
+			</span>
+		);
+	if (tag.state !== "live" || !tag.id || !tag.typeKey)
+		return (
+			<span className={recordTagMutedClass} title={tag.state === "archived" ? "In Archive" : undefined}>
+				<DatabaseIcon className="shrink-0" />
+				{name}
+			</span>
+		);
+	const { id, typeKey } = tag;
+	return (
+		<button type="button" onClick={() => navigate(...recordPath(typeKey, id))} className={recordTagButton}>
+			<DatabaseIcon className="shrink-0 text-neutral-500" />
+			{name}
 		</button>
 	);
 }

@@ -7,12 +7,13 @@ import { filesForModel } from "./files";
 import { asToolResult } from "./lib";
 import { chatAccess } from "./placeAccess";
 import { canReadReply, readReply } from "./replyPrivacy";
+import { type RecordTags, recordTags } from "./recordTags";
 import { notePlace } from "./replySources";
 import { runningTurn } from "./turns";
 
 // ---- Chat tools (core's ChatStore), acting as the turn's person ----
 
-async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string): Promise<ChatLine> {
+async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label: string, tags: RecordTags): Promise<ChatLine> {
 	const author = authorLabel(await names.of(m));
 	const reactions = await reactionGroups(ctx, m._id, names);
 	return {
@@ -21,7 +22,7 @@ async function toLine(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, label
 		...(m.threadId && { threadOf: m.threadId }),
 		author,
 		time: new Date(m._creationTime).toISOString(),
-		text: textForModel(m, author),
+		text: textForModel({ ...m, text: await tags.forModel(m.text) }, author),
 		...(!m.threadId && m.replyCount && { replies: m.replyCount }),
 		...(reactions.length > 0 && { reactions }),
 		...(m.attachments?.length && { files: filesForModel(m) }),
@@ -69,7 +70,8 @@ export const readFor = internalMutation({
 		const all = parent && !parent.deleted && parent._creationTime < before ? [parent, ...docs] : docs;
 		const visible = [];
 		for (const m of all) if (await readReply(ctx, member, m)) visible.push(m);
-		return { messages: await Promise.all(visible.map((m) => toLine(ctx, m, names, label))) };
+		const tags = recordTags(ctx, member);
+		return { messages: await Promise.all(visible.map((m) => toLine(ctx, m, names, label, tags))) };
 		});
 	},
 });
@@ -106,6 +108,7 @@ export const searchFor = internalMutation({
 		};
 		const found = streams.flat().sort((a, b) => score(b) - score(a));
 		const names = namer(ctx);
+		const tags = recordTags(ctx, member);
 		/** Each chat's label, or null if the person can't see it. */
 		const labels = new Map<Id<"chats">, string | null>();
 		const lines: ChatLine[] = [];
@@ -122,7 +125,7 @@ export const searchFor = internalMutation({
 			const chat = (await ctx.db.get(m.chatId))!;
 			await notePlace(ctx, member, chat._id, chatAccess(chat), chat.private);
 			await readReply(ctx, member, m);
-			lines.push(await toLine(ctx, m, names, label));
+			lines.push(await toLine(ctx, m, names, label, tags));
 		}
 		return { messages: lines, ...(chatId && found.length >= 100 && { notice: "Searched the first 100 matching messages in this chat; search read limits may omit other matches." }), ...(!chatId && (discovery.truncated || found.length > 100 || streams.some((stream, i) => stream.length >= (i === 0 ? 100 : privateHits))) && { notice: `Searched public channels and your ${discovery.chats.length} most recent private chats. Search read limits may omit older matches; specify a chat to search its history.` }) };
 		});
