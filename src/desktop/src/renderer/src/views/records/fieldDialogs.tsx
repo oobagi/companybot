@@ -128,7 +128,7 @@ export function AddField({
 		<Modal title={`Add a field to ${type.plural.toLowerCase()}`} onClose={onClose}>
 			<Form onSubmit={() => submit()}>
 				<Notice>{error}</Notice>
-				<FieldSettings draft={draft} set={(d) => setDraft({ ...draft, ...d })} />
+				<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} />
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
 					<button type="submit" className={primaryButton}>Add field</button>
@@ -194,7 +194,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 						<p>{(changes?.running?.converted ?? 0).toLocaleString()} done so far. You can change this field again once it's finished.</p>
 					</div>
 				) : (
-					<FieldSettings draft={draft} set={(d) => setDraft({ ...draft, ...d })} field={field} />
+					<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} field={field} />
 				)}
 				{preview && <ChangeWarning preview={preview} />}
 				{!converting && !reshaping && last && (
