@@ -5,12 +5,12 @@ import "@blocknote/react/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactGridSuggestionItem, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, GridSuggestionMenuController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
-import { linkedPageId, validPageHref } from "@companybot/core/page-links";
+import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
+import { linkedPageId, linkedRecordId, recordHref, validPageHref } from "@companybot/core/page-links";
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
-import { useHeldQuery, useMutation } from "../../convex";
-import { BulletListIcon, CaretDownIcon, CheckListIcon, CodeIcon, DividerIcon, DragHandleIcon, ImageIcon, NumberedListIcon, PageIcon, ParagraphIcon, PlusIcon, QuoteIcon, ReactIcon, TableIcon, TextHFiveIcon, TextHFourIcon, TextHOneIcon, TextHSixIcon, TextHThreeIcon, TextHTwoIcon, ToggleListIcon } from "../../icons";
+import { useFetch, useHeldQuery, useMutation } from "../../convex";
+import { BulletListIcon, CaretDownIcon, ChannelIcon, CheckListIcon, CodeIcon, DividerIcon, DragHandleIcon, ImageIcon, NumberedListIcon, PageIcon, ParagraphIcon, PlusIcon, PrivateIcon, QuoteIcon, ReactIcon, RecordIcon, TableIcon, TextHFiveIcon, TextHFourIcon, TextHOneIcon, TextHSixIcon, TextHThreeIcon, TextHTwoIcon, ToggleListIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type Level, type Worn, pickUp } from "../../sortable";
 import { useUpload } from "../../upload";
@@ -18,8 +18,12 @@ import { EmptyState, Loading, Notice, useRun } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
 import { PageLevel } from "./PageTree";
 import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor, pageEditorSchema } from "./PageBlock";
-import { type EmojiIndex, loadEmoji, recentEmoji, searchEmoji } from "../chat/emoji";
-import { HandleButton, components } from "./editorComponents";
+import { Avatar } from "../chat/common";
+import { type TokenNames, useDirectory } from "../chat/data";
+import { matches } from "../chat/editor";
+import { loadEmoji, rememberEmoji, topEmoji } from "../chat/emoji";
+import { splitTokens } from "../chat/tokens";
+import { EmojiMenu, type EmojiPick, HandleButton, components } from "./editorComponents";
 import { promotePageLinks } from "./pageBlockUpgrades";
 import { PageBlockRemoval } from "./PageBlockRemoval";
 
@@ -75,6 +79,44 @@ const blockDrag = createExtension({
 	})],
 });
 /** The schema, links and drag of every page editor, and `page-editor` on the editor element itself (styles.css). */
+/**
+ * @people, @agents and #channels in a page, as chips (`.token`, as in chat): plain text, as chat stores them, so
+ * an agent reads a page as it reads a message and nothing is kept per mention; a name that matches the directory
+ * (`mentionsKey`, set from `useDirectory`) is decorated where it stands (`splitTokens`). A click on a channel opens
+ * it. Records are links (`recordHref`), opened like page links.
+ */
+const mentionsKey = new PluginKey<TokenNames>("mentions");
+const noNames: TokenNames = { people: [], channels: [], skills: [] };
+const mentions = createExtension({
+	key: "mentions",
+	prosemirrorPlugins: [new Plugin({
+		key: mentionsKey,
+		state: { init: () => noNames, apply: (tr, prev) => tr.getMeta(mentionsKey) ?? prev },
+		props: {
+			decorations(state) {
+				const tokens = mentionsKey.getState(state) ?? noNames;
+				const found: Decoration[] = [];
+				state.doc.descendants((node, pos) => {
+					if (!node.isText || !node.text) return;
+					let at = pos;
+					for (const part of splitTokens(node.text, tokens)) {
+						const length = typeof part === "string" ? part.length : part.text.length;
+						if (typeof part !== "string") found.push(Decoration.inline(at, at + length, { class: "token", "data-kind": part.kind, "data-id": String(part.ref.id) }));
+						at += length;
+					}
+				});
+				return DecorationSet.create(state.doc, found);
+			},
+			handleClick(_view, _pos, event) {
+				const chip = event.target instanceof Element ? event.target.closest<HTMLElement>(".token[data-kind=channel]") : null;
+				if (!chip?.dataset.id) return false;
+				navigate("chat", chip.dataset.id);
+				return true;
+			},
+		},
+	})],
+});
+
 // Tab and Shift+Tab never leave the editor. BlockNote hands them to the browser when it can't nest or un-nest the
 // block (the first block, or one as deep as it goes) or when the formatting toolbar is open, so focus jumped to the next button.
 const tabStays = createExtension({
@@ -91,23 +133,25 @@ const tabStays = createExtension({
 	},
 });
 
-const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } }, extensions: [blockDrag, tabStays] };
-
-/** Capture before BlockNote opens a window; also works in read-only version previews. */
-function openPageLink(event: MouseEvent<HTMLDivElement>) {
-	if (event.button !== 0 && event.button !== 1) return;
-	const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
-	const id = anchor && linkedPageId(anchor.getAttribute("href") ?? "");
-	if (!id) return;
-	event.preventDefault();
-	event.stopPropagation();
-	navigate("pages", id);
-}
+const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } }, extensions: [blockDrag, tabStays, mentions] };
 
 /** The editor in the app's chrome. Its floating UI is the children (PageEditor, stacked by `layer`); BlockNote's own is off. */
 function View({ editor, editable, children }: { editor: PageBlockEditor; editable: boolean; children?: ReactNode }) {
+	const fetch = useFetch();
+	// A page or record link opens in the app: captured before BlockNote opens a window; also in read-only version previews.
+	const openLink = (event: MouseEvent<HTMLDivElement>) => {
+		if (event.button !== 0 && event.button !== 1) return;
+		const href = (event.target instanceof Element ? event.target.closest("a[href]") : null)?.getAttribute("href") ?? "";
+		const page = linkedPageId(href);
+		const record = linkedRecordId(href);
+		if (!page && !record) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (page) navigate("pages", page);
+		else fetch(api.records.titles, { recordIds: [record as Id<"records">] }).then(([r]) => r && navigate("records", r.typeKey, r._id));
+	};
 	return (
-		<div onClickCapture={openPageLink} onAuxClickCapture={openPageLink}>
+		<div onClickCapture={openLink} onAuxClickCapture={openLink}>
 			<ComponentsContext.Provider value={components}>
 				<BlockNoteViewRaw editor={editor} editable={editable} theme="light" className={viewClass} formattingToolbar={false} linkToolbar={false} slashMenu={false} emojiPicker={false} sideMenu={false} filePanel={false} tableHandles={false}>
 					{children}
@@ -145,6 +189,16 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 		editor.focus();
 	}, [sync.editor, editable, focusKey]);
 	const sideMenuFloating = useSideMenuFloating(sync.editor);
+	const directory = useDirectory();
+	const fetch = useFetch();
+	// The names the chips match, handed to the editor when they change (the directory is rebuilt every render).
+	const names = JSON.stringify([directory.tokens.people, directory.tokens.channels]);
+	const latest = useRef(directory.tokens);
+	latest.current = directory.tokens;
+	useEffect(() => {
+		const tokens: TokenNames = { people: latest.current.people, channels: latest.current.channels, skills: [] };
+		sync.editor?.transact((tr) => { tr.setMeta(mentionsKey, tokens); });
+	}, [sync.editor, names]);
 	if (sync.isLoading) return <Loading />;
 	if (!sync.editor || gone) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
 	return (
@@ -165,7 +219,9 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 						} catch (e) { fail(e); }
 					} }] : []),
 				], query)} />
-				<GridSuggestionMenuController triggerCharacter=":" columns={10} minQueryLength={0} floatingUIOptions={floating(layer.menus)} getItems={async (query) => emojiItems(sync.editor, await loadEmoji(), query)} />
+				<SuggestionMenuController triggerCharacter="@" shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={(query) => mentionItems(sync.editor, directory, query, fetch)} />
+				<SuggestionMenuController triggerCharacter="#" shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={async (query) => channelItems(sync.editor, directory, query)} />
+				<SuggestionMenuController<typeof emojiQuery> triggerCharacter=":" minQueryLength={0} shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={emojiQuery} suggestionMenuComponent={EmojiMenu} onItemClick={(item) => void pickEmoji(sync.editor, item)} />
 				<FilePanelController floatingUIOptions={floating(layer.menus)} />
 				<TableHandlesController tableHandle={PageTableHandle} extendButton={PageExtendButton} tableCellHandle={PageTableCellButton} />
 			</View>
@@ -200,16 +256,37 @@ function PageFormattingToolbar() {
 	const items = useMemo(() => blockTypeSelectItems(editor).map((item) => ({ ...item, icon: typeIcon(item) })), [editor]);
 	return <FormattingToolbar blockTypeSelectItems={items} />;
 }
-/**
- * The `:` emoji grid, as Discord's: the chat composer's emoji (`views/chat/emoji.ts`, so pages and chat offer the
- * same set; not BlockNote's emoji-mart set). It opens on `:` alone with the ones you used lately, then the smileys
- * on; typing narrows it by name, shortcode and tag. A pick is the emoji in the text.
- */
-const emojiItems = (editor: PageBlockEditor, index: EmojiIndex, query: string): DefaultReactGridSuggestionItem[] => {
-	const recent = recentEmoji(localStorage).flatMap((c) => index.emoji.find((e) => e.char === c) ?? []);
-	const shown = query ? searchEmoji(index, query, 100) : [...new Set([...recent, ...index.emoji])].slice(0, 100);
-	return shown.map((e) => ({ id: e.char, icon: <>{e.char}</>, onItemClick: () => editor.insertInlineContent(`${e.char} `) }));
+/** The `:` menu is the emoji panel (EmojiMenu), driven by the typed query, its one item; a pick, or Enter, is the emoji in the text. */
+const emojiQuery = async (query: string): Promise<EmojiPick[]> => [{ query }];
+async function pickEmoji(editor: PageBlockEditor, { query, char }: EmojiPick) {
+	const emoji = char ?? topEmoji(await loadEmoji(), query, localStorage);
+	if (!emoji) return;
+	rememberEmoji(localStorage, emoji);
+	editor.insertInlineContent(`${emoji} `);
+}
+
+/** A menu's trigger counts at the start of a word only: "ada@x.co" and "10:30" open nothing. */
+const atWordStart = (state: { selection: { $from: { parent: { textBetween: (from: number, to: number) => string }; parentOffset: number } } }) => {
+	const { $from } = state.selection;
+	return /(^|\s)$/.test($from.parent.textBetween(0, $from.parentOffset));
 };
+
+type Directory = ReturnType<typeof useDirectory>;
+/** The `@` menu: people and agents by name, then records found by title (a search, so two letters first). */
+async function mentionItems(editor: PageBlockEditor, directory: Directory, query: string, fetch: ReturnType<typeof useFetch>): Promise<DefaultReactSuggestionItem[]> {
+	const who = [...directory.people, ...directory.agents].filter((p) => matches(p.name, query)).slice(0, 8).map((p): DefaultReactSuggestionItem => ({
+		title: p.name, group: p.type === "agent" ? "Agents" : "People", size: "small", icon: <Avatar name={p.name} image={p.image} agent={p.type === "agent"} size="sm" />, onItemClick: () => editor.insertInlineContent(`@${p.name} `),
+	}));
+	const records = query.trim().length >= 2 ? await fetch(api.records.search, { query }) : [];
+	return [...who, ...records.slice(0, 8).map((r): DefaultReactSuggestionItem => ({
+		title: r.title || "Untitled", group: "Records", size: "small", icon: <RecordIcon />, onItemClick: () => editor.insertInlineContent([{ type: "link", href: recordHref(r._id), content: r.title || "Untitled" }, " "]),
+	}))];
+}
+/** The `#` menu: channels by name, joined or not. */
+const channelItems = (editor: PageBlockEditor, directory: Directory, query: string): DefaultReactSuggestionItem[] =>
+	directory.channels.filter((c) => matches(c.name, query)).slice(0, 8).map((c) => ({
+		title: `#${c.name}`, subtext: c.topic ?? undefined, group: "Channels", size: "small", icon: c.private ? <PrivateIcon /> : <ChannelIcon />, onItemClick: () => editor.insertInlineContent(`#${c.name} `),
+	}));
 
 const typeIcons: Record<string, typeof PageIcon> = { paragraph: ParagraphIcon, quote: QuoteIcon, bulletListItem: BulletListIcon, numberedListItem: NumberedListIcon, checkListItem: CheckListIcon, toggleListItem: ToggleListIcon, codeBlock: CodeIcon };
 const headingIcons = [TextHOneIcon, TextHTwoIcon, TextHThreeIcon, TextHFourIcon, TextHFiveIcon, TextHSixIcon];

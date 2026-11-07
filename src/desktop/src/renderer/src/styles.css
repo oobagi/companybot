@@ -116,6 +116,8 @@ body {
 /* An empty open toggle's prompt is placeholder text, not a button: no hover chip, text cursor, at the children's indent. */
 .page-editor .bn-toggle-add-block-button { font-size: inherit; padding: 0; margin-left: 1.5rem; cursor: text; }
 .page-editor .bn-toggle-add-block-button:hover { background: none; }
+/* A #channel chip opens the channel (PageEditor `mentions`); a person's is text. */
+.page-editor .token[data-kind="channel"] { cursor: pointer; }
 /* Quote, divider, code, table, image and checked items in the app's neutrals, not BlockNote's grays. */
 .page-editor [data-content-type="quote"] blockquote { color: var(--color-neutral-600); border-left: 2px solid var(--color-neutral-300); }
 .page-editor [data-content-type="divider"] hr { border-top-color: var(--color-neutral-200); }
