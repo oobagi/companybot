@@ -17,6 +17,7 @@
     "./permissions": "./src/permissions.ts",
     "./place-access": "./src/place-access.ts",
     "./records": "./src/records.ts",
+    "./field-change": "./src/field-change.ts",
     "./router": "./src/router.ts",
     "./skills": "./src/skills.ts",
     "./action-words": "./src/action-words.ts",

@@ -14,7 +14,7 @@ import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignO
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, updateButton, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
-import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
 import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
@@ -24,13 +24,13 @@ import { AppRail } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
 import { type AppTab, type TabBadge, appTabs } from "./views/RailPins";
 import { type PinKey, pinOf, usePins } from "./pins";
-import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
 import { AddButton, ChannelsNav, DmsNav, Item, SidebarList } from "./views/chat/Sidebar";
 import { useSortable } from "./sortable";
 import { PagesNav, PagesView } from "./views/Pages";
+import { ComingSoon } from "./views/ComingSoon";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
@@ -147,7 +147,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox, /records/<type>[/<record>], /pages[/<page>], /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -158,9 +158,9 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
-	// The rail's tab on screen. Customize's tabs (Agents, Connectors, Skills, Automations) keep their /settings/<tab> addresses; the rest of Settings lights none.
+	// The rail's tab on screen. Settings (Customize included) lights none.
 	const tab: AppTab | undefined =
-		view === "chat" ? "chat" : view === "pages" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
+		view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : view === "pages" ? "drive" : view === "records" ? "databases" : view === "sites" ? "sites" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	// The database on screen, by key, and the record open in it.
@@ -172,11 +172,11 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	// Where "Back to app" goes from Settings.
 	const lastApp = useRef<string[]>(["chat"]);
 	if (tab) lastApp.current = route;
-	// Each tab reopens where you left it; clicking the open one goes to its start (the first database, Customize's Agents).
+	// Each tab reopens where you left it; clicking the open one goes to its start (the first database).
 	const lastIn = useRef<Partial<Record<AppTab, string[]>>>({});
 	if (tab) lastIn.current[tab] = route;
 	const startOf = (t: AppTab): string[] =>
-		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
+		({ home: ["home"], chat: ["chat"], inbox: ["inbox"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], sites: ["sites"] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
 	const createPage = useMutation(api.pages.create);
@@ -290,7 +290,6 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										})}
 									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} />}
-									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
@@ -314,6 +313,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							))}
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
 						{view === "pages" && <PagesView pageId={route[1]} />}
+						{(view === "home" || view === "inbox" || view === "sites") && <ComingSoon tab={view} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>
@@ -373,19 +373,6 @@ function DatabasesNav({
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
 			{dialog}
-		</div>
-	);
-}
-
-/** Customize's sidebar: Agents, and what they work with (Connectors, Skills, Automations). */
-function CustomizeNav({ open }: { open: string }) {
-	return (
-		<div className="flex flex-col gap-px">
-			{customizeTabs.map((t) => (
-				<Item key={t.id} icon={<t.icon />} active={open === t.id} onClick={() => navigate("settings", t.id)}>
-					{t.label}
-				</Item>
-			))}
 		</div>
 	);
 }

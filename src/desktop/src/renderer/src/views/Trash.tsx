@@ -81,7 +81,7 @@ export function TrashView({ access }: { access: Access }) {
 									{whoLabel(e)} · {timeAgo(e.at)}
 								</span>
 								{e.canRestore && (
-									<button type="button" onClick={() => run(restore({ kind: e.kind, id: e.itemId }))} className={`shrink-0 ${compactButton}`}>
+									<button type="button" onClick={() => run(restore({ kind: e.kind, id: e.itemId }))} className={compactButton}>
 										<RestoreIcon /> Restore
 									</button>
 								)}
@@ -119,7 +119,7 @@ export function TrashNotice({ trash }: { trash: NonNullable<NonNullable<Function
 					Archived by {whoLabel(trash)} {timeAgo(trash.at)}. Its content is kept until you restore it or delete it forever.
 				</p>
 				{trash.canRestore && (
-					<button type="button" onClick={() => run(restore({ kind: trash.kind, id: trash.itemId }))} className={`shrink-0 bg-white ${compactButton}`}>
+					<button type="button" onClick={() => run(restore({ kind: trash.kind, id: trash.itemId }))} className={compactButton}>
 						<RestoreIcon /> Restore
 					</button>
 				)}

@@ -54,7 +54,8 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
 export const sidebarSections = ["channels", "dms"];
-export const railTabs = ["chat", "drive", "databases", "customize"];
+/** The rail's tabs, in the order a new rail shows them. The one list: the desktop draws these, the server accepts only these. */
+export const railTabs: readonly string[] = ["home", "chat", "inbox", "drive", "databases", "sites"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|db|rec):./.test(id);
 

@@ -2,8 +2,8 @@ import { CountBadge, railButton } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { OptimisticUpdate } from "convex/browser";
-import { useMutation, useQuery, useWorkspace } from "../convex";
-import { ChannelIcon, ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon, HideIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, ShowIcon, UnpinIcon } from "../icons";
+import { useMutation, useQuery, useSettled, useWorkspace } from "../convex";
+import { ChannelIcon, ChatIcon, DatabaseIcon, DriveIcon, HideIcon, HomeIcon, InboxIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, ShowIcon, SitesIcon, UnpinIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { type PinKey, RECENT_SHOWN, pathOf, setRailVia, splitPin, usePins, useRailVia } from "../pins";
 import { navigate } from "../router";
@@ -17,10 +17,12 @@ type TipFor = ReturnType<typeof useTip>["tipFor"];
 
 /** The rail's tabs: the parts of the app, in the order a new rail shows them. They're pins you can't remove. */
 export const appTabs = [
+	{ id: "home", label: "Home", icon: HomeIcon },
 	{ id: "chat", label: "Chat", icon: ChatIcon },
+	{ id: "inbox", label: "Inbox", icon: InboxIcon },
 	{ id: "drive", label: "Drive", icon: DriveIcon },
 	{ id: "databases", label: "Databases", icon: DatabaseIcon },
-	{ id: "customize", label: "Customize", icon: CustomizeIcon },
+	{ id: "sites", label: "Sites", icon: SitesIcon },
 ] as const;
 export type AppTab = (typeof appTabs)[number]["id"];
 
@@ -42,7 +44,8 @@ function useEntries(keys: PinKey[]) {
 	const pages = useQuery(api.pages.list);
 	const types = useTypes();
 	const recordIds = keys.flatMap((k) => (k.startsWith("rec:") ? [splitPin(k)[1]] : []));
-	const records = useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip");
+	// Opening a record adds it to recents, which changes this query: keep the last titles meanwhile, or the rail blinks.
+	const records = useSettled(useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip"));
 	const ready = !!chats && !!pages && !!types && (!recordIds.length || !!records);
 	const resolve = (key: PinKey): Entry | undefined => {
 		const [kind, id] = splitPin(key);

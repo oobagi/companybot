@@ -168,6 +168,9 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordValues", { recordId, fieldId, str: "roof", at: now });
 		await ctx.db.insert("recordHistory", { workspaceId, typeId, recordId, action: "created", changes: [], userId: memberId });
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
+		const counts = { checked: 1, converted: 1, cleared: 0, partly: 0, examples: [] };
+		const changeId = await ctx.db.insert("fieldChanges", { workspaceId, typeId, fieldId, from: { kind: "text" }, to: { kind: "text" }, status: "done", doneThrough: now, counts, userId: memberId, updatedAt: now, keepUntil: now + 1 });
+		await ctx.db.insert("fieldChangeValues", { changeId, recordId, old: "roof", new: "Roof" });
 		mine.push(await ctx.db.insert("wakeups", { workspaceId, agentId, chatId: channel, actorId: memberId, createdBy: memberId, note: "Chase it", recordId, typeId, foreign: false, status: "pending", at: now + 60_000 }));
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
