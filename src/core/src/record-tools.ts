@@ -84,7 +84,7 @@ const findInput = z.object({
 	sort: z
 		.object({ field: z.string().describe('"createdAt", "updatedAt", or a field key'), order: z.enum(["asc", "desc"]) })
 		.optional()
-		.describe("Sorting by a field lists only records that have a value for it. Default: newest first."),
+		.describe("Records without a value for the sort field come last. Default: newest first."),
 	trashed: z.boolean().optional().describe("List the database's records in Archive instead"),
 	limit: z.number().int().min(1).max(50).optional().describe("Default 20"),
 	cursor: z.string().optional().describe("From a previous result with more: true, to get the next page of the same list"),

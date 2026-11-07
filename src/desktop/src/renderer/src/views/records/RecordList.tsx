@@ -308,15 +308,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
-							empty={sortField && !conditions.length ? (
-								// Sorting by a field lists only records with a value for it, so an empty list says why and how out.
-								<EmptyState icon={<DatabaseIcon />} title={`No ${noun} have a ${sortField.label}`}>
-									Sorting by a field lists only {noun} with a value for it.
-									<span className="mt-3 flex justify-center">
-										<button type="button" onClick={() => setSort(undefined)} className={compactButton}>Clear sort</button>
-									</span>
-								</EmptyState>
-							) : conditions.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
+							empty={conditions.length ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
 					</ErrorBoundary>
 				</>
@@ -377,16 +369,16 @@ function RecordResults({
 			return sort.order === first ? { field: key, order: first === "asc" ? "desc" : "asc" } : undefined;
 		};
 		return (
-			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
+			<th key={key} className="overflow-hidden px-3 py-2 text-left font-medium whitespace-nowrap">
 				{canSort ? (
-					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
+					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex max-w-full items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
 						{field && <FieldIcon field={field} />}
-						{label}
+						<span className="truncate">{label}</span>
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
 						{field?.changing && <span className={metadataClass}>Converting…</span>}
 					</button>
 				) : (
-					<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}{label}{field?.changing && <span className={metadataClass}>Converting…</span>}</span>
+					<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}<span className="truncate">{label}</span>{field?.changing && <span className={metadataClass}>Converting…</span>}</span>
 				)}
 			</th>
 		);
@@ -416,13 +408,25 @@ function RecordResults({
 	);
 }
 
+/**
+ * Each column's width in pixels, set by its kind so it holds still as values change (`table-fixed`):
+ * long values truncate. Updated, last, takes what's left of the screen, at least UPDATED_WIDTH.
+ */
+const columnWidth = (f: TypeField) =>
+	f.key === NAME_KEY ? 256 : f.kind === "checkbox" ? 112 : f.kind === "number" || f.kind === "currency" || f.kind === "date" ? 144 : 208;
+const UPDATED_WIDTH = 128;
+
 function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[]; stale?: boolean }) {
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
 		<div className="bleed">
 			{/* Dimmed while a new sort or filter loads, instead of flashing empty. */}
 			<div className={`w-max min-w-full overflow-hidden rounded-xl border border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
-				<table className="w-full text-sm">
+				<table className="min-w-full table-fixed text-sm" style={{ width: columns.reduce((n, f) => n + columnWidth(f), UPDATED_WIDTH) }}>
+					<colgroup>
+						{columns.map((f) => <col key={f.key} style={{ width: columnWidth(f) }} />)}
+						<col />
+					</colgroup>
 					<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
 						<tr>{head}</tr>
 					</thead>
@@ -432,18 +436,18 @@ function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordTyp
 								{columns.map((f) =>
 									f.key === NAME_KEY ? (
 										// The name opens the record; every other cell edits in place, like Notion's.
-										<td key={f.key} className="max-w-64 px-3 py-2 font-medium">
+										<td key={f.key} className="truncate px-3 py-2 font-medium">
 											<button type="button" onClick={() => navigate(...recordPath(type.key, r._id))} className={`${titleButton} max-w-full truncate hover:underline`}>
 												{valueText(f, r.values[f.key], refs) || "Untitled"}
 											</button>
 										</td>
 									) : (
-										<td key={f.key} className="max-w-72 min-w-32 px-1 py-0.5 align-middle text-neutral-700">
+										<td key={f.key} className="overflow-hidden px-1 py-0.5 align-middle text-neutral-700">
 											<Cell row={r} field={f} refs={refs} editable={type.canEdit && !f.changing} />
 										</td>
 									),
 								)}
-								<td className="px-3 py-2 whitespace-nowrap text-neutral-400">{timeAgo(r.updatedAt)}</td>
+								<td className="truncate px-3 py-2 text-neutral-400">{timeAgo(r.updatedAt)}</td>
 							</tr>
 						))}
 					</tbody>
@@ -472,7 +476,7 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
 	if (rows.length === 0) return <NoMatches />;
-	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium"><span className="flex items-center gap-1.5"><FieldIcon field={f} />{f.label}</span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
+	const head = [...columns.map((f) => <th key={f.key} className="overflow-hidden px-3 py-2 text-left font-medium whitespace-nowrap"><span className="flex items-center gap-1.5"><FieldIcon field={f} /><span className="truncate">{f.label}</span></span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }
 

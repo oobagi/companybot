@@ -229,7 +229,12 @@ describe("records", () => {
 
 		expect(await titles(owner, { typeId: deal._id })).toEqual(["D", "C", "B", "A"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "stage", eq: "Won" }] })).toEqual(["C", "A"]);
-		expect(await titles(owner, { typeId: deal._id, sort: { field: "value", order: "asc" } })).toEqual(["C", "A", "B"]);
+		// Records without the sort field's value come last, either way round.
+		expect(await titles(owner, { typeId: deal._id, sort: { field: "value", order: "asc" } })).toEqual(["C", "A", "B", "D"]);
+		expect(await titles(owner, { typeId: deal._id, sort: { field: "close_date", order: "desc" } })).toEqual(["A", "B", "D", "C"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", empty: true }], sort: { field: "value", order: "asc" } })).toEqual(["D"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", empty: false }], sort: { field: "value", order: "asc" } })).toEqual(["C", "A", "B"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", gte: 100 }], sort: { field: "value", order: "asc" } })).toEqual(["A", "B"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", gte: 100, lte: 1000 }] })).toEqual(["A"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "close_date", gte: "2026-02-01" }] })).toEqual(["A"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "client", eq: acme }] })).toEqual(["C", "A"]);
@@ -245,9 +250,20 @@ describe("records", () => {
 			sort: { field: "value", order: "desc" },
 			paginationOpts: { numItems: 2, cursor: first.continueCursor },
 		});
-		expect(second.page.map((r) => r.title)).toEqual(["C"]);
+		// The page runs on from the last record with a value into those without one.
+		expect(second.page.map((r) => r.title)).toEqual(["C", "D"]);
+		const third = await owner.query(api.records.list, { typeId: deal._id, sort: { field: "value", order: "desc" }, paginationOpts: { numItems: 2, cursor: second.continueCursor } });
+		expect(third).toMatchObject({ page: [], isDone: true });
+		// An endCursor in the records without a value replays the page that ran into them.
+		const replay = await owner.query(api.records.list, {
+			typeId: deal._id,
+			sort: { field: "value", order: "desc" },
+			paginationOpts: { numItems: 2, cursor: first.continueCursor, endCursor: second.continueCursor },
+		});
+		expect(replay.page.map((r) => r.title)).toEqual(["C", "D"]);
 
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "stage", eq: "won" }], sort: { field: "value", order: "asc" } })).toEqual(["C", "A"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "stage", eq: "lost" }], sort: { field: "value", order: "asc" } })).toEqual(["D"]);
 		await expect(titles(owner, { typeId: deal._id, sort: { field: "client", order: "asc" } })).rejects.toThrow("can't be sorted");
 		await expect(titles(owner, { typeId: deal._id, filters: [{ field: "nope", eq: 1 }] })).rejects.toThrow("no field");
 	});
