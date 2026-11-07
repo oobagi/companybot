@@ -256,6 +256,7 @@ export function Page({
 	description,
 	actions,
 	wide,
+	gutter,
 	children,
 }: {
 	title: string;
@@ -268,6 +269,8 @@ export function Page({
 	description?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
+	/** Room beside the column, title included, for the page editor's + and ⋮⋮ (54px): they never hang over the sidebar. */
+	gutter?: boolean;
 	children: React.ReactNode;
 }) {
 	// Where `PageActions` from the content land, after `actions`.
@@ -298,11 +301,10 @@ export function Page({
 			}
 		>
 			<actionSlot.Provider value={slot}>
-				{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
+				{/* The column's text is `--text` wide, padded `--pad`. `--bleed`: from the text out to the screen's edge, for `.bleed`. */}
 				<div
-					className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-6 pb-10 ${
-						wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
-					}`}
+					style={{ "--text": wide ? "61rem" : "39rem", "--pad": gutter ? "4rem" : "1.5rem" } as React.CSSProperties}
+					className="mx-auto flex w-full max-w-[calc(var(--text)+2*var(--pad))] flex-1 flex-col gap-6 px-(--pad) pt-6 pb-10 [--bleed:max(var(--pad),calc((100cqw-var(--text))/2))]"
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
 					{children}

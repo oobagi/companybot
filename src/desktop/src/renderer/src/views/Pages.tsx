@@ -135,6 +135,7 @@ function PageScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
 				{item.menu(close)}
 			</>}
 			badge={item.badge}
+			gutter
 		>
 			{item.dialogs}
 			<PageEditor pageId={pageId} editable={page.canEdit} standalone={!page.recordId} focusKey={focusBody} />

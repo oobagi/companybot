@@ -45,6 +45,7 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 		<Page
 			title={record.title}
 			crumbs={crumbs}
+			gutter
 			heading={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
 			menu={(close) => <>
 						{!record.archived && <MenuItem onClick={() => { close(); toggle(`rec:${recordId}`); }}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
