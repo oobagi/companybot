@@ -5,7 +5,7 @@ import "@blocknote/react/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
+import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactGridSuggestionItem, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, GridSuggestionMenuController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
 import { linkedPageId, validPageHref } from "@companybot/core/page-links";
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
@@ -18,7 +18,7 @@ import { EmptyState, Loading, Notice, useRun } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
 import { PageLevel } from "./PageTree";
 import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor, pageEditorSchema } from "./PageBlock";
-import { type EmojiIndex, loadEmoji, recentEmoji, shortcodeMatches } from "../chat/emoji";
+import { type EmojiIndex, loadEmoji, recentEmoji, searchEmoji } from "../chat/emoji";
 import { HandleButton, components } from "./editorComponents";
 import { promotePageLinks } from "./pageBlockUpgrades";
 import { PageBlockRemoval } from "./PageBlockRemoval";
@@ -165,7 +165,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 						} catch (e) { fail(e); }
 					} }] : []),
 				], query)} />
-				<SuggestionMenuController triggerCharacter=":" minQueryLength={2} floatingUIOptions={floating(layer.menus)} getItems={async (query) => emojiItems(sync.editor, await loadEmoji(), query)} />
+				<GridSuggestionMenuController triggerCharacter=":" columns={10} minQueryLength={0} floatingUIOptions={floating(layer.menus)} getItems={async (query) => emojiItems(sync.editor, await loadEmoji(), query)} />
 				<FilePanelController floatingUIOptions={floating(layer.menus)} />
 				<TableHandlesController tableHandle={PageTableHandle} extendButton={PageExtendButton} tableCellHandle={PageTableCellButton} />
 			</View>
@@ -201,14 +201,14 @@ function PageFormattingToolbar() {
 	return <FormattingToolbar blockTypeSelectItems={items} />;
 }
 /**
- * The `:smile` menu: the chat composer's emoji and shortcodes (`views/chat/emoji.ts`), so both offer the same
- * emoji in the same order; not BlockNote's grid, which had emoji-mart's own set. A pick is the emoji in the text.
+ * The `:` emoji grid, as Discord's: the chat composer's emoji (`views/chat/emoji.ts`, so pages and chat offer the
+ * same set; not BlockNote's emoji-mart set). It opens on `:` alone with the ones you used lately, then the smileys
+ * on; typing narrows it by name, shortcode and tag. A pick is the emoji in the text.
  */
-const emojiItems = (editor: PageBlockEditor, index: EmojiIndex, query: string): DefaultReactSuggestionItem[] => {
-	// The slash menu's Emoji opens this with nothing typed: the ones you used lately, then the first smileys.
+const emojiItems = (editor: PageBlockEditor, index: EmojiIndex, query: string): DefaultReactGridSuggestionItem[] => {
 	const recent = recentEmoji(localStorage).flatMap((c) => index.emoji.find((e) => e.char === c) ?? []);
-	const browse = [...new Set([...recent, ...index.emoji])].slice(0, 24).map((emoji) => ({ shortcode: emoji.shortcodes[0] ?? emoji.name, emoji }));
-	return (query ? shortcodeMatches(index, query) : browse).map((m) => ({ title: `:${m.shortcode}:`, group: "Emoji", size: "small", icon: <span className="text-lg">{m.emoji.char}</span>, onItemClick: () => editor.insertInlineContent(`${m.emoji.char} `) }));
+	const shown = query ? searchEmoji(index, query, 100) : [...new Set([...recent, ...index.emoji])].slice(0, 100);
+	return shown.map((e) => ({ id: e.char, icon: <>{e.char}</>, onItemClick: () => editor.insertInlineContent(`${e.char} `) }));
 };
 
 const typeIcons: Record<string, typeof PageIcon> = { paragraph: ParagraphIcon, quote: QuoteIcon, bulletListItem: BulletListIcon, numberedListItem: NumberedListIcon, checkListItem: CheckListIcon, toggleListItem: ToggleListIcon, codeBlock: CodeIcon };
