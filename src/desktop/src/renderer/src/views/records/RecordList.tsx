@@ -293,7 +293,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				</>
 			) : (
 				<>
-					{sortField && (
+					{sortField && sortField.key !== NAME_KEY && (
 						<p className="-mt-2 text-xs text-neutral-500">
 							Sorted by {sortField.label}: {noun} without one aren't listed.
 						</p>
@@ -461,7 +461,7 @@ function SortChip({ sort, label, kind, onChange }: { sort: Sort; label: string; 
 			label={`Sorted by ${label}`}
 			trigger={
 				<>
-					{kind ? <FieldIcon kind={kind} className="text-current" /> : <Arrow />}
+					{kind ? <FieldIcon kind={kind} /> : <Arrow />}
 					<span className="max-w-48 truncate">{label}</span>
 					<Arrow />
 					<CaretDownIcon />
@@ -545,7 +545,7 @@ function FilterChip({
 			className="flex w-80 flex-col gap-2 p-2"
 			target={
 				<button type="button" onClick={() => onOpen(!open)} data-active={active || undefined} className={filterChip}>
-					<FieldIcon kind={field.kind} className="text-current" />
+					<FieldIcon kind={field.kind} />
 					<span className="max-w-64 truncate">
 						{field.label}
 						{summary && <span className="font-normal">: {summary}</span>}
