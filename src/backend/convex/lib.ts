@@ -96,6 +96,20 @@ export interface Who {
 }
 
 /**
+ * Someone outside the workspace an agent acts for as Public (inboxAgent.ts): an address, never a member.
+ * Reads and writes for them check the Public role in each place's list (core place-access.ts `PUBLIC_ACCESS`).
+ */
+export interface Outsider {
+	workspaceId: Id<"workspaces">;
+	/** Their lowercased email or E.164 phone, from the Inbox conversation. */
+	contact: string;
+	agentId: Id<"agents">;
+}
+
+/** Who changes a record: a member (maybe through an agent), or someone outside through an agent. */
+export type Writer = Who | { outsider: Outsider };
+
+/**
  * Their membership in one workspace, read fresh, so role changes and removals apply right
  * away (even mid-reply). People can be in several workspaces, so always say which.
  */

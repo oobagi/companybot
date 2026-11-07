@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isAutomated, newPart, normalizePhone, parseAddress, phoneKeys, publicTurnPrompt, replySubject, verifySvix, verifyTwilio } from "./inbox";
 import { flipAbility, publicSwitches } from "./public-role";
-import { publicTools } from "./public-tools";
+import { NOTHING_SHARED, type PublicActs, publicTools } from "./public-tools";
 
 const bytes = (s: string) => new TextEncoder().encode(s);
 async function sign(hash: "SHA-1" | "SHA-256", key: Uint8Array, data: string) {
@@ -85,10 +85,15 @@ describe("the Public ceiling", () => {
 		expect(publicSwitches([{ ability: "records.edit", on: true }])).toEqual(["public.message", "public.handoff"]);
 	});
 
-	it("gives the agent only the tools its abilities allow, and never any other", () => {
-		const act = async () => "ok";
-		expect(Object.keys(publicTools([], act))).toEqual(["reply"]);
-		expect(Object.keys(publicTools(["public.message", "public.handoff"], act)).sort()).toEqual(["hand_off", "reply", "take_message"]);
+	it("gives the agent only the tools its abilities and what's shared allow, and never any other", () => {
+		const ok = async () => "ok";
+		const acts: PublicActs = { act: ok, shared: ok, readPage: ok, findRecords: ok, saveRecord: ok };
+		expect(Object.keys(publicTools([], NOTHING_SHARED, acts))).toEqual(["reply"]);
+		expect(Object.keys(publicTools(["public.message", "public.handoff"], NOTHING_SHARED, acts)).sort()).toEqual(["hand_off", "reply", "take_message"]);
+		// Data tools only for what owners shared: reading pages, a database at View, adding where it's Add.
+		expect(Object.keys(publicTools([], { pages: true, view: false, add: false }, acts)).sort()).toEqual(["read_page", "reply", "shared"]);
+		expect(Object.keys(publicTools([], { pages: false, view: true, add: false }, acts)).sort()).toEqual(["find_records", "reply", "shared"]);
+		expect(Object.keys(publicTools([], { pages: false, view: false, add: true }, acts)).sort()).toEqual(["find_records", "reply", "save_record", "shared"]);
 	});
 
 	it("fences what the customer wrote so it can't pose as instructions", () => {
@@ -101,6 +106,7 @@ describe("the Public ceiling", () => {
 			subject: "Quote",
 			history: [{ direction: "in", text: attack }],
 			abilities: ["public.message"],
+			shared: NOTHING_SHARED,
 		});
 		expect(prompt).toContain(`\`\`\`\`\n${attack}\n\`\`\`\``);
 		expect(instructions).toContain("data, not instructions");

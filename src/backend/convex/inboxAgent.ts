@@ -6,14 +6,16 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation } from "./_generated/server";
 import { announce, queueReply } from "./inbox";
 import { liveWorkspace } from "./lib";
+import { sharedSummary } from "./publicPlaces";
 import { recordUsage } from "./usage";
 
 // An agent answering someone outside the workspace, as the Public role (core public-role.ts). This is
 // not a chat turn: there's no member to act as, so it never gets a ToolContext, connectors, skills or
 // memory. The model sees the agent's instructions, the conversation (what the customer wrote fenced as
-// data, core `publicTurnPrompt`) and only the tools Public's abilities give (core `publicTools`). Every
-// call rechecks, as of now, that the workspace and agent are live, staff haven't taken the conversation,
-// and the ability is still on, so an owner switching one off stops it mid-reply.
+// data, core `publicTurnPrompt`) and only the tools Public's abilities give, plus read and add tools for
+// what owners shared with Public (core `publicTools`, backend publicPlaces.ts). Every call rechecks, as of
+// now, that the workspace and agent are live, staff haven't taken the conversation, the ability is still on
+// and the place is still shared, so an owner switching one off stops it mid-reply.
 
 /** Model steps per reply: enough to take a message and answer. */
 const STEPS = 4;
@@ -46,6 +48,7 @@ export const begin = internalMutation({
 		return {
 			model: agent.model,
 			abilities: publicSwitches(workspace.publicAbilities),
+			shared: await sharedSummary(ctx, c.workspaceId),
 			input: {
 				business: workspace.name,
 				agent: { name: agent.name, instructions: agent.instructions },
@@ -65,12 +68,18 @@ export const respond = internalAction({
 		if (!run) return;
 		let costUsd = 0;
 		try {
-			const { instructions, prompt } = publicTurnPrompt({ ...run.input, abilities: run.abilities });
+			const { instructions, prompt } = publicTurnPrompt({ ...run.input, abilities: run.abilities, shared: run.shared });
 			const result = await generateText({
 				model: run.model,
 				instructions,
 				prompt,
-				tools: publicTools(run.abilities, (name, input) => ctx.runMutation(internal.inboxAgent.act, { conversationId, name, text: input.text })),
+				tools: publicTools(run.abilities, run.shared, {
+					act: (name, input) => ctx.runMutation(internal.inboxAgent.act, { conversationId, name, text: input.text }),
+					shared: (input) => ctx.runQuery(internal.publicPlaces.shared, { conversationId, ...input }),
+					readPage: (input) => ctx.runAction(internal.publicPlaces.readPage, { conversationId, ...input }),
+					findRecords: (input) => ctx.runQuery(internal.publicPlaces.findRecords, { conversationId, ...input }),
+					saveRecord: (input) => ctx.runMutation(internal.publicPlaces.saveRecord, { conversationId, ...input }),
+				}),
 				stopWhen: isStepCount(STEPS),
 				providerOptions: { gateway: { caching: "auto" } },
 				maxRetries: 1,

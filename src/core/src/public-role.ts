@@ -1,11 +1,17 @@
+import type { AccessLevel, PlaceKind } from "./place-access";
+
 // The Public role: anyone outside the workspace who reaches an agent (a texter, an emailer, later a
 // caller or someone in website chat). They aren't members and never sign in, so the role applies by
 // itself; it can't be given to anyone, edited into a staff role, or deleted.
 //
-// Its ceiling is this list. An owner switches these on or off (Settings → Roles → Public), and nothing
-// else can ever be on: staff permissions (`permissions.ts`) aren't switches here, and a turn for an
-// outsider never runs as a member, so it never reaches records, pages, chat, memory, connectors,
-// settings or money. Add an ability only if it's safe to hand to a stranger. wiki/permissions.md#public.
+// What Public may do is built from the same blocks as any role, with a hard ceiling in code:
+// - Data access goes through places' Who can access lists (place-access.ts): an owner adds Public to a
+//   page's or database's list like any role. The ceiling (`publicLevelProblem`) is View on pages, View or
+//   Add on databases, and nothing on channels. Everyone never includes Public.
+// - Conversation behavior is the abilities below, switched in Settings → Roles → Public.
+// Nothing else can ever be on: staff permissions (`permissions.ts`) aren't switches here, and a turn for an
+// outsider never runs as a member, so it never reaches chat, memory, connectors, settings, members, roles,
+// automations or money. Add an ability only if it's safe to hand to a stranger. wiki/permissions.md#public.
 
 /**
  * What an agent may do for an outsider. `label` finishes "Agents talking with customers can …";
@@ -38,4 +44,14 @@ export function flipAbility(stored: StoredAbilities | undefined, ability: string
 	if (!isPublicAbility(ability)) throw new Error("Public can't be given that. Only customer-safe abilities can be switched on.");
 	const rest = (stored ?? []).filter((s): s is { ability: PublicAbility; on: boolean } => s.ability !== ability && isPublicAbility(s.ability));
 	return on === publicAbilities[ability].on ? rest : [...rest, { ability, on }];
+}
+
+/** The most Public can hold in each kind of place: never Edit, never a channel. */
+export const publicPlaceLevels: Record<PlaceKind, readonly AccessLevel[]> = { page: ["view"], database: ["view", "add"], channel: [] };
+
+/** Why Public can't have `level` in this kind of place, or null if it can. The only place-access rule just for Public. */
+export function publicLevelProblem(kind: PlaceKind, level: AccessLevel): string | null {
+	if (publicPlaceLevels[kind].includes(level)) return null;
+	if (kind === "channel") return "Public can't be added to a channel: people outside the workspace never see chat.";
+	return kind === "page" ? "Public can only view pages." : "Public can only view or add to databases.";
 }

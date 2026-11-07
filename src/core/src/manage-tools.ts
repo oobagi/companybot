@@ -24,7 +24,7 @@ const pictureRef = fileRef.nullable().describe(`A picture's file id from the cha
 const skillConfig = z.object({ name: z.string().max(SKILL_NAME_MAX), description: z.string().max(SKILL_DESCRIPTION_MAX), instructions: z.string().max(SKILL_INSTRUCTIONS_MAX) });
 const trigger = z.union([
 	z.object({ type: z.literal("schedule"), cron: z.string().describe(cronHelp) }),
-	z.object({ type: z.literal("event"), event: z.literal("member.joined") }),
+	z.object({ type: z.literal("event"), event: z.enum(["member.joined", "inbox.started", "inbox.received"]) }),
 	z.object({ type: z.literal("event"), event: z.literal("message.posted"), channelId: id }),
 	z.object({ type: z.literal("webhook") }),
 ]);

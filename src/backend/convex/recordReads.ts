@@ -1,9 +1,10 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { outsiderWords } from "@companybot/core";
 import { type Member, capped, memo, nameOf } from "./lib";
 import { currencyOf, fieldsOf, idsIn, resolveRefs, requireType, typeTrashed, typeVisible, typesOf } from "./recordOps";
-import { type Condition, type Group, type Sort, findRecords } from "./recordQuery";
+import { type Condition, type Group, type Owner, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
 // "what links here" can't drift. Callers check the database they name; reads that span databases
@@ -26,7 +27,7 @@ export async function listRecords(
 	ctx: QueryCtx,
 	workspaceId: Id<"workspaces">,
 	type: { typeId: Id<"recordTypes">; fields: Doc<"recordFields">[] },
-	opts: { archived: boolean; conditions: Condition[]; group?: Group; sort?: Sort; paginationOpts: PaginationOptions },
+	opts: { archived: boolean; conditions: Condition[]; group?: Group; sort?: Sort; owner?: Owner; paginationOpts: PaginationOptions },
 ) {
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }
@@ -106,6 +107,13 @@ export async function linkingRecords(
 /** History entries hold old and new values, so their pages are smaller than lists. */
 const HISTORY_PAGE_MAX = 20;
 
+/**
+ * Who made a change, for history and Activity: a member's name, or someone outside an agent acted for as
+ * Public ("(555) 123-4567 by text"), shown with the agent as "Front desk, for (555) 123-4567 by text".
+ */
+export const changedBy = (ctx: QueryCtx, e: Pick<Doc<"recordHistory">, "userId" | "contact">) =>
+	e.userId ? nameOf(ctx, e.userId) : Promise.resolve(e.contact ? outsiderWords(e.contact) : "Someone");
+
 /** History entries, display-ready, with names resolved once for the page. */
 export async function toEntries(ctx: QueryCtx, member: Member, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
 	const idsOf = items.map(({ entry, fields }) =>
@@ -125,7 +133,7 @@ export async function toEntries(ctx: QueryCtx, member: Member, items: { entry: D
 				field: field ? field.label : null,
 				changes: e.changes.map((c) => ({ ...c, label: fields.find((f) => f.key === c.key)?.label ?? c.key })),
 				refs: Object.fromEntries(idsOf[i]!.filter((id) => refs[id]).map((id) => [id, refs[id]!])),
-				user: await nameOf(ctx, e.userId),
+				user: await changedBy(ctx, e),
 				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
 				undoes: e.undoes ?? null,
 				undone: !!e.undoneBy,

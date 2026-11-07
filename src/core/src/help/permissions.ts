@@ -29,9 +29,10 @@ In an automation someone else wrote, or one fed by outside text, acting as you a
 - **Action locks** (people whose role can lock agent actions): make an action Always ask or Blocked for everyone, or lift a default lock. Strictest wins: a block beats your Always.
 
 ## Who can access
-Each channel, database and page has a **Who can access** list: **Everyone**, or chosen roles, each at **View** or **Edit** (**Post**, for a channel). Like sharing in Google Drive or Notion.
+Each channel, database and page has a **Who can access** list: **Everyone**, chosen roles, or **Public** (people outside, below), each at **View** or **Edit** (**Post**, for a channel), or **Add** in a database. Like sharing in Google Drive or Notion.
 - Not on the list means no access: they don't see it in the sidebar, search, links, Activity, history, Archive or unread counts, and their agents can't read it. A link to a record they can't see shows as a locked chip, without its name; a sub-page they can't open shows as "Page". What people typed stays as written, so a message can still mention it.
 - **View** reads; **Edit** (or **Post**) also changes it. Owners always have Edit.
+- **Add** (databases only) lets people add records and see, change or archive only the ones they made, like your own answers to a form. They never see anyone else's records, and can't change the database or its fields. They find their records in the database itself; search and Activity don't show them.
 - Every place starts at Everyone, Edit, so nothing changes until someone restricts it. Examples: a read-only channel (Everyone: View, Office: Post), a read-only page, a private database (Deals: Office only).
 - **Change it**: a channel's details (click its name), a database's settings, or a page's ⋯ menu. It takes the switch to change that kind of place, and Edit in it. A lock in the sidebar marks a restricted place; hover it for who can.
 - **You can't lock yourself out**: a change that would take away your own Edit (Post, for a channel) is refused with "You'd lose edit access. Ask an Owner." Only owners can make it, since nobody else could undo it.
@@ -40,7 +41,14 @@ Each channel, database and page has a **Who can access** list: **Everyone**, or 
 - **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." It names the place only if they asked for it by that name; otherwise it's "this database". In a channel they can only view, agents don't reply or follow up for them, and a reply already under way stops when they lose Post.
 
 ## Customers
-When a customer emails or texts an agent, nobody on the team asked, so the agent acts as the **Public** role: it can only answer, take a message or hand off, as owners allow in [Roles](#/settings/roles). Unless agents may reply on their own, each reply waits in [Inbox](#/inbox) for someone to send it. When you ask an agent to email or text someone, that's yours: it asks first, like any message leaving the workspace.
+When a customer emails or texts an agent, nobody on the team asked, so the agent acts as the **Public** role. It can answer, take a message or hand off, as owners allow in [Roles](#/settings/roles), and use only what's shared with Public:
+- Add **Public** to a page's or database's Who can access list, like any role. A page at View, and the sub-pages that follow its list, can be read to customers. A database at View lets the agent look up its records; at **Add**, the agent can add records for the customer and show, change or cancel only theirs (the customer is whoever writes from that email address or number).
+- Public can never hold Edit, a channel, settings, members, roles, memory, connectors or automations. That ceiling is fixed; sharing anything above it is refused.
+- Customers see records' plain fields only: never teammates, links to other records, or a record's page. Keep internal notes out of databases shared with Public.
+- A place holding facts from somewhere restricted can't be shared with Public.
+- Changes show in history as the agent, for the customer: "Companybot, for (555) 123-4567 by text".
+
+Unless agents may reply on their own, each reply waits in [Inbox](#/inbox) for someone to send it. When you ask an agent to email or text someone, that's yours: it asks first, like any message leaving the workspace. To do more when customers write (add a lead, tell #sales), make an automation that runs when someone new emails or texts (see **help: automations**): it runs as you, not as the customer.
 
 ## Roles
 What else a person can do comes from their roles (managing members, agents, connectors, locks and more). See **help: members**.

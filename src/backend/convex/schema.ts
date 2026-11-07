@@ -1,4 +1,4 @@
-import { accessLevels, builtInRoles, fieldKinds, fileTypes, inboxChannels, permissions, publicAbilityIds, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { accessLevels, appEventIds, builtInRoles, fieldKinds, fileTypes, inboxChannels, permissions, publicAbilityIds, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
@@ -26,7 +26,7 @@ export const wakeOutcome = oneOf(wakeOutcomes);
  * Who can access a place (core place-access.ts): Everyone or a role, each at View or Edit. Unset is
  * Everyone at Edit; on a page, its parent's (a record's page follows its database).
  */
-export const accessEntry = v.object({ role: v.union(v.literal("everyone"), v.id("roles")), level: oneOf(accessLevels) });
+export const accessEntry = v.object({ role: v.union(v.literal("everyone"), v.literal("public"), v.id("roles")), level: oneOf(accessLevels) });
 const access = v.optional(v.array(accessEntry));
 /** A Who can access list as the app sends it: role ids are checked against the workspace's (placeAccess `savedAccess`). */
 export const accessArg = v.array(v.object({ role: v.string(), level: oneOf(accessLevels) }));
@@ -178,8 +178,11 @@ export const customTrigger = v.union(
 	scheduleTrigger,
 	v.object({ type: v.literal("webhook") }),
 	v.object({ type: v.literal("event"), event: v.literal("message.posted"), channelId: v.string() }),
-	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
+	v.object({ type: v.literal("event"), event: oneOf(appEventIds.filter((e) => e !== "message.posted")) }),
 );
+
+/** core's AppEvent. */
+export const appEvent = oneOf(appEventIds);
 
 /** core's FieldValue. Empty values aren't stored. Currency is core's Money. */
 export const fieldValue = v.union(
@@ -221,7 +224,7 @@ const automationDefinition = v.object({
 	connectors: v.array(v.string()), prompt: v.string(),
 	trigger: v.union(
 		scheduleTrigger,
-		v.object({ type: v.literal("event"), event: v.union(v.literal("message.posted"), v.literal("member.joined")), label: v.string(), channelId: v.optional(v.string()) }),
+		v.object({ type: v.literal("event"), event: oneOf(appEventIds), label: v.string(), channelId: v.optional(v.string()) }),
 		v.object({ type: v.literal("webhook"), webhookEvent: v.optional(v.literal("call.ended")), label: v.string(), sample: v.object({ id: v.string(), event: v.optional(v.string()), person: v.optional(v.object({ email: v.string() })), data: v.optional(v.record(v.string(), v.any())) }) }),
 	),
 });
@@ -1338,13 +1341,24 @@ export default defineSchema({
 		searchText: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
-		createdBy: v.id("users"),
+		/** The member who made it. Unset when someone outside did (`contact`). */
+		createdBy: v.optional(v.id("users")),
+		/**
+		 * Made by someone outside the workspace, through an agent as Public: their lowercased email or E.164
+		 * phone. They're who Add lets see and change it (core place-access.ts `canAddIn`).
+		 */
+		contact: v.optional(v.string()),
 		updatedAt: v.number(),
-		updatedBy: v.id("users"),
-		/** Set when an agent made the last change, acting for `updatedBy`. */
+		/** Unset when someone outside made the last change, through `updatedByAgent`. */
+		updatedBy: v.optional(v.id("users")),
+		/** Set when an agent made the last change, acting for `updatedBy` (or for someone outside). */
 		updatedByAgent: v.optional(v.id("agents")),
 	})
 		.index("by_type", ["typeId", "archived"])
+		/** A member's own records, newest first, for Add (they see only what they made). */
+		.index("by_creator", ["typeId", "archived", "createdBy"])
+		/** Someone outside's own records, for Add as Public. */
+		.index("by_contact", ["typeId", "archived", "contact"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
 		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
@@ -1462,7 +1476,10 @@ export default defineSchema({
 		),
 		/** Records: changed values by field key. Fields: changed settings ("label", "options"). */
 		changes: v.array(v.object({ key: v.string(), old: v.optional(fieldValue), new: v.optional(fieldValue) })),
-		userId: v.id("users"),
+		/** Who did it. Unset when someone outside did, through `agentId` as Public (`contact`). */
+		userId: v.optional(v.id("users")),
+		/** Someone outside the workspace (lowercased email or E.164 phone) the agent acted for as Public. */
+		contact: v.optional(v.string()),
 		agentId: v.optional(v.id("agents")),
 		/** Set on an undo: the change it reversed. */
 		undoes: v.optional(v.id("recordHistory")),
@@ -1498,8 +1515,11 @@ export default defineSchema({
 		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),
-		deletedBy: v.id("users"),
-		/** Set when an agent deleted it, acting for `deletedBy`. */
+		/** Unset when someone outside archived their own record, through `agentId` as Public (`contact`). */
+		deletedBy: v.optional(v.id("users")),
+		/** Someone outside the workspace (lowercased email or E.164 phone) the agent acted for as Public. */
+		contact: v.optional(v.string()),
+		/** Set when an agent deleted it, acting for `deletedBy` (or `contact`). */
 		agentId: v.optional(v.id("agents")),
 		deletedAt: v.number(),
 	})

@@ -31,6 +31,8 @@ export interface RecordTypesResult {
 		plural: string;
 		version: number;
 		inTrash?: boolean;
+		/** Add without View: the person adds records here and sees and changes only the ones they made. */
+		onlyYours?: true;
 		fields: { key: string; label: string; kind: string; options?: string[]; choices?: { id: string; label: string; retired?: boolean }[]; position?: number; inTrash?: boolean; linksTo?: string; multiple?: true }[];
 	}[];
 }

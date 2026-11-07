@@ -12,7 +12,7 @@ Each database has its own entry in Databases' sidebar (Databases in the rail); i
 ## Who can do what
 - **Create, rename or delete databases, and add or change fields**: people whose role can add and change databases and fields (not Member, to start; an owner can turn it on). The + is beside Databases.
 - **Add and edit records, undo changes**: people whose role can add and change records (Member, to start).
-- **Who can access**: each database's settings has a Who can access list (Everyone, or chosen roles, at View or Edit). Its records and their pages follow it. People not on it don't see the database at all, and links to its records show as locked chips. See **help: permissions**.
+- **Who can access**: each database's settings has a Who can access list (Everyone, chosen roles or Public, at View, Add or Edit). Its records and their pages follow it. People not on it don't see the database at all, and links to its records show as locked chips. **Add** lets people add records and see and change only their own: the database shows them just those. **Public** lets agents look records up (View), or add records for a customer and show them only theirs (Add), when customers email or text. See **help: permissions**.
 
 ## Using a database
 - **List**: pick columns, click a header to sort, and filter by any field. Search by name and text.

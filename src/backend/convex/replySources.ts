@@ -1,4 +1,4 @@
-import { EVERYONE, whoCan } from "@companybot/core";
+import { EVERYONE, PUBLIC_ACCESS, anyAccessIn, levelIn, whoCan } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -179,6 +179,8 @@ async function audienceFit(ctx: QueryCtx, member: Member, audience: Audience | u
 				const roles = member.workspaceRoles.filter((r) => !r.owner && !reach({ ...member, owner: false, roles: [r.id] }, from.access)).map((r) => r.id);
 				const viewer = { ...member, owner: false, roles };
 				allowed = !from.membersOnly && (!policies.every((p) => !!reach(viewer, p?.access)) || !!reach(viewer, from.access));
+				// Shared with Public, it reaches people outside too: the source has to open to them (Everyone never does).
+				if (allowed && policies.every((p) => !!p && anyAccessIn(PUBLIC_ACCESS, p.access))) allowed = !from.person && !!levelIn(PUBLIC_ACCESS, from.access);
 			}
 			if (!allowed || !from.visible) {
 				const who = from.person ?? (from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles));

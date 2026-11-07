@@ -43,7 +43,8 @@ import {
 	updateRecord,
 } from "./recordOps";
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
-import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
+import { PAGE_MAX, activityAs, changedBy, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
+import { canAdd, reach } from "./placeAccess";
 import { notePlace } from "./replySources";
 import { withReceipt } from "./approvals";
 import { opArg } from "./schema";
@@ -77,16 +78,18 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
  * Writes name what they change by id or key, never by a name that can change, so a held call runs on what
  * was approved even if it's renamed and another takes the name meanwhile (`byName` false; core record-tools).
  */
-const typeByKey = (ctx: QueryCtx, member: Member, key: string, trashed = false) => typeNamed(ctx, member, key, trashed, false);
+const typeByKey = (ctx: QueryCtx, member: Member, key: string, trashed = false, need: "view" | "add" = "view") => typeNamed(ctx, member, key, trashed, false, need);
 
 /**
  * A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Archive.
  * One the person can't see is found all the same, then refused naming who can ("Only Office and Owners can see
  * Deals."), so the agent can tell them whom to ask.
  */
-async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false, byName = true) {
+async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false, byName = true, need: "view" | "add" = "view") {
 	const all = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
-	const visible = typeVisible(ctx, { ...member, replyId: undefined });
+	const sees = typeVisible(ctx, { ...member, replyId: undefined });
+	// `add`: a database they may add to (Add) counts too: they list and change their own records there.
+	const visible = async (id: Id<"recordTypes">) => (await sees(id)) || (need === "add" && canAdd(member, all.find((t) => t._id === id)?.access));
 	const types: Doc<"recordTypes">[] = [];
 	const hidden: Doc<"recordTypes">[] = [];
 	for (const t of all) ((await visible(t._id)) ? types : hidden).push(t);
@@ -107,7 +110,7 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 		throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
 	}
 	// Refused by id, the refusal can't name it; by its key or name, it says back only what they typed.
-	return requireType(ctx, member, type._id, "view", type._id === raw ? undefined : raw);
+	return requireType(ctx, member, type._id, need, type._id === raw ? undefined : raw);
 }
 
 /** A live field (or, `trashed`, one in Archive) by exact key, else (`byLabel`) by label. A label two fields could match is refused. */
@@ -265,8 +268,9 @@ async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"recor
  * Checks, as of this read, that the person can see its database: a queued wake or a long turn may outlive their access.
  */
 export async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
+	// Checks its database: View, or (Add) that they made it.
 	const record = await requireRecord(ctx, member, recordId);
-	const type = await requireType(ctx, member, record.typeId);
+	const type = (await ctx.db.get(record.typeId))!;
 	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);
 	const { _id, ...values } = row!;
 	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...((await inTrash(ctx, record)) && { inTrash: true }), values };
@@ -291,7 +295,13 @@ export const typesFor = internalMutation({
 		const visible = typeVisible(ctx, { ...member, replyId: undefined });
 		const all = await typesOf(ctx, member.workspaceId);
 		const types = [];
-		for (const t of all) if (t.archived === trashed && (await visible(t._id))) types.push(t);
+		// Add (without View) lists the database too: they add records there and see only their own.
+		const onlyYours = new Set<Id<"recordTypes">>();
+		for (const t of all) {
+			if (t.archived !== trashed) continue;
+			if (await visible(t._id)) types.push(t);
+			else if (canAdd(member, t.access)) (types.push(t), onlyYours.add(t._id));
+		}
 		// A link into a database they can't see names no key, so the agent can't go looking.
 		const keys = new Map<Id<"recordTypes">, string>();
 		const rows = [];
@@ -305,7 +315,7 @@ export const typesFor = internalMutation({
 				keys.set(field.linkTypeId, seen ? linked.key : "(a database you can't see)");
 				if (seen) await notePlace(ctx, member, linked._id, linked.access);
 			}
-			rows.push({ type: t.key, name: t.name, plural: t.plural, version: t.version ?? 0, ...(t.archived && { inTrash: true }), fields: fields.map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))) });
+			rows.push({ type: t.key, name: t.name, plural: t.plural, version: t.version ?? 0, ...(t.archived && { inTrash: true }), ...(onlyYours.has(t._id) && { onlyYours: true as const }), fields: fields.map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))) });
 		}
 		return {
 			currency: await currencyOf(ctx, member.workspaceId),
@@ -329,7 +339,9 @@ export const findFor = internalMutation({
 				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: !!found.cursor, ...(found.cursor && { cursor: found.cursor }) };
 			}
 			if (!typeName) throw new ConvexError("Say which database to list, or search.");
-			const type = await typeNamed(ctx, member, typeName);
+			const type = await typeNamed(ctx, member, typeName, false, true, "add");
+			// Add without View lists only the records they made.
+			const owner = reach(member, type.access) ? undefined : { createdBy: member.userId };
 			const fields = await fieldsOf(ctx, type._id);
 			const conditions = await conditionsFor(ctx, member, type, fields, filters);
 			const sortBy = sort && {
@@ -340,7 +352,7 @@ export const findFor = internalMutation({
 				ctx,
 				member.workspaceId,
 				{ typeId: type._id, fields },
-				{ archived: trashed, conditions, sort: sortBy, paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null } },
+				{ archived: trashed, conditions, sort: sortBy, owner, paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null } },
 			);
 			const rows = await rowsOf(ctx, member, result.page.map((record) => ({ record, fields })));
 			return { type: type.plural, typeName: type.name, rows, more: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
@@ -381,7 +393,7 @@ export const getFor = internalMutation({
 					change: e._id,
 					time: new Date(e._creationTime).toISOString(),
 					action: e.action,
-					by: await nameOf(ctx, e.userId),
+					by: await changedBy(ctx, e),
 					...(e.agentId && { agent: (await ctx.db.get(e.agentId))?.name ?? "an agent" }),
 					...(e.action === "updated" && {
 						changed: e.changes.map((c) => {
@@ -419,7 +431,7 @@ export const saveFor = internalMutation({
 			} else {
 				if (trash !== undefined) throw new ConvexError("Create the record first.");
 				if (!typeName) throw new ConvexError("Say which database to create.");
-				const type = await typeByKey(ctx, member, typeName);
+				const type = await typeByKey(ctx, member, typeName, false, "add");
 				const fields = await fieldsOf(ctx, type._id);
 				({ id: recordId, change } = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member, true), type, fields, values)));
 			}

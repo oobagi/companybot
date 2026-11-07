@@ -361,7 +361,7 @@ export const setAccess = mutation({
 		const member = await requireMember(ctx);
 		const chat = await requireManagedChannel(ctx, member, chatId);
 		if (chat.archived) throw new ConvexError("This channel is in Archive.");
-		const list: AccessList = await savedAccess(ctx, member, access);
+		const list: AccessList = await savedAccess(ctx, member, access, "channel");
 		if (chat.isDefault && !list.some((e) => e.role === "everyone")) throw new ConvexError(`Everyone is in #${chat.name}, so everyone keeps at least View.`);
 		requireKeepsEdit(member, "channel", list);
 		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.

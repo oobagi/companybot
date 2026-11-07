@@ -27,11 +27,12 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 
 ## Inbox (email and texts built)
 - **Customers write to an agent, not to the team's chat.** Each agent can get its own email address (`name@<EMAIL_DOMAIN>`, through Resend) and phone number (through Twilio) on its page, under Contact. What customers send lands in **Inbox**, a top-level screen: one conversation per person, per agent, per channel (email or text). Website chat comes next.
-- **The agent answers as the Public role** ([Permissions](permissions.md#public)): it can reply, take a message for staff, or hand the conversation to staff, as owners allow. It can't read the business's records, pages, chats or memories for a customer. Replies wait for staff to check and send unless an owner lets agents reply on their own.
+- **The agent answers as the Public role** ([Permissions](permissions.md#public)): it can reply, take a message for staff, or hand the conversation to staff, as owners allow, and use what owners share with Public through the same Who can access lists as any role: read an FAQ page, look up a database, or add a record for the customer where Public has Add (showing them only theirs). Never chats, memories or anything not shared. Replies wait for staff to check and send unless an owner lets agents reply on their own.
+- **Owners compose the rest from building blocks, not built-in workflows.** "When someone new texts, add a lead to Clients and post in #sales" is an ordinary automation on the Inbox events (`inbox.started`, `inbox.received`), run as its person; there's no hardcoded "create a lead" step.
 - **Staff watch, jump in or take over.** Anyone with `inbox.use` replies from the agent's address or number, takes a conversation over (the agent stops answering it), hands it back, or starts a new one. The rail's Inbox button counts conversations waiting for someone.
 - **Linked to the record.** A sender whose email or phone matches a record's email or phone field links the conversation to that record.
 - **Chat gets one line.** An agent can post "New conversation from … [Open in Inbox]" to a channel picked on its page; the conversation itself never goes to chat.
-- **Not yet:** calls (Retell, #118), the Public role saving a lead record or reading public pages, website chat, and US texting registration (A2P 10DLC) for production numbers.
+- **Not yet:** calls (Retell, #118), website chat, and US texting registration (A2P 10DLC) for production numbers.
 
 ## Calls (not built yet)
 - Voice agents (like Night Owl's receptionist) run from Companybot.

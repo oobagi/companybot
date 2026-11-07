@@ -4,11 +4,12 @@ import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { emptyPage, getMember, nameOf, requireMember } from "./lib";
-import { reach } from "./placeAccess";
+import { canAdd, reach } from "./placeAccess";
 import {
 	createRecord,
 	fieldsOf,
 	inTrash,
+	madeBy,
 	resolveRefs,
 	typeVisible,
 	fieldsShown,
@@ -49,16 +50,20 @@ export const list = query({
 	handler: async (ctx, { typeId, filters = [], group, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
-		if (!member || type?.workspaceId !== member.workspaceId || type.archived || !reach(member, type.access)) return emptyPage();
+		if (!member || type?.workspaceId !== member.workspaceId || type.archived) return emptyPage();
+		// View lists every record; Add alone, only the ones they made.
+		const all = !!reach(member, type.access);
+		if (!all && !canAdd(member, type.access)) return emptyPage();
 		const fields = await fieldsOf(ctx, typeId);
-		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, sort, paginationOpts });
+		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, sort, ...(!all && { owner: { createdBy: member.userId } }), paginationOpts });
 		return { ...result, page: await toRows(ctx, member, result.page.map((record) => ({ record, fields }))) };
 	},
 });
 
 /**
  * One record with its type and fields, or null if it isn't in your workspace or you can't see its
- * database. `archived`: in Archive, on its own or with its database. `canEdit`: Edit in its database.
+ * database (or, with Add, didn't make it). `archived`: in Archive, on its own or with its database.
+ * `canEdit`: Edit in its database, or Add and they made it.
  */
 export const get = query({
 	args: { recordId: v.id("records") },
@@ -68,13 +73,14 @@ export const get = query({
 		if (!member || record?.workspaceId !== member.workspaceId) return null;
 		const type = (await ctx.db.get(record.typeId))!;
 		const level = reach(member, type.access);
-		if (!level) return null;
+		const own = madeBy(record, member) && canAdd(member, type.access);
+		if (!level && !own) return null;
 		const fields = await fieldsOf(ctx, record.typeId);
 		const shown = fieldsShown(ctx, member);
 		const [row] = await toRows(ctx, member, [{ record, fields }]);
 		return {
 			...row!,
-			canEdit: level === "edit",
+			canEdit: level === "edit" || own,
 			archived: await inTrash(ctx, record),
 			trash: await trashInfo(ctx, member, record._id),
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },

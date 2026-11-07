@@ -38,8 +38,8 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 	if (!record || record.typeId !== type._id) {
 		return <NotFound crumbs={crumbs} loaded={record !== undefined} icon={<DatabaseIcon />} title={`${type.name} not found`} />;
 	}
-	// The switch, and Edit in its database's Who can access list.
-	const canEdit = type.canEdit;
+	// The switch, and Edit in its database's Who can access list; or Add, for a record they made (`record.canEdit`).
+	const canEdit = type.canEdit || (type.canAdd && record.canEdit);
 
 	return (
 		<Page

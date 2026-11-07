@@ -57,6 +57,8 @@ export const createFor = internalMutation({
 			if (t.type === "schedule") trigger = { type: "schedule", cron: t.cron };
 			else if (t.type === "webhook") trigger = { type: "webhook" };
 			else if (t.type === "member_joined") trigger = { type: "event", event: "member.joined" };
+			else if (t.type === "inbox_started") trigger = { type: "event", event: "inbox.started" };
+			else if (t.type === "inbox_received") trigger = { type: "event", event: "inbox.received" };
 			else {
 				const chat = await channelById(ctx, member, t.channel, turn.chatId);
 				if (!chat) return { error: `There's no channel ${t.channel} they can see. Name it by its id, from channels list.` };

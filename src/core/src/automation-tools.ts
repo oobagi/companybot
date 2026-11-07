@@ -39,6 +39,8 @@ const toolInput = z.object({
 			z.object({ type: z.literal("schedule"), cron: z.string().describe(cronHelp) }),
 			z.object({ type: z.literal("message_posted"), channel: z.string().describe('The id of the channel to watch (from channels list), or "here"; not its #name, which can change') }),
 			z.object({ type: z.literal("member_joined") }),
+			z.object({ type: z.literal("inbox_started").describe("Someone new emails or texts one of the agents (a new Inbox conversation). Needs Inbox access") }),
+			z.object({ type: z.literal("inbox_received").describe("Any email or text an agent gets in Inbox. Needs Inbox access") }),
 			z.object({ type: z.literal("webhook").describe("Only when the person has an outside app that will send it") }),
 		])
 		.describe("When it runs"),

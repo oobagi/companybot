@@ -12,8 +12,8 @@ import { cascading, startCascade } from "./cascade";
 import { type Member, type Who, checkPermission, nameOf, requireInWorkspace } from "./lib";
 import { pageBlockSchema, withoutPageTitles } from "./pageBlocks";
 import { type PageState, keptAccess, pageState, pageStates, parentFor } from "./pageTree";
-import { reach, requireAccess } from "./placeAccess";
-import { inTrash, requireRecord } from "./recordOps";
+import { canAdd, reach, requireAccess } from "./placeAccess";
+import { inTrash, madeBy, requireRecord } from "./recordOps";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
 
@@ -61,9 +61,18 @@ export async function requirePage(ctx: QueryCtx, member: Member, pageId: Id<"pag
 export async function requirePageAccess(ctx: QueryCtx, member: Member, page: Doc<"pages">, need: AccessLevel, state?: PageState, asked?: string) {
 	const { access, type } = state ?? (await pageState(ctx, page));
 	if (!(await readArtifact(ctx, member, type ?? page))) throw new ConvexError("Page not found.");
-	if (type) requireAccess(member, "database", type.plural, access, need);
-	else requireAccess(member, "page", page.title, access, need, asked);
+	if (type) {
+		// Add: the body of a record they made is theirs to read and write, like its fields. Nobody else's.
+		if (!(await ownBody(ctx, member, page, access))) requireAccess(member, "database", type.plural, access, need);
+	} else requireAccess(member, "page", page.title, access, need, asked);
 	await notePlace(ctx, member, type?._id ?? page._id, access);
+}
+
+/** Whether a record's body is one they reach through Add: its record is one they made. */
+async function ownBody(ctx: QueryCtx, member: Member, page: Doc<"pages">, access: PageState["access"]) {
+	if (!page.recordId || !canAdd(member, access)) return false;
+	const record = await ctx.db.get(page.recordId);
+	return !!record && madeBy(record, member);
 }
 
 /** How far someone reaches in each page ("edit", "view" or null), sharing reads across a list. */
@@ -71,7 +80,8 @@ export function pageReach(ctx: QueryCtx, member: Member, get?: (id: Id<"pages">)
 	const state = pageStates(ctx, get);
 	return async (page: Doc<"pages">) => {
 		const { access, type } = await state(page);
-		const level = await readArtifact(ctx, { ...member, replyId: undefined }, type ?? page) ? reach(member, access) : null;
+		if (!(await readArtifact(ctx, { ...member, replyId: undefined }, type ?? page))) return null;
+		const level = reach(member, access) ?? (type && (await ownBody(ctx, member, page, access)) ? "edit" : null);
 		if (level) await notePlace(ctx, member, type?._id ?? page._id, access);
 		return level;
 	};
@@ -87,15 +97,17 @@ export function pageVisible(ctx: QueryCtx, member: Member, get?: (id: Id<"pages"
  * A document's page blocks titled for `member`, for agents (who read JSON, not the app's live blocks): the
  * page's current title, or none for a page they can't see (or one deleted). Blocks store no title (pageBlocks.ts).
  */
-export async function withPageTitles(ctx: QueryCtx, member: Member, content: string) {
-	const seen = pageVisible(ctx, member);
+export const withPageTitles = (ctx: QueryCtx, member: Member, content: string) => pageTitlesFor(ctx, member.workspaceId, pageVisible(ctx, member), content);
+
+/** `withPageTitles` for any reader: `seen` says which pages they may see (someone outside: publicPlaces.ts). */
+export async function pageTitlesFor(ctx: QueryCtx, workspaceId: Id<"workspaces">, seen: (page: Doc<"pages">) => Promise<boolean>, content: string) {
 	const titles = new Map<string, string>();
 	const titleOf = async (id: unknown) => {
 		if (typeof id !== "string") return "";
 		if (!titles.has(id)) {
 			const pageId = ctx.db.normalizeId("pages", id);
 			const page = pageId && (await ctx.db.get(pageId));
-			titles.set(id, page && page.workspaceId === member.workspaceId && (await seen(page)) ? page.title : "");
+			titles.set(id, page && page.workspaceId === workspaceId && (await seen(page)) ? page.title : "");
 		}
 		return titles.get(id)!;
 	};

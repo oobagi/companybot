@@ -17,12 +17,12 @@ import {
 	searchTextOf,
 	valuesBytes,
 } from "@companybot/core";
-import { type AccessLevel, reaches } from "@companybot/core";
+import { type AccessLevel, PUBLIC_ACCESS, canAddIn, reaches } from "@companybot/core";
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
-import { reach, requireAccess } from "./placeAccess";
+import { type Member, type Outsider, type Who, type Writer, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
+import { canAdd, reach, requireAccess } from "./placeAccess";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
 
@@ -36,7 +36,8 @@ type Change = Doc<"recordHistory">["changes"][number];
 /**
  * A database in the person's workspace that they reach `need` in (its Who can access list).
  * Other workspaces' look like they don't exist; one kept from them names who can see or change it.
- * `edit` is for changes, so it also refuses a database in Archive.
+ * `edit` is for changes, so it also refuses a database in Archive. `add` is Add or Edit: they may add
+ * records and see and change their own (`requireRecord`), not everyone's.
  */
 export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: AccessLevel = "view", asked?: string) {
 	const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
@@ -47,10 +48,18 @@ export async function requireType(ctx: QueryCtx, member: Member, typeId: Id<"rec
 	return type;
 }
 
-/** A record whose database the person reaches `need` in (as `requireType`). */
+/** Whether `member` made this record: with Add, those are the ones they see and change. Records made from outside are their contact's. */
+export const madeBy = (record: Doc<"records">, member: Member) => !record.contact && !!record.createdBy && record.createdBy === member.userId;
+
+/**
+ * A record whose database the person reaches `need` in (as `requireType`). With Add instead, only one
+ * they made (`madeBy`), for viewing and changing alike: Add never shows anyone else's.
+ */
 export async function requireRecord(ctx: QueryCtx, member: Member, recordId: Id<"records">, need: AccessLevel = "view") {
 	const record = requireInWorkspace(member, await ctx.db.get(recordId), "Record");
-	await requireType(ctx, member, record.typeId, need);
+	const type = await ctx.db.get(record.typeId);
+	const own = !!type && madeBy(record, member) && canAdd(member, type.access) && !reaches(reach(member, type.access), need);
+	await requireType(ctx, member, record.typeId, own ? "add" : need);
 	return record;
 }
 
@@ -129,7 +138,11 @@ export function fieldsShown(ctx: QueryCtx, member: Member) {
 }
 
 /** Changes go through here, so this is where record automations will hook in (`fireEvent`). */
-export async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId">) {
+export async function logChange(ctx: MutationCtx, who: Writer, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId" | "contact">) {
+	if ("outsider" in who) {
+		const { workspaceId, contact, agentId } = who.outsider;
+		return ctx.db.insert("recordHistory", { workspaceId, contact, agentId, ...entry });
+	}
 	return ctx.db.insert("recordHistory", {
 		workspaceId: who.member.workspaceId,
 		userId: who.member.userId,
@@ -214,14 +227,14 @@ function requireSize(values: Values) {
 		throw new ConvexError(`This record is too big (over ${RECORD_MAX_BYTES / 1024} KB). Keep long text in a note or file instead.`);
 }
 
-const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId });
+const stamp = (who: Writer) =>
+	"outsider" in who ? { updatedAt: Date.now(), updatedBy: undefined, updatedByAgent: who.outsider.agentId } : { updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId };
 
-/** Returns the new record and its "created" history entry. */
+/** Returns the new record and its "created" history entry. Takes Edit or Add in its database. */
 export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
 	checkPermission(who.member, "records.edit");
-	const type = await requireType(ctx, who.member, typeId);
+	const type = await requireType(ctx, who.member, typeId, "add");
 	if (type.archived) throw new ConvexError(`${type.plural} is in Archive.`);
-	requireAccess(who.member, "database", type.plural, type.access, "edit");
 	const fields = await fieldsOf(ctx, typeId);
 	const values: Values = {};
 	for (const [key, value] of Object.entries(await normalizeInput(ctx, who.member, fields, input))) {
@@ -266,7 +279,7 @@ export async function updateRecord(ctx: MutationCtx, who: Who, recordId: Id<"rec
 /** Stores `next` (null clears) and logs what changed. Returns the history entry, if anything changed. */
 async function applyValues(
 	ctx: MutationCtx,
-	who: Who,
+	who: Writer,
 	record: Doc<"records">,
 	fields: Doc<"recordFields">[],
 	next: Record<string, FieldValue | null>,
@@ -284,7 +297,7 @@ async function applyValues(
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError("Every record needs a name.");
 	requireSize(values);
-	await writeSources(ctx, who.member, record.typeId);
+	if (!("outsider" in who)) await writeSources(ctx, who.member, record.typeId);
 	await ctx.db.patch(record._id, { title, values, searchText: searchTextOf(fields.map(toField), values), ...stamp(who) });
 	await writeIndex(ctx, { ...record, values }, fields, new Set(changes.map((c) => c.key)));
 	return logChange(ctx, who, { typeId: record.typeId, recordId: record._id, action: "updated", changes, ...(undoes && { undoes }) });
@@ -339,6 +352,86 @@ export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"reco
 	if (!undoneBy) throw new ConvexError("Nothing to undo.");
 	await ctx.db.patch(historyId, { undoneBy });
 	return undoneBy;
+}
+
+// ---- Records for someone outside (Public at Add) ----
+
+/**
+ * A database someone outside may add to: in their workspace, live, with Public at Add on its list. They see
+ * only the records they made there (`ownRecordFor`), never its other records or its settings.
+ */
+export async function addableFor(ctx: QueryCtx, by: Outsider, typeId: Id<"recordTypes">) {
+	const type = await ctx.db.get(typeId);
+	if (!type || type.workspaceId !== by.workspaceId || type.archived || !canAddIn(PUBLIC_ACCESS, type.access)) throw new ConvexError("That database isn't shared with you.");
+	return type;
+}
+
+/** One of their own records (made from this contact) in a database they may add to. Anyone else's looks like it doesn't exist. */
+export async function ownRecordFor(ctx: QueryCtx, by: Outsider, recordId: Id<"records">) {
+	const record = await ctx.db.get(recordId);
+	if (!record || record.workspaceId !== by.workspaceId || record.contact !== by.contact) throw new ConvexError("Record not found.");
+	await addableFor(ctx, by, record.typeId);
+	return record;
+}
+
+/** Fields someone outside may fill: never a teammate or a link (picking one would read people or other records). */
+export const outsiderFields = (fields: Doc<"recordFields">[]) => fields.filter((f) => !f.archived && f.kind !== "user" && f.kind !== "link");
+
+/** Values from outside, checked like any write against the fields they may fill. */
+async function outsiderInput(ctx: QueryCtx, by: Outsider, fields: Doc<"recordFields">[], input: Record<string, unknown>) {
+	const byKey = new Map(outsiderFields(fields).map((f) => [f.key, f]));
+	const currency = await currencyOf(ctx, by.workspaceId);
+	const out: Record<string, FieldValue | null> = {};
+	for (const [key, raw] of Object.entries(input)) {
+		const field = byKey.get(key);
+		if (!field) throw new ConvexError(`There's no field “${key}” you can fill.`);
+		const result = normalizeValue(toField(field), raw, "input", currency);
+		if ("error" in result) throw new ConvexError(result.error);
+		out[key] = result.value;
+	}
+	return out;
+}
+
+/** A record made for someone outside, by the agent talking with them. History names the agent and their contact. */
+export async function createRecordFor(ctx: MutationCtx, by: Outsider, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
+	const type = await addableFor(ctx, by, typeId);
+	const fields = await fieldsOf(ctx, type._id);
+	const values: Values = {};
+	for (const [key, value] of Object.entries(await outsiderInput(ctx, by, fields, input))) if (value !== null) values[key] = value;
+	const title = values[NAME_KEY];
+	if (typeof title !== "string") throw new ConvexError(`Give the ${type.name.toLowerCase()} a name.`);
+	requireSize(values);
+	const id = await ctx.db.insert("records", {
+		workspaceId: by.workspaceId,
+		typeId,
+		title,
+		values,
+		searchText: searchTextOf(fields.map(toField), values),
+		archived: false,
+		contact: by.contact,
+		...stamp({ outsider: by }),
+	});
+	await writeIndex(ctx, (await ctx.db.get(id))!, fields);
+	const change = await logChange(ctx, { outsider: by }, { typeId, recordId: id, action: "created", changes: Object.entries(values).map(([key, value]) => ({ key, new: value })) });
+	return { id, change };
+}
+
+/** Changes one of their own records' fields (null clears), like `updateRecord`. */
+export async function updateRecordFor(ctx: MutationCtx, by: Outsider, recordId: Id<"records">, input: Record<string, unknown>) {
+	const record = await ownRecordFor(ctx, by, recordId);
+	await requireLive(ctx, record);
+	const fields = await fieldsOf(ctx, record.typeId);
+	return applyValues(ctx, { outsider: by }, record, fields, await outsiderInput(ctx, by, fields, input));
+}
+
+/** Archives one of their own records (cancels it). Staff can restore it from Archive; they can't. */
+export async function archiveRecordFor(ctx: MutationCtx, by: Outsider, recordId: Id<"records">) {
+	const record = await ownRecordFor(ctx, by, recordId);
+	await requireLive(ctx, record);
+	await toggleTrash(ctx, { outsider: by }, true, { kind: "record", id: recordId, name: record.title, typeId: record.typeId });
+	await ctx.db.patch(recordId, { archived: true, ...stamp({ outsider: by }) });
+	await clearIndex(ctx, recordId);
+	return logChange(ctx, { outsider: by }, { typeId: record.typeId, recordId, action: "archived", changes: [] });
 }
 
 /** Notes which records a chat message references, so each record can list where it was discussed. */

@@ -68,6 +68,7 @@ import type * as parity from "../parity.js";
 import type * as permissions from "../permissions.js";
 import type * as placeAccess from "../placeAccess.js";
 import type * as preferences from "../preferences.js";
+import type * as publicPlaces from "../publicPlaces.js";
 import type * as recordOps from "../recordOps.js";
 import type * as recordQuery from "../recordQuery.js";
 import type * as recordReads from "../recordReads.js";
@@ -156,6 +157,7 @@ declare const fullApi: ApiFromModules<{
   permissions: typeof permissions;
   placeAccess: typeof placeAccess;
   preferences: typeof preferences;
+  publicPlaces: typeof publicPlaces;
   recordOps: typeof recordOps;
   recordQuery: typeof recordQuery;
   recordReads: typeof recordReads;

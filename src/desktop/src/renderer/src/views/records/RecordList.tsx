@@ -119,6 +119,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const conditions = filters.map(toCondition).filter((c) => c !== null);
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;
+	// Add without View: every row listed is one they made, so they can change it; and they can make more.
+	const canEditRows = canEdit || (type.canAdd && !type.seesAll);
+	const canCreate = canEdit || type.canAdd;
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const args = { typeId: type._id, filters: conditions, sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
@@ -135,7 +138,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							<EditIcon /> Edit database
 						</button>
 					)}
-					{canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
+					{canCreate && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
 				</>
 			}
 		>
@@ -256,7 +259,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					<ErrorBoundary key={JSON.stringify([args, layout, group?.key])}>
 						<RecordResults
 							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
-							layout={layout} group={group} canEdit={canEdit}
+							layout={layout} group={group} canEdit={canEditRows}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
 							empty={filters.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>

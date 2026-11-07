@@ -2,7 +2,8 @@ import { type TrashKind, canTrash } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Who, nameOf } from "./lib";
+import { type Member, type Who, type Writer, nameOf } from "./lib";
+import { outsiderWords } from "@companybot/core";
 import { privateTo } from "./automationOps";
 import { releaseHeld } from "./wakeups";
 
@@ -19,26 +20,27 @@ export const trashEntry = (ctx: QueryCtx, itemId: string) =>
 		.withIndex("by_item", (q) => q.eq("itemId", itemId))
 		.first();
 
-/** Adds an item to Archive, deleted by `who` now. The caller marks the item itself `archived`. */
-export async function putInTrash(ctx: MutationCtx, who: Who, item: { kind: TrashKind; id: string; name: string; includesSubpages?: boolean; typeId?: Doc<"trash">["typeId"] }) {
+/** Adds an item to Archive, deleted by `who` now (a member, or someone outside archiving their own record). The caller marks the item itself `archived`. */
+export async function putInTrash(ctx: MutationCtx, who: Writer, item: { kind: TrashKind; id: string; name: string; includesSubpages?: boolean; typeId?: Doc<"trash">["typeId"] }) {
+	const by = "outsider" in who
+		? { workspaceId: who.outsider.workspaceId, contact: who.outsider.contact, agentId: who.outsider.agentId }
+		: { workspaceId: who.member.workspaceId, deletedBy: who.member.userId, ...(who.agentId && { agentId: who.agentId }) };
 	await ctx.db.insert("trash", {
-		workspaceId: who.member.workspaceId,
+		...by,
 		kind: item.kind,
 		itemId: item.id,
 		name: item.name,
 		...(item.includesSubpages && { includesSubpages: true }),
 		...(item.typeId && { typeId: item.typeId }),
-		deletedBy: who.member.userId,
-		...(who.agentId && { agentId: who.agentId }),
 		deletedAt: Date.now(),
 	});
 }
 
 type TrashItem = Parameters<typeof putInTrash>[2];
 
-/** Puts an item in Archive (`archived`) or takes it out, as `who`. The caller patches the item. */
-export const toggleTrash = (ctx: MutationCtx, who: Who, archived: boolean, item: TrashItem) =>
-	archived ? putInTrash(ctx, who, item) : takeFromTrash(ctx, who, item.id);
+/** Puts an item in Archive (`archived`) or takes it out, as `who`. The caller patches the item. Only members restore. */
+export const toggleTrash = (ctx: MutationCtx, who: Writer, archived: boolean, item: TrashItem) =>
+	archived ? putInTrash(ctx, who, item) : "outsider" in who ? Promise.reject(new ConvexError("Only staff can restore it.")) : takeFromTrash(ctx, who, item.id);
 
 /** Anyone who could delete it can restore it, whoever deleted it (core `canTrash`). */
 export async function canRestore(ctx: QueryCtx, member: Member, entry: Doc<"trash">) {
@@ -82,7 +84,7 @@ export async function describeTrash(ctx: QueryCtx, member: Member, entry: Doc<"t
 		kind: entry.kind,
 		itemId: entry.itemId,
 		name: entry.name,
-		user: await nameOf(ctx, entry.deletedBy),
+		user: entry.deletedBy ? await nameOf(ctx, entry.deletedBy) : entry.contact ? outsiderWords(entry.contact) : "Someone",
 		agent: entry.agentId ? ((await ctx.db.get(entry.agentId))?.name ?? null) : null,
 		at: entry.deletedAt,
 		canRestore: await canRestore(ctx, member, entry),

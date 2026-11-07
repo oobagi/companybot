@@ -367,7 +367,7 @@ function PublicAbilities({ abilities, crumbs, canEdit }: { abilities: readonly A
 			{canEdit && <SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={() => run(save(), draft.discard)} onDiscard={draft.discard} />}
 			<ConflictNotice draft={draft} />
 			<Notice>{error}</Notice>
-			<Settings title="What agents can do for them" note="Agents always answer customers. Staff powers, like reading records, changing anything, money and settings, never apply to Public.">
+			<Settings title="What agents can do for them" note="Agents always answer customers. To let them use a page or database, add Public to its Who can access list: View, or Add in a database. Staff powers, like Edit anywhere, chat, money and settings, never apply to Public.">
 				{abilities.map((a) => (
 					<Setting key={a.id} label={sentenceCase(a.label)}>
 						<Checkbox

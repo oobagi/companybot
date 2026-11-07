@@ -20,6 +20,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, smsProvider } from "./channelProviders";
 import { insertMessage } from "./chatOps";
 import { mutation, query } from "./functions";
@@ -34,6 +35,8 @@ import { typeVisible } from "./recordOps";
 // wiki/architecture.md → Inbox.
 
 const READ_MAX = 200;
+/** What of a message an automation's run is handed: enough to act on, short enough for a prompt. */
+const EVENT_TEXT_MAX = 4_000;
 /** How long a reply may be "running" before a new message starts another one anyway (a crashed action). */
 export const REPLY_STALE_MS = 10 * 60_000;
 /** A short pause before the agent answers, so a burst of texts gets one reply. */
@@ -386,6 +389,24 @@ export const receive = internalMutation({
 		await linkRecord(ctx, c);
 		if (isNew) await announce(ctx, agent, c, `New conversation from ${contactWords(c)} by ${channelWords[channel]}.`);
 		if (c.mode === "agent" && !agent.archived && !args.automated && !fromUs) await queueReply(ctx, c);
+		// In-app events, so owners build their own steps ("when someone new texts, add a lead to Clients"). Never for
+		// auto-replies or our own addresses (no loops). Runs act as the automation's person, never as Public.
+		if (!args.automated && !fromUs) {
+			const now = (await ctx.db.get(c._id))!;
+			const data = {
+				agent: agent.name,
+				by: channelWords[channel],
+				from: contact,
+				name: now.contactName ?? null,
+				...(now.subject && { subject: now.subject }),
+				text: text.slice(0, EVENT_TEXT_MAX),
+				conversation: `#/inbox/${now._id}`,
+				...(now.recordId && { record: now.recordId }),
+				new: isNew,
+			};
+			if (isNew) await fireEvent(ctx, point.workspaceId, "inbox.started", { data });
+			await fireEvent(ctx, point.workspaceId, "inbox.received", { data });
+		}
 		return { outcome: "stored", conversationId: c._id };
 	},
 });
