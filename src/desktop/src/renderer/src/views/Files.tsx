@@ -29,7 +29,7 @@ function FileScreen({ fileId }: { fileId: Id<"driveFiles"> }) {
 	const [sharing, setSharing] = useState(false);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
-	const crumbs = [{ label: "Drive", to: ["pages"] }, ...(file?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }))];
+	const crumbs = (file?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }));
 	if (!file) return <NotFound crumbs={crumbs} loaded={file === null} icon={<FileIcon />} title="File not found" />;
 	const back = () => navigate(...(file.ancestors.length ? ["pages", file.ancestors.at(-1)!._id] : ["pages"]));
 	return (

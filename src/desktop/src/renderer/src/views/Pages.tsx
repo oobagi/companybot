@@ -21,8 +21,6 @@ import { TrashNotice } from "./Trash";
 
 export { DriveNav, NewMenu } from "./pages/PageTree";
 
-const drive = { label: "Drive", to: ["pages"] };
-
 export function PagesView({ pageId, canEdit }: { pageId?: string; canEdit: boolean }) {
 	if (!pageId) return <DriveRoot canEdit={canEdit} />;
 	return <PageOrFolder key={pageId} pageId={pageId as Id<"pages">} />;
@@ -58,7 +56,8 @@ function useFolderActions(parentId: Id<"pages"> | undefined, canEdit: boolean) {
 
 function PageOrFolder({ pageId }: { pageId: Id<"pages"> }) {
 	const page = useQuery(api.pages.get, { pageId });
-	const crumbs = [drive, ...(page?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }))];
+	// The trail is the folders it's in; the sidebar already says Drive.
+	const crumbs = (page?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }));
 	if (!page) return <NotFound crumbs={crumbs} loaded={page === null} icon={<PageIcon />} title="Page not found" />;
 	return page.kind === "folder" ? <FolderScreen page={page} crumbs={crumbs} /> : <PageScreen page={page} crumbs={crumbs} />;
 }
