@@ -9,7 +9,7 @@ import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
@@ -185,10 +185,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							onNewField={type.canManage ? () => setAddingField("text") : undefined}
 						/>}
 						{(selected || type.canSetDisplay) && layout === "board" && group && (
-							<label className="flex items-center text-neutral-500">
-								<span className="pl-2 @max-xl:hidden">Group by</span>
-								<Select className={toolButton} value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
-							</label>
+							<GroupPicker fields={groupFields} value={group} onChange={(groupBy) => change({ groupBy })} />
 						)}
 						{(selected || type.canSetDisplay) && (
 							<LayoutPicker
@@ -539,6 +536,35 @@ function LayoutPicker({ value, onChange }: { value: Layout | Preview; onChange: 
 					</MenuItem>
 				))
 			}
+		</Popover>
+	);
+}
+
+/** The board's grouping: one button naming the field, a menu of the choice fields it can group by. */
+function GroupPicker({ fields, value, onChange }: { fields: TypeField[]; value: TypeField; onChange: (key: string) => void }) {
+	return (
+		<Popover
+			label="Group by"
+			trigger={
+				<>
+					<GroupIcon /> <span className="@max-xl:hidden">Group: {value.label}</span> <CaretDownIcon />
+				</>
+			}
+			className={toolButton}
+			panelClassName="flex w-52 flex-col gap-px p-1"
+		>
+			{(close) => (
+				<>
+					<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Group by</p>
+					{fields.map((f) => (
+						<MenuItem key={f.key} onClick={() => (close(), onChange(f.key))}>
+							<FieldIcon kind={f.kind} />
+							<span className="flex-1 truncate">{f.label}</span>
+							{f.key === value.key && <CheckIcon className="text-neutral-500" />}
+						</MenuItem>
+					))}
+				</>
+			)}
 		</Popover>
 	);
 }

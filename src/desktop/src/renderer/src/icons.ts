@@ -66,6 +66,7 @@ export {
 	SignOutIcon,
 	SparkleIcon,
 	SquaresFourIcon as GalleryIcon,
+	StackIcon as GroupIcon,
 	StopIcon,
 	IdentificationBadgeIcon as RolesIcon,
 	ShieldCheckIcon as PermissionsIcon,
