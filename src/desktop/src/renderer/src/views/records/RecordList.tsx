@@ -254,8 +254,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			<Notice>{error}</Notice>
 			{dialog}
 			<ConflictNotice draft={draft} />
-			{filters.length > 0 && (
+			{(filters.length > 0 || sort) && (
 				<div className="-mt-2 flex flex-wrap items-center gap-1.5">
+					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} kind={sortField?.kind} onChange={setSort} />}
 					{filters.map((f) => (
 						<FilterChip
 							key={f.id}
@@ -303,7 +304,15 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
-							empty={conditions.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
+							empty={sortField && !conditions.length ? (
+								// Sorting by a field lists only records with a value for it, so an empty list says why and how out.
+								<EmptyState icon={<DatabaseIcon />} title={`No ${noun} have a ${sortField.label}`}>
+									Sorting by a field lists only {noun} with a value for it.
+									<span className="mt-3 flex justify-center">
+										<button type="button" onClick={() => setSort(undefined)} className={compactButton}>Clear sort</button>
+									</span>
+								</EmptyState>
+							) : conditions.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
 					</ErrorBoundary>
 				</>
@@ -442,6 +451,43 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	if (rows.length === 0) return <NoMatches />;
 	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium"><span className="flex items-center gap-1.5"><FieldIcon kind={f.kind} />{f.label}</span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
+}
+
+/** The sort, as a chip before the filters: its direction, or remove it. */
+function SortChip({ sort, label, kind, onChange }: { sort: Sort; label: string; kind?: FieldKind; onChange: (sort: Sort | undefined) => void }) {
+	const Arrow = sort.order === "asc" ? ArrowUpIcon : ArrowDownIcon;
+	return (
+		<Popover
+			label={`Sorted by ${label}`}
+			trigger={
+				<>
+					{kind ? <FieldIcon kind={kind} className="text-current" /> : <Arrow />}
+					<span className="max-w-48 truncate">{label}</span>
+					<Arrow />
+					<CaretDownIcon />
+				</>
+			}
+			className={filterChip}
+			active
+			panelClassName="flex w-48 flex-col gap-px p-1"
+		>
+			{(close) => (
+				<>
+					{(["asc", "desc"] as const).map((order) => (
+						<MenuItem key={order} onClick={() => (close(), onChange({ ...sort, order }))}>
+							{order === "asc" ? <ArrowUpIcon className="text-neutral-400" /> : <ArrowDownIcon className="text-neutral-400" />}
+							<span className="flex-1">{order === "asc" ? "Ascending" : "Descending"}</span>
+							{sort.order === order && <CheckIcon className="text-neutral-500" />}
+						</MenuItem>
+					))}
+					<MenuDivider />
+					<MenuItem danger onClick={() => (close(), onChange(undefined))}>
+						<TrashIcon /> Remove sort
+					</MenuItem>
+				</>
+			)}
+		</Popover>
+	);
 }
 
 /** A menu of the database's fields, each with its kind's icon: Filter, Add filter. */
