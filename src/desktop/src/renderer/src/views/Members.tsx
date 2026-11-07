@@ -7,7 +7,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
 import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton } from "../ui";
+import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton, fullControlClass, hintClass } from "../ui";
 
 import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
@@ -191,8 +191,9 @@ const peopleLabel = (n: number) => (n === 1 ? "1 person" : `${n} people`);
 /** Settings → Roles: every role, with who has it; open one to change its switches. New role in the top bar. */
 export function RolesTab({ access }: { access: Access }) {
 	const roles = useQuery(api.roles.list);
+	const publicRole = useQuery(api.roles.publicRole);
 	const [creating, setCreating] = useState(false);
-	if (!roles) return <Loading />;
+	if (!roles || !publicRole) return <Loading />;
 	return (
 		<>
 			{can(access, "roles.manage") && (
@@ -212,6 +213,14 @@ export function RolesTab({ access }: { access: Access }) {
 						<CaretRightIcon className="text-neutral-400" />
 					</button>
 				))}
+				<button type="button" onClick={() => navigate("settings", "roles", "public")} className={`items-center gap-3 ${cardButton}`}>
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="truncate font-medium">Public</span>
+						<span className="truncate text-xs text-neutral-500">{publicSummary(publicRole.abilities)}</span>
+					</span>
+					<span className={descriptionClass}>Customers</span>
+					<CaretRightIcon className="text-neutral-400" />
+				</button>
 			</section>
 		</>
 	);
@@ -222,13 +231,10 @@ function NewRoleDialog({ onClose }: { onClose: () => void }) {
 	const [name, setName] = useState("");
 	const { error, busy, run } = useRun();
 	return (
-		<Modal title="New role" onClose={onClose}>
+		<Modal title="New role" size="md" onClose={onClose}>
 			<Form onSubmit={() => run(create({ name }).then((id) => navigate("settings", "roles", id)), onClose)}>
-				<Settings>
-					<Setting label="Name" hint="Starts with every switch off. You turn on what it can do next.">
-						<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={wideControlClass} />
-					</Setting>
-				</Settings>
+				<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={fullControlClass} />
+				<p className={hintClass}>It starts with every switch off. You turn on what it can do next.</p>
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
@@ -247,6 +253,7 @@ function NewRoleDialog({ onClose }: { onClose: () => void }) {
 export function RoleScreen({ access, roleId }: { access: Access; roleId: string }) {
 	const roles = useQuery(api.roles.list);
 	const crumbs = [{ label: "Roles", to: ["settings", "roles"] }];
+	if (roleId === "public") return <PublicRoleForm crumbs={crumbs} canEdit={can(access, "roles.manage")} />;
 	if (!roles) return <NotFound crumbs={crumbs} loaded={false} icon={<RolesIcon />} title="Role not found" />;
 	const role = roles.find((r) => r.id === roleId);
 	if (!role) return <NotFound crumbs={crumbs} loaded icon={<RolesIcon />} title="Role not found" children="It may have been deleted." />;
@@ -317,6 +324,55 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 				{switches.map((p) => (
 					<Setting key={p} label={switchLabel(p)}>
 						<Checkbox label={switchLabel(p)} checked={fixed || value.on.includes(p)} disabled={!canEdit} onChange={(on) => toggle(p, on)} />
+					</Setting>
+				))}
+			</Settings>
+		</Page>
+	);
+}
+
+type Ability = NonNullable<FunctionReturnType<typeof api.roles.publicRole>>["abilities"][number];
+const publicSummary = (abilities: readonly Ability[]) => `Anyone outside who emails or texts an agent · ${abilities.filter((a) => a.on).length} of ${abilities.length} on`;
+
+/**
+ * The Public role: what agents may do for people outside the workspace. It's nobody's to hold and
+ * can't be deleted; owners switch its customer-safe abilities, and staff powers never appear here.
+ */
+function PublicRoleForm({ crumbs, canEdit }: { crumbs: { label: string; to: string[] }[]; canEdit: boolean }) {
+	const role = useQuery(api.roles.publicRole);
+	if (!role) return <NotFound crumbs={crumbs} loaded={false} icon={<RolesIcon />} title="Role not found" />;
+	return <PublicAbilities abilities={role.abilities} crumbs={crumbs} canEdit={canEdit} />;
+}
+
+const sentenceCase = (label: string) => label.charAt(0).toUpperCase() + label.slice(1);
+
+function PublicAbilities({ abilities, crumbs, canEdit }: { abilities: readonly Ability[]; crumbs: { label: string; to: string[] }[]; canEdit: boolean }) {
+	const setAbility = useMutation(api.roles.setPublicAbility);
+	const saved = abilities.filter((a) => a.on).map((a) => a.id as string);
+	const draft = useDraft<{ on: string[]; start: string[] }>("role:public", { on: saved, start: saved }, versionOf(saved));
+	const { error, run } = useRun();
+	const value = draft.value;
+	// Only what you changed since you began is sent, one ability at a time, like a role's switches.
+	const save = async () => {
+		for (const a of abilities) {
+			const on = value.on.includes(a.id);
+			if (on !== value.start.includes(a.id)) await setAbility({ ability: a.id, on });
+		}
+	};
+	return (
+		<Page title="Public" crumbs={crumbs} description="Anyone outside who reaches an agent">
+			{canEdit && <SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={() => run(save(), draft.discard)} onDiscard={draft.discard} />}
+			<ConflictNotice draft={draft} />
+			<Notice>{error}</Notice>
+			<Settings title="What agents can do for them" note="Agents always answer customers. To let them use a page or database, add Public to its Who can access list: View, or Add in a database. Staff powers, like Edit anywhere, chat, money and settings, never apply to Public.">
+				{abilities.map((a) => (
+					<Setting key={a.id} label={sentenceCase(a.label)}>
+						<Checkbox
+							label={sentenceCase(a.label)}
+							checked={value.on.includes(a.id)}
+							disabled={!canEdit}
+							onChange={(on) => draft.set({ ...value, on: on ? [...value.on, a.id] : value.on.filter((x) => x !== a.id) })}
+						/>
 					</Setting>
 				))}
 			</Settings>

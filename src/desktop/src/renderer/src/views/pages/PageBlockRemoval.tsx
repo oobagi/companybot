@@ -4,6 +4,17 @@ import { useMutation } from "../../convex";
 import { archiveQuestion, useConfirm } from "../chat/common";
 import { PageReferences, type PageBlockEditor } from "./PageBlock";
 
+type Doc = Parameters<Parameters<PageBlockEditor["onBeforeChange"]>[0]>[0]["tr"]["doc"];
+
+/** Each block's id, and for page blocks the page it points at. */
+function blocks(doc: Doc) {
+	const found = new Map<string, { pageId?: string }>();
+	doc.descendants((node) => {
+		if (typeof node.attrs.id === "string" && node.attrs.id) found.set(node.attrs.id, { pageId: node.firstChild?.type.name === "page" ? node.firstChild.attrs.pageId : undefined });
+	});
+	return found;
+}
+
 /** Keyboard, cut and block-menu removal must ask before archiving a page. */
 export function PageBlockRemoval({ editor, pageId, editable }: { editor: PageBlockEditor; pageId: string; editable: boolean }) {
 	const archive = useMutation(api.trash.move);
@@ -14,14 +25,17 @@ export function PageBlockRemoval({ editor, pageId, editable }: { editor: PageBlo
 	ask.current = confirm;
 	useEffect(() => {
 		if (!editable) return;
-		return editor.onBeforeChange(({ getChanges, tr }) => {
+		return editor.onBeforeChange(({ tr }) => {
 			// Server sync/history changes already carry their authorization.
-			if (allowed.current || tr.getMeta("addToHistory") === false || tr.getMeta("rebased") !== undefined) return;
-			const deleted = getChanges().filter((change) => change.type === "delete" && change.block.type === "page");
-			if (!deleted.length) return;
-			const pages = deleted.map(({ block }) => { if (block.type !== "page") throw new Error("Expected a page block"); return block; });
-			const children = pages.flatMap((block) => { const page = references?.get(block.props.pageId); return page && !page.archived && page.parentId === pageId ? [page] : []; });
-			const allDeleted = getChanges().filter((change) => change.type === "delete").map(({ block }) => block.id);
+			if (allowed.current || !tr.docChanged || tr.getMeta("addToHistory") === false || tr.getMeta("rebased") !== undefined) return;
+			// This runs before BlockNote gives new blocks their ids (Enter, paste), where its getChanges() throws;
+			// a deleted block is one of the old document's, and those all have ids, so compare documents.
+			const before = blocks(tr.before);
+			const after = blocks(tr.doc);
+			const allDeleted = [...before.keys()].filter((id) => !after.has(id));
+			const pages = allDeleted.flatMap((id) => { const target = before.get(id)?.pageId; return target ? [target] : []; });
+			if (!pages.length) return;
+			const children = pages.flatMap((target) => { const page = references?.get(target); return page && !page.archived && page.parentId === pageId ? [page] : []; });
 			const remove = async () => {
 				for (const id of new Set(children.map((page) => page._id))) await archive({ kind: "page", id });
 				allowed.current = true;

@@ -20,6 +20,21 @@ export const fieldKinds = [
 ] as const;
 export type FieldKind = (typeof fieldKinds)[number];
 
+/** Each kind as people say it. */
+export const kindLabels: Record<FieldKind, string> = {
+	text: "Text",
+	number: "Number",
+	currency: "Amount",
+	date: "Date",
+	checkbox: "Checkbox",
+	choice: "Choice",
+	email: "Email",
+	phone: "Phone",
+	url: "Website",
+	user: "Person",
+	link: "Link to a record",
+};
+
 /**
  * A stored value. Empty values (and unchecked boxes) aren't stored. Dates are "YYYY-MM-DD";
  * currency is `Money`; choices, people and links are ids.
@@ -44,12 +59,42 @@ export interface ChoiceOption {
 	label: string;
 	/** Removed from the field. Records keep it and it can be filtered on, but it can't be set again. */
 	retired?: boolean;
+	/** One of `optionColors`. Options from before colors have none and show as `default`. */
+	color?: string;
 }
+
+/**
+ * Notion's option colors, as soft tints. `default` is the plain gray chip. Stored by id, so the
+ * app can retune a tint without touching data.
+ */
+export const optionColors = ["default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red"] as const;
+export type OptionColor = (typeof optionColors)[number];
+
+/** The color the `n`th option of a field gets when it's added without one: the palette in turn, after `default`. */
+export const autoColor = (n: number): OptionColor => optionColors[1 + (n % (optionColors.length - 1))]!;
+
+/**
+ * Icons people can give a field, by stable id (the app maps each to its picture, `fieldIconSet`).
+ * A field without one shows its kind's icon.
+ */
+export const fieldIcons = [
+	"tag", "flag", "star", "heart", "target", "trophy", "medal", "lightning",
+	"dollar", "coins", "wallet", "receipt", "credit-card", "bank", "chart", "percent",
+	"phone", "email", "chat", "megaphone", "bell", "handshake", "user", "users",
+	"building", "storefront", "house", "map-pin", "globe", "truck", "car", "package",
+	"wrench", "hammer", "toolbox", "ruler", "paint-brush", "briefcase", "shopping-cart", "gift",
+	"calendar", "clock", "timer", "file", "folder", "clipboard", "note", "list",
+	"check-circle", "warning", "key", "lock", "shield", "link", "image", "camera",
+	"hash", "leaf", "sun", "drop", "fire", "first-aid", "graduation-cap", "funnel",
+] as const;
+export type FieldIconId = (typeof fieldIcons)[number];
 
 /** What someone picks when they add a field. */
 export interface FieldConfig {
 	label: string;
 	kind: FieldKind;
+	/** One of `fieldIcons`, picked instead of the kind's icon. */
+	icon?: string;
 	/** `choice` only. */
 	options?: ChoiceOption[];
 	/** `link` only: the database it points at. */
@@ -168,11 +213,12 @@ export function normalizeFieldConfig(config: Omit<FieldConfig, "options"> & { op
 	const options = config.options?.map((o) => {
 		const id = o.id || keyOf(o.label, ids);
 		ids.push(id);
-		return { id, label: o.label.trim(), ...(o.retired && { retired: true }) };
+		return { id, label: o.label.trim(), ...(o.retired && { retired: true }), ...(o.color && { color: o.color }) };
 	});
 	return {
 		label: config.label.trim(),
 		kind: config.kind,
+		...(config.icon && { icon: config.icon }),
 		...(options && { options }),
 		...(config.linkType && { linkType: config.linkType }),
 		...(config.multiple && { multiple: true }),
@@ -181,11 +227,12 @@ export function normalizeFieldConfig(config: Omit<FieldConfig, "options"> & { op
 
 /** The first problem with a field's setup, in a line, or null. */
 export function fieldConfigError(config: FieldConfig): string | null {
-	const { label, kind, options, linkType, multiple } = config;
+	const { label, kind, icon, options, linkType, multiple } = config;
 	if (!label) return "Give the field a name.";
 	if (label.length > FIELD_LABEL_MAX) return `Keep the field name under ${FIELD_LABEL_MAX} characters.`;
 	if (/[\r\n]/.test(label)) return "Keep the field name to one line.";
 	if (!fieldKinds.includes(kind)) return `A field is one of: ${fieldKinds.join(", ")}.`;
+	if (icon !== undefined && !(fieldIcons as readonly string[]).includes(icon)) return `A field's icon is one of: ${fieldIcons.join(", ")}.`;
 	if (kind === "choice") {
 		if (!options?.length) return "A choice field needs at least one option.";
 		if (options.length > OPTIONS_MAX) return `A choice field holds up to ${OPTIONS_MAX} options.`;
@@ -194,6 +241,7 @@ export function fieldConfigError(config: FieldConfig): string | null {
 		const labels = options.filter((o) => !o.retired).map((o) => o.label.toLowerCase());
 		if (new Set(labels).size !== labels.length) return "Two options have the same name.";
 		if (new Set(options.map((o) => o.id)).size !== options.length) return "Two options have the same id.";
+		if (options.some((o) => o.color !== undefined && !(optionColors as readonly string[]).includes(o.color))) return `An option's color is one of: ${optionColors.join(", ")}.`;
 	} else if (options) return "Only choice fields have options.";
 	if (kind === "link" && !linkType) return "Pick the database this field links to.";
 	if (kind !== "link" && linkType) return "Only link fields point at a database.";

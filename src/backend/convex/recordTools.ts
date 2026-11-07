@@ -1,3 +1,4 @@
+import { changeField, previewChange } from "./fieldChanges";
 import {
 	type RecordFindInput,
 	type RecordPage,
@@ -43,7 +44,8 @@ import {
 	updateRecord,
 } from "./recordOps";
 import { ANY_OF_MAX, CONDITIONS_MAX, type Condition } from "./recordQuery";
-import { PAGE_MAX, activityAs, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
+import { PAGE_MAX, activityAs, changedBy, historyAs, linkingRecords, listRecords, searchRecords, toEntries } from "./recordReads";
+import { canAdd, reach } from "./placeAccess";
 import { notePlace } from "./replySources";
 import { withReceipt } from "./approvals";
 import { opArg } from "./schema";
@@ -77,16 +79,18 @@ function pickOne<T>(matches: T[], what: string, describe: (m: T) => string) {
  * Writes name what they change by id or key, never by a name that can change, so a held call runs on what
  * was approved even if it's renamed and another takes the name meanwhile (`byName` false; core record-tools).
  */
-const typeByKey = (ctx: QueryCtx, member: Member, key: string, trashed = false) => typeNamed(ctx, member, key, trashed, false);
+const typeByKey = (ctx: QueryCtx, member: Member, key: string, trashed = false, need: "view" | "add" = "view") => typeNamed(ctx, member, key, trashed, false, need);
 
 /**
  * A type by id or key, else by name or plural ("deal", "Deals"). Ambiguous names are refused. `trashed`: one in Archive.
  * One the person can't see is found all the same, then refused naming who can ("Only Office and Owners can see
  * Deals."), so the agent can tell them whom to ask.
  */
-async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false, byName = true) {
+async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = false, byName = true, need: "view" | "add" = "view") {
 	const all = (await typesOf(ctx, member.workspaceId)).filter((t) => t.archived === trashed).sort((a, b) => a._creationTime - b._creationTime);
-	const visible = typeVisible(ctx, { ...member, replyId: undefined });
+	const sees = typeVisible(ctx, { ...member, replyId: undefined });
+	// `add`: a database they may add to (Add) counts too: they list and change their own records there.
+	const visible = async (id: Id<"recordTypes">) => (await sees(id)) || (need === "add" && canAdd(member, all.find((t) => t._id === id)?.access));
 	const types: Doc<"recordTypes">[] = [];
 	const hidden: Doc<"recordTypes">[] = [];
 	for (const t of all) ((await visible(t._id)) ? types : hidden).push(t);
@@ -107,7 +111,7 @@ async function typeNamed(ctx: QueryCtx, member: Member, name: string, trashed = 
 		throw new ConvexError(`There's no database “${name}”. Types: ${types.map((t) => t.key).join(", ")}.`);
 	}
 	// Refused by id, the refusal can't name it; by its key or name, it says back only what they typed.
-	return requireType(ctx, member, type._id, "view", type._id === raw ? undefined : raw);
+	return requireType(ctx, member, type._id, need, type._id === raw ? undefined : raw);
 }
 
 /** A live field (or, `trashed`, one in Archive) by exact key, else (`byLabel`) by label. A label two fields could match is refused. */
@@ -265,8 +269,9 @@ async function rowsOf(ctx: QueryCtx, member: Member, items: { record: Doc<"recor
  * Checks, as of this read, that the person can see its database: a queued wake or a long turn may outlive their access.
  */
 export async function recordOut(ctx: QueryCtx, member: Member, recordId: Id<"records">) {
+	// Checks its database: View, or (Add) that they made it.
 	const record = await requireRecord(ctx, member, recordId);
-	const type = await requireType(ctx, member, record.typeId);
+	const type = (await ctx.db.get(record.typeId))!;
 	const [row] = await rowsOf(ctx, member, [{ record, fields: await fieldsOf(ctx, record.typeId) }]);
 	const { _id, ...values } = row!;
 	return { id: _id, type: type.key, typeName: type.name, name: record.title, ...((await inTrash(ctx, record)) && { inTrash: true }), values };
@@ -277,6 +282,7 @@ const fieldOut = (f: Doc<"recordFields">, linksTo?: string) => ({
 	key: f.key,
 	label: f.label,
 	kind: f.kind,
+	...(f.icon && { icon: f.icon }),
 	position: f.position,
 	...(f.archived && { inTrash: true }),
 	...(f.options && { choices: f.options, options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
@@ -291,7 +297,13 @@ export const typesFor = internalMutation({
 		const visible = typeVisible(ctx, { ...member, replyId: undefined });
 		const all = await typesOf(ctx, member.workspaceId);
 		const types = [];
-		for (const t of all) if (t.archived === trashed && (await visible(t._id))) types.push(t);
+		// Add (without View) lists the database too: they add records there and see only their own.
+		const onlyYours = new Set<Id<"recordTypes">>();
+		for (const t of all) {
+			if (t.archived !== trashed) continue;
+			if (await visible(t._id)) types.push(t);
+			else if (canAdd(member, t.access)) (types.push(t), onlyYours.add(t._id));
+		}
 		// A link into a database they can't see names no key, so the agent can't go looking.
 		const keys = new Map<Id<"recordTypes">, string>();
 		const rows = [];
@@ -305,7 +317,7 @@ export const typesFor = internalMutation({
 				keys.set(field.linkTypeId, seen ? linked.key : "(a database you can't see)");
 				if (seen) await notePlace(ctx, member, linked._id, linked.access);
 			}
-			rows.push({ type: t.key, name: t.name, plural: t.plural, version: t.version ?? 0, ...(t.archived && { inTrash: true }), fields: fields.map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))) });
+			rows.push({ type: t.key, name: t.name, plural: t.plural, version: t.version ?? 0, ...(t.archived && { inTrash: true }), ...(onlyYours.has(t._id) && { onlyYours: true as const }), fields: fields.map((f) => fieldOut(f, f.linkTypeId && (keys.get(f.linkTypeId) ?? "(a deleted database)"))) });
 		}
 		return {
 			currency: await currencyOf(ctx, member.workspaceId),
@@ -329,7 +341,9 @@ export const findFor = internalMutation({
 				return { type: type?.plural ?? "Records", typeName: type?.name ?? "Record", rows, more: !!found.cursor, ...(found.cursor && { cursor: found.cursor }) };
 			}
 			if (!typeName) throw new ConvexError("Say which database to list, or search.");
-			const type = await typeNamed(ctx, member, typeName);
+			const type = await typeNamed(ctx, member, typeName, false, true, "add");
+			// Add without View lists only the records they made.
+			const owner = reach(member, type.access) ? undefined : { createdBy: member.userId };
 			const fields = await fieldsOf(ctx, type._id);
 			const conditions = await conditionsFor(ctx, member, type, fields, filters);
 			const sortBy = sort && {
@@ -340,7 +354,7 @@ export const findFor = internalMutation({
 				ctx,
 				member.workspaceId,
 				{ typeId: type._id, fields },
-				{ archived: trashed, conditions, sort: sortBy, paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null } },
+				{ archived: trashed, conditions, sort: sortBy, owner, paginationOpts: { numItems: Math.min(Math.max(numItems, 1), PAGE_MAX), cursor: cursor ?? null } },
 			);
 			const rows = await rowsOf(ctx, member, result.page.map((record) => ({ record, fields })));
 			return { type: type.plural, typeName: type.name, rows, more: !result.isDone, ...(!result.isDone && { cursor: result.continueCursor }) };
@@ -381,7 +395,7 @@ export const getFor = internalMutation({
 					change: e._id,
 					time: new Date(e._creationTime).toISOString(),
 					action: e.action,
-					by: await nameOf(ctx, e.userId),
+					by: await changedBy(ctx, e),
 					...(e.agentId && { agent: (await ctx.db.get(e.agentId))?.name ?? "an agent" }),
 					...(e.action === "updated" && {
 						changed: e.changes.map((c) => {
@@ -419,7 +433,7 @@ export const saveFor = internalMutation({
 			} else {
 				if (trash !== undefined) throw new ConvexError("Create the record first.");
 				if (!typeName) throw new ConvexError("Say which database to create.");
-				const type = await typeByKey(ctx, member, typeName);
+				const type = await typeByKey(ctx, member, typeName, false, "add");
 				const fields = await fieldsOf(ctx, type._id);
 				({ id: recordId, change } = await createRecord(ctx, who, type._id, await valuesFor(new Names(ctx, member, true), type, fields, values)));
 			}
@@ -437,6 +451,8 @@ export const undoFor = internalMutation({
 			if (!historyId) throw new ConvexError("Change not found.");
 			const undoneBy = await undoChange(ctx, who, historyId);
 			const entry = (await ctx.db.get(historyId))!;
+			// A field's kind change: its values convert back in the background.
+			if (!entry.recordId) return { undone: change, name: (await ctx.db.get(entry.fieldId!))?.label ?? "a field", field: true, converting: true, change: undoneBy };
 			return { undone: change, ...(await recordOut(ctx, member, entry.recordId!)), change: undoneBy };
 		});
 	}),
@@ -447,28 +463,45 @@ export const saveFieldFor = internalMutation({
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
-			const { type: typeName, field: name, label, kind, options: rawOptions, linksTo, multiple, trash, position } = fieldInput.parse(input);
+			const { type: typeName, field: name, label, kind, icon, options: rawOptions, linksTo, multiple, trash, position, preview } = fieldInput.parse(input);
 			const options = rawOptions?.map((o) => typeof o === "string" ? { label: o } : o);
 			const type = await typeByKey(ctx, member, typeName);
 			let fieldId: Id<"recordFields">;
+			let changed: Awaited<ReturnType<typeof changeField>> | undefined;
 			if (trash !== undefined) {
-				if (!name || label || kind || options || linksTo || multiple !== undefined || position !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
+				if (!name || label || kind || icon !== undefined || options || linksTo || multiple !== undefined || position !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
 				fieldId = fieldNamed(await fieldsOf(ctx, type._id), name, type, !trash, false)._id;
 				await setFieldTrashed(ctx, who, fieldId, trash);
 			} else if (name) {
 				const field = fieldNamed(await fieldsOf(ctx, type._id), name, type, false, false);
-				if ((kind && kind !== field.kind) || linksTo || multiple !== undefined)
-					throw new ConvexError("Only a field's name and options can change. Add a new field instead.");
-				await updateField(ctx, who, field._id, { label, options, position });
+				const linkTypeId = linksTo ? (await typeByKey(ctx, member, linksTo))._id : field.linkTypeId;
+				// Saying the setup it has already changes nothing.
+				const setup = (kind !== undefined && kind !== field.kind) || (multiple !== undefined && multiple !== !!field.multiple) || (linksTo !== undefined && linkTypeId !== field.linkTypeId);
+				const shape = setup && {
+					kind: kind ?? field.kind,
+					multiple: multiple ?? !!field.multiple,
+					linkTypeId,
+					options: (kind ?? field.kind) === "choice" && field.kind !== "choice" ? options : undefined,
+				};
+				if (preview) {
+					if (!shape) throw new ConvexError("Preview a change to kind, multiple or linksTo.");
+					const result = await previewChange(ctx, member, field._id, shape);
+					return { type: type.key, typePlural: type.plural, ...fieldOut(field, field.linkTypeId && (await ctx.db.get(field.linkTypeId))?.key), preview: true as const, ...(result ?? { unchanged: true }) };
+				}
+				const choiceEdit = options && !(shape && shape.options);
+				if (label !== undefined || icon !== undefined || position !== undefined || choiceEdit) await updateField(ctx, who, field._id, { label, icon, options: choiceEdit ? options : undefined, position });
+				if (shape) changed = await changeField(ctx, who, field._id, shape);
 				fieldId = field._id;
 			} else {
 				if (position !== undefined) throw new ConvexError("Create the field before moving it.");
 				if (!label || !kind) throw new ConvexError("Give the new field a label and a kind.");
 				const linkTypeId = linksTo ? (await typeByKey(ctx, member, linksTo))._id : undefined;
-				fieldId = (await createField(ctx, who, type._id, { label, kind, options, linkTypeId, multiple }))._id;
+				fieldId = (await createField(ctx, who, type._id, { label, kind, ...(icon && { icon }), options, linkTypeId, multiple }))._id;
 			}
 			const f = (await ctx.db.get(fieldId))!;
-			return { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };
+			const out = { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };
+			// The change id undoes it (records_undo); values convert in the background, by the preview's counts.
+			return changed ? { ...out, changed: changed.change, change: changed.historyId, converting: true, preview: changed.preview } : out;
 		});
 	}),
 });

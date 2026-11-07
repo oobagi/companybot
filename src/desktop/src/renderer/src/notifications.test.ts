@@ -4,7 +4,6 @@ import { openAlert } from "./notifications";
 import { navigate } from "./router";
 
 vi.mock("./router", () => ({ navigate: vi.fn() }));
-vi.mock("./desktop", () => ({ desktop: undefined }));
 
 const acme = "acme" as Id<"workspaces">;
 const side = "side" as Id<"workspaces">;

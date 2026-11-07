@@ -12,10 +12,11 @@ import { ImagePicker } from "./ImagePicker";
 import { pictureLimits } from "@companybot/core/images";
 import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
+import { AgentContact } from "./AgentContact";
 import { archiveQuestion, useConfirm } from "./chat/common";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, ArchiveIcon, CaretDownIcon, CaretRightIcon, RestoreIcon } from "../icons";
-import { ConflictNotice, type Crumb, Loading, Notice, Page, SaveBar, Section, Setting, Settings, barButton, cardClass, compactButton, compactControlClass, descriptionClass, hintClass, metadataClass, timeAgo, useDraft, useRun, wideControlClass, cardButton } from "../ui";
+import { ConflictNotice, type Crumb, Loading, Notice, Page, SaveBar, Section, Setting, Settings, barButton, cardClass, compactButton, compactControlClass, descriptionClass, metadataClass, timeAgo, useDraft, useRun, wideControlClass, cardButton } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
@@ -136,13 +137,7 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 						/>
 					</Setting>
 				</Settings>
-				<Settings title="Contact" note="How customers and staff reach this agent outside the app.">
-					{contactMethods.map((c) => (
-						<Setting key={c.label} label={c.label} hint={c.hint}>
-							<span className={hintClass}>Coming soon</span>
-						</Setting>
-					))}
-				</Settings>
+				<AgentContact agentId={agent._id} agentName={agent.name} canManage={canManage && !agent.archived} />
 				<Section title="Tools">
 					{options.groups.map((g) => (
 						<ToolGroup key={g.id} group={g} grants={config.tools} canManage={canManage} access={access} onChange={(tools) => edit({ tools })} />
@@ -162,13 +157,6 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 		</Page>
 	);
 }
-
-/** An agent's own number, address and site chat. None are built yet. */
-const contactMethods = [
-	{ label: "Phone number", hint: "Its own number: it answers calls and texts." },
-	{ label: "Email address", hint: "Its own address: it reads and replies to email." },
-	{ label: "Website chat", hint: "A chat box on your website that it answers." },
-];
 
 type Options = FunctionReturnType<typeof api.agents.options>;
 

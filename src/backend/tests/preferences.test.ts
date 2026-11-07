@@ -31,6 +31,7 @@ describe("settings", () => {
 			sendWith: "mod-enter",
 			notify: "all",
 			showRecents: true,
+			foldersFirst: false,
 			timeZone: null,
 			deviceTimeZone: null,
 			image: null,
@@ -39,12 +40,12 @@ describe("settings", () => {
 		expect((await member.query(api.workspace.team))?.members.map((m) => m.name)).toContain("Jaden");
 	});
 
-	it("hides rail recents for you alone", async () => {
+	it("hides rail recents and keeps folders on top for you alone", async () => {
 		const { owner, member } = await ownerAndMember();
 		expect((await owner.query(api.preferences.get)).showRecents).toBe(true);
-		await owner.mutation(api.preferences.update, { showRecents: false });
-		expect((await owner.query(api.preferences.get)).showRecents).toBe(false);
-		expect((await member.query(api.preferences.get)).showRecents).toBe(true);
+		await owner.mutation(api.preferences.update, { showRecents: false, foldersFirst: true });
+		expect(await owner.query(api.preferences.get)).toMatchObject({ showRecents: false, foldersFirst: true });
+		expect(await member.query(api.preferences.get)).toMatchObject({ showRecents: true, foldersFirst: false });
 	});
 });
 

@@ -1,19 +1,17 @@
-import { strFromU8, unzipSync } from "fflate";
-import { DOCX, XLSX, isImageType } from "./files";
+import { DOCX, PPTX, XLSX, isImageType } from "./files";
+import { readDocx, readPptx, readXlsx, toCsv } from "./office-text";
 
-// The text in an attached file, for agents (chat.read_file). Word and Excel files are read
-// straight from their XML; PDFs through unpdf (PDF.js built for servers). Not in the core barrel:
-// unpdf is big, so only the backend's Node action that reads files imports it.
+// The text in an attached file, for agents (chat.read_file, files.read). Office files are read
+// straight from their XML (office-text.ts); PDFs through unpdf (PDF.js built for servers). Not in
+// the core barrel: unpdf is big, so only the backend's Node action that reads files imports it.
 
 /** Characters per page an agent reads at once (~5k tokens). */
 export const PAGE_CHARS = 20_000;
 /** Text kept from one file; past it, the rest is left out with a note. */
 const TEXT_MAX = 2_000_000;
-/** Bytes unpacked from one Word or Excel file, all parts together; past it, the file isn't read (zip bombs). */
-const UNZIP_MAX = 50 * 1024 * 1024;
 const TOO_LONG = "(This file is too long to read.)";
 
-/** A file's text: a PDF's pages, a Word file's paragraphs, each sheet of an Excel file as CSV, or text as is. */
+/** A file's text: a PDF's pages, a Word file's paragraphs, each sheet of an Excel file as CSV, a deck's slides, or text as is. */
 export async function fileText(bytes: Uint8Array, type: string): Promise<string> {
 	const text = await extract(bytes, type);
 	return text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}\n\n(The rest of this file is too long to read.)` : text;
@@ -22,14 +20,9 @@ export async function fileText(bytes: Uint8Array, type: string): Promise<string>
 async function extract(bytes: Uint8Array, type: string) {
 	if (isImageType(type)) return "";
 	if (type === "application/pdf") return pdfText(bytes);
-	if (type === DOCX) {
-		const part = unzip(bytes, (name) => name === "word/document.xml");
-		return part ? docxText(part) : TOO_LONG;
-	}
-	if (type === XLSX) {
-		const part = unzip(bytes, (name) => (name.startsWith("xl/") && name.endsWith(".xml")) || name.endsWith(".rels"));
-		return part ? xlsxText(part) : TOO_LONG;
-	}
+	if (type === DOCX) return readDocx(bytes) ?? TOO_LONG;
+	if (type === XLSX) return readXlsx(bytes)?.map((sheet) => `## ${sheet.name}\n${toCsv(sheet.rows)}`).join("\n\n") ?? TOO_LONG;
+	if (type === PPTX) return readPptx(bytes)?.map((lines, i) => `--- Slide ${i + 1} ---\n${lines.join("\n")}`).join("\n\n") ?? TOO_LONG;
 	return new TextDecoder().decode(bytes);
 }
 
@@ -46,77 +39,3 @@ async function pdfText(bytes: Uint8Array) {
 	const { text } = await extractText(bytes.slice(), { mergePages: false });
 	return text.map((page, i) => `--- Page ${i + 1} ---\n${page.trim()}`).join("\n\n");
 }
-
-/** The wanted parts of a ZIP, or undefined if together they'd unpack past UNZIP_MAX. */
-function unzip(bytes: Uint8Array, wanted: (name: string) => boolean) {
-	// Sizes come from the ZIP's headers, read without unpacking anything. A header can lie, but
-	// fflate inflates each part into a buffer of its stated size and drops what doesn't fit, so
-	// what's held never passes the total. Stored (uncompressed) parts are copied at their packed size.
-	let total = 0;
-	unzipSync(bytes, {
-		filter: (f) => {
-			if (wanted(f.name)) total += f.compression ? f.originalSize : f.size;
-			return false;
-		},
-	});
-	if (total > UNZIP_MAX) return;
-	const parts = unzipSync(bytes, { filter: (f) => wanted(f.name) });
-	return (name: string) => (parts[name] ? strFromU8(parts[name]) : "");
-}
-
-const entities: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
-const decode = (xml: string) =>
-	xml.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (whole, code: string) => {
-		if (code[0] !== "#") return entities[code] ?? whole;
-		const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-		return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole;
-	});
-const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
-
-/** A Word document's body: its text runs, with tabs, line breaks, paragraphs and table cells kept. */
-function docxText(part: (name: string) => string) {
-	let out = "";
-	for (const [token, text] of part("word/document.xml").matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\/>|<w:br\b[^>]*\/>|<\/w:p>|<\/w:tc>/g)) {
-		if (text !== undefined) out += decode(text);
-		else if (token === "<w:tab/>" || token === "</w:tc>") out += "\t";
-		else out += "\n";
-	}
-	return out.replace(/\n{3,}/g, "\n\n").trim();
-}
-
-/** Every sheet of a workbook as CSV, under its name. Formulas show their last saved value. */
-function xlsxText(part: (name: string) => string) {
-	const runs = (xml: string) => [...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "").matchAll(/<t(?:\s[^>]*)?>([^<]*)<\/t>/g)].map((m) => decode(m[1]!)).join("");
-	const shared = [...part("xl/sharedStrings.xml").matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => runs(m[1]!));
-	const targets = new Map(
-		[...part("xl/_rels/workbook.xml.rels").matchAll(/<Relationship\b[^>]*>/g)].map((m) => [attr(m[0], "Id"), attr(m[0], "Target") ?? ""]),
-	);
-	const sheets = [...part("xl/workbook.xml").matchAll(/<sheet\b[^>]*>/g)].map((m) => {
-		const target = targets.get(attr(m[0], "r:id")) ?? "";
-		return { name: decode(attr(m[0], "name") ?? "Sheet"), path: target.startsWith("/") ? target.slice(1) : `xl/${target}` };
-	});
-	return sheets
-		.map(({ name, path }) => {
-			const rows = [...part(path).matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map((row) => {
-				const cells: string[] = [];
-				for (const [, attrs, inner = ""] of row[1]!.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-					const column = columnIndex(attr(attrs!, "r") ?? "") ?? cells.length;
-					const value = decode(inner.match(/<v>([^<]*)<\/v>/)?.[1] ?? "");
-					const t = attr(attrs!, "t");
-					cells[column] = t === "s" ? (shared[Number(value)] ?? "") : t === "inlineStr" ? runs(inner) : t === "b" ? (value === "1" ? "TRUE" : "FALSE") : value;
-				}
-				return Array.from(cells, (c) => csvCell(c ?? "")).join(",");
-			});
-			return `## ${name}\n${rows.join("\n")}`;
-		})
-		.join("\n\n");
-}
-
-/** "B7" → 1. */
-function columnIndex(ref: string) {
-	const letters = ref.match(/^[A-Z]+/)?.[0];
-	if (!letters) return;
-	return [...letters].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
-}
-
-const csvCell = (value: string) => (/[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);

@@ -1,4 +1,4 @@
-import { type AppEvent, type Automation, parseWebhookBody, sampleData, scheduleDue, triggerPrompt, webhookMismatch } from "@companybot/core";
+import { type AppEvent, type Automation, can, eventNeeds, parseWebhookBody, sampleData, scheduleDue, triggerPrompt, webhookMismatch } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -9,6 +9,7 @@ import { type Member, accessOf, liveWorkspace, memberOf, nameOf, normalizeEmail,
 import { type RunOutcome, definitionOf, followsOthers, outcomeText, postingProblem, privateTo, requireEditable, scheduleCursor, triggerIndexes, eventKeyFor } from "./automationOps";
 import { blockedSource, type Source } from "./replyPrivacy";
 import { artifactSources, chatSources, type UsedPlace } from "./replySources";
+import { appEvent } from "./schema";
 import { enqueueTurn } from "./turns";
 
 /** Runs it once now, just for you (webhooks and events use a sample), so you can see what it does. */
@@ -129,7 +130,7 @@ export async function fireEvent(
 }
 
 export const dispatchEvent = internalMutation({
-	args: { workspaceId: v.id("workspaces"), event: v.union(v.literal("message.posted"), v.literal("member.joined")), details: v.object({ data: v.any(), channelId: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")) }), cursor: v.optional(v.string()), key: v.string() },
+	args: { workspaceId: v.id("workspaces"), event: appEvent, details: v.object({ data: v.any(), channelId: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")) }), cursor: v.optional(v.string()), key: v.string() },
 	handler: async (ctx, { workspaceId, event, details, cursor, key }) => {
 		if (!(await liveWorkspace(ctx, workspaceId))) return;
 		const page = await ctx.db.query("automationInstalls").withIndex("by_event", q => q.eq("workspaceId", workspaceId).eq("eventKey", key)).paginate({ numItems: 100, cursor: cursor ?? null });
@@ -238,9 +239,11 @@ async function runFor(
 	const chat = target.visibleIn && (await ctx.db.get(target.visibleIn));
 	const people: Id<"users">[] = [];
 	let denied: { member: Member; policy: Source } | undefined;
+	// An event whose data is only for some (Inbox: inbox.use) runs only for them.
+	const needs = eventNeeds(automation.trigger);
 	for (const id of userIds) {
 		const member = await memberOf(ctx, id, install.workspaceId);
-		if (!member) continue;
+		if (!member || (needs && !can(member, needs))) continue;
 		const policy = await blockedSource(ctx, member, install.usedPlaces);
 		if (policy) { denied = { member, policy }; continue; }
 		if (target.visibleIn && (!chat || chat.archived || !(await canSee(ctx, chat, member)))) continue;
@@ -262,7 +265,7 @@ async function runFor(
 }
 
 /** Each page rechecks membership, visibility, and install/workspace liveness before delivery. */
-const fanOutArgs = { sources: v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))), installId: v.id("automationInstalls"), prompt: v.string(), visibleIn: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")), cursor: v.optional(v.string()), sent: v.number(), failed: v.number(), retry: v.optional(v.number()) };
+const fanOutArgs = { sources: v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))), installId: v.id("automationInstalls"), prompt: v.string(), visibleIn: v.optional(v.id("chats")), messageId: v.optional(v.id("chatMessages")), cursor: v.optional(v.string()), sent: v.number(), failed: v.number(), retry: v.optional(v.number()) };
 export const fanOut = internalMutation({
 	args: fanOutArgs,
 	handler: async (ctx, args): Promise<void> => {
@@ -292,9 +295,10 @@ export const fanOutBatch = internalMutation({
 		const people: Id<"users">[] = [];
 		let sent = args.sent;
 		let failed = args.failed;
+		const needs = eventNeeds(automation.trigger);
 		for (const sub of page.page) {
 			const member = await memberOf(ctx, sub.userId, install.workspaceId);
-			if (!member) continue;
+			if (!member || (needs && !can(member, needs))) continue;
 			const policy = await blockedSource(ctx, member, [...(install.usedPlaces ?? []), ...args.sources]);
 			if (policy) {
 				await sourceFailure(ctx, install, member, policy, false);
@@ -432,9 +436,10 @@ async function runInChannel(
 	// Each read through memberOf, so a workspace being deleted has nobody to act as.
 	let actorId: Id<"users"> | null = null;
 	let denied: { member: Member; policy: Source } | undefined;
+	const needs = eventNeeds(automation.trigger);
 	for (const userId of [preferred, ...owners.map((m) => m.userId)]) {
 		const member = await memberOf(ctx, userId, install.workspaceId);
-		if (!member) continue;
+		if (!member || (needs && !can(member, needs))) continue;
 		const policy = await blockedSource(ctx, member, [...(install.usedPlaces ?? []), ...sources]);
 		if (policy) { denied = { member, policy }; continue; }
 		// It posts there as them, so they need Post in it, not just View.

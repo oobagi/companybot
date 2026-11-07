@@ -1,14 +1,15 @@
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { emptyPage, getMember, nameOf, requireMember } from "./lib";
-import { reach } from "./placeAccess";
+import { canAdd, reach } from "./placeAccess";
 import {
 	createRecord,
 	fieldsOf,
 	inTrash,
+	madeBy,
 	resolveRefs,
 	typeVisible,
 	fieldsShown,
@@ -17,6 +18,7 @@ import {
 	updateRecord,
 } from "./recordOps";
 import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { recordTags } from "./recordTags";
 import { condition, recordGroup, recordSort } from "./recordValidators";
 import { canReadReply } from "./replyPrivacy";
 import { trashInfo } from "./trashOps";
@@ -49,16 +51,20 @@ export const list = query({
 	handler: async (ctx, { typeId, filters = [], group, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
-		if (!member || type?.workspaceId !== member.workspaceId || type.archived || !reach(member, type.access)) return emptyPage();
+		if (!member || type?.workspaceId !== member.workspaceId || type.archived) return emptyPage();
+		// View lists every record; Add alone, only the ones they made.
+		const all = !!reach(member, type.access);
+		if (!all && !canAdd(member, type.access)) return emptyPage();
 		const fields = await fieldsOf(ctx, typeId);
-		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, sort, paginationOpts });
+		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, sort, ...(!all && { owner: { createdBy: member.userId } }), paginationOpts });
 		return { ...result, page: await toRows(ctx, member, result.page.map((record) => ({ record, fields }))) };
 	},
 });
 
 /**
  * One record with its type and fields, or null if it isn't in your workspace or you can't see its
- * database. `archived`: in Archive, on its own or with its database. `canEdit`: Edit in its database.
+ * database (or, with Add, didn't make it). `archived`: in Archive, on its own or with its database.
+ * `canEdit`: Edit in its database, or Add and they made it.
  */
 export const get = query({
 	args: { recordId: v.id("records") },
@@ -68,13 +74,14 @@ export const get = query({
 		if (!member || record?.workspaceId !== member.workspaceId) return null;
 		const type = (await ctx.db.get(record.typeId))!;
 		const level = reach(member, type.access);
-		if (!level) return null;
+		const own = madeBy(record, member) && canAdd(member, type.access);
+		if (!level && !own) return null;
 		const fields = await fieldsOf(ctx, record.typeId);
 		const shown = fieldsShown(ctx, member);
 		const [row] = await toRows(ctx, member, [{ record, fields }]);
 		return {
 			...row!,
-			canEdit: level === "edit",
+			canEdit: level === "edit" || own,
 			archived: await inTrash(ctx, record),
 			trash: await trashInfo(ctx, member, record._id),
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },
@@ -127,6 +134,27 @@ export const search = query({
 	},
 });
 
+/**
+ * Records to tag in a message (the composer's @ menu): live ones whose title or text matches, across the
+ * databases you can see, best first. A few, for a menu; the search index does the work.
+ */
+export const mentionable = query({
+	args: { query: v.string() },
+	handler: async (ctx, { query: text }) => {
+		const member = await getMember(ctx);
+		if (!member || !text.trim()) return [];
+		const types = new Map<Id<"recordTypes">, Doc<"recordTypes"> | null>();
+		const out = [];
+		for (const { record } of (await searchRecords(ctx, member, text.slice(0, 100), { limit: MENTIONABLE_MAX })).items) {
+			if (!types.has(record.typeId)) types.set(record.typeId, await ctx.db.get(record.typeId));
+			const type = types.get(record.typeId);
+			if (type) out.push({ _id: record._id, title: record.title, typeKey: type.key, typeName: type.plural });
+		}
+		return out;
+	},
+});
+const MENTIONABLE_MAX = 6;
+
 /** A record's history, newest first. */
 export const history = query({
 	args: { recordId: v.id("records"), paginationOpts: paginationOptsValidator },
@@ -171,6 +199,7 @@ export const discussion = query({
 			.withIndex("by_record", (q) => q.eq("recordId", recordId))
 			.order("desc")
 			.take(50);
+		const tags = recordTags(ctx, member);
 		const out = [];
 		for (const m of mentions) {
 			const message = await ctx.db.get(m.messageId);
@@ -179,7 +208,9 @@ export const discussion = query({
 			const author = message.authorUserId
 				? await nameOf(ctx, message.authorUserId)
 				: ((message.authorAgentId && (await ctx.db.get(message.authorAgentId))?.name) ?? "");
-			out.push({ messageId: message._id, chatId: chat._id, threadId: message.threadId ?? null, text: message.text, author, time: message._creationTime });
+			// Where it was said, in a word: the channel, a side chat's title, else a DM.
+			const where = chat.kind === "channel" ? `#${chat.name}` : chat.title || "Direct message";
+			out.push({ messageId: message._id, chatId: chat._id, threadId: message.threadId ?? null, text: (await tags.forPeople(message.text)).text, author, where, time: message._creationTime });
 		}
 		return out;
 	},

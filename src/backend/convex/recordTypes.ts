@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, requireInWorkspace, requireMember, requirePermission } from "./lib";
-import { accessInfo, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
+import { accessInfo, canAdd, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
 import { NO_BOARD, createType, fieldsOf, fieldsShown, groupsCards, requireType, typesOf, updateType } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { changeAccessSources } from "./replySources";
@@ -22,7 +22,8 @@ export const list = query({
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
 		if (!member) return [];
-		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived && reach(member, t.access)).sort((a, b) => a._creationTime - b._creationTime);
+		// Add (without View) still shows the database: its fields and the records they made.
+		const types = (await typesOf(ctx, member.workspaceId)).filter((t) => !t.archived && (reach(member, t.access) || canAdd(member, t.access))).sort((a, b) => a._creationTime - b._creationTime);
 		const readable = (await Promise.all(types.map(async (t) => await canReadSources(ctx, member, t.usedPlaces) ? t : null))).filter((t) => t !== null);
 		const shown = fieldsShown(ctx, member);
 		return Promise.all(
@@ -39,6 +40,10 @@ export const list = query({
 					display: t.display ?? { layout: "table" as const },
 					...access,
 					canEdit: level === "edit" && can(member, "records.edit"),
+					/** Add: they create records and see and change only their own (records.list shows just those). */
+					canAdd: access.canAdd && can(member, "records.edit"),
+					/** Whether they see every record, or (Add) only the ones they made. */
+					seesAll: !!level,
 					/** Whether they may change the All tab's shared layout and grouping (recordTypes.setDisplay). */
 					canSetDisplay: level === "edit" && can(member, "sidebar.arrange"),
 					canManage: manage,
@@ -47,6 +52,8 @@ export const list = query({
 							_id: f._id,
 							...(await shown(f)),
 							archived: f.archived,
+							/** Its kind, one/several or linked database is changing: values are converting, and it can't be edited until it's done. */
+							...(f.change && { changing: true as const }),
 							canEdit: manage,
 						})),
 					),
@@ -67,8 +74,9 @@ export const update = mutation({
 });
 
 /**
- * Who can access a database, its records and their pages: Everyone or roles, each at View or Edit.
- * People with `fields.edit` and Edit in it choose.
+ * Who can access a database, its records and their pages: Everyone, roles or Public, each at View, Add
+ * (create records and see and change only their own) or Edit. Public never gets Edit (core
+ * `publicLevelProblem`). People with `fields.edit` and Edit in it choose.
  */
 export const setAccess = mutation({
 	args: { typeId: v.id("recordTypes"), access: accessArg },
@@ -78,7 +86,7 @@ export const setAccess = mutation({
 		const type = requireInWorkspace(member, await ctx.db.get(typeId), "Database");
 		requireAccess(member, "database", type.plural, type.access, "edit");
 		if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
-		const list = await savedAccess(ctx, member, access);
+		const list = await savedAccess(ctx, member, access, "database");
 		requireKeepsEdit(member, "database", list);
 		await changeAccessSources(ctx, member, type, { access: list });
 		// Everyone at Edit is the default: store nothing.

@@ -19,6 +19,8 @@ crons.interval("typing", { hours: 1 }, internal.typing.forgetStale);
 crons.interval("uploads", { hours: 1 }, internal.images.sweepUploads);
 // Deletions (cascade.ts) whose last run failed start again.
 crons.interval("cascades", { minutes: 15 }, internal.cascade.resume);
+// Field changes: forgets old values kept past 30 days, and starts again changes whose last run failed (fieldChanges.ts).
+crons.interval("field changes", { minutes: 15 }, internal.fieldChanges.sweep, {});
 // AI Gateway's model list, for the agent model picker (modelCatalog.ts).
 crons.interval("model catalog", { hours: 24 }, internal.modelCatalog.refresh);
 

@@ -6,7 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { readDoc } from "../convex/pageOps";
 
-import { agentTurn, agentsOf, generalOf, modules, signIn, messagesIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, modules, oldChild, signIn, messagesIn } from "./helpers";
 import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 
@@ -476,7 +476,7 @@ it("gives sub-pages from before pages were blocks exactly one block in their par
 	prosemirrorSync.register(t);
 	const owner = await signIn(t, "owner@co.com");
 	const root = await owner.mutation(api.pages.create, { title: "Wiki" });
-	const old = await owner.mutation(api.pages.create, { title: "Old guide", parentId: root, insertInParent: false });
+	const old = await oldChild(t, owner, "Old guide", root);
 	const placed = await owner.mutation(api.pages.create, { title: "New guide", parentId: root });
 	const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.flatMap((b) => b.firstChild?.type.name === "page" ? [b.firstChild.attrs.pageId as string] : []));
 	expect(await blocks()).toEqual([placed]);

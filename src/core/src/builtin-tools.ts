@@ -5,6 +5,7 @@ import { wakeupTools } from "./wakeups";
 import { chatTools } from "./chat";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "./skills";
 import { pageTools } from "./page-tools";
+import { driveTools } from "./drive-tools";
 import { recordTools } from "./record-tools";
 import { readHelp } from "./help";
 import { formatLocalTime } from "./time";
@@ -143,6 +144,7 @@ export const builtinTools: ToolDef[] = [
 	...wakeupTools,
 	...recordTools,
 	...pageTools,
+	...driveTools,
 	...webTools,
 	...imageTools,
 ];

@@ -1,46 +1,84 @@
+import { publicLevelProblem } from "./public-role";
 import type { Access } from "./types";
 
 /**
  * Who can access a place (a channel, database or page), like sharing in Google Drive or Notion:
- * Everyone, or chosen roles, each at View or Edit (Post, for channels). Not on the list: no access,
- * so the place shows nowhere. Owners always have Edit. No list is Everyone at Edit, so nothing
- * changes until someone restricts a place. See wiki/permissions.md#who-can-access.
+ * Everyone, chosen roles or Public, each at View or Edit (Post, for channels), or, in a database, Add.
+ * Not on the list: no access, so the place shows nowhere. Owners always have Edit. No list is Everyone
+ * at Edit, so nothing changes until someone restricts a place. See wiki/permissions.md#who-can-access.
+ *
+ * - **View** sees everything in it. **Edit** sees and changes everything.
+ * - **Add** (databases only) creates records and sees, changes or archives only the records you made, like
+ *   your own Google Form response. It shows no one else's, and never changes fields or the database.
+ * - **Public** is people outside the workspace (core public-role.ts). Everyone never includes them, and
+ *   they can hold only View, or Add in a database (`publicLevelProblem`).
  */
-export const accessLevels = ["view", "edit"] as const;
+export const accessLevels = ["view", "add", "edit"] as const;
 export type AccessLevel = (typeof accessLevels)[number];
+/** How far someone reaches into everything in a place. Add isn't on this scale: it reaches only your own records (`canAddIn`). */
+export type ReadLevel = "view" | "edit";
 
-/** Stands for every role in the workspace. */
+/** Stands for every role in the workspace. Never people outside it. */
 export const EVERYONE = "everyone";
+/** Stands for the Public role: people outside the workspace who email or text an agent. */
+export const PUBLIC = "public";
 
-/** One line of a place's list: `role` is a role id, or EVERYONE. */
+/** One line of a place's list: `role` is a role id, EVERYONE or PUBLIC. */
 export interface AccessEntry {
 	role: string;
 	level: AccessLevel;
 }
 
-export type PlaceKind = "channel" | "database" | "page";
+export type PlaceKind = "channel" | "database" | "page" | "folder" | "file";
 
-/** What no list means: anyone in the workspace can view and change it. */
+/** What no list means: anyone in the workspace can view and change it. Nobody outside. */
 export const OPEN_ACCESS: readonly AccessEntry[] = [{ role: EVERYONE, level: "edit" }];
 
-/** The most someone may do in a place with this list: `edit`, `view`, or null (no access). */
-export function levelIn(who: Access, list: readonly AccessEntry[] | undefined): AccessLevel | null {
+/** Who a Public turn is, for the same rules: the Public role and nothing else. */
+export const PUBLIC_ACCESS: Access = { roles: [PUBLIC], owner: false, permissions: [] };
+
+/** Someone outside the workspace (`PUBLIC_ACCESS`). */
+export const isOutsider = (who: Access) => who.roles.includes(PUBLIC);
+
+/** Whether a list entry is about this person. Everyone is every member, never someone outside; Public is only them. */
+const isFor = (who: Access, entry: AccessEntry) => (entry.role === EVERYONE ? !isOutsider(who) : who.roles.includes(entry.role));
+
+/**
+ * How far someone reaches into everything in a place with this list: `edit`, `view`, or null. Add entries
+ * give nothing here (`canAddIn`). Someone outside never gets Edit, even from a list that somehow says so.
+ */
+export function levelIn(who: Access, list: readonly AccessEntry[] | undefined): ReadLevel | null {
 	if (who.owner) return "edit";
-	let level: AccessLevel | null = null;
+	let level: ReadLevel | null = null;
 	for (const entry of list ?? OPEN_ACCESS) {
-		if (entry.role !== EVERYONE && !who.roles.includes(entry.role)) continue;
-		if (entry.level === "edit") return "edit";
-		level = "view";
+		if (!isFor(who, entry)) continue;
+		if (entry.level === "edit" && !isOutsider(who)) return "edit";
+		if (entry.level === "view") level = "view";
 	}
 	return level;
 }
 
-/** Whether `level` is enough for `need`. */
+/** Whether someone may add records to a database with this list (and see, change or archive the ones they made): Edit, or Add. */
+export const canAddIn = (who: Access, list: readonly AccessEntry[] | undefined) =>
+	levelIn(who, list) === "edit" || (list ?? OPEN_ACCESS).some((e) => e.level === "add" && isFor(who, e));
+
+/** Whether someone reaches a place at all: View, Edit or Add. */
+export const anyAccessIn = (who: Access, list: readonly AccessEntry[] | undefined) => !!levelIn(who, list) || canAddIn(who, list);
+
+/** Whether `level` is enough for `need` across the whole place. Add needs `canAddIn`. */
 export const reaches = (level: AccessLevel | null, need: AccessLevel) => level === "edit" || (level === "view" && need === "view");
 
-/** Whether a list is anything but the default, so the sidebar shows a lock. */
-export const isRestricted = (list: readonly AccessEntry[] | undefined) =>
-	!!list && !(list.length === 1 && list[0]!.role === EVERYONE && list[0]!.level === "edit");
+/** The level the list gives Public, or null if it isn't shared outside. */
+export const publicLevel = (list: readonly AccessEntry[] | undefined): AccessLevel | null => list?.find((e) => e.role === PUBLIC)?.level ?? null;
+
+/** Whether a list is anything but the default for members, so the sidebar shows a lock. Sharing with Public shows its own sign (`publicLevel`). */
+export const isRestricted = (list: readonly AccessEntry[] | undefined) => {
+	const members = list?.filter((e) => e.role !== PUBLIC);
+	return !!members && !(members.length === 1 && members[0]!.role === EVERYONE && members[0]!.level === "edit");
+};
+
+/** Whether a list is exactly the default (Everyone at Edit, nobody outside), so it's stored as no list. */
+export const isOpen = (list: readonly AccessEntry[] | undefined) => !list || (list.length === 1 && list[0]!.role === EVERYONE && list[0]!.level === "edit");
 
 type RoleLike = { id: string; name: string; owner: boolean };
 
@@ -49,16 +87,19 @@ type RoleLike = { id: string; name: string; owner: boolean };
  * the list at that level reads as "everyone". Roles that no longer exist are skipped.
  */
 export function whoCan(list: readonly AccessEntry[] | undefined, roles: readonly RoleLike[], need: AccessLevel = "view"): string {
-	const entries = (list ?? OPEN_ACCESS).filter((e) => reaches(e.level, need));
+	// Public is named only to those who ask what's shared outside; members ask a role on the team.
+	const entries = (list ?? OPEN_ACCESS).filter((e) => e.role !== PUBLIC && (e.level === "edit" || e.level === need));
 	if (entries.some((e) => e.role === EVERYONE)) return "Everyone";
 	const names = roles.filter((r) => !r.owner && entries.some((e) => e.role === r.id)).map((r) => r.name);
 	return names.length ? `${names.join(", ")} and Owners` : "Owners";
 }
 
 const verbs: Record<PlaceKind, Record<AccessLevel, string>> = {
-	channel: { view: "see", edit: "post in" },
-	database: { view: "see", edit: "change" },
-	page: { view: "see", edit: "edit" },
+	channel: { view: "see", add: "post in", edit: "post in" },
+	database: { view: "see", add: "add to", edit: "change" },
+	page: { view: "see", add: "edit", edit: "edit" },
+	folder: { view: "see", add: "change", edit: "change" },
+	file: { view: "see", add: "change", edit: "change" },
 };
 
 /**
@@ -78,15 +119,20 @@ export const losesOwnEdit = (who: Access, next: readonly AccessEntry[] | undefin
 export const ownEditMessage = (kind: PlaceKind) => `You'd lose ${kind === "channel" ? "Post" : "edit"} access. Ask an Owner.`;
 
 /**
- * A list as saved: roles in the workspace (`roleIds`) or Everyone, each once, at most one level each.
- * Owners always have Edit, so naming the Owner role adds nothing and is dropped. Throws a plain message.
+ * A list as saved: roles in the workspace (`roleIds`), Everyone or Public, each once, at most one level each.
+ * Add is for databases only, and Public never goes past its ceiling (`publicLevelProblem`): never Edit,
+ * never a channel. Owners always have Edit, so naming the Owner role adds nothing and is dropped.
+ * Throws a plain message.
  */
-export function cleanAccess(list: readonly AccessEntry[], roleIds: readonly string[], ownerRoleId: string): AccessEntry[] {
+export function cleanAccess(list: readonly AccessEntry[], roleIds: readonly string[], ownerRoleId: string, kind: PlaceKind): AccessEntry[] {
 	const seen = new Set<string>();
 	const out: AccessEntry[] = [];
 	for (const entry of list) {
-		if (entry.role !== EVERYONE && !roleIds.includes(entry.role)) throw new Error("Role not found.");
+		if (entry.role !== EVERYONE && entry.role !== PUBLIC && !roleIds.includes(entry.role)) throw new Error("Role not found.");
 		if (!accessLevels.includes(entry.level)) throw new Error("Pick View or Edit.");
+		if (entry.level === "add" && kind !== "database") throw new Error("Add is only for databases.");
+		const problem = entry.role === PUBLIC && publicLevelProblem(kind, entry.level);
+		if (problem) throw new Error(problem);
 		if (entry.role === ownerRoleId || seen.has(entry.role)) continue;
 		seen.add(entry.role);
 		out.push({ role: entry.role, level: entry.level });
@@ -95,11 +141,15 @@ export function cleanAccess(list: readonly AccessEntry[], roleIds: readonly stri
 }
 
 /**
- * Whether `next` lets anyone further in than `before`: someone in no role, or in any one role, reaches
- * more. Someone's reach is the most any of their roles gives, so checking roles one at a time covers
- * every mix of them.
+ * Whether `next` lets anyone further in than `before`: someone in no role, in any one role, or outside
+ * (Public), reaches more: View, Add or Edit they didn't have. Someone's reach is the union of what their
+ * roles give, so checking roles one at a time covers every mix of them.
  */
 export function widens(before: readonly AccessEntry[] | undefined, next: readonly AccessEntry[] | undefined, roleIds: readonly string[]) {
-	const rank = (level: AccessLevel | null) => (level === "edit" ? 2 : level === "view" ? 1 : 0);
-	return [[], ...roleIds.map((id) => [id])].some((roles) => rank(levelIn({ roles, owner: false, permissions: [] }, next)) > rank(levelIn({ roles, owner: false, permissions: [] }, before)));
+	const can = (who: Access, list: readonly AccessEntry[] | undefined) => [!!levelIn(who, list), canAddIn(who, list), levelIn(who, list) === "edit"];
+	return [[], [PUBLIC], ...roleIds.map((id) => [id])].some((roles) => {
+		const who = { roles, owner: false, permissions: [] };
+		const was = can(who, before);
+		return can(who, next).some((has, i) => has && !was[i]);
+	});
 }

@@ -14,6 +14,7 @@ People whose role can invite press **Invite people** at the top of Members, ente
 Each workspace has its own roles, listed in [Roles](#/settings/roles); open one to see and change its switches. A person can hold several and can do anything **any** of their roles allows.
 - **Owner**: can do everything, always. It can't be changed or deleted, and every workspace keeps at least one owner. Only owners give or take Owner.
 - **Member**: what new people get. Owners can change its switches; anything they leave alone follows the default below, including switches added in later updates.
+- **Public**: anyone outside the workspace who reaches an agent, by email or text. It applies by itself: nobody holds it, nobody signs in with it, and it can't be deleted. Owners choose what agents may do for them (reply without staff checking each message, take a message for staff, hand the conversation to staff), and share pages and databases with Public in their Who can access lists (View, or Add in a database) like any role. Staff powers, like Edit anywhere, chat, money and settings, can never be given to Public. See **help: permissions** and **help: inbox**.
 - **Your own roles**: owners can add more with **New role** (like Office or Crew), and rename or delete them from the role's page. Deleting one takes it from everyone; anyone left without a role keeps only shared reads, chat and personal items until an owner assigns a role. A pending invite left without a role joins as Member. The confirmation counts people and pending invites.
 
 Each role is a list of switches, each one thing a person may do:
@@ -33,6 +34,7 @@ Each role is a list of switches, each one thing a person may do:
 | Add and change records | yes |
 | Write and change pages | yes |
 | Add and change databases and fields | no |
+| See Inbox and reply to customers | yes |
 | Make and change channels | yes |
 | Stop agents working for someone else | no |
 | Delete things forever from Archive | no |

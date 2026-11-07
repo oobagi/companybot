@@ -1,3 +1,4 @@
+import type { Permission } from "./permissions";
 import { cronDue, describeCron, legacyCron, normalizeCron, scheduleError, scheduleForm } from "./schedules";
 
 /**
@@ -74,12 +75,29 @@ export function legacyFields(cron: string): { time: string; weekdays: number[] }
  */
 export type AutomationAudience = "creator" | "subscribers" | "channel";
 
-/** Things that happen inside Companybot that an automation can run on. */
+/**
+ * Things that happen inside Companybot that an automation can run on. `needs`: what its data shows is only
+ * for people with that permission, so only they can make one, and its runs skip anyone without it.
+ */
 export const appEvents = {
 	"message.posted": { label: "When someone posts in a channel" },
 	"member.joined": { label: "When someone joins the workspace" },
-} as const;
+	/** Someone outside emails or texts an agent for the first time (a new Inbox conversation). */
+	"inbox.started": { label: "When someone new emails or texts an agent", needs: "inbox.use" },
+	/** Any email or text an agent gets in Inbox, the first one included. */
+	"inbox.received": { label: "When an agent gets an email or text", needs: "inbox.use" },
+} as const satisfies Record<string, { label: string; needs?: Permission }>;
 export type AppEvent = keyof typeof appEvents;
+export const appEventIds = Object.keys(appEvents) as AppEvent[];
+
+/** Events a trigger can name on its own, with no channel to pick. */
+export type PlainEvent = Exclude<AppEvent, "message.posted">;
+
+/** The permission a trigger's data needs (Inbox events: `inbox.use`), or null. */
+export const eventNeeds = (trigger: { type: string; event?: string } | undefined): Permission | null => {
+	const event = trigger?.type === "event" && trigger.event && (appEvents as Record<string, { needs?: Permission }>)[trigger.event];
+	return (event && event.needs) || null;
+};
 
 /** Named events a webhook can carry. Add one here, then a library automation can require it. */
 export const webhookEvents = ["call.ended"] as const;
@@ -139,9 +157,11 @@ export function webhookMismatch(trigger: Extract<AutomationTrigger, { type: "web
 export function sampleData(trigger: AutomationTrigger): Record<string, unknown> | undefined {
 	if (trigger.type === "webhook") return trigger.sample.data;
 	if (trigger.type !== "event") return undefined;
-	return trigger.event === "message.posted"
-		? { sample: true, channel: trigger.label.replace("When someone posts in ", ""), author: "A teammate", text: "Has anyone heard back from Acme about the renewal?" }
-		: { sample: true, name: "New teammate", email: "new@example.com" };
+	if (trigger.event === "message.posted")
+		return { sample: true, channel: trigger.label.replace("When someone posts in ", ""), author: "A teammate", text: "Has anyone heard back from Acme about the renewal?" };
+	if (trigger.event === "inbox.started" || trigger.event === "inbox.received")
+		return { sample: true, agent: "Front desk", by: "text", from: "+15555550123", name: null, text: "Hi, do you do roof repairs? I'm in Austin.", new: trigger.event === "inbox.started" };
+	return { sample: true, name: "New teammate", email: "new@example.com" };
 }
 
 export const defineAutomation = (automation: Automation) => automation;
@@ -162,7 +182,7 @@ export type CustomTrigger =
 	| { type: "webhook" }
 	/** A top-level message (not an agent's or an automation's) in this channel. */
 	| { type: "event"; event: "message.posted"; channelId: string }
-	| { type: "event"; event: "member.joined" };
+	| { type: "event"; event: PlainEvent };
 
 export const CUSTOM_NAME_MAX = 60;
 export const CUSTOM_PROMPT_MAX = 4000;

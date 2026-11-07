@@ -219,7 +219,7 @@ describe("chats", () => {
 		for (let i = 0; i < 60; i++) await owner.mutation(api.messages.send, { chatId: general._id, text: `chatter ${i}`, mentions: noMentions });
 		const workspaceId = await t.run(async (ctx) => (await ctx.db.get(general._id))!.workspaceId);
 		expect(await member.query(api.chats.alerts)).toEqual([
-			{ workspaceId, chatId: general._id, messageId: mention, title: "owner@co.com in #general", text: "@member look" },
+			{ workspaceId, chatId: general._id, messageId: mention, title: "owner@co.com in #general", text: "@member look", at: expect.any(Number) },
 		]);
 		expect((await generalOf(member)).mentioned).toBe(true);
 

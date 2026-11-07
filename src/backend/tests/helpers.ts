@@ -17,6 +17,13 @@ export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_genera
 /** Raw calls as `userId`. Convex Auth reads the user id from the token subject. */
 export const identityOf = (t: ReturnType<typeof convexTest>, userId: Id<"users">) => t.withIdentity({ subject: `${userId}|session` });
 
+/** A sub-page from before sub-pages were blocks: parented, with no block for it in the parent (migrations.pageChildBlocks adds one). */
+export async function oldChild(t: ReturnType<typeof convexTest>, owner: Awaited<ReturnType<typeof signIn>>, title: string, parentId: Id<"pages">) {
+	const id = await owner.mutation(api.pages.create, { title });
+	await t.run((ctx) => ctx.db.patch(id, { parentId }));
+	return id;
+}
+
 /**
  * A signed-in person, with their first workspace open: the ones that invited them, else "My company"
  * from onboarding (workspace.setUp). The main agent's welcome (onboarding.ts) is taken back so
@@ -169,4 +176,12 @@ export async function addMember(ctx: MutationCtx, { role, email = "", ...row }: 
 export async function setMemberSwitch(owner: As, permission: Permission, on: boolean) {
 	const member = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!;
 	await owner.mutation(api.roles.setPermission, { id: member.id, permission, on });
+}
+
+/** Uploads a small file as `as` (the files.upload route), in their open workspace, and returns its storage id. */
+export async function upload(as: As, body: Uint8Array = new TextEncoder().encode("notes"), name = "notes.txt") {
+	const query = new URLSearchParams({ name, workspaceId: await workspaceOf(as) });
+	const response = await as.fetch(`/files/upload?${query}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: body as Uint8Array<ArrayBuffer> });
+	if (response.status !== 200) throw new Error(`Upload failed: ${response.status} ${await response.text()}`);
+	return ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
 }

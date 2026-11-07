@@ -29,27 +29,44 @@ const arrangementsUpdate = () => optimisticArrangements;
 
 const empty: string[] = [];
 const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+const rowOf = (state: State | null, list: ArrangementList, entityId?: string) => state?.data.rows.find((r) => r.list === list && r.entityId === entityId);
+const writableIn = (state: State | null, list: ArrangementList) => !!state && (arrangementLists[list].scope !== "shared" || state.data.writable);
+
+/**
+ * Lists picked when they change, not when rendering (a drop into any Drive folder): `ids` reads one as
+ * loaded now; `change` sends it one command, as `useStoredIds` does.
+ */
+export function useArrangements() {
+	const state = useContext(Context);
+	const latest = useRef(state);
+	latest.current = state;
+	const mutate = useMutation(api.arrangements.change, arrangementsUpdate);
+	const ids = useCallback((list: ArrangementList, entityId?: string) => rowOf(latest.current, list, entityId)?.ids ?? empty, []);
+	/**
+	 * `after`: the mutation this one needs first (a move into the level it orders), sent just before it:
+	 * Convex runs a client's mutations in order. If that one fails, this one does too, and only that
+	 * one's error shows.
+	 */
+	const change = useCallback((list: ArrangementList, entityId: string | undefined, command: ArrangementCommand, after?: Promise<unknown>) => {
+		const now = latest.current;
+		if (!now || !writableIn(now, list)) return;
+		const row = rowOf(now, list, entityId);
+		if (row && same(applyCommand(row.ids, command), row.ids)) return;
+		now.fail();
+		void mutate({ list, entityId, command }).catch((error) => (after ? after.then(() => now.fail(error), () => {}) : now.fail(error)));
+	}, [mutate]);
+	return { ids, change };
+}
+
 /**
  * A list from the loaded shell context, and `change` to send one command for it. Commands, not whole
  * lists, so a change from another device since this one loaded is kept.
  */
 export function useStoredIds(list: ArrangementList, entityId?: string) {
 	const state = useContext(Context);
-	const mutate = useMutation(api.arrangements.change, arrangementsUpdate);
-	const ids = state?.data.rows.find((r) => r.list === list && r.entityId === entityId)?.ids ?? empty;
-	const saved = state?.data.rows.some((r) => r.list === list && r.entityId === entityId);
-	const current = useRef({ ids, saved });
-	current.current = { ids, saved };
-	const writable = !!state && (arrangementLists[list].scope !== "shared" || state.data.writable);
-	const fail = state?.fail;
-	const change = useCallback((command: ArrangementCommand) => {
-		if (!writable) return;
-		const now = current.current;
-		if (now.saved && same(applyCommand(now.ids, command), now.ids)) return;
-		fail?.();
-		void mutate({ list, entityId, command }).catch(fail);
-	}, [list, entityId, writable, mutate, fail]);
-	return [ids, change, writable] as const;
+	const { change: send } = useArrangements();
+	const change = useCallback((command: ArrangementCommand) => send(list, entityId, command), [send, list, entityId]);
+	return [rowOf(state, list, entityId)?.ids ?? empty, change, writableIn(state, list)] as const;
 }
 
 type Storage = Pick<globalThis.Storage, "length" | "key" | "getItem" | "removeItem">;

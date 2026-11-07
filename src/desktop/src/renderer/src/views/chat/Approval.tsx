@@ -94,11 +94,11 @@ function Status({
 							Allow once
 						</button>
 						{approval.alwaysText && (
-							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={`${actionButton} bg-white`}>
+							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={actionButton}>
 								{approval.alwaysAutomation ? "Always for this automation" : "Always allow"}
 							</button>
 						)}
-						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={`${actionButton} bg-white`}>
+						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={actionButton}>
 							Deny
 						</button>
 					</div>

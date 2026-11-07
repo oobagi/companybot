@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Form, Notice, Setting, Settings, Stacked, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Form, Notice, Question, descriptionClass, fullControlClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { Mark, Split } from "./Landing";
 
 /**
@@ -42,9 +42,8 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 					<h1 className="text-xl font-semibold tracking-tight text-neutral-900">{sentTo ? "Check your email" : "Sign in to Companybot"}</h1>
 					{sentTo && <p className={descriptionClass}>We sent a 6-digit code to {sentTo}.</p>}
 				</div>
-				<Stacked><Settings>
 					{sentTo ? (
-						<Setting label="Code">
+						<Question label="Code">
 							<input
 								autoFocus
 								aria-label="Code"
@@ -53,27 +52,26 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 								value={code}
 								onChange={(e) => setCode(e.target.value)}
 								placeholder="123456"
-								className={`${wideControlClass} tracking-widest`}
+								className={`${fullControlClass} tracking-widest`}
 							/>
-						</Setting>
+						</Question>
 					) : (
-						<Setting label="Email">
-							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={wideControlClass} />
-						</Setting>
+						<Question label="Email">
+							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={fullControlClass} />
+						</Question>
 					)}
-				</Settings></Stacked>
 				<Notice>{error}</Notice>
 				<div className="flex flex-col gap-4">
-					<button type="submit" disabled={busy} className={`${primaryButton} py-2.5`}>
+					<button type="submit" disabled={busy} className={primaryButton}>
 						{sentTo ? "Sign in" : "Email me a code"}
 					</button>
 					{sentTo ? (
-						<button type="button" onClick={() => (setSentTo(undefined), setCode(""), fail())} className={`${secondaryButton} py-2.5`}>
+						<button type="button" onClick={() => (setSentTo(undefined), setCode(""), fail())} className={secondaryButton}>
 							Use a different email
 						</button>
 					) : (
 						onBack && (
-							<button type="button" onClick={onBack} className={`${secondaryButton} py-2.5`}>
+							<button type="button" onClick={onBack} className={secondaryButton}>
 								Back
 							</button>
 						)
