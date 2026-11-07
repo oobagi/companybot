@@ -9,7 +9,7 @@ import { NotFound, Notice, Page, useRun } from "../ui";
 import { FileViewer } from "./drive/FileViewer";
 import { FileAccess, MoveItem } from "./pages/PageTree";
 import { PageTitle } from "./pages/PageTitle";
-import { MenuItem, MoreMenu, archiveQuestion, useConfirm } from "./chat/common";
+import { MenuItem, archiveQuestion, useConfirm } from "./chat/common";
 import { AccessLock } from "./access";
 import { TrashNotice } from "./Trash";
 
@@ -40,16 +40,12 @@ function FileScreen({ fileId }: { fileId: Id<"driveFiles"> }) {
 			description={`${file.kind} · ${formatFileSize(file.size)}`}
 			wide
 			badge={<AccessLock lock={file.lock ?? null} />}
-			actions={
-				<MoreMenu label="File actions">
-					{(close) => <>
+			menu={(close) => <>
 						{file.url && <MenuItem onClick={() => { close(); window.open(file.url!, "_blank"); }}><OpenOutsideIcon /> Open in browser</MenuItem>}
 						{file.canEdit && <MenuItem onClick={() => { close(); setMoving(true); }}><ArrowRightIcon /> Move to…</MenuItem>}
 						<MenuItem onClick={() => { close(); setSharing(true); }}><PrivateIcon /> Who can access</MenuItem>
 						{file.canEdit && !file.archived && <MenuItem onClick={() => { close(); confirm(archiveQuestion(file.name, () => run(remove({ kind: "file", id: fileId }), back))); }}><ArchiveIcon /> Archive</MenuItem>}
-					</>}
-				</MoreMenu>
-			}
+			</>}
 		>
 			{dialog}
 			<Notice>{error}</Notice>

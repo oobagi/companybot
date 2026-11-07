@@ -11,7 +11,7 @@ import { MovePage, NewMenu, PageAccess } from "./pages/PageTree";
 import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
 import { PageTitle } from "./pages/PageTitle";
-import { MenuItem, MoreMenu, archiveQuestion, useConfirm } from "./chat/common";
+import { MenuItem, archiveQuestion, useConfirm } from "./chat/common";
 import { AccessLock } from "./access";
 import { TrashNotice } from "./Trash";
 
@@ -75,7 +75,7 @@ function useItemActions(page: Loaded) {
 	const { confirm, dialog } = useConfirm();
 	const folder = page.kind === "folder";
 	const back = () => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : ["pages"]));
-	// The bar's ⋯ menu: the same items as the row's in the sidebar.
+	// The title's menu: the same items as the row's in the sidebar.
 	const menu = (close: () => void) => (
 		<>
 			{page.canEdit && <MenuItem onClick={() => { close(); setMoving(true); }}><ArrowRightIcon /> Move to…</MenuItem>}
@@ -109,8 +109,9 @@ function FolderScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
 			title={page.title}
 			crumbs={crumbs}
 			heading={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId: page._id, title })} />}
+			menu={item.menu}
 			badge={item.badge}
-			actions={<>{folder.actions}<MoreMenu label="Folder actions">{item.menu}</MoreMenu></>}
+			actions={folder.actions}
 		>
 			{folder.dialogs}
 			{item.dialogs}
@@ -130,15 +131,11 @@ function PageScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
 			title={page.title}
 			crumbs={crumbs}
 			heading={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId, title })} onEnter={() => setFocusBody((n) => n + 1)} />}
+			menu={(close) => <>
+				<MenuItem onClick={() => { close(); setHistory(true); }}><HistoryIcon /> History</MenuItem>
+				{item.menu(close)}
+			</>}
 			badge={item.badge}
-			actions={
-				<MoreMenu label="Page actions">
-					{(close) => <>
-						<MenuItem onClick={() => { close(); setHistory(true); }}><HistoryIcon /> History</MenuItem>
-						{item.menu(close)}
-					</>}
-				</MoreMenu>
-			}
 		>
 			{item.dialogs}
 			<PageEditor pageId={pageId} editable={page.canEdit} standalone={!page.recordId} focusKey={focusBody} />

@@ -249,6 +249,7 @@ const actionSlot = createContext<HTMLElement | null>(null);
  */
 export function Page({
 	title,
+	menu,
 	badge,
 	crumbs,
 	heading,
@@ -258,6 +259,8 @@ export function Page({
 	children,
 }: {
 	title: string;
+	/** Actions for what's on screen (History, Move to…, Archive): the title opens them, with a caret to say so. */
+	menu?: (close: () => void) => React.ReactNode;
 	/** After the title in the bar: its access lock (`AccessLock`), as the sidebar shows it on the row. */
 	badge?: React.ReactNode;
 	crumbs?: Crumb[];
@@ -273,7 +276,22 @@ export function Page({
 		<Scroll
 			className="@container"
 			header={
-				<TopBar crumbs={crumbs} title={<><span className="truncate">{title}</span>{badge}</>} description={description}>
+				<TopBar
+					crumbs={crumbs}
+					title={
+						<>
+							{menu ? (
+								<Popover trigger={<><span className="truncate">{title}</span><CaretDownIcon className="shrink-0 text-neutral-400" /></>} className="no-drag -mx-1 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-neutral-100 aria-expanded:bg-neutral-100" panelClassName="w-56 p-1">
+									{menu}
+								</Popover>
+							) : (
+								<span className="truncate">{title}</span>
+							)}
+							{badge}
+						</>
+					}
+					description={description}
+				>
 					{actions}
 					<span ref={setSlot} className="contents" />
 				</TopBar>

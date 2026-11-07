@@ -9,7 +9,7 @@ import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
 import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, cardButton, cardClass, compactButton, descriptionClass, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
-import { MenuItem, Modal, MoreMenu, archiveQuestion, useConfirm } from "../chat/common";
+import { MenuItem, Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
@@ -46,15 +46,11 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 			title={record.title}
 			crumbs={crumbs}
 			heading={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
-			actions={
-				<MoreMenu label={`${type.name} actions`}>
-					{(close) => <>
+			menu={(close) => <>
 						{!record.archived && <MenuItem onClick={() => { close(); toggle(`rec:${recordId}`); }}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
 						<MenuItem onClick={() => { close(); setHistory(true); }}><HistoryIcon /> History</MenuItem>
 						{canEdit && !record.archived && <MenuItem onClick={() => { close(); confirm(archiveQuestion(record.title, () => remove({ kind: "record", id: recordId }))); }}><ArchiveIcon /> Archive</MenuItem>}
-					</>}
-				</MoreMenu>
-			}
+			</>}
 		>
 			<Notice>{error}</Notice>
 			{dialog}
