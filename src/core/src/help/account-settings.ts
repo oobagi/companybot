@@ -12,7 +12,7 @@ export default {
 - **Name**: what agents and teammates call you.
 - **Time zone**: automatic (your computer's) or one you pick. Agents use it for dates and times.
 - **Send messages with**: Enter (Shift+Enter for a new line) or ⌘ Enter.
-- **Notifications**: DMs and mentions, mentions only, or off. Applies when Companybot isn't in front, and to the dock count.
+- **Notifications**: DMs and mentions, mentions only, or off. Applies to desktop pop-ups while Companybot isn't in front, and to the dock count. Inbox ones about you count as mentions; the rest (a hand-off, a reply to check) pop up only on All.
 - **Recents on the rail**: the places you opened lately, under your pins.
 - **Folders on top**: in Drive, folders sit above the pages and files at every level, as in Finder. Off (the default), you put everything in the order you like.
 - **App**: your version, Check for updates, and Restart to update when one is ready.

@@ -68,12 +68,11 @@ afterEach(() => {
 const conversations = (t: ReturnType<typeof newTest>) => t.run((ctx) => ctx.db.query("inboxConversations").collect());
 const inboxMessages = (t: ReturnType<typeof newTest>) => t.run((ctx) => ctx.db.query("inboxMessages").collect());
 
-/** Companybot with its own address, announcing new conversations in #general. */
+/** Companybot with its own address. */
 async function withAddress(owner: As) {
 	const { companybot } = await agentsOf(owner);
 	const address = await owner.mutation(api.contactPoints.add, { agentId: companybot._id, kind: "email", name: "frontdesk" });
 	const general = (await owner.query(api.chats.list))!.channels.find((c) => c.isDefault)!;
-	await owner.mutation(api.contactPoints.setAnnounce, { agentId: companybot._id, chatId: general._id });
 	return { agentId: companybot._id as Id<"agents">, address: address as string, generalId: general._id };
 }
 
@@ -155,8 +154,51 @@ describe("inbound webhooks", () => {
 	});
 });
 
+describe("notifications", () => {
+	it("tells whoever it's assigned to (not whoever assigned it), again when the customer writes, and opening it clears them", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		stubProviders();
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "Dana <dana@acme.com>", to: [address], subject: "Roof" });
+		const [c] = await conversations(t);
+		// The agent answers it: nobody's told yet.
+		expect(await member.query(api.notifications.list)).toEqual([]);
+
+		await owner.mutation(api.inbox.assign, { id: c!._id, to: member.userId });
+		expect(await owner.query(api.notifications.list)).toEqual([]);
+		const [assigned] = (await member.query(api.notifications.list))!;
+		expect(assigned).toMatchObject({ kind: "assigned", text: "owner@co.com assigned it to you", conversationId: c!._id, popUp: true });
+
+		// The customer writes again: one notification for the conversation, now the message.
+		await emailWebhook(t, { email_id: "e2", from: "dana@acme.com", to: [address], subject: "Re: Roof" });
+		const after = (await member.query(api.notifications.list))!;
+		expect(after.map((n) => n.kind)).toEqual(["message"]);
+
+		await member.mutation(api.notifications.clearConversation, { conversationId: c!._id });
+		expect(await member.query(api.notifications.list)).toEqual([]);
+		// Nobody else's to clear.
+		await owner.mutation(api.inbox.assign, { id: c!._id, to: member.userId });
+		const [again] = (await member.query(api.notifications.list))!;
+		await owner.mutation(api.notifications.clear, { id: again!.id });
+		expect(await member.query(api.notifications.list)).toHaveLength(1);
+		await member.mutation(api.notifications.clearAll, {});
+		expect(await member.query(api.notifications.list)).toEqual([]);
+	});
+
+	it("tells everyone who can use Inbox when the agent hands one off", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		stubProviders();
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Roof" });
+		const [c] = await conversations(t);
+		await owner.mutation(api.roles.setPublicAbility, { ability: "public.handoff", on: true });
+		await t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name: "hand_off", text: "Wants a site visit" });
+		for (const as of [owner, member]) expect((await as.query(api.notifications.list))!.map((n) => [n.kind, n.text])).toEqual([["handoff", "Companybot handed it to staff: Wants a site visit"]]);
+	});
+});
+
 describe("routing to Inbox", () => {
-	it("puts a signed email in one conversation per contact, announces it, and asks the agent to answer", async () => {
+	it("puts a signed email in one conversation per contact, and asks the agent to answer without posting in chat", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		stubProviders();
@@ -171,11 +213,10 @@ describe("routing to Inbox", () => {
 		expect(list[0]).toMatchObject({ channel: "email", contact: "dana@acme.com", contactName: "Dana Ruiz", subject: "Roof quote", mode: "agent" });
 		const opened = (await owner.query(api.inbox.get, { id: list[0]!.id }))!;
 		expect(opened.messages.map((m) => m.text)).toEqual(["Hi, can you quote a new roof?", "Hi, can you quote a new roof?"]);
-		// The agent's reply is queued, not posted in chat; chat only gets the one-line note.
+		// The agent's reply is queued; nothing goes to chat (posting about it is an automation's job).
 		expect((await conversations(t))[0]!.replyingSince).toBeDefined();
 		const posted = await t.run((ctx) => ctx.db.query("chatMessages").filter((q) => q.eq(q.field("chatId"), generalId)).collect());
-		expect(posted.map((m) => m.text)).toEqual([expect.stringMatching(/^New conversation from Dana Ruiz \(dana@acme.com\) by email\. \[Open in Inbox\]\(#\/inbox\//)]);
-		expect(posted[0]!.text).not.toContain("roof");
+		expect(posted).toEqual([]);
 	});
 
 	it("stores nothing for an address no agent has, and never answers auto-replies", async () => {

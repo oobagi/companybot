@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Segmented, Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
@@ -50,15 +50,27 @@ type Opened = NonNullable<FunctionReturnType<typeof api.inbox.get>>;
 const contactLabel = (c: { channel: "email" | "sms"; contact: string; contactName: string | null }) => c.contactName ?? (c.channel === "sms" ? formatPhone(c.contact) : c.contact);
 const ChannelIcon = ({ channel }: { channel: "email" | "sms" }) => (channel === "email" ? <MailIcon /> : <TextMessageIcon />);
 
-/** Inbox's sidebar: every conversation, the latest first. One waiting for staff shows a dot. */
+/**
+ * Inbox's sidebar: every conversation, the latest first: who, when, the last thing said, and who's
+ * answering (their picture). One waiting for staff shows a dot.
+ */
 export function InboxNav({ openId }: { openId: string | undefined }) {
 	const list = useQuery(api.inbox.list);
 	if (!list?.length) return null;
 	return (
 		<div className="flex flex-col gap-px">
 			{list.map((c) => (
-				<Item key={c.id} icon={<ChannelIcon channel={c.channel} />} label={contactLabel(c)} active={openId === c.id} unread={!!c.needsStaff} title={c.preview} onClick={() => navigate("inbox", c.id)}>
-					<span className="truncate">{contactLabel(c)}</span>
+				<Item key={c.id} icon={<ChannelIcon channel={c.channel} />} label={contactLabel(c)} active={openId === c.id} unread={!!c.needsStaff} onClick={() => navigate("inbox", c.id)}>
+					<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
+						<span className="flex items-baseline gap-2">
+							<span className="min-w-0 flex-1 truncate">{contactLabel(c)}</span>
+							<span className="shrink-0 text-xs font-normal text-neutral-400">{timeAgo(c.lastAt)}</span>
+						</span>
+						<span className="flex items-center gap-1.5">
+							<span className="min-w-0 flex-1 truncate text-xs font-normal text-neutral-500">{c.preview || "No messages yet"}</span>
+							{c.assignee && <Avatar name={c.assignee.name} image={c.assignee.image} agent={c.assignee.type === "agent"} size="xs" />}
+						</span>
+					</span>
 				</Item>
 			))}
 		</div>
@@ -130,6 +142,13 @@ function Conversation({ c }: { c: Opened }) {
 	const [wide, setWide] = useState(true);
 	const [hidden, setHidden] = useState(() => localStorage.getItem("inbox.details.hidden") === "true");
 	const [opened, setOpened] = useState(false);
+	// Opening it (or it changing while open) clears your notifications about it.
+	const mine = useQuery(api.notifications.list);
+	const clearMine = useMutation(api.notifications.clearConversation);
+	const pending = mine?.some((n) => n.conversationId === c.id);
+	useEffect(() => {
+		if (pending) void clearMine({ conversationId: c.id });
+	}, [pending, c.id, clearMine]);
 	useLayoutEffect(() => {
 		const el = row.current;
 		if (!el) return;

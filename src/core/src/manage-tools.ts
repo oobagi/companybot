@@ -121,7 +121,6 @@ export const manageInputs = {
 				areaCode: z.string().regex(/^\d{3}$/).optional().describe("phone: a 3-digit US area code to pick a number in; left out, any US number"),
 			}),
 			z.strictObject({ action: z.literal("remove_contact"), id, kind: z.enum(["email", "phone"]).describe("phone: the number is released and can't be got back") }),
-			z.strictObject({ action: z.literal("set_announce"), id, chat: id.nullable().describe("Channel id where \"New conversation from …\" is posted when someone new writes to it; null for none") }),
 			z.strictObject({ action: z.literal("update"), id, expectedVersion: version, name: z.string().optional(), description: z.string().optional(), instructions: z.string().optional(), model: z.string().optional(), reasoning: z.enum(reasonings).optional().describe("How hard it thinks before answering; more is slower and costs more") }),
 		]),
 	}),

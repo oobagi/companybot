@@ -45,7 +45,7 @@ Access is checked when you read: gaining a role later reveals earlier replies. W
 Anyone who can see a finished private reply and can post in its chat can choose **Share to channel**. It asks **Only Office and Owners can see Deals. Share just the answer? Tool inputs, outputs and approval reasons stay private.** Confirming shows the reply to the chat and labels it **Shared by Dana**. Sharing releases only the shown answer. People without source access see a generic **Used 3 tools** line, with no private tool inputs, outputs, labels, approval reasons or prompt. Activity and approval details keep their source checks.
 
 ## Notifications
-You get a desktop notification and a dock count for DMs and @mentions while the app isn't in front. Change it in [Your preferences](#/settings/preferences).
+You get a desktop notification and a dock count for DMs and @mentions while the app isn't in front, and they're listed under the bell at the top right (with Inbox's), where you can clear them. Change it in [Your preferences](#/settings/preferences).
 
 ## Who can do what
 People whose role can make and change channels (Member, to start) create, rename and delete them; making a channel gives no extra rights over it. A channel's details also have **Who can access**: Everyone, or chosen roles, at View or Post. Make a read-only channel with Everyone at View and the roles that announce at Post: everyone else reads it but can't post or react. People not on the list don't see it at all. #general always stays open to everyone, at least to read. See **help: permissions**. A deleted channel goes to [Archive](#/settings/archive).

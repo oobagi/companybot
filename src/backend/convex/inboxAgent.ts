@@ -4,7 +4,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation } from "./_generated/server";
-import { announce, queueReply } from "./inbox";
+import { queueReply } from "./inbox";
+import { notify } from "./notifications";
 import { liveWorkspace } from "./lib";
 import { sharedSummary } from "./publicPlaces";
 import { recordUsage } from "./usage";
@@ -38,7 +39,7 @@ export const begin = internalMutation({
 		const hourAgo = Date.now() - 60 * 60_000;
 		if (recent.filter((m) => m.direction === "out" && m.authorAgentId && !m.authorUserId && m._creationTime > hourAgo).length >= AGENT_REPLIES_PER_HOUR) {
 			await ctx.db.patch(c._id, { replyingSince: undefined, replyAgain: false, needsStaff: "handoff", mode: "staff" });
-			await announce(ctx, agent, c, `${agent.name} stopped answering ${c.contact} after ${AGENT_REPLIES_PER_HOUR} replies in an hour. Someone needs to take it.`);
+			await notify(ctx, c, "inbox", { kind: "handoff", text: `${agent.name} stopped answering after ${AGENT_REPLIES_PER_HOUR} replies in an hour. Someone needs to take it.`, actorAgentId: agent._id });
 			return null;
 		}
 		await ctx.db.patch(c._id, { replyingSince: Date.now(), replyAgain: false });
@@ -113,12 +114,12 @@ export const act = internalMutation({
 		if (name === "reply") return replyFor(ctx, c, agent, body, abilities.includes("public.reply"));
 		if (name === "take_message") {
 			await note(ctx, c, agent._id, `Message for staff: ${body}`);
-			await announce(ctx, agent, c, `${agent.name} took a message from ${c.contactName ? c.contactName.replace(/[[\]()*_`<>#\\]/g, "").slice(0, 60) : c.contact}.`);
+			await notify(ctx, c, "inbox", { kind: "note", text: `${agent.name} took a message: ${body}`, actorAgentId: agent._id });
 			return "Noted for staff.";
 		}
 		await note(ctx, c, agent._id, `Handed off: ${body}`);
 		await ctx.db.patch(c._id, { mode: "staff", needsStaff: "handoff" });
-		await announce(ctx, agent, c, `${agent.name} handed a conversation to staff. Someone needs to take it.`);
+		await notify(ctx, c, "inbox", { kind: "handoff", text: `${agent.name} handed it to staff: ${body}`, actorAgentId: agent._id });
 		return "Handed to staff. Don't reply again.";
 	},
 });
@@ -140,6 +141,7 @@ async function replyFor(ctx: MutationCtx, c: Doc<"inboxConversations">, agent: D
 		return "Sent.";
 	}
 	await ctx.db.patch(c._id, { needsStaff: "draft" });
+	await notify(ctx, c, "inbox", { kind: "draft", text: `${agent.name} wrote a reply for you to check`, actorAgentId: agent._id });
 	return "Saved for staff to check and send. Don't say it was sent.";
 }
 

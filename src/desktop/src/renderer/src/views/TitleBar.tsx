@@ -3,6 +3,7 @@ import { useUpdates } from "../desktop";
 import { ArrowLeftIcon, ArrowRightIcon, BugIcon, HelpIcon, SidebarIcon, SparkleIcon } from "../icons";
 import { MenuDivider, titleBarButton, useTip } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
+import { NotificationTray } from "./Notifications";
 
 const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
 const repo = "https://github.com/oobagi/companybot";
@@ -14,7 +15,7 @@ const navigation = (globalThis as { navigation?: Navigation }).navigation;
 
 /**
  * The strip across the top of the window, beside its buttons: hide the sidebar, step back and
- * forward through screens, and Help. Empty space in it drags the window.
+ * forward through screens, Notifications and Help. Empty space in it drags the window.
  */
 export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: () => void }) {
 	const [, changed] = useReducer((n: number) => n + 1, 0);
@@ -55,7 +56,10 @@ export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: 
 					<ArrowRightIcon />
 				</button>
 			</span>
-			<span className="ml-auto flex" {...tipFor("Help")}>
+			<span className="ml-auto flex" {...tipFor("Notifications")}>
+				<NotificationTray />
+			</span>
+			<span className="flex" {...tipFor("Help")}>
 				<Help />
 			</span>
 			{tip}

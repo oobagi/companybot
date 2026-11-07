@@ -118,10 +118,12 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"roles.setPublicAbility": { humanOnly: "What agents may do for strangers outside the workspace is an owner's call, like any role's switches." },
 	"contactPoints.add": { agent: ["agents.manage:add_contact"] },
 	"contactPoints.remove": { agent: ["agents.manage:remove_contact"] },
-	"contactPoints.setAnnounce": { agent: ["agents.manage:set_announce"] },
 	"inbox.reply": { agent: ["inbox.manage:reply"] },
 	"inbox.start": { agent: ["inbox.manage:start"] },
 	"inbox.assign": { agent: ["inbox.manage:assign"] },
+	"notifications.clear": { humanOnly: "Your notifications tray is yours to read and clear, like marking a chat read." },
+	"notifications.clearConversation": { humanOnly: "Opening a conversation clears your notifications about it, like reading a chat." },
+	"notifications.clearAll": { humanOnly: "Your notifications tray is yours to read and clear, like marking a chat read." },
 	"inbox.sendDraft": { agent: ["inbox.manage:reply"], humanOnly: "Sending an agent's held reply to a customer is a staff member's consent to it, like approving a held call; agents answer with their own reply." },
 	"inbox.discardDraft": { humanOnly: "Rejecting an agent's held reply to a customer is staff reviewing it, like denying a held call." },
 };

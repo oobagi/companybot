@@ -20,7 +20,7 @@ import { withReceipt } from "./approvals";
 import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
-import { addContact, removeContact, setAnnounceChannel } from "./contactPoints";
+import { addContact, removeContact } from "./contactPoints";
 import { replyAs, assignTo, startAs } from "./inbox";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
 
@@ -321,7 +321,6 @@ export const runFor = internalMutation({
 					if (r.action === "set_image") await setImage(ctx, member, id, r.file === null ? null : copyOf(r.file));
 					if (r.action === "add_contact") return { done: r.action, id, address: await addContact(ctx, member, { agentId: id, kind: r.kind, name: r.name, areaCode: r.areaCode }) };
 					if (r.action === "remove_contact") await removeContact(ctx, member, id, r.kind);
-					if (r.action === "set_announce") await setAnnounceChannel(ctx, member, id, r.chat === null ? null : rowId(ctx, "chats", r.chat));
 					if (r.action === "update") {
 						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)) throw new ConvexError("Only a person can change your instructions, model or reasoning.");
 						const { action, id: _, expectedVersion, ...changes } = r;

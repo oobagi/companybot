@@ -252,6 +252,13 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Conversations with customers are the workspace's. Whoever took one over shows as a former member once they go.",
 	},
 	inboxMessages: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" } },
+	// Yours alone: they go with you, and with their conversation.
+	notifications: {
+		childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" },
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+	},
 	memories: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		// Team memories in Archive take their entry: it couldn't be restored anymore.

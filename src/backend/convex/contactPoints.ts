@@ -4,7 +4,6 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { emailDomain, emailProvider, smsProvider, smsWebhookUrl } from "./channelProviders";
-import { canPost, requireChat } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, liveWorkspace, requireAgent, requireLiveAgent, requirePermission } from "./lib";
 
@@ -19,13 +18,13 @@ export type ContactKind = Doc<"contactPoints">["kind"];
 const contactOf = (ctx: MutationCtx | Parameters<typeof getMember>[0], agentId: Id<"agents">, kind: ContactKind) =>
 	ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", agentId).eq("kind", kind)).first();
 
-/** An agent's address and number, whether this server offers each, and where new conversations are announced. */
+/** An agent's address and number, and whether this server offers each. */
 export const forAgent = query({
 	args: { agentId: v.id("agents") },
 	handler: async (ctx, { agentId }) => {
 		const member = await getMember(ctx);
 		if (!member) return null;
-		const agent = await requireAgent(ctx, member, agentId);
+		await requireAgent(ctx, member, agentId);
 		const shown = (row: Doc<"contactPoints"> | null) => row && { address: row.address, status: row.status, error: row.error ?? null, areaCode: row.areaCode ?? null };
 		return {
 			email: shown(await contactOf(ctx, agentId, "email")),
@@ -33,7 +32,6 @@ export const forAgent = query({
 			/** What this server can do: unset keys mean the feature isn't offered (channelProviders.ts). */
 			available: { email: !!emailDomain() && !!emailProvider(), phone: !!smsProvider() },
 			domain: emailDomain(),
-			announceChatId: agent.announceChatId ?? null,
 		};
 	},
 });
@@ -46,11 +44,6 @@ export const add = mutation({
 export const remove = mutation({
 	args: { agentId: v.id("agents"), kind: v.union(v.literal("email"), v.literal("phone")) },
 	handler: async (ctx, args) => removeContact(ctx, await requirePermission(ctx, "agents.manage"), args.agentId, args.kind),
-});
-
-export const setAnnounce = mutation({
-	args: { agentId: v.id("agents"), chatId: v.union(v.id("chats"), v.null()) },
-	handler: async (ctx, { agentId, chatId }) => setAnnounceChannel(ctx, await requirePermission(ctx, "agents.manage"), agentId, chatId),
 });
 
 /**
@@ -101,18 +94,6 @@ export async function dropContact(ctx: MutationCtx, row: Doc<"contactPoints">) {
 /** Releases its number with the provider, if it has one. The lifecycle cascades call this just before deleting the row. */
 export async function releaseLater(ctx: MutationCtx, row: Doc<"contactPoints">) {
 	if (row.kind === "phone" && row.providerId) await ctx.scheduler.runAfter(0, internal.contactPoints.releaseNumber, { providerId: row.providerId });
-}
-
-/** Where "New conversation from …" goes for this agent: a channel the person can post in, or none. */
-export async function setAnnounceChannel(ctx: MutationCtx, member: Member, agentId: Id<"agents">, chatId: Id<"chats"> | null) {
-	checkPermission(member, "agents.manage");
-	await requireLiveAgent(ctx, member, agentId);
-	if (chatId) {
-		const chat = await requireChat(ctx, member, chatId);
-		if (chat.kind !== "channel" || chat.archived) throw new ConvexError("Pick a channel.");
-		if (!canPost(member, chat)) throw new ConvexError("Pick a channel you can post in.");
-	}
-	await ctx.db.patch(agentId, { announceChatId: chatId ?? undefined });
 }
 
 // ---- Buying and releasing numbers ----

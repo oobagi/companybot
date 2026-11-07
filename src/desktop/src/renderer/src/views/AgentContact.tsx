@@ -2,30 +2,24 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone, localPartError, suggestLocalPart } from "@companybot/core/inbox";
 import { useState } from "react";
 import { api } from "../api";
-import { Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { TrashIcon } from "../icons";
 import { Form, Notice, Setting, Settings, compactButton, hintClass, iconDangerButton, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
 import { DialogButtons, Modal, useConfirm } from "./chat/common";
 
-// An agent's page, Contact: its own email address and phone number (backend contactPoints.ts), and the
-// channel where "New conversation from …" is posted. They apply at once, like its picture; what
-// customers send lands in Inbox. Website chat isn't built yet.
-
-const NO_CHANNEL = "none";
+// An agent's page, Contact: its own email address and phone number (backend contactPoints.ts). They
+// apply at once, like its picture; what customers send lands in Inbox. Website chat isn't built yet.
+// Posting about new conversations somewhere is an automation ("When someone new emails or texts an agent").
 
 export function AgentContact({ agentId, agentName, canManage }: { agentId: Id<"agents">; agentName: string; canManage: boolean }) {
 	const contact = useQuery(api.contactPoints.forAgent, { agentId });
-	const chats = useQuery(api.chats.list);
 	const remove = useMutation(api.contactPoints.remove);
 	const add = useMutation(api.contactPoints.add);
-	const setAnnounce = useMutation(api.contactPoints.setAnnounce);
 	const [adding, setAdding] = useState<"email" | "phone">();
 	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
 	if (!contact) return null;
 	const { email, phone, available } = contact;
-	const channels = (chats?.channels ?? []).map((c) => ({ value: c._id as string, label: `#${c.title}` }));
 	return (
 		<Settings title="Contact" note="How customers reach this agent. What they send lands in Inbox, where it answers and your team can step in.">
 			{dialog}
@@ -91,16 +85,6 @@ export function AgentContact({ agentId, agentName, canManage }: { agentId: Id<"a
 			</Setting>
 			<Setting label="Website chat" hint="A chat box on your website that it answers.">
 				<span className={hintClass}>Coming soon</span>
-			</Setting>
-			<Setting label="New conversations" hint="Where it posts a short note when someone new writes. The conversation itself stays in Inbox.">
-				<Select
-					label="New conversations"
-					value={contact.announceChatId ?? NO_CHANNEL}
-					options={[{ value: NO_CHANNEL, label: "Don't post" }, ...channels]}
-					disabled={!canManage}
-					onChange={(value) => run(setAnnounce({ agentId, chatId: value === NO_CHANNEL ? null : (value as Id<"chats">) }))}
-					className={wideControlClass}
-				/>
 			</Setting>
 			<Notice>{error}</Notice>
 		</Settings>

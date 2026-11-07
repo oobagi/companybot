@@ -363,8 +363,6 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Its picture (images.ts): not part of its config, so versions and restores leave it alone. Unset shows its initials. */
 		image: v.optional(v.id("_storage")),
-		/** Where "New conversation from …" is posted when someone new emails or texts it (inbox.ts). Outside its config, like `image`. */
-		announceChatId: v.optional(v.id("chats")),
 	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
 
 	// An agent's own email address or phone number (contactPoints.ts): how people outside reach it. One of each per agent.
@@ -418,6 +416,24 @@ export default defineSchema({
 		.index("by_needs", ["workspaceId", "needsStaff"])
 		.index("by_agent", ["agentId"])
 		.index("by_record", ["recordId"]),
+
+	// What needs someone in Inbox (notifications.ts): one per person per conversation, until cleared.
+	notifications: defineTable({
+		workspaceId: v.id("workspaces"),
+		userId: v.id("users"),
+		conversationId: v.id("inboxConversations"),
+		/** assigned: to you. message: the customer wrote, on one that's yours. handoff, note, draft: the agent needs staff. */
+		kind: v.union(v.literal("assigned"), v.literal("message"), v.literal("handoff"), v.literal("note"), v.literal("draft")),
+		text: v.string(),
+		/** Who did it: someone on staff, or the agent. Neither for the customer. */
+		actorUserId: v.optional(v.id("users")),
+		actorAgentId: v.optional(v.id("agents")),
+		/** For everyone who can use Inbox, not you in particular: pops up only with notifications on All. */
+		broad: v.optional(v.literal(true)),
+	})
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_conversation", ["conversationId", "userId"]),
 
 	inboxMessages: defineTable({
 		workspaceId: v.id("workspaces"),

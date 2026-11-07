@@ -100,6 +100,7 @@ export {
 	CheckIcon,
 	CodeIcon,
 	ChatCircleIcon as ChatIcon,
+	BellIcon as NotificationsIcon,
 	ChatTextIcon as TextMessageIcon,
 	ChatTeardropTextIcon as ThreadIcon,
 	ClockCounterClockwiseIcon as HistoryIcon,

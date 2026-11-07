@@ -20,9 +20,9 @@ import type { AccessLevel, PlaceKind } from "./place-access";
 export const publicAbilities = {
 	/** Without it, every reply waits in Inbox as a draft until someone on staff sends it. */
 	"public.reply": { label: "reply without staff approving each message", on: false },
-	/** A note for staff on the conversation (never sent to the customer), and a line in the agent's announcement channel. */
+	/** A note for staff on the conversation (never sent to the customer). */
 	"public.message": { label: "take a message for staff", on: true },
-	/** Stops the agent replying in that conversation and asks staff to take it, in Inbox and the announcement channel. */
+	/** Stops the agent replying in that conversation and asks staff to take it. */
 	"public.handoff": { label: "hand the conversation to staff", on: true },
 } as const satisfies Record<string, { label: string; on: boolean }>;
 

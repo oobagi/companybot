@@ -177,7 +177,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 			...(has("followups.list") && has("followups.cancel") ? ["- To change or stop one, find it with followups_list and cancel it with followups_cancel (then set a new one if they moved it)."] : []),
 		);
 	}
-	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Archive), an agent's own email address or phone number (add_contact, remove_contact; a released number can't be got back) and where it announces new customer conversations (set_announce), and another agent's instructions/model/reasoning (deleting, contact changes and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Archive need a person directly.");
+	if (has("agents.manage")) lines.push("", "## Agents", "Use agents_manage for agent metadata, paged history, tool-free creation, deleting (to Archive), an agent's own email address or phone number (add_contact, remove_contact; a released number can't be got back) and another agent's instructions/model/reasoning (deleting, contact changes and those changes wait for approval). Read the current version first. Tool grants, your own instructions/model/reasoning, restoring prior config and restoring an agent from Archive need a person directly.");
 	if (has("inbox.manage"))
 		lines.push(
 			"",

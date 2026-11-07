@@ -200,6 +200,8 @@ export type Alert = {
 	threadId?: Id<"chatMessages">;
 	title: string;
 	text: string;
+	/** When it was said, to sort it among Inbox's in the tray. */
+	at: number;
 };
 
 /**
@@ -252,6 +254,7 @@ export const alerts = query({
 				messageId: message._id,
 				...(message.threadId && { threadId: message.threadId }),
 				title: chat.kind === "channel" ? `${author} in #${chat.name}` : author,
+				at: shownAt(message),
 				text: await canReadReply(ctx, member, message) ? (await tags.forPeople(message.text)).text.slice(0, 200) : "🔒 Private reply",
 			});
 		}

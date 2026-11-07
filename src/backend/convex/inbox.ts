@@ -6,7 +6,6 @@ import {
 	channelWords,
 	clipText,
 	cleanSubject,
-	formatPhone,
 	indexEntries,
 	isEmail,
 	normalizeEmail,
@@ -22,9 +21,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, smsProvider } from "./channelProviders";
-import { insertMessage, namer } from "./chatOps";
+import { namer } from "./chatOps";
+import { notify } from "./notifications";
 import { mutation, query } from "./functions";
-import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
+import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { typeVisible } from "./recordOps";
 
 // Inbox: conversations with people outside the workspace, by email and text. Each agent's address and
@@ -45,11 +45,6 @@ const REPLY_DELAY_MS = 2_000;
 const kindOf = (channel: InboxChannel) => (channel === "email" ? "email" : "phone") as Doc<"contactPoints">["kind"];
 const channelOfKind = (kind: Doc<"contactPoints">["kind"]): InboxChannel => (kind === "email" ? "email" : "sms");
 const previewOf = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, 140);
-/** Someone outside's name, safe to put in a chat line: one line, no Markdown that could make a link. */
-const plain = (text: string) => text.replace(/[[\]()*_`<>#\\]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
-const contactWords = (c: Pick<Doc<"inboxConversations">, "channel" | "contact" | "contactName">) =>
-	c.contactName ? `${plain(c.contactName)} (${c.channel === "sms" ? formatPhone(c.contact) : c.contact})` : c.channel === "sms" ? formatPhone(c.contact) : c.contact;
-
 /** A conversation someone in this workspace may open. */
 async function requireConversation(ctx: QueryCtx, member: Member, id: Id<"inboxConversations">) {
 	checkPermission(member, "inbox.use");
@@ -75,10 +70,13 @@ export const list = query({
 		const rows = await ctx.db.query("inboxConversations").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).order("desc").take(READ_MAX);
 		const visible = typeVisible(ctx, member);
 		const names = new Map<Id<"agents">, string>();
+		const people = namer(ctx, { images: true });
 		return Promise.all(
 			rows.map(async (c) => {
 				if (!names.has(c.agentId)) names.set(c.agentId, await agentName(ctx, c.agentId));
 				return {
+					/** Who answers it, with their picture: its agent, or who on staff it's assigned to. */
+					assignee: c.mode === "agent" ? await people.agent(c.agentId) : c.takenBy ? await people.user(c.takenBy) : null,
 					id: c._id,
 					agentId: c.agentId,
 					agentName: names.get(c.agentId)!,
@@ -288,6 +286,7 @@ export async function assignTo(ctx: MutationCtx, member: Member, c: Doc<"inboxCo
 	const them = await memberOf(ctx, to, member.workspaceId);
 	if (!them || !can(them, "inbox.use")) throw new ConvexError("They can't use Inbox. Pick someone whose role can.");
 	await ctx.db.patch(c._id, { mode: "staff", takenBy: to, ...answered });
+	await notify(ctx, c, [to], { kind: "assigned", text: `${await nameOf(ctx, member.userId)} assigned it to you`, actorUserId: member.userId, except: member.userId });
 }
 
 const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>
@@ -391,8 +390,9 @@ export const receive = internalMutation({
 			...(args.unverified && { unverified: true as const }),
 		});
 		await linkRecord(ctx, c);
-		if (isNew) await announce(ctx, agent, c, `New conversation from ${contactWords(c)} by ${channelWords[channel]}.`);
 		if (c.mode === "agent" && !agent.archived && !args.automated && !fromUs) await queueReply(ctx, c);
+		// Someone on staff answers this one: tell them (or, if it's nobody's, everyone who can).
+		if (c.mode === "staff" && !args.automated && !fromUs) await notify(ctx, c, c.takenBy ? [c.takenBy] : "inbox", { kind: "message", text });
 		// In-app events, so owners build their own steps ("when someone new texts, add a lead to Clients"). Never for
 		// auto-replies or our own addresses (no loops). Runs act as the automation's person, never as Public.
 		if (!args.automated && !fromUs) {
@@ -421,15 +421,6 @@ export async function queueReply(ctx: MutationCtx, c: Doc<"inboxConversations">)
 	if (c.replyingSince && now - c.replyingSince < REPLY_STALE_MS) return void (await ctx.db.patch(c._id, { replyAgain: true }));
 	await ctx.db.patch(c._id, { replyingSince: now, replyAgain: false });
 	await ctx.scheduler.runAfter(REPLY_DELAY_MS, internal.inboxAgent.respond, { conversationId: c._id });
-}
-
-/** A line in the agent's announcement channel, as the agent, linking to the conversation. Nothing if none is picked or it's gone. */
-export async function announce(ctx: MutationCtx, agent: Doc<"agents">, c: Doc<"inboxConversations">, line: string) {
-	if (!agent.announceChatId || agent.archived) return;
-	const chat = await ctx.db.get(agent.announceChatId);
-	if (!chat || chat.archived || chat.workspaceId !== c.workspaceId) return;
-	const text = `${line} [Open in Inbox](#/inbox/${c._id})`;
-	await insertMessage(ctx, chat, { authorAgentId: agent._id, text, parts: [{ type: "text", text }], mentions: { userIds: [], agentIds: [] }, status: "done" });
 }
 
 // ---- Outgoing ----

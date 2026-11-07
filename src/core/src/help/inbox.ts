@@ -20,10 +20,15 @@ Agents don't answer auto-replies, out-of-office messages or newsletters, and sto
 ## Stepping in
 Anyone whose role can **see Inbox and reply to customers** (Member can, unless an owner changed it) can:
 - **Reply** from the box at the bottom. It goes from the agent's address or number, as the business.
-- **Assign** it (**Assigned to**, in the card at the top right): pick yourself or a teammate, and the agent stops answering that conversation; pick the agent and it answers again from the next message.
+- **Assign** it (**Assigned to**, in the details card on the right; the top bar's button hides or shows it): pick yourself or a teammate, and the agent stops answering that conversation; pick the agent and it answers again from the next message.
 - **New conversation** (the + beside Inbox in the sidebar): email or text someone from an agent's address or number. One you start is assigned to you: assign it to the agent when it should answer.
 
 Notes the agent takes for staff show in the conversation in yellow; customers never see them.
+
+## Notifications
+The bell at the top right lists what needs you: a conversation assigned to you, a customer writing on one that's yours, and, for everyone who can use Inbox, the agent handing one off, taking a message or writing a reply to check. Opening one (or its conversation) clears it; × or **Clear all** clears them. They also pop up on your desktop while Companybot isn't in front: ones about you on DMs and mentions, the rest only on All ([Your preferences](#/settings/preferences)).
+
+To post in a channel when someone new writes, make an automation: **When someone new emails or texts an agent**.
 
 ## Records
 When the sender's email address or phone number matches an email or phone field on a record (a client, a lead), the conversation links to it, shown at the top. It links to the first match it finds.

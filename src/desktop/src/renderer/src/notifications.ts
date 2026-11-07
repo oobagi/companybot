@@ -6,19 +6,22 @@ import { desktop } from "./desktop";
 import { navigate } from "./router";
 
 /**
- * Unread DMs and mentions (by your setting in Your preferences) reach you outside the app:
- * a desktop notification for each new one while the window isn't in front, and a dock badge
- * with how many chats have one. Clicking a notification opens its chat (or the thread, for a
- * mention in one), in its workspace, even if this window has switched to another since.
+ * Unread DMs and mentions (by your setting in Your preferences), and Inbox's notifications, reach
+ * you outside the app: a desktop notification for each new one while the window isn't in front,
+ * and a dock badge with how many there are (as the bell's tray lists them). Clicking a notification
+ * opens its chat (or the thread, for a mention in one) or conversation, in its workspace, even if
+ * this window has switched to another since.
  */
 export function useAlerts() {
 	const alerts = useQuery(api.chats.alerts);
+	const inbox = useQuery(api.notifications.list);
 	const seen = useRef<Set<string>>(null);
+	const seenInbox = useRef<Set<string>>(null);
 	const current = useWorkspace();
 	const workspace = useRef(current);
 	workspace.current = current;
 
-	const count = alerts?.length ?? 0;
+	const count = (alerts?.length ?? 0) + (inbox?.filter((n) => n.popUp).length ?? 0);
 	useEffect(() => desktop?.setBadge(count), [count]);
 	// Signing out or switching workspaces clears it; the next workspace sets its own.
 	useEffect(() => () => desktop?.setBadge(0), []);
@@ -43,6 +46,22 @@ export function useAlerts() {
 			};
 		}
 	}, [alerts]);
+
+	useEffect(() => {
+		if (!inbox) return;
+		const known = seenInbox.current;
+		seenInbox.current = new Set(inbox.map((n) => n.id));
+		if (!known || document.hasFocus() || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+		for (const n of inbox) {
+			if (known.has(n.id) || !n.popUp) continue;
+			const notification = new Notification(n.contactName ?? n.contact, { body: n.text, tag: n.conversationId });
+			notification.onclick = () => {
+				desktop?.focus();
+				window.focus();
+				if (workspace.current) navigate("inbox", n.conversationId);
+			};
+		}
+	}, [inbox]);
 }
 
 /**

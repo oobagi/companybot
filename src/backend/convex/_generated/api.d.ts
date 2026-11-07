@@ -58,6 +58,7 @@ import type * as memoryOps from "../memoryOps.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
 import type * as modelCatalog from "../modelCatalog.js";
+import type * as notifications from "../notifications.js";
 import type * as oauth from "../oauth.js";
 import type * as onboarding from "../onboarding.js";
 import type * as pageBlocks from "../pageBlocks.js";
@@ -153,6 +154,7 @@ declare const fullApi: ApiFromModules<{
   messages: typeof messages;
   migrations: typeof migrations;
   modelCatalog: typeof modelCatalog;
+  notifications: typeof notifications;
   oauth: typeof oauth;
   onboarding: typeof onboarding;
   pageBlocks: typeof pageBlocks;
