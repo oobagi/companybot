@@ -31,6 +31,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { dispatchTo, shownReply } from "./chains";
 import { type Namer, canSee, chatMembersOf, label, namer, textForModel } from "./chatOps";
+import { type RecordTags, recordTags } from "./recordTags";
 import { type Member, liveWorkspace, memberOf } from "./lib";
 import { canReadReply } from "./replyPrivacy";
 import type { dispatchInfo } from "./schema";
@@ -90,9 +91,9 @@ export const context = internalQuery({
 
 		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));
 		const names = namer(ctx);
-		const toRouter = routerMessage(names, keys);
 		const viewer = await memberOf(ctx, message.authorUserId!, chat.workspaceId);
 		if (!viewer || !(await canReadReply(ctx, viewer, message))) return null;
+		const toRouter = routerMessage(names, keys, recordTags(ctx, viewer));
 		const { before, parent } = await around(ctx, message, viewer);
 		const people = (await chatMembersOf(ctx, chat._id)).filter((r) => r.userId && r.userId !== message.authorUserId);
 		const input: RouterInput = {
@@ -109,13 +110,13 @@ export const context = internalQuery({
 });
 
 /** A message as the router reads it: its author (an agent by key), text, and files by name. */
-const routerMessage = (names: Namer, keys: Map<Id<"agents">, string>) => async (m: Doc<"chatMessages">): Promise<RouterMessage> => {
+const routerMessage = (names: Namer, keys: Map<Id<"agents">, string>, tags: RecordTags) => async (m: Doc<"chatMessages">): Promise<RouterMessage> => {
 	const files = m.attachments?.length ? `(${m.attachments.length === 1 ? "a file" : `${m.attachments.length} files`}: ${m.attachments.map((f) => f.name).join(", ")})` : "";
 	const author = label(await names.of(m));
 	return {
 		author,
 		...(m.authorAgentId && { agent: keys.get(m.authorAgentId) ?? "agent" }),
-		text: [textForModel(m, author), files].filter(Boolean).join("\n"),
+		text: [textForModel({ ...m, text: await tags.forModel(m.text) }, author), files].filter(Boolean).join("\n"),
 	};
 };
 
@@ -264,9 +265,9 @@ export const nextContext = internalQuery({
 		if (agents.length === 0) return null;
 		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));
 		const names = namer(ctx);
-		const toRouter = routerMessage(names, keys);
 		const viewer = await memberOf(ctx, chain.actorId, chat.workspaceId);
 		if (!viewer || !(await canReadReply(ctx, viewer, reply))) return null;
+		const toRouter = routerMessage(names, keys, recordTags(ctx, viewer));
 		const { before, parent } = await around(ctx, reply, viewer);
 		const input: NextInput = {
 			place: { name: chat.name ?? "", topic: chat.topic ?? null },

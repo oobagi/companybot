@@ -205,8 +205,9 @@ function About({ recordId }: { recordId: Id<"records"> }) {
 				);
 			})}
 			{!!messages?.length && (
-				<AboutRow icon={<ChatIcon />} label="Mentioned in">
-					<Popover trigger={`${messages.length}${messages.length === 50 ? "+" : ""} ${messages.length === 1 ? "message" : "messages"}`} className={`${linkButton} py-0.5`} panelClassName="flex max-h-96 w-96 flex-col gap-2 overflow-y-auto p-2">
+				// The chat messages that tag this record (@ in the composer, or an agent's reply).
+				<AboutRow icon={<ChatIcon />} label="In chat">
+					<Popover trigger={`Tagged in ${messages.length}${messages.length === 50 ? "+" : ""} ${messages.length === 1 ? "message" : "messages"}`} className={`${linkButton} py-0.5`} panelClassName="flex max-h-96 w-96 flex-col gap-2 overflow-y-auto p-2">
 						{messages.map((m) => (
 							<button
 								key={m.messageId}
@@ -214,9 +215,10 @@ function About({ recordId }: { recordId: Id<"records"> }) {
 								onClick={() => navigate("chat", m.chatId, ...(m.threadId ? ["thread", m.threadId] : ["message", m.messageId]))}
 								className={`flex-col gap-1 text-sm ${cardButton}`}
 							>
-								<span className="flex items-baseline gap-2">
-									<span className="font-medium">{m.author}</span>
-									<span className={`ml-auto ${metadataClass}`}>{timeAgo(m.time)}</span>
+								<span className="flex min-w-0 items-baseline gap-2">
+									<span className="truncate font-medium">{m.author}</span>
+									<span className={`min-w-0 truncate ${metadataClass}`}>{m.where}</span>
+									<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(m.time)}</span>
 								</span>
 								<span className="line-clamp-3 text-neutral-600">{m.text}</span>
 							</button>

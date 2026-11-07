@@ -1,7 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuery } from "convex-helpers/react/cache";
 import type { OptimisticUpdate } from "convex/browser";
-import { type PaginatedQueryReference, useAction as useConvexAction, useMutation as useConvexMutation } from "convex/react";
+import { type PaginatedQueryReference, useAction as useConvexAction, useConvex, useMutation as useConvexMutation } from "convex/react";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
 import { createContext, useCallback, useContext, useRef } from "react";
 
@@ -49,6 +49,13 @@ export function useSettled<T>(value: T | undefined): T | undefined {
 }
 
 // Stable between renders (like convex/react's), so effects can depend on them.
+
+/** A query asked once rather than watched (a menu's search as you type). */
+export function useQueryOnce<Q extends FunctionReference<"query">>(query: Q) {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	const client = useConvex();
+	return useCallback((...[args]: Rest<Q>): Promise<FunctionReturnType<Q>> => client.query(query, withWorkspace(args as Args, workspaceId)), [client, query, workspaceId]);
+}
 
 /**
  * `optimistic` makes the update that changes cached query results until the server's arrive; its args

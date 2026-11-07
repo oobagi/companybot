@@ -66,6 +66,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		lines.push(
 			"- To hand work to another agent, @mention it by name in your reply: it does it for the same person, in a thread. Only @mention an agent to hand it work; when you're just talking about one, write its name without @.",
 			"- With other agents, say what you need in one message. Don't post bare acknowledgements or thanks to them. When an agent handed you work, put the result in your reply; @mention that agent only if it needs the result to finish.",
+			"- `[@Summit Homes](record:<id>)` in a message is a tagged record: it points at that record, and \"a private record\" is one your person can't see. To tag one in your reply, write it the same way with the record's id (from a records tool or a message): people can open it from the chat, and the record lists your message. Only use ids you were given or got back; one that isn't reads as plain text.",
 		);
 		if (has("chat.ask_agent")) lines.push("- To ask another agent something without handing the work over, use chat_ask_agent. You get its answer later, in a new message; then finish the reply.");
 		if (has("chat.manage")) lines.push("- chat_manage can edit your person's own messages, delete them with approval, hide the link preview card on a message of theirs, or mark a chat read only when explicitly asked. Delivery never starts agents or automations.");
@@ -82,6 +83,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("records.views")) lines.push("- Shared sorting and filtering is in records_views.");
 		if (has("records.save_view")) lines.push("- Change shared views with records_save_view, from their current version, only when asked.");
 		if (has("records.find")) lines.push("- Find before you create, so there are no duplicates. If several records match, ask which one.");
+		lines.push("- When your reply is about particular records you found, made or changed, tag them (`[@Name](record:<id>)`) so people can open them.");
 		if (has("records.save") || has("records.save_field")) {
 			lines.push(
 				"- Changes run when permitted, logged as you acting for the person. Say in a sentence what you changed.",

@@ -11,7 +11,7 @@ Databases and their records: records (clients, deals, tasks, calls…), their fi
 - **Saved view** (`databaseViews`) — a named filter, sort, ordered columns and layout (table, or a board grouped by a choice field) shared with the workspace. Indexed by database (`by_type`); its lifecycle is `childOf: recordTypes`, so deleting a database in a cascade deletes its views. Removing a member keeps shared views.
 - **Page body** — every record has a page under its fields (notes, plans), created on first write. Same editor, history and agent tools as standalone pages: [Pages](pages.md).
 - **Follow-ups** (`wakeups` with `recordId`) — an agent checking back on a record later ([Architecture](architecture.md) → Wakeups). The record screen lists pending ones, cancellable; the agent gets the record's current values when it wakes. Deleting the record (or its database) forever cancels them; one in Archive holds them until it's restored.
-- **Mentions** (`recordMentions`) — a chat message that references a record (`messages.send` → `mentions.recordIds`). `records.discussion` lists the ones you can see.
+- **Mentions** (`recordMentions`) — a chat message that tags a record, like tagging a person: picked from the composer's @ menu, or written by an agent (`[@Name](record:<id>)`; [Chat → Record tags](chat.md#record-tags)). One row per record per message, kept in step on send, edit (`syncRecordMentions`) and delete. `records.discussion` lists the ones you can see; the record page shows them as **In chat · Tagged in N messages**.
 
 ## Money
 - **Every amount carries its own currency** (ISO 4217), like Stripe and HubSpot: `{ minor: 10000, currency: "USD" }`. `minor` is a whole number of the currency's smallest unit (ISO 4217 exponent, like Stripe): $100 is 10000, ¥100 is 100, KWD 1.250 is 1250. `minorDigits(code)` gives the decimals (0 for JPY, KRW, CLP…; 3 for KWD, BHD, OMR…; 2 otherwise); `formatMoney` shows an amount in them.
@@ -104,7 +104,8 @@ One place for archived content: records, databases, fields, pages, channels, age
 - `linked({ recordId, fieldId?, paginationOpts })` — records linking here ("deals for this client").
 - `search({ query, typeId? })` — title and text values, top 20, as list rows (values and names), so the app shows them in the same table.
 - `history({ recordId, paginationOpts })`, `activity({ paginationOpts })` — newest first, names resolved.
-- `discussion({ recordId })` — messages referencing it that you can see.
+- `discussion({ recordId })` — messages tagging it that you can see, newest first (50): `{ messageId, chatId, threadId, text, author, where, time }`, `text` with tags as you read them, `where` the channel (`#sales`), a side chat's title or "Direct message".
+- `mentionable({ query })` — records to tag in a message (the composer's @ menu): `searchRecords` across the databases you can see, top 6, `{ _id, title, typeKey, typeName }`.
 - `create({ typeId, values })` → id. `update({ recordId, values })`. `undo({ historyId })`. Delete and restore through `trash`.
 
 ## Sorting and filtering in the app
@@ -136,7 +137,8 @@ One place for archived content: records, databases, fields, pages, channels, age
 
 ## Not built yet
 - Automation triggers. Screens are built ([Product](product.md#crm-data-layer-and-screens-built)); code in `desktop/…/views/records/`.
-- A record's own discussion thread; today its discussion is the messages that reference it.
+- A record's own discussion thread; today its discussion is the messages that tag it.
+- Finding a message by a tagged record's name in chat search: the stored text holds only the id.
 - Counts per type (needs the Convex aggregate component; counting would scan).
 - Manual card order on boards, and grouping by person, link or several-option fields.
 - Per-database access by role; required fields; sorting that includes empty values; OR across filters.

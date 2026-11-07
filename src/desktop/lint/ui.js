@@ -51,6 +51,7 @@ const buttonClasses = new Set([
 	"versionRowButton",
 	"cardButton",
 	"linkButton",
+	"recordTagButton",
 	"titleButton",
 	"rowButton",
 	"listRowButton",

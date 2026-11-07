@@ -349,10 +349,6 @@ export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"reco
 }
 
 /** Notes which records a chat message references, so each record can list where it was discussed. */
-export async function noteMentions(ctx: MutationCtx, message: { _id: Id<"chatMessages">; chatId: Id<"chats"> }, recordIds: Id<"records">[]) {
-	for (const recordId of recordIds) await ctx.db.insert("recordMentions", { recordId, messageId: message._id, chatId: message.chatId });
-}
-
 /** The records among `ids` the person can see, deduped. Others are dropped, not trusted. */
 export async function workspaceRecords(ctx: QueryCtx, member: Member, ids: Id<"records">[]) {
 	const visible = typeVisible(ctx, member);

@@ -68,6 +68,7 @@ import type * as preferences from "../preferences.js";
 import type * as recordOps from "../recordOps.js";
 import type * as recordQuery from "../recordQuery.js";
 import type * as recordReads from "../recordReads.js";
+import type * as recordTags from "../recordTags.js";
 import type * as recordTools from "../recordTools.js";
 import type * as recordTypes from "../recordTypes.js";
 import type * as recordValidators from "../recordValidators.js";
@@ -153,6 +154,7 @@ declare const fullApi: ApiFromModules<{
   recordOps: typeof recordOps;
   recordQuery: typeof recordQuery;
   recordReads: typeof recordReads;
+  recordTags: typeof recordTags;
   recordTools: typeof recordTools;
   recordTypes: typeof recordTypes;
   recordValidators: typeof recordValidators;

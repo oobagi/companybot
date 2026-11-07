@@ -89,7 +89,7 @@ describe("agent turns", () => {
 		const replyId = turn!.replyId!;
 		const parts = [{ type: "text" as const, text: "Hello" }];
 		await t.mutation(internal.turns.updateReply, { turnId: turn!._id, text: "Hello", parts });
-		expect(await owner.query(api.messages.stream, { messageId: replyId })).toEqual({ text: "Hello", parts });
+		expect(await owner.query(api.messages.stream, { messageId: replyId })).toEqual({ text: "Hello", parts, records: [] });
 		expect((await messagesIn(owner, { chatId })).at(-1)).toMatchObject({ _id: replyId, author: { type: "agent", name: "Companybot" }, status: "streaming", text: "", parts: [] });
 		await t.mutation(internal.turns.finishReply, { turnId: turn!._id });
 		expect(await owner.query(api.messages.stream, { messageId: replyId })).toBeNull();
