@@ -604,6 +604,10 @@ export const sentBubbleClass = "bg-sent text-white";
 export const notePanelClass = "flex flex-col gap-1.5 rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
+/** A field without its own box, on a row of something that is the box (an email composer's To and Subject). */
+export const bareFieldClass = "min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-neutral-400";
+/** A picker without its own box, on such a row: just its value and arrows, shaded on hover. */
+export const bareSelectClass = "-ml-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-medium hover:bg-neutral-100";
 /** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
 export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */

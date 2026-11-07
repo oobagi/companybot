@@ -18,6 +18,8 @@ import {
 	Setting,
 	Settings,
 	TopBar,
+	bareFieldClass,
+	bareSelectClass,
 	barButton,
 	compactButton,
 	compactControlClass,
@@ -288,7 +290,7 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 	);
 }
 
-/** Starts a conversation from an agent's address or number. A person who starts one answers it; hand it back for the agent to. */
+/** Starts a conversation from an agent's address or number, laid out as an email: From, To, Subject, then the message. A person who starts one answers it; hand it back for the agent to. */
 function NewConversation({ onClose }: { onClose: () => void }) {
 	const agents = useQuery(api.agents.list);
 	const start = useMutation(api.inbox.start);
@@ -300,8 +302,13 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 	const { error, busy, run } = useRun();
 	const live = (agents ?? []).filter((a) => !a.archived);
 	const chosen = agentId ?? live[0]?._id;
+	const points = useQuery(api.contactPoints.forAgent, chosen ? { agentId: chosen as Id<"agents"> } : "skip");
+	const point = channel === "email" ? points?.email : points?.phone;
+	const from = point?.status === "active" ? (channel === "sms" ? formatPhone(point.address) : point.address) : null;
+	const row = "flex items-center gap-3 border-b border-neutral-100 px-4";
+	const rowLabel = "w-14 shrink-0 text-sm text-neutral-500";
 	return (
-		<Modal title="New conversation" onClose={onClose}>
+		<Modal title="New message" onClose={onClose}>
 			<Form
 				onSubmit={() =>
 					run(
@@ -310,31 +317,33 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 					)
 				}
 			>
-				<Settings>
-					<Setting label="From" hint="The agent whose address or number it comes from.">
-						<Select label="From" value={chosen} options={live.map((a) => ({ value: a._id as string, label: a.name }))} onChange={setAgentId} className={wideControlClass} />
-					</Setting>
-					<Setting label="By">
-						<Segmented label="By" value={channel} onChange={setChannel} options={[{ value: "email", label: "Email" }, { value: "sms", label: "Text" }]} />
-					</Setting>
-					<Setting label="To">
-						<input autoFocus aria-label="To" required value={to} onChange={(e) => setTo(e.target.value)} placeholder={channel === "email" ? "dana@acme.com" : "+1 555 123 4567"} className={wideControlClass} />
-					</Setting>
+				<div>
+					<Segmented label="Send by" value={channel} onChange={setChannel} options={[{ value: "email", label: "Email" }, { value: "sms", label: "Text" }]} />
+				</div>
+				<div className="flex flex-col overflow-hidden rounded-xl border border-neutral-200 focus-within:border-neutral-300">
+					<div className={`${row} py-1`}>
+						<span className={rowLabel}>From</span>
+						<Select label="From" value={chosen} options={live.map((a) => ({ value: a._id as string, label: a.name }))} onChange={setAgentId} className={bareSelectClass} />
+						<span className="min-w-0 truncate text-sm text-neutral-400">{from ?? (points ? `No ${channel === "email" ? "address" : "number"} yet: add one on its page` : "")}</span>
+					</div>
+					<label className={row}>
+						<span className={rowLabel}>To</span>
+						<input autoFocus aria-label="To" required value={to} onChange={(e) => setTo(e.target.value)} placeholder={channel === "email" ? "dana@acme.com" : "+1 555 123 4567"} className={bareFieldClass} />
+					</label>
 					{channel === "email" && (
-						<Setting label="Subject">
-							<input aria-label="Subject" required value={subject} onChange={(e) => setSubject(e.target.value)} className={wideControlClass} />
-						</Setting>
+						<label className={row}>
+							<span className={rowLabel}>Subject</span>
+							<input aria-label="Subject" required value={subject} onChange={(e) => setSubject(e.target.value)} className={bareFieldClass} />
+						</label>
 					)}
-					<Setting wide label="Message">
-						<textarea aria-label="Message" required rows={8} value={text} onChange={(e) => setText(e.target.value)} className={`${compactControlClass} w-full resize-y`} />
-					</Setting>
-				</Settings>
+					<textarea aria-label="Message" required rows={12} value={text} onChange={(e) => setText(e.target.value)} placeholder={channel === "email" ? "Write your email…" : "Write your text…"} className={`${bareFieldClass} resize-none px-4 py-3`} />
+				</div>
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
-						Cancel
+						Discard
 					</button>
-					<button type="submit" disabled={busy || !chosen || !to.trim() || !text.trim()} className={primaryButton}>
+					<button type="submit" disabled={busy || !chosen || !from || !to.trim() || !text.trim()} className={primaryButton}>
 						<PaperPlaneTiltIcon /> Send
 					</button>
 				</DialogButtons>
@@ -342,4 +351,3 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 		</Modal>
 	);
 }
-
