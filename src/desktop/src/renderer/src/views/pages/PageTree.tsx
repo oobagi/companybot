@@ -16,6 +16,7 @@ import { FileKindIcon } from "../drive/FileIcon";
 import { type DriveItem, type DriveMoves, useDriveMoves } from "../drive/move";
 import { foldersFirst, useFoldersFirst } from "../drive/order";
 import { type DriveUpload, useDriveUploads } from "../drive/upload";
+import { driveViews } from "../drive/Views";
 
 // Drive's sidebar: a Home row for the top level (lit when that's what's open), then "All files", a
 // section that folds, holding the tree of folders, pages and files (wiki/drive.md), then the sections
@@ -36,11 +37,11 @@ export type Movable = { kind: "page" | "folder" | "file"; _id: string; title: st
 
 const asItem = (from: Dragged) => from.data as DriveItem;
 
-export function DriveNav({ openId, openFileId, canEdit }: { openId: string | undefined; openFileId: string | undefined; canEdit: boolean }) {
+export function DriveNav({ openId, openFileId, openView, canEdit }: { openId: string | undefined; openFileId: string | undefined; openView: string | undefined; canEdit: boolean }) {
 	const workspace = useWorkspace();
-	return <DriveNavTree key={workspace?.id} openId={openId} openFileId={openFileId} canEdit={canEdit} />;
+	return <DriveNavTree key={workspace?.id} openId={openId} openFileId={openFileId} openView={openView} canEdit={canEdit} />;
 }
-function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFileId?: string; canEdit: boolean }) {
+function DriveNavTree({ openId, openFileId, openView, canEdit }: { openId?: string; openFileId?: string; openView?: string; canEdit: boolean }) {
 	const [expandedIds, changeExpanded] = useStoredIds("expanded");
 	const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
 	const [folded, changeFolded] = useStoredIds("folded");
@@ -131,13 +132,18 @@ function DriveNavTree({ openId, openFileId, canEdit }: { openId?: string; openFi
 	// Its header starts the top-level list, so a drop just under its title goes in while it's empty.
 	const allFiles = useDragStatic(group, { startOf: unsectionedList("drive") });
 	return (
-		// Home, then the section, spaced like Chat's channels and Direct messages (`SidebarList`).
+		// Home and the views, then the section, spaced like Chat's channels and Direct messages (`SidebarList`).
 		<div className="flex flex-col gap-4">
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
 			<div className="flex flex-col gap-px">
-				<Item drag={home.item("home")} over={home.onto("home")} icon={<HouseIcon />} label="Home" active={!openId && !openFileId} onClick={() => navigate("pages")}>
+				<Item drag={home.item("home")} over={home.onto("home")} icon={<HouseIcon />} label="Home" active={!openId && !openFileId && !openView} onClick={() => navigate("pages")}>
 					<span className="truncate">Home</span>
 				</Item>
+				{driveViews.map((v) => (
+					<Item key={v.id} icon={v.icon} label={v.label} active={openView === v.id} onClick={() => navigate("drive", v.id)}>
+						<span className="truncate">{v.label}</span>
+					</Item>
+				))}
 			</div>
 			<Group
 				title="All files"

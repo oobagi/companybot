@@ -33,6 +33,7 @@ import type { DragProps } from "./sortable";
 import { type SectionId, useSections, useUnsectioned } from "./sections";
 import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
+import { DriveView } from "./views/drive/Views";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
@@ -149,7 +150,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /drive/<view>, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -162,7 +163,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
 	// The rail's tab on screen. Customize's tabs (Agents, Connectors, Skills, Automations) keep their /settings/<tab> addresses; the rest of Settings lights none.
 	const tab: AppTab | undefined =
-		view === "chat" ? "chat" : view === "pages" || view === "files" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
+		view === "chat" ? "chat" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	const [newSection, setNewSection] = useState(false);
@@ -290,7 +291,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 											<DmsNav chats={chats} openId={openId} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} section={{ collapsed: folded.includes("dms"), onToggle: () => fold("dms") }} />
 										</>
 									)}
-									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
+									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} openView={view === "drive" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} />}
 									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</SidebarList>
@@ -318,6 +319,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
 						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
 						{view === "files" && <FileView fileId={route[1]} />}
+						{view === "drive" && <DriveView id={route[1]} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>
