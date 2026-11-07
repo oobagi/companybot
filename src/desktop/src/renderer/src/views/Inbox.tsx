@@ -339,7 +339,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 								<span className={`text-xl ${address ? "text-neutral-700" : "text-neutral-400"}`}>{kind === "email" ? <MailIcon /> : <TextMessageIcon />}</span>
 								<span className="flex min-w-0 flex-col">
 									<span className={`font-medium ${address ? "" : "text-neutral-500"}`}>{kind === "email" ? "Email" : "Text message"}</span>
-									<span className={`truncate text-xs ${address ? "text-neutral-500" : "text-link"}`}>{address ?? (points ? `Add ${kind === "email" ? "an address" : "a number"} →` : "")}</span>
+									<span className="truncate text-xs text-neutral-500">{address ?? (points ? `Set up ${kind === "email" ? "an address" : "a number"}` : "")}</span>
 								</span>
 							</button>
 						);
