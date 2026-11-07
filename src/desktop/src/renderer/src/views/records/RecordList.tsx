@@ -1,21 +1,21 @@
 import { useStoredIds } from "../../arrangements";
-import type { FieldKind } from "@companybot/core/records";
+import { type FieldKind, NAME_KEY } from "@companybot/core/records";
 import type { Access } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
 import { api } from "../../api";
-import { Checkbox, Select } from "../../controls";
+import { Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
-import { AddField } from "./fieldDialogs";
+import { AddField, EditField } from "./fieldDialogs";
 import { Chip, FieldIcon, RecordPicker, useOptions } from "./fields";
 import {
 	type Filter,
@@ -127,6 +127,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const [creating, setCreating] = useState(false);
 	// The field kind a new-field dialog starts on, while it's open.
 	const [addingField, setAddingField] = useState<FieldKind>();
+	const [editingField, setEditingField] = useState<TypeField>();
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
@@ -189,6 +190,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							fields={fields}
 							columns={columns}
 							onChange={setColumns}
+							onEditField={setEditingField}
 							onNewField={type.canManage ? () => setAddingField("text") : undefined}
 						/>}
 						{(selected || type.canSetDisplay) && layout === "board" && group && (
@@ -329,6 +331,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				</Modal>
 			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
+			{editingField && <EditField field={editingField} onClose={() => setEditingField(undefined)} />}
 			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => (setColumns([...columns, key]), preview === "board" && (setPreview(undefined), change({ layout: "board", groupBy: key })))} onClose={() => setAddingField(undefined)} />}
 		</Page>
 	);
@@ -633,12 +636,15 @@ function ColumnsPicker({
 	fields,
 	columns,
 	onChange,
+	onEditField,
 	onNewField,
 }: {
 	label: string;
 	fields: TypeField[];
 	columns: string[];
 	onChange: (keys: string[]) => void;
+	/** Opens a field's settings (rename, options, archive), for whoever may change them. */
+	onEditField: (field: TypeField) => void;
 	/** Opens the new-field dialog; the field is shown once made. */
 	onNewField?: () => void;
 }) {
@@ -650,20 +656,40 @@ function ColumnsPicker({
 				</>
 			}
 			className={toolButton}
-			panelClassName="flex w-56 flex-col gap-px p-1"
+			panelClassName="flex max-h-96 w-64 flex-col gap-px overflow-y-auto p-1"
 		>
 			{(close) => (
 				<>
-					{fields.map((f) => (
-						<label key={f.key} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100">
-							<Checkbox
-								disabled={f.key === "name"}
-								checked={columns.includes(f.key)}
-								onChange={(on) => onChange(on ? fields.map((g) => g.key).filter((k) => k === f.key || columns.includes(k)) : columns.filter((k) => k !== f.key))}
-							/>
-							{f.label}
-						</label>
-					))}
+					{fields.map((f) => {
+						const shown = columns.includes(f.key);
+						const name = (
+							<>
+								<FieldIcon kind={f.kind} />
+								<span className={`flex-1 truncate ${shown ? "" : "text-neutral-400"}`}>{f.label}</span>
+							</>
+						);
+						return (
+							// Notion's Properties menu: the name opens the field's settings, the eye shows or hides it here.
+							<div key={f.key} className="flex items-center gap-1">
+								{f.canEdit ? (
+									<MenuItem title="Edit field" onClick={() => (close(), onEditField(f))}>{name}</MenuItem>
+								) : (
+									<span className="flex flex-1 items-center gap-2 px-2 py-1.5">{name}</span>
+								)}
+								{f.key !== NAME_KEY && (
+									<button
+										type="button"
+										onClick={() => onChange(shown ? columns.filter((k) => k !== f.key) : fields.map((g) => g.key).filter((k) => k === f.key || columns.includes(k)))}
+										className={iconButton}
+										title={shown ? "Hide" : "Show"}
+										aria-label={`${shown ? "Hide" : "Show"} ${f.label}`}
+									>
+										{shown ? <ShowIcon /> : <HideIcon />}
+									</button>
+								)}
+							</div>
+						);
+					})}
 					{onNewField && (
 						<>
 							<MenuDivider />
