@@ -22,10 +22,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, smsProvider } from "./channelProviders";
-import { insertMessage } from "./chatOps";
+import { insertMessage, namer } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, checkPermission, getMember, liveWorkspace, memo, nameOf, personOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
-import { imageUrls } from "./images";
+import { type Member, type Who, checkPermission, getMember, liveWorkspace, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { typeVisible } from "./recordOps";
 
 // Inbox: conversations with people outside the workspace, by email and text. Each agent's address and
@@ -119,30 +118,21 @@ export const get = query({
 		const c = await ctx.db.get(id);
 		if (!c || c.workspaceId !== member.workspaceId || !can(member, "inbox.use")) return null;
 		const messages = (await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", id)).order("desc").take(READ_MAX)).reverse();
-		// Who wrote each one on our side, with their picture: looked up once each.
-		const urls = imageUrls(ctx);
-		const person = memo(async (userId: Id<"users">) => {
-			const p = await personOf(ctx, userId);
-			return { name: p.name, image: await urls(p.image), agent: false };
-		});
-		const agentOf = memo(async (agentId: Id<"agents">) => {
-			const a = await ctx.db.get(agentId);
-			return { name: a?.name ?? "Agent", image: await urls(a?.image), agent: true };
-		});
+		// People and agents as chat shows them (picture, and "for" when an agent acted for someone), so names open their card.
+		const names = namer(ctx, { images: true });
 		const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", kindOf(c.channel))).first();
 		return {
 			id: c._id,
 			agentId: c.agentId,
 			agentName: await agentName(ctx, c.agentId),
-			agentImage: (await agentOf(c.agentId)).image,
+			agent: await names.agent(c.agentId),
 			channel: c.channel,
 			contact: c.contact,
 			contactName: c.contactName ?? null,
 			subject: c.subject ?? null,
 			mode: c.mode,
-			takenByName: c.takenBy ? await nameOf(ctx, c.takenBy) : null,
-			/** Their picture, for who has it (Inbox's top bar). */
-			takenByImage: c.takenBy ? (await person(c.takenBy)).image : null,
+			/** Who has it, while staff do: a person, with their picture. */
+			takenBy: c.takenBy ? await names.user(c.takenBy) : null,
 			needsStaff: c.needsStaff ?? null,
 			replying: !!c.replyingSince && Date.now() - c.replyingSince < REPLY_STALE_MS,
 			/** The agent's address or number it goes from; null once removed (replies can't go out). */
@@ -150,7 +140,7 @@ export const get = query({
 			record: await recordShown(ctx, member, c.recordId),
 			messages: await Promise.all(
 				messages.map(async (m) => {
-					const author = m.authorAgentId ? await agentOf(m.authorAgentId) : m.authorUserId ? await person(m.authorUserId) : null;
+					const author = m.authorAgentId || m.authorUserId ? await names.of({ authorAgentId: m.authorAgentId, authorUserId: m.authorAgentId ? undefined : m.authorUserId, actingFor: m.authorAgentId ? m.authorUserId : undefined }) : null;
 					return {
 						id: m._id,
 						at: m._creationTime,
@@ -158,10 +148,8 @@ export const get = query({
 						status: m.status,
 						text: m.text,
 						error: m.error ?? null,
-						/** Who wrote it on our side (the agent, or someone on staff); null for theirs. */
+						/** Who wrote it on our side (someone on staff, or the agent, `for` the person it acted for); null for theirs. */
 						author,
-						/** The person an agent wrote it for (working Inbox for them), if any. */
-						for: m.authorUserId && m.authorAgentId ? (await person(m.authorUserId)).name : null,
 					};
 				}),
 			),

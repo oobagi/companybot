@@ -6,7 +6,7 @@ import { Fragment, useState } from "react";
 import { api } from "../api";
 import { Segmented, Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { ArrowUpIcon, MailIcon, InboxIcon, PaperPlaneTiltIcon, RecordIcon, TakeOverIcon, TextMessageIcon, TrashIcon } from "../icons";
+import { ArrowUpIcon, CaretRightIcon, MailIcon, InboxIcon, PaperPlaneTiltIcon, RecordIcon, TakeOverIcon, TextMessageIcon, TrashIcon } from "../icons";
 import { navigate } from "../router";
 import {
 	EmptyState,
@@ -20,25 +20,26 @@ import {
 	TopBar,
 	bareFieldClass,
 	bareSelectClass,
-	barButton,
 	choiceCardButton,
 	compactButton,
 	compactControlClass,
 	compactPrimaryButton,
 	descriptionClass,
 	linkButton,
-	metadataClass,
 	primaryButton,
 	secondaryButton,
 	sendButton,
 	sentBubbleClass,
 	timeAgo,
+	titleButton,
 	useRun,
 	wideControlClass,
 } from "../ui";
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, Modal, clock, dayLabel } from "./chat/common";
 import { AddButton, Item } from "./chat/Sidebar";
+import { ProfileLink } from "./chat/Profile";
+import type { Participant } from "./chat/data";
 
 // Inbox: conversations with people outside the workspace, by email and text (backend inbox.ts). The
 // sidebar lists them, the latest first; one opens here with what was said, the agent's replies waiting
@@ -105,9 +106,6 @@ export function InboxView({ access, conversationId }: { access: Access; conversa
 
 function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 	const c = useQuery(api.inbox.get, { id });
-	const takeOver = useMutation(api.inbox.takeOver);
-	const handBack = useMutation(api.inbox.handBack);
-	const { error, run } = useRun();
 	if (c === undefined) return <Scroll header={<TopBar title="" />}><Loading /></Scroll>;
 	if (c === null)
 		return (
@@ -115,40 +113,22 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 				<EmptyState icon={<InboxIcon />} title="Conversation not found">It may have been deleted with its agent.</EmptyState>
 			</Scroll>
 		);
-	const who = c.mode === "agent" ? `${c.agentName} answers` : c.takenByName ? `${c.takenByName} took it over` : "Staff answer";
-	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
-	const them = { name: contactLabel(c), image: null, agent: false };
+	const them = contactLabel(c);
 	return (
 		<Scroll
 			overlayScrollbar
 			header={
-				<TopBar title={<span className="truncate">{contactLabel(c)}</span>} description={`${c.contactName ? `${address} · ` : ""}${c.channel === "email" ? "Email" : "Text"}`}>
-					<span title={who} className="flex h-7 items-center gap-1.5 rounded-full border border-neutral-200 pr-2.5 pl-1 text-sm text-neutral-600">
-						{c.mode === "agent" ? <Avatar name={c.agentName} image={c.agentImage} agent size="xs" /> : <Avatar name={c.takenByName ?? "Staff"} image={c.takenByImage} size="xs" />}
-						{c.mode === "agent" ? `${c.agentName} is answering` : c.takenByName ? `${c.takenByName} is answering` : "Staff answer"}
-					</span>
-					{c.mode === "agent" ? (
-						<button type="button" className={barButton} onClick={() => run(takeOver({ id }))}>
-							<TakeOverIcon /> Take over
-						</button>
-					) : (
-						<button type="button" className={barButton} onClick={() => run(handBack({ id }))}>
-							<TakeOverIcon /> Hand back to {c.agentName}
-						</button>
-					)}
-				</TopBar>
+				<>
+					<TopBar title={<span className="truncate">{them}</span>} description={c.channel === "email" ? "Email" : "Text"} />
+					{/* Floats under the top bar, staying put while the messages scroll. */}
+					<div className="relative">
+						<Details conversation={c} />
+					</div>
+				</>
 			}
 			footer={<ReplyBox conversation={c} />}
 		>
 			<div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 py-4">
-				<Notice>{error}</Notice>
-				{c.record && (
-					<div className="flex justify-center pb-2">
-						<button type="button" className={`inline-flex items-center gap-1.5 text-xs ${linkButton}`} onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))}>
-							<RecordIcon /> {c.record.title}
-						</button>
-					</div>
-				)}
 				{c.messages.map((m, i) => {
 					const prev = c.messages[i - 1];
 					// A new group: the first, after a quiet stretch, or someone else talking.
@@ -158,11 +138,7 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 					return (
 						<Fragment key={m.id}>
 							{stamp && <p className="pt-6 pb-3 text-center text-xs text-neutral-400">{dayLabel(m.at)}, {clock(m.at)}</p>}
-							{m.status === "draft" ? (
-								<Draft message={m} channel={c.channel} agent={{ name: c.agentName, image: c.agentImage, agent: true }} />
-							) : (
-								<MessageItem message={m} them={them} channel={c.channel} subject={c.subject} named={named} last={last} />
-							)}
+							{m.status === "draft" ? <Draft message={m} channel={c.channel} agent={c.agent} /> : <MessageItem message={m} them={them} channel={c.channel} subject={c.subject} named={named} last={last} />}
 						</Fragment>
 					);
 				})}
@@ -173,21 +149,95 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 	);
 }
 
-type Message = Opened["messages"][number];
+/**
+ * Who this is with and who's handling it, in a small card at the top right (like Getting started):
+ * the customer, their address and record; then who it's assigned to, with Take over or Hand back.
+ * Its title folds it away (kept per computer).
+ */
+function Details({ conversation: c }: { conversation: Opened }) {
+	const takeOver = useMutation(api.inbox.takeOver);
+	const handBack = useMutation(api.inbox.handBack);
+	const { error, busy, run } = useRun();
+	const [folded, setFolded] = useState(() => localStorage.getItem("inbox.details.folded") === "true");
+	const fold = (next: boolean) => (setFolded(next), localStorage.setItem("inbox.details.folded", String(next)));
+	const them = contactLabel(c);
+	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
+	const assignee = c.mode === "agent" ? c.agent : c.takenBy;
+	return (
+		<section aria-label="Details" className="absolute top-1 right-3 flex w-72 flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-sm shadow-sm">
+			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className={`${titleButton} group/fold -m-1 flex items-center gap-2 rounded-lg p-1`}>
+				<Avatar name={them} size="sm" />
+				<span className="min-w-0 flex-1 truncate text-left font-medium">{them}</span>
+				<CaretRightIcon className={`shrink-0 text-neutral-400 transition-transform group-hover/fold:text-neutral-700 ${folded ? "" : "rotate-90"}`} />
+			</button>
+			{!folded && (
+				<>
+					<div className="flex flex-col gap-1.5 text-neutral-600">
+						<p className="flex min-w-0 items-center gap-2">
+							<ChannelIcon channel={c.channel} />
+							<span className="truncate select-text">{address}</span>
+						</p>
+						{c.record && (
+							<button type="button" className={`flex min-w-0 items-center gap-2 ${linkButton}`} onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))}>
+								<RecordIcon /> <span className="truncate">{c.record.title}</span>
+							</button>
+						)}
+					</div>
+					<div className="flex flex-col gap-1.5 border-t border-neutral-100 pt-3">
+						<p className="text-xs font-medium text-neutral-500">Assigned to</p>
+						<div className="flex items-center gap-2">
+							{assignee ? (
+								<ProfileLink who={assignee} className="flex min-w-0 flex-1 items-center gap-2 rounded-md">
+									<Avatar name={assignee.name} image={assignee.image} agent={assignee.type === "agent"} size="sm" />
+									<span className="truncate hover:underline">{assignee.name}</span>
+								</ProfileLink>
+							) : (
+								<span className="min-w-0 flex-1 truncate text-neutral-600">Staff</span>
+							)}
+							{c.mode === "agent" ? (
+								<button type="button" disabled={busy} className={compactButton} onClick={() => run(takeOver({ id: c.id }))}>
+									<TakeOverIcon /> Take over
+								</button>
+							) : (
+								<button type="button" disabled={busy} title={`Hand back to ${c.agentName}`} className={compactButton} onClick={() => run(handBack({ id: c.id }))}>
+									<TakeOverIcon /> Hand back
+								</button>
+							)}
+						</div>
+						<Notice>{error}</Notice>
+					</div>
+				</>
+			)}
+		</section>
+	);
+}
 
-type Author = { name: string; image: string | null; agent: boolean };
+type Message = Opened["messages"][number];
 
 /** Messages this close together sit in one group under one time. */
 const GROUP_GAP_MS = 15 * 60_000;
 const sideOf = (m: Message) => (m.direction === "in" ? "them" : "us");
 
-/** Who wrote it, with their picture: on our side, the name then the picture; on theirs, the other way round. */
-function Sender({ author, mine }: { author: Author; mine: boolean }) {
+/**
+ * Who wrote it, with their picture: on our side, the name then the picture; on theirs, the other way
+ * round. Our people and agents open their card; `them` is the customer, by name only.
+ */
+function Sender({ author, them, mine }: { author: Participant | null; them?: string; mine: boolean }) {
+	const line = `flex items-center gap-2 text-sm text-neutral-600 ${mine ? "flex-row-reverse" : ""}`;
+	if (!author)
+		return (
+			<p className={`${line} pb-1.5`}>
+				<Avatar name={them ?? "Them"} size="sm" />
+				<span>{them}</span>
+			</p>
+		);
 	return (
-		<p className={`flex items-center gap-2 pb-1.5 text-sm text-neutral-600 ${mine ? "flex-row-reverse" : ""}`}>
-			<Avatar name={author.name} image={author.image} agent={author.agent} size="sm" />
-			<span>{author.name}</span>
-		</p>
+		<div className="pb-1.5">
+			<ProfileLink who={author} className={`${line} rounded-md`}>
+				<Avatar name={author.name} image={author.image} agent={author.type === "agent"} size="sm" />
+				<span className="hover:underline">{author.name}</span>
+			</ProfileLink>
+		</div>
 	);
 }
 
@@ -195,8 +245,7 @@ function Sender({ author, mine }: { author: Author; mine: boolean }) {
  * One message, as a text app shows it: ours on the right, theirs on the left, the sender's name and
  * picture over the first of a run. Texts are bubbles (ours blue); emails are cards with their subject.
  */
-function MessageItem({ message: m, them, channel, subject, named, last }: { message: Message; them: Author; channel: "email" | "sms"; subject: string | null; named: boolean; last: boolean }) {
-	const author = m.author ?? them;
+function MessageItem({ message: m, them, channel, subject, named, last }: { message: Message; them: string; channel: "email" | "sms"; subject: string | null; named: boolean; last: boolean }) {
 	const note = m.direction === "note";
 	const mine = m.direction !== "in";
 	const failed = m.status === "failed";
@@ -218,13 +267,18 @@ function MessageItem({ message: m, them, channel, subject, named, last }: { mess
 		) : (
 			<div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap select-text ${mine ? sentBubbleClass : "bg-neutral-100 text-neutral-900"}`}>{m.text}</div>
 		);
+	const forWho = m.author?.for;
 	return (
 		<div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${named ? "" : "pt-1.5"}`}>
-			{named && <Sender author={author} mine={mine} />}
+			{named && <Sender author={m.author} them={them} mine={mine} />}
 			{body}
-			{(failed || m.status === "sending" || (last && m.for)) && (
-				<p className={`pt-1 text-xs ${failed ? "text-red-600" : "text-neutral-400"}`}>
-					{failed ? `Didn't send: ${m.error ?? "unknown error"}` : m.status === "sending" ? "Sending…" : `For ${m.for}`}
+			{(failed || m.status === "sending") && <p className={`pt-1 text-xs ${failed ? "text-red-600" : "text-neutral-400"}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
+			{!failed && m.status !== "sending" && last && forWho && (
+				<p className="pt-1 text-xs text-neutral-400">
+					For{" "}
+					<ProfileLink who={forWho} className="hover:underline">
+						{forWho.name}
+					</ProfileLink>
 				</p>
 			)}
 		</div>
@@ -232,14 +286,14 @@ function MessageItem({ message: m, them, channel, subject, named, last }: { mess
 }
 
 /** The agent's reply, waiting because Public can't reply on its own: staff edit it, send it, or discard it. */
-function Draft({ message: m, channel, agent }: { message: Message; channel: "email" | "sms"; agent: Author }) {
+function Draft({ message: m, channel, agent }: { message: Message; channel: "email" | "sms"; agent: Participant | null }) {
 	const send = useMutation(api.inbox.sendDraft);
 	const discard = useMutation(api.inbox.discardDraft);
 	const [text, setText] = useState(m.text);
 	const { error, busy, run } = useRun();
 	return (
 		<div className="flex flex-col items-end">
-			<Sender author={agent} mine />
+			<Sender author={agent} them="Agent" mine />
 			<div className="flex w-[85%] flex-col gap-2 rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-3">
 				<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
 				<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className="w-full resize-none bg-transparent text-sm outline-none" />
