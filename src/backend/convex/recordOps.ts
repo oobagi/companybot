@@ -7,6 +7,7 @@ import {
 	NAME_KEY,
 	RECORD_MAX_BYTES,
 	type ValueMode,
+	convertValue,
 	fieldConfigError,
 	indexEntries,
 	keyOf,
@@ -25,6 +26,7 @@ import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, n
 import { reach, requireAccess } from "./placeAccess";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
+import { asField, undoFieldChange } from "./fieldChanges";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
@@ -163,6 +165,7 @@ async function normalizeInput(
 	for (const [key, raw] of Object.entries(input)) {
 		const field = byKey.get(key);
 		if (!field || field.archived) throw new ConvexError(`There's no field “${key}”.`);
+		if (field.change) throw new ConvexError(`“${field.label}” is changing kind. Try again when it's done.`);
 		const result = normalizeValue(toField(field), raw, mode, currency);
 		if ("error" in result) throw new ConvexError(result.error);
 		const ids = result.value === null ? [] : [result.value].flat().map(String);
@@ -186,7 +189,7 @@ async function normalizeInput(
 }
 
 /** Rewrites the index rows (recordValues) of `keys`, or of every field. */
-async function writeIndex(ctx: MutationCtx, record: Doc<"records">, fields: Doc<"recordFields">[], keys?: Set<string>) {
+export async function writeIndex(ctx: MutationCtx, record: Doc<"records">, fields: Doc<"recordFields">[], keys?: Set<string>) {
 	for (const field of fields) {
 		if (keys && !keys.has(field.key)) continue;
 		const old = await ctx.db
@@ -318,8 +321,10 @@ export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<
  * other write: no fields in Archive, retired options, or link targets in Archive.
  */
 export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"recordHistory">) {
-	checkPermission(who.member, "records.edit");
 	const entry = await ctx.db.get(historyId);
+	// A change to a field's kind takes the field's permission (fieldChanges.ts), not the records'.
+	if (entry?.workspaceId === who.member.workspaceId && entry.fieldId && !entry.recordId) return (await undoFieldChange(ctx, who, historyId)).historyId;
+	checkPermission(who.member, "records.edit");
 	if (!entry || entry.workspaceId !== who.member.workspaceId || !entry.recordId) throw new ConvexError("Change not found.");
 	if (entry.undoneBy) throw new ConvexError("That change was already undone.");
 	const record = await requireRecord(ctx, who.member, entry.recordId, "edit");
@@ -393,7 +398,7 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 	return (await ctx.db.get(id))!;
 }
 
-async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
+export async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
 	const field = requireInWorkspace(member, await ctx.db.get(fieldId), "Field");
 	await requireType(ctx, member, field.typeId, "edit");
 	checkPermission(member, "fields.edit");
@@ -413,6 +418,7 @@ export async function updateField(
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
 	if (field.archived) throw new ConvexError("This field is in Archive. Restore it to make changes.");
+	if (field.change) throw new ConvexError(`“${field.label}” is still changing. Try again when it's done.`);
 	if (update.label !== undefined || update.options !== undefined) await writeSources(ctx, who.member, field.typeId);
 	let options = field.options;
 	if (update.options) {
@@ -460,6 +466,7 @@ export async function setFieldTrashed(ctx: MutationCtx, who: Who, fieldId: Id<"r
 		: requireInWorkspace(who.member, await ctx.db.get(fieldId), "Field");
 	if (field.key === NAME_KEY) throw new ConvexError("Every record needs a name, so this field stays.");
 	if (field.archived === archived) return;
+	if (field.change) throw new ConvexError(`“${field.label}” is still changing. Try again when it's done.`);
 	if (!archived) {
 		await requireType(ctx, who.member, field.typeId, "edit");
 		requireUniqueLabel(await fieldsOf(ctx, field.typeId), field.label, fieldId);
@@ -607,8 +614,36 @@ export async function resolveRefs(ctx: QueryCtx, member: Member, ids: Iterable<s
 	return { refs, unresolved };
 }
 
+/**
+ * A record's values as its fields read now. While a field's kind is changing (fieldChanges.ts), records the
+ * change hasn't reached yet are converted here by the same rules, without lookups: a value that needs one
+ * (a teammate or record by name, a name for text) reads as empty until the change gets to it. So every app,
+ * older ones too, gets values that fit the field's kind.
+ * COMPAT(0.1.0-alpha.10): released apps render each cell by the field's kind (an amount cell given text throws),
+ * so they must never see a value in the old shape.
+ */
+export async function shownValues(ctx: QueryCtx, record: Doc<"records">, fields: Doc<"recordFields">[], jobs: (id: Id<"fieldChanges">) => Promise<Doc<"fieldChanges"> | null>) {
+	let values = record.values;
+	for (const field of fields) {
+		if (!field.change || values[field.key] === undefined) continue;
+		const job = await jobs(field.change);
+		if (!job || record._creationTime <= job.doneThrough) continue;
+		const options = field.options?.filter((o) => !o.retired) ?? [];
+		const result = convertValue(asField(field, job.from), toField(field), values[field.key]!, {
+			currency: await currencyOf(ctx, record.workspaceId),
+			option: (label) => options.find((o) => o.label.toLowerCase() === label.toLowerCase())?.id ?? null,
+		});
+		values = { ...values };
+		if ("unknown" in result || result.value === null) delete values[field.key];
+		else values[field.key] = result.value;
+	}
+	return values;
+}
+
 /** Records, display-ready, with the names their values point at resolved once for all of them. */
-export async function toRows(ctx: QueryCtx, member: Member, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[]) {
+export async function toRows(ctx: QueryCtx, member: Member, rawItems: { record: Doc<"records">; fields: Doc<"recordFields">[] }[]) {
+	const jobs = memo((id: Id<"fieldChanges">) => ctx.db.get(id));
+	const items = await Promise.all(rawItems.map(async ({ record, fields }) => ({ record: { ...record, values: await shownValues(ctx, record, fields, jobs) }, fields })));
 	const idsOf = items.map(({ record, fields }) => idsIn(fields, record.values));
 	const { refs, unresolved } = await resolveRefs(ctx, member, idsOf.flat());
 	const missing = new Set(unresolved);

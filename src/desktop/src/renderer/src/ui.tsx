@@ -570,6 +570,8 @@ export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */
 export const hintClass = "text-sm text-neutral-400";
+/** A quiet panel of facts in a form, like what a change will do before it's confirmed. */
+export const notePanelClass = "flex flex-col gap-1.5 rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
 /** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */

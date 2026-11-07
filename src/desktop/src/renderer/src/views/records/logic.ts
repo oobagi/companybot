@@ -1,11 +1,12 @@
 import type { Field, FieldKind, FieldValue, Money } from "@companybot/core/records";
 import { formatDate, formatMoney, minorToDecimal } from "@companybot/core/records";
+import { moneyOf, parseDay, parseNumber } from "@companybot/core/field-change";
 
 // Pure rules for the record screens: columns, filters, sorting and how values read.
 // Shared by every database, built-in or added later. See wiki/data.md.
 
 /** A field as the app gets it from `recordTypes.list` (key, kind, options…), plus its id. */
-export type TypeField = Field & { _id: string; archived?: boolean; canEdit?: boolean };
+export type TypeField = Field & { _id: string; archived?: boolean; canEdit?: boolean; /** Its kind is changing: values are converting, so they can't be edited. */ changing?: true };
 /** Names for user and record ids in a row's values. */
 /** `locked`: a record in a database you can't see; its name isn't sent (backend `resolveRefs`). */
 export type Refs = Record<string, { name: string; archived?: true; locked?: true }>;
@@ -14,19 +15,7 @@ export type Refs = Record<string, { name: string; archived?: true; locked?: true
 /** The route of a type's list, or of one record. */
 export const recordPath = (typeKey: string, recordId?: string) => ["records", typeKey, ...(recordId ? [recordId] : [])];
 
-export const kindLabels: Record<FieldKind, string> = {
-	text: "Text",
-	number: "Number",
-	currency: "Amount",
-	date: "Date",
-	checkbox: "Checkbox",
-	choice: "Choice",
-	email: "Email",
-	phone: "Phone",
-	url: "Website",
-	user: "Person",
-	link: "Link to a record",
-};
+export { kindLabels } from "@companybot/core/records";
 
 /** Name, then the next few live fields. */
 export const defaultColumns = (fields: TypeField[], count = 4) =>
@@ -86,6 +75,23 @@ export function toCondition({ field, op, value }: Filter): Record<string, unknow
 	const text = Array.isArray(value) ? "" : value.trim();
 	if (!text) return null;
 	return { field, [op === "is" ? "eq" : op]: text };
+}
+
+/**
+ * Whether a filter still fits its field. One made before the field's kind changed may not ("is abc"
+ * on what's now a number); lists drop it rather than fail.
+ */
+export function filterFits(filter: Filter, field: Field) {
+	if (!opsFor(field).includes(filter.op)) return false;
+	if (filter.op === "anyOf") return Array.isArray(filter.value) && (field.kind !== "choice" || filter.value.every((v) => field.options?.some((o) => o.id === v)));
+	if (!needsValue(filter.op)) return true;
+	if (Array.isArray(filter.value)) return false;
+	const text = filter.value.trim();
+	if (!text) return true;
+	if (field.kind === "number") return parseNumber(text) !== null;
+	if (field.kind === "currency") return moneyOf(text, "USD") !== null;
+	if (field.kind === "date") return parseDay(text) !== null;
+	return true;
 }
 
 /** Saved conditions back into the existing filter controls; ranges may have two bounds. */
