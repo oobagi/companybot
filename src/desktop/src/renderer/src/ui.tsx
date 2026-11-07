@@ -692,10 +692,14 @@ export function RenameInput({ value, onSave, onDone, className = "" }: { value: 
 }
 
 /** Shows a query's error in place of what failed, plainly. Remount (new `key`) to try again. */
-export class ErrorBoundary extends Component<{ children: React.ReactNode }, { error?: unknown }> {
+/** Shows a render error as a notice. A new `resetKey` (the query that failed changed) tries again, without remounting. */
+export class ErrorBoundary extends Component<{ children: React.ReactNode; resetKey?: string }, { error?: unknown }> {
 	state: { error?: unknown } = {};
 	static getDerivedStateFromError(error: unknown) {
 		return { error };
+	}
+	componentDidUpdate(before: { resetKey?: string }) {
+		if (before.resetKey !== this.props.resetKey && this.state.error !== undefined) this.setState({ error: undefined });
 	}
 	render() {
 		return this.state.error !== undefined ? <Notice>{errorMessage(this.state.error)}</Notice> : this.props.children;

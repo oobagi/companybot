@@ -2,7 +2,7 @@ import { CountBadge, railButton } from "../ui";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { OptimisticUpdate } from "convex/browser";
-import { useMutation, useQuery, useWorkspace } from "../convex";
+import { useMutation, useQuery, useSettled, useWorkspace } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, DriveIcon, HideIcon, HomeIcon, InboxIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, ShowIcon, SitesIcon, UnpinIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { type PinKey, RECENT_SHOWN, pathOf, setRailVia, splitPin, usePins, useRailVia } from "../pins";
@@ -44,7 +44,8 @@ function useEntries(keys: PinKey[]) {
 	const pages = useQuery(api.pages.list);
 	const types = useTypes();
 	const recordIds = keys.flatMap((k) => (k.startsWith("rec:") ? [splitPin(k)[1]] : []));
-	const records = useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip");
+	// Opening a record adds it to recents, which changes this query: keep the last titles meanwhile, or the rail blinks.
+	const records = useSettled(useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip"));
 	const ready = !!chats && !!pages && !!types && (!recordIds.length || !!records);
 	const resolve = (key: PinKey): Entry | undefined => {
 		const [kind, id] = splitPin(key);

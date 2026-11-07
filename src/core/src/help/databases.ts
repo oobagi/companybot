@@ -15,7 +15,7 @@ Each database has its own entry in Databases' sidebar (Databases in the rail); i
 - **Who can access**: each database's settings has a Who can access list (Everyone, or chosen roles, at View or Edit). Its records and their pages follow it. People not on it don't see the database at all, and links to its records show as locked chips. See **help: permissions**.
 
 ## Using a database
-- **List**: pick columns, click a header to sort, and filter by any field. Search by name and text.
+- **List**: click a name to open the record; other cells edit in place. Columns picks, hides and edits fields. Click a header to sort (the sort shows as a chip to flip or remove), and Filter adds a chip per condition. Search by name and text.
 - **Saved views**: save a filter, sort and columns (or a board) to share with the workspace. View tab order and the All tab's columns and layout are also shared. Only people whose role can rearrange shared sidebar lists can change these, and the All tab's layout also takes Edit in the database.
 - **Board**: cards grouped by a choice field. A database without one can't be shown as a board; add a choice field first.
 - **Record page**: edit fields in place. Below: pending follow-ups agents set about it (see **help: automations**), linked records, chat messages that mention it, and the record's page for longer notes (see **help: pages**).

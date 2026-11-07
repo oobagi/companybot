@@ -1,5 +1,5 @@
 import { useStoredIds } from "../../arrangements";
-import { type FieldKind, NAME_KEY } from "@companybot/core/records";
+import { type FieldKind, type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { Access } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
@@ -16,7 +16,7 @@ import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
 import { AddField, EditField } from "./fieldDialogs";
-import { Chip, FieldIcon, RecordPicker, useOptions } from "./fields";
+import { Chip, FieldIcon, RecordPicker, ValueEditor, ValueView, useOptions } from "./fields";
 import {
 	type Filter,
 	type Refs,
@@ -294,7 +294,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			) : (
 				<>
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
-					<ErrorBoundary key={JSON.stringify([args, layout, group?.key])}>
+					<ErrorBoundary resetKey={JSON.stringify([args, layout, group?.key])}>
 						<RecordResults
 							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
@@ -361,7 +361,7 @@ function RecordResults({
 	canEdit: boolean;
 	noGroup: React.ReactNode;
 }) {
-	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
+	const { rows, refs, status, stale, loadMore, setEnd } = usePagedRows(args);
 
 	const header = (key: string, label: string, canSort: boolean, kind?: FieldKind) => {
 		const on = sort?.field === key;
@@ -396,6 +396,7 @@ function RecordResults({
 				rows={rows}
 				refs={refs}
 				columns={columns}
+				stale={stale}
 				head={[
 					...columns.map((f) => header(f.key, f.label, sortable(f), f.kind)),
 					header("updatedAt", "Updated", true),
@@ -408,27 +409,33 @@ function RecordResults({
 	);
 }
 
-function RowsTable({ type, rows, refs, columns, head }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[] }) {
+function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[]; stale?: boolean }) {
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
 		<div className="bleed">
-			<div className="w-max min-w-full overflow-hidden rounded-xl border border-neutral-200">
+			{/* Dimmed while a new sort or filter loads, instead of flashing empty. */}
+			<div className={`w-max min-w-full overflow-hidden rounded-xl border border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
 				<table className="w-full text-sm">
 					<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
 						<tr>{head}</tr>
 					</thead>
 					<tbody>
 						{rows.map((r) => (
-							<tr
-								key={r._id}
-								onClick={() => navigate(...recordPath(type.key, r._id))}
-								className="cursor-default border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
-							>
-								{columns.map((f, i) => (
-									<td key={f.key} className={`max-w-64 truncate px-3 py-2 ${i === 0 ? "font-medium" : "text-neutral-700"}`}>
-										{valueText(f, r.values[f.key], refs)}
-									</td>
-								))}
+							<tr key={r._id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50/60">
+								{columns.map((f) =>
+									f.key === NAME_KEY ? (
+										// The name opens the record; every other cell edits in place, like Notion's.
+										<td key={f.key} className="max-w-64 px-3 py-2 font-medium">
+											<button type="button" onClick={() => navigate(...recordPath(type.key, r._id))} className={`${titleButton} max-w-full truncate hover:underline`}>
+												{valueText(f, r.values[f.key], refs) || "Untitled"}
+											</button>
+										</td>
+									) : (
+										<td key={f.key} className="max-w-72 min-w-32 px-1 py-0.5 align-middle text-neutral-700">
+											<Cell row={r} field={f} refs={refs} editable={type.canEdit} />
+										</td>
+									),
+								)}
 								<td className="px-3 py-2 whitespace-nowrap text-neutral-400">{timeAgo(r.updatedAt)}</td>
 							</tr>
 						))}
@@ -436,6 +443,20 @@ function RowsTable({ type, rows, refs, columns, head }: { type: RecordType; rows
 				</table>
 			</div>
 		</div>
+	);
+}
+
+/** One value in the table: the record page's editor when you may change it, else the value. */
+function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs: Refs; editable: boolean }) {
+	const update = useMutation(api.records.update);
+	const { error, run } = useRun();
+	const value = row.values[field.key] as FieldValue | undefined;
+	if (!editable) return <span className="block truncate px-2 py-1"><ValueView field={field} value={value} refs={refs} /></span>;
+	return (
+		<span className="block" title={error}>
+			<ValueEditor field={field} value={value} refs={refs} onSave={(next) => run(update({ recordId: row._id, values: { [field.key]: next } }))} />
+			{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
+		</span>
 	);
 }
 
