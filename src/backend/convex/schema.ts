@@ -422,6 +422,8 @@ export default defineSchema({
 		providerId: v.optional(v.string()),
 		/** Email Message-ID, for threading replies (In-Reply-To, References). */
 		messageId: v.optional(v.string()),
+		/** An `in` email that failed its sender check (core `senderVerified`): its From may be forged, so it changes none of their records. */
+		unverified: v.optional(v.literal(true)),
 		error: v.optional(v.string()),
 	})
 		.index("by_conversation", ["conversationId"])

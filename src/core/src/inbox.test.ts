@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAutomated, newPart, normalizePhone, parseAddress, phoneKeys, publicTurnPrompt, replySubject, verifySvix, verifyTwilio } from "./inbox";
+import { isAutomated, newPart, normalizePhone, parseAddress, phoneKeys, publicTurnPrompt, replySubject, senderVerified, verifySvix, verifyTwilio } from "./inbox";
 import { flipAbility, publicSwitches } from "./public-role";
 import { NOTHING_SHARED, type PublicActs, publicTools } from "./public-tools";
 
@@ -65,6 +65,23 @@ describe("email text", () => {
 		expect(isAutomated({ Precedence: "bulk" })).toBe(true);
 		expect(isAutomated({ "List-Unsubscribe": "<mailto:u@x.com>" })).toBe(true);
 		expect(isAutomated({ Subject: "Hi" })).toBe(false);
+	});
+
+	it("trusts only the receiving server's own sender check", () => {
+		// As Resend gave a real Gmail reply.
+		const gmail = "amazonses.com; spf=pass (spfCheck: domain of _spf.google.com designates 74.125.229.4 as permitted sender) client-ip=74.125.229.4; envelope-from=dana@gmail.com; helo=mail-dy2-f4.google.com; dkim=pass header.i=@gmail.com; dmarc=pass header.from=gmail.com;";
+		expect(senderVerified({ "authentication-results": gmail }, "Dana@Gmail.com")).toBe(true);
+		expect(senderVerified({ "authentication-results": gmail }, "dana@acme.com")).toBe(false);
+		// No DMARC record, but signed by its own domain.
+		expect(senderVerified({ "Authentication-Results": "amazonses.com; spf=none; dkim=pass header.d=acme.com; dmarc=none header.from=acme.com" }, "dana@acme.com")).toBe(true);
+		// Signed by someone else's domain, or failing.
+		expect(senderVerified({ "authentication-results": "amazonses.com; dkim=pass header.i=@evil.com; dmarc=fail header.from=gmail.com" }, "dana@gmail.com")).toBe(false);
+		expect(senderVerified({ "authentication-results": "amazonses.com; spf=pass; dkim=fail header.i=@gmail.com; dmarc=fail header.from=gmail.com" }, "dana@gmail.com")).toBe(false);
+		expect(senderVerified({}, "dana@gmail.com")).toBe(false);
+		// A forged second header (as Resend gives repeats: a JSON list, server's first) doesn't count.
+		const forged = JSON.stringify(["amazonses.com; spf=fail; dkim=none; dmarc=fail header.from=gmail.com;", "amazonses.com; dkim=pass header.i=@gmail.com; dmarc=pass header.from=gmail.com;"]);
+		expect(senderVerified({ "authentication-results": forged }, "dana@gmail.com")).toBe(false);
+		expect(senderVerified({ "authentication-results": [gmail, "amazonses.com; dmarc=fail"] }, "dana@gmail.com")).toBe(true);
 	});
 
 	it("adds Re: once", () => {

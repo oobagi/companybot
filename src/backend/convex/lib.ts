@@ -104,6 +104,8 @@ export interface Outsider {
 	/** Their lowercased email or E.164 phone, from the Inbox conversation. */
 	contact: string;
 	agentId: Id<"agents">;
+	/** False when their latest message is an email whose sender didn't check out: it may be forged, so it reads but changes nothing. */
+	verified: boolean;
 }
 
 /** Who changes a record: a member (maybe through an agent), or someone outside through an agent. */

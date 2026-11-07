@@ -416,8 +416,15 @@ export async function createRecordFor(ctx: MutationCtx, by: Outsider, typeId: Id
 	return { id, change };
 }
 
+/** Changing or cancelling needs a sender that checked out: anyone can put someone else's address in an email's From. */
+function requireVerified(by: Outsider) {
+	if (!by.verified)
+		throw new ConvexError("This email's sender couldn't be verified, so their records can't be changed or cancelled from it. Tell them, and offer a text or someone on staff instead.");
+}
+
 /** Changes one of their own records' fields (null clears), like `updateRecord`. */
 export async function updateRecordFor(ctx: MutationCtx, by: Outsider, recordId: Id<"records">, input: Record<string, unknown>) {
+	requireVerified(by);
 	const record = await ownRecordFor(ctx, by, recordId);
 	await requireLive(ctx, record);
 	const fields = await fieldsOf(ctx, record.typeId);
@@ -426,6 +433,7 @@ export async function updateRecordFor(ctx: MutationCtx, by: Outsider, recordId: 
 
 /** Archives one of their own records (cancels it). Staff can restore it from Archive; they can't. */
 export async function archiveRecordFor(ctx: MutationCtx, by: Outsider, recordId: Id<"records">) {
+	requireVerified(by);
 	const record = await ownRecordFor(ctx, by, recordId);
 	await requireLive(ctx, record);
 	await toggleTrash(ctx, { outsider: by }, true, { kind: "record", id: recordId, name: record.title, typeId: record.typeId });

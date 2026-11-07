@@ -1,4 +1,4 @@
-import { MAX_WEBHOOK_BYTES, isAutomated, newPart, parseAddress, verifySvix, verifyTwilio } from "@companybot/core";
+import { MAX_WEBHOOK_BYTES, isAutomated, newPart, parseAddress, senderVerified, verifySvix, verifyTwilio } from "@companybot/core";
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -84,6 +84,7 @@ http.route({
 				providerId: `${data.email_id}:${to}`,
 				...(data.message_id && { messageId: data.message_id }),
 				automated: isAutomated(content.headers),
+				unverified: !senderVerified(content.headers, from.address),
 			});
 		return new Response("OK", { status: 200 });
 	}),

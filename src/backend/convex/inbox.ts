@@ -346,6 +346,8 @@ export const receive = internalMutation({
 		providerId: v.string(),
 		messageId: v.optional(v.string()),
 		automated: v.optional(v.boolean()),
+		/** Email whose sender didn't check out (core `senderVerified`). Texts come from the carrier, so never. */
+		unverified: v.optional(v.boolean()),
 	},
 	handler: async (ctx, args): Promise<{ outcome: "stored" | "duplicate" | "unknown"; conversationId?: Id<"inboxConversations"> }> => {
 		if (await ctx.db.query("inboxMessages").withIndex("by_provider", (q) => q.eq("providerId", args.providerId)).first()) return { outcome: "duplicate" };
@@ -385,6 +387,7 @@ export const receive = internalMutation({
 			status: "received",
 			providerId: args.providerId,
 			...(args.messageId && { messageId: args.messageId }),
+			...(args.unverified && { unverified: true as const }),
 		});
 		await linkRecord(ctx, c);
 		if (isNew) await announce(ctx, agent, c, `New conversation from ${contactWords(c)} by ${channelWords[channel]}.`);

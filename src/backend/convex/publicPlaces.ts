@@ -31,7 +31,10 @@ export async function outsiderOf(ctx: QueryCtx, conversationId: Id<"inboxConvers
 	if (!c || c.mode !== "agent" || !(await liveWorkspace(ctx, c.workspaceId))) return null;
 	const agent = await ctx.db.get(c.agentId);
 	if (!agent || agent.archived) return null;
-	return { workspaceId: c.workspaceId, contact: c.contact, agentId: agent._id };
+	// Replies only ever go to their real address, so a forged sender reads nothing; changes wait for one that checks out.
+	const recent = await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").take(20);
+	const latest = recent.find((m) => m.direction === "in");
+	return { workspaceId: c.workspaceId, contact: c.contact, agentId: agent._id, verified: !latest?.unverified };
 }
 
 /** Whether Public may read this standalone page: its list (its own or the one it follows) shares it at View. */

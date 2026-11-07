@@ -200,6 +200,31 @@ describe("Public at Add", () => {
 		expect((await t.run((ctx) => ctx.db.get(id)))!.archived).toBe(false);
 	});
 
+	it("changes nothing from an email whose sender didn't check out", async () => {
+		const { t, owner } = await ownerAndMember();
+		const typeId = await leads(owner);
+		const key = await typeKey(owner, typeId);
+		await owner.mutation(api.recordTypes.setAccess, { typeId, access: [{ role: "everyone", level: "edit" }, { role: "public", level: "add" }] });
+		const c = await conversationWith(t, owner, "dana@gmail.com");
+		const message = (unverified: boolean) =>
+			t.run(async (ctx) => {
+				const conversation = (await ctx.db.get(c))!;
+				await ctx.db.insert("inboxMessages", { workspaceId: conversation.workspaceId, conversationId: c, direction: "in", text: "Hi", status: "received", ...(unverified && { unverified: true as const }) });
+			});
+		const save = (input: object) => t.mutation(internal.publicPlaces.saveRecord, { conversationId: c, ...input }) as Promise<Record<string, unknown>>;
+
+		await message(false);
+		const id = (await save({ database: key, values: { Name: "Dana", Notes: "Tour Saturday" } })).id as Id<"records">;
+		// Someone forging Dana's address: replies still go to Dana, and nothing of hers changes.
+		await message(true);
+		expect(await save({ record: id, values: { Notes: "Cancel it" } })).toMatchObject({ error: expect.stringContaining("couldn't be verified") });
+		expect(await save({ record: id, cancel: true })).toHaveProperty("error");
+		expect((await t.run((ctx) => ctx.db.get(id)))!).toMatchObject({ archived: false });
+		// Her next real email can.
+		await message(false);
+		expect(await save({ record: id, cancel: true })).toEqual({ cancelled: id });
+	});
+
 	it("stops adding the moment the database stops being shared", async () => {
 		const { t, owner } = await ownerAndMember();
 		const typeId = await leads(owner);

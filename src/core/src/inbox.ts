@@ -128,6 +128,32 @@ export function isAutomated(headers: Record<string, string | string[] | undefine
 	return !!(get("x-autoreply") || get("x-autorespond") || get("list-id") || get("list-unsubscribe"));
 }
 
+/**
+ * Whether an email really comes from its From address: the receiving server's own check (Resend's) found
+ * DMARC passing for the From domain, or a DKIM signature by that domain. Only the first
+ * Authentication-Results counts: the server adds its own on top, and any below came with the mail, so a
+ * sender could have written them. Resend gives a repeated header as a JSON array, top one first.
+ */
+export function senderVerified(headers: Record<string, string | string[] | undefined>, from: string): boolean {
+	const key = Object.keys(headers).find((k) => k.toLowerCase() === "authentication-results");
+	let value = key ? headers[key] : undefined;
+	if (typeof value === "string" && value.trim().startsWith("[")) {
+		try {
+			const parsed: unknown = JSON.parse(value);
+			if (Array.isArray(parsed)) value = parsed.map(String);
+		} catch {
+			// Not a list after all: read it as one header.
+		}
+	}
+	const first = (Array.isArray(value) ? value[0] : value)?.toLowerCase() ?? "";
+	const domain = from.trim().toLowerCase().split("@")[1];
+	if (!first || !domain) return false;
+	const results = first.split(";").map((r) => r.trim());
+	const passFor = (method: string, property: RegExp) =>
+		results.some((r) => r.startsWith(`${method}=pass`) && r.match(property)?.[1] === domain);
+	return passFor("dmarc", /\bheader\.from=([^\s;]+)/) || passFor("dkim", /\bheader\.[di]=@?([^\s;]+)/);
+}
+
 /** Text cut to the most a message keeps, saying so when it's cut. */
 export const clipText = (text: string, max = INBOX_TEXT_MAX) => (text.length > max ? `${text.slice(0, max)}\n\n[Cut: the rest was too long.]` : text);
 
