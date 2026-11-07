@@ -12,6 +12,7 @@ export {
 	ArrowUpIcon,
 	BookOpenIcon as SkillIcon,
 	BrainIcon as MemoryIcon,
+	BroadcastIcon as ReachIcon,
 	BugIcon,
 	CaretDownIcon,
 	CaretUpDownIcon,
