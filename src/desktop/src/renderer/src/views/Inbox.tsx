@@ -2,11 +2,11 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
-import { Fragment, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Segmented, Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { ArrowUpIcon, CaretRightIcon, CaretUpDownIcon, CheckIcon, MailIcon, InboxIcon, PaperPlaneTiltIcon, RecordIcon, TextMessageIcon, TrashIcon } from "../icons";
+import { ArrowUpIcon, CaretUpDownIcon, CheckIcon, MailIcon, SidebarIcon, InboxIcon, PaperPlaneTiltIcon, RecordIcon, TextMessageIcon, TrashIcon } from "../icons";
 import { navigate } from "../router";
 import {
 	EmptyState,
@@ -25,13 +25,13 @@ import {
 	compactControlClass,
 	compactPrimaryButton,
 	descriptionClass,
+	iconButton,
 	linkButton,
 	primaryButton,
 	secondaryButton,
 	sendButton,
 	sentBubbleClass,
 	timeAgo,
-	titleButton,
 	useRun,
 	wideControlClass,
 } from "../ui";
@@ -113,21 +113,54 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 				<EmptyState icon={<InboxIcon />} title="Conversation not found">It may have been deleted with its agent.</EmptyState>
 			</Scroll>
 		);
+	return <Conversation c={c} />;
+}
+
+/** Below this width the details card is hidden, and opens over the messages when asked for. */
+const DETAILS_FROM_PX = 860;
+
+/**
+ * An open conversation: the messages and reply box, and beside them a column with the details card.
+ * The top bar's button hides or shows the card (kept per computer); where there isn't room for a
+ * column, it's hidden, and the button opens it over the messages instead.
+ */
+function Conversation({ c }: { c: Opened }) {
 	const them = contactLabel(c);
+	const row = useRef<HTMLDivElement>(null);
+	const [wide, setWide] = useState(true);
+	const [hidden, setHidden] = useState(() => localStorage.getItem("inbox.details.hidden") === "true");
+	const [opened, setOpened] = useState(false);
+	useLayoutEffect(() => {
+		const el = row.current;
+		if (!el) return;
+		const observer = new ResizeObserver(() => setWide(el.clientWidth >= DETAILS_FROM_PX));
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, []);
+	const shown = wide ? !hidden : opened;
+	const toggle = () => (wide ? (setHidden(!hidden), localStorage.setItem("inbox.details.hidden", String(!hidden))) : setOpened(!opened));
 	return (
-		<Scroll
-			overlayScrollbar
-			header={
-				<>
-					<TopBar title={<span className="truncate">{them}</span>} description={c.channel === "email" ? "Email" : "Text"} />
-					{/* Floats under the top bar, staying put while the messages scroll. */}
-					<div className="relative">
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+			<TopBar title={<span className="truncate">{them}</span>} description={c.channel === "email" ? "Email" : "Text"}>
+				<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
+					<SidebarIcon className="-scale-x-100" />
+				</button>
+			</TopBar>
+			<div ref={row} className="relative flex min-h-0 flex-1">
+				<Messages c={c} them={them} />
+				{shown && (
+					<aside className={wide ? "w-72 shrink-0 overflow-y-auto pr-3 pb-3" : "absolute top-0 right-3 z-40 w-72 rounded-xl shadow-lg"}>
 						<Details conversation={c} />
-					</div>
-				</>
-			}
-			footer={<ReplyBox conversation={c} />}
-		>
+					</aside>
+				)}
+			</div>
+		</div>
+	);
+}
+
+function Messages({ c, them }: { c: Opened; them: string }) {
+	return (
+		<Scroll overlayScrollbar footer={<ReplyBox conversation={c} />}>
 			<div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 py-4">
 				{c.messages.map((m, i) => {
 					const prev = c.messages[i - 1];
@@ -142,49 +175,38 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 						</Fragment>
 					);
 				})}
-				{c.needsStaff === "handoff" && <p className="pt-3 text-center text-xs text-neutral-500">{c.agentName} handed this to staff. Take it over to answer, or hand it back.</p>}
+				{c.needsStaff === "handoff" && <p className="pt-3 text-center text-xs text-neutral-500">{c.agentName} handed this to staff. Assign it to someone to answer, or back to the agent.</p>}
 				{c.replying && <p className="pt-3 text-center text-xs text-neutral-400">{c.agentName} is writing a reply…</p>}
 			</div>
 		</Scroll>
 	);
 }
 
-/**
- * Who this is with and who's handling it, in a small card at the top right (like Getting started):
- * the customer, their address and record; then who it's assigned to, as a picker.
- * Its title folds it away (kept per computer).
- */
+/** Who this is with and who's handling it: the customer, their address and record; then who it's assigned to. */
 function Details({ conversation: c }: { conversation: Opened }) {
-	const [folded, setFolded] = useState(() => localStorage.getItem("inbox.details.folded") === "true");
-	const fold = (next: boolean) => (setFolded(next), localStorage.setItem("inbox.details.folded", String(next)));
 	const them = contactLabel(c);
 	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
 	return (
-		<section aria-label="Details" className="absolute top-1 right-3 flex w-72 flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-sm shadow-sm">
-			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className={`${titleButton} group/fold -m-1 flex items-center gap-2 rounded-lg p-1`}>
-				<Avatar name={them} size="sm" />
-				<span className="min-w-0 flex-1 truncate text-left font-medium">{them}</span>
-				<CaretRightIcon className={`shrink-0 text-neutral-400 transition-transform group-hover/fold:text-neutral-700 ${folded ? "" : "rotate-90"}`} />
-			</button>
-			{!folded && (
-				<>
-					<div className="flex flex-col gap-1.5 text-neutral-600">
-						<p className="flex min-w-0 items-center gap-2">
-							<ChannelIcon channel={c.channel} />
-							<span className="truncate select-text">{address}</span>
-						</p>
-						{c.record && (
-							<button type="button" className={`flex min-w-0 items-center gap-2 ${linkButton}`} onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))}>
-								<RecordIcon /> <span className="truncate">{c.record.title}</span>
-							</button>
-						)}
-					</div>
-					<div className="flex flex-col gap-1 border-t border-neutral-100 pt-3">
-						<p className="text-xs font-medium text-neutral-500">Assigned to</p>
-						<Assignee conversation={c} />
-					</div>
-				</>
-			)}
+		<section aria-label="Details" className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-sm">
+			<div className="flex flex-col gap-1.5 text-neutral-600">
+				<p className="flex min-w-0 items-center gap-2 pb-0.5 font-medium text-neutral-900">
+					<Avatar name={them} size="sm" />
+					<span className="truncate">{them}</span>
+				</p>
+				<p className="flex min-w-0 items-center gap-2">
+					<ChannelIcon channel={c.channel} />
+					<span className="truncate select-text">{address}</span>
+				</p>
+				{c.record && (
+					<button type="button" className={`flex min-w-0 items-center gap-2 ${linkButton}`} onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))}>
+						<RecordIcon /> <span className="truncate">{c.record.title}</span>
+					</button>
+				)}
+			</div>
+			<div className="flex flex-col gap-1 border-t border-neutral-100 pt-3">
+				<p className="text-xs font-medium text-neutral-500">Assigned to</p>
+				<Assignee conversation={c} />
+			</div>
 		</section>
 	);
 }
@@ -248,11 +270,11 @@ const GROUP_GAP_MS = 15 * 60_000;
 const sideOf = (m: Message) => (m.direction === "in" ? "them" : "us");
 
 /**
- * Who wrote it, with their picture: on our side, the name then the picture; on theirs, the other way
- * round. Our people and agents open their card; `them` is the customer, by name only.
+ * Who wrote it: their picture, then their name. Our people and agents open their card; `them` is the
+ * customer, by name only.
  */
-function Sender({ author, them, mine }: { author: Participant | null; them?: string; mine: boolean }) {
-	const line = `flex items-center gap-2 text-sm text-neutral-600 ${mine ? "flex-row-reverse" : ""}`;
+function Sender({ author, them }: { author: Participant | null; them?: string }) {
+	const line = "flex items-center gap-2 text-sm text-neutral-600";
 	if (!author)
 		return (
 			<p className={`${line} pb-1.5`}>
@@ -299,7 +321,7 @@ function MessageItem({ message: m, them, channel, subject, named, last }: { mess
 	const forWho = m.author?.for;
 	return (
 		<div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${named ? "" : "pt-1.5"}`}>
-			{named && <Sender author={m.author} them={them} mine={mine} />}
+			{named && <Sender author={m.author} them={them} />}
 			{body}
 			{(failed || m.status === "sending") && <p className={`pt-1 text-xs ${failed ? "text-red-600" : "text-neutral-400"}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 			{!failed && m.status !== "sending" && last && forWho && (
@@ -322,7 +344,7 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 	const { error, busy, run } = useRun();
 	return (
 		<div className="flex flex-col items-end">
-			<Sender author={agent} them="Agent" mine />
+			<Sender author={agent} them="Agent" />
 			<div className="flex w-[85%] flex-col gap-2 rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-3">
 				<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
 				<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className="w-full resize-none bg-transparent text-sm outline-none" />
