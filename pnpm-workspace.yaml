@@ -5,3 +5,5 @@ allowBuilds:
   # Windows installer helper; not needed for macOS builds.
   electron-winstaller: false
   esbuild: true
+minimumReleaseAgeExclude:
+  - '@tinkerlandai/longplay-sdk@0.10.15'

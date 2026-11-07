@@ -6,6 +6,8 @@ import { newTest, signIn } from "./helpers";
 // No network: the AI SDK's transcribe and the gateway are stubbed, so nothing is billed.
 const transcribe = vi.hoisted(() => vi.fn());
 const transcription = vi.hoisted(() => vi.fn((id: string) => ({ id })));
+const requireAccess = vi.hoisted(() => vi.fn());
+vi.mock("../convex/dictationAccess", () => ({ requireDictationAccess: requireAccess }));
 vi.mock("ai", async (original) => ({
 	...(await original<typeof import("ai")>()),
 	experimental_transcribe: transcribe,
@@ -18,6 +20,7 @@ describe("dictation", () => {
 	beforeEach(() => {
 		transcribe.mockReset().mockResolvedValue({ text: "  call Ada tomorrow \n", providerMetadata: { gateway: { cost: "0.0004" } } });
 		transcription.mockClear();
+		requireAccess.mockReset().mockResolvedValue(undefined);
 	});
 
 	it("turns a recording into trimmed text, through the gateway's transcription model", async () => {
@@ -53,5 +56,14 @@ describe("dictation", () => {
 		const ada = await signIn(t, "ada@co.com");
 		transcribe.mockRejectedValue(new Error("gateway down"));
 		await expect(ada.action(api.dictation.transcribeAudio, { audio: clip() })).rejects.toThrow();
+	});
+
+	it("does not send audio to the provider or record cost when workspace access is denied", async () => {
+		const t = newTest();
+		const ada = await signIn(t, "ada@co.com");
+		requireAccess.mockRejectedValue(new Error("workspace plan required"));
+		await expect(ada.action(api.dictation.transcribeAudio, { audio: clip() })).rejects.toThrow("workspace plan required");
+		expect(transcribe).not.toHaveBeenCalled();
+		expect(transcription).not.toHaveBeenCalled();
 	});
 });

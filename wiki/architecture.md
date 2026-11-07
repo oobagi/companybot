@@ -127,3 +127,24 @@ Every screen has the same shell (`ui.tsx`): a **top bar** (`TopBar`) with where 
 ## Before launch
 - Sign-in emails send from `signin@callnightowl.com` and AI bills to the Night Owl Vercel team ($25/mo cap). Swap both to Companybot accounts.
 - Convex Auth is beta — re-check before real customers.
+
+## Optional Cloud dictation access
+
+Cloud operators can opt into the Longplay access pilot with Convex environment variables
+`LONGPLAY_BILLING=longplay`, `LONGPLAY_BASE_URL` (an explicit HTTPS API origin),
+`LONGPLAY_SECRET_KEY`, `LONGPLAY_APP_ID`, `LONGPLAY_ENVIRONMENT` (`sandbox` or `live`),
+and `LONGPLAY_DICTATION_FEATURE_ID` (an access Feature UUID). Keep these server-side.
+Without `LONGPLAY_BILLING`, Community behaviour is unchanged and no billing requests run.
+
+The authenticated workspace maps to the Longplay Customer external ID
+`companybot:workspace:<workspaceId>`. Attach the approved plan to that Customer through
+the operator's billing flow. Before sending a valid, nonempty recording to AI Gateway,
+the backend checks this workspace's current access. A denial, expired/revoked access,
+misconfiguration or an unavailable billing service stops transcription. Usage continues
+through the existing cost recorder. No audio, prompts, email or member names go to Longplay.
+
+This is one optional paid-capability integration, not the monthly AI-dollar allowance or
+seat/checkout implementation in #120. Only access Features are accepted: balance checks
+are not reservations and must not be used as a concurrent spend limiter. Cloud operators
+must supply the approved plan, owner checkout/portal and payment-provider configuration
+before enabling the gate; never enable it just because checkout returned to the app.
