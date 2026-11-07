@@ -14,7 +14,7 @@ export interface PageRead {
 	id?: string;
 	title: string;
 	parentId?: string | null;
-	ancestors?: { id: string; title: string }[];
+	ancestors?: { id: string; title: string; record?: string }[];
 	subpages?: { id: string; title: string }[];
 	subpagesMore?: boolean;
 	record?: string;
@@ -54,7 +54,7 @@ export const readInput = z.object({
 export type PageReadInput = z.infer<typeof readInput>;
 
 export const findInput = z.object({
-	parent: z.string().nullable().optional().describe("List direct sub-pages of this page id or exact title; null lists top-level pages. Rows include parentId, so page through every level to read the tree."),
+	parent: z.string().nullable().optional().describe("List direct sub-pages of this page id or exact title, or of a record's page by the record's id; null lists top-level pages. Rows include parentId, so page through every level to read the tree."),
 	search: z.string().optional().describe("Words in the title. Leave out to list pages by title."),
 	trashed: z.boolean().optional().describe("Pages in Archive instead"),
 	cursor: z.string().optional().describe("From a previous result with more: true"),
@@ -63,7 +63,7 @@ export type PageFindInput = z.infer<typeof findInput>;
 
 export const writeInput = z.object({
 	action: z.union([z.literal("write"), z.literal("move")]).optional().describe("write (default) creates or edits a page; move changes its parent and keeps content and descendants"),
-	parent: z.string().nullable().optional().describe("Parent page id (not its title) for creation or action move; null moves to the top level. Record bodies cannot be nested."),
+	parent: z.string().nullable().optional().describe("Parent page id (not its title), or a record's id to put the page in that record's page, for creation or action move; null moves to the top level. A record's own page can't move."),
 	...writeTarget,
 	title: z.string().optional().describe("A new page's title, or a new title for a page (not a record's body)"),
 	markdown: z.string().max(MARKDOWN_MAX).optional().describe("Content in Markdown: headings, lists, - [ ] to-dos, > quotes, ``` code, --- dividers, tables, and pictures from the chat as ![caption](<file id>), copied into the page"),
@@ -107,7 +107,7 @@ export const pageTools: ToolDef[] = [
 	defineTool({
 		id: "pages.find",
 		title: "Find pages",
-		description: "The workspace's pages (wiki, how-tos, meeting notes): by title, or matching words in the title. Records' page bodies aren't listed: find the record, then read it with `record`.",
+		description: "The workspace's pages (wiki, how-tos, meeting notes): by title, or matching words in the title. Records' page bodies aren't listed: find the record, then read it with `record`, or list the pages inside it with `parent` set to the record's id.",
 		input: findInput,
 		readOnly: true,
 		execute: (input, { pages }) => pages.find(input),
@@ -136,7 +136,7 @@ export const pageTools: ToolDef[] = [
 		id: "pages.write",
 		title: "Write a page",
 		description:
-			"Create a page (title, optional parent and markdown), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Name pages by id (pages_find gives them). Archiving waits for confirmation. Other writes run right away in the person's own chats and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
+			"Create a page (title, optional parent and markdown; parent can be a record's id, to put it in that record's page), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Name pages by id (pages_find gives them). Archiving waits for confirmation. Other writes run right away in the person's own chats and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
 		// Acting as the person, like records.save: runs in their own chats, asks in runs following someone
 		// else's words, and Never rules and owner locks reach it. Archiving always asks.

@@ -35,7 +35,7 @@ Each channel, database and page has a **Who can access** list: **Everyone**, or 
 - Every place starts at Everyone, Edit, so nothing changes until someone restricts it. Examples: a read-only channel (Everyone: View, Office: Post), a read-only page, a private database (Deals: Office only).
 - **Change it**: a channel's details (click its name), a database's settings, or a page's ⋯ menu. It takes the switch to change that kind of place, and Edit in it. A lock in the sidebar marks a restricted place; hover it for who can.
 - **You can't lock yourself out**: a change that would take away your own Edit (Post, for a channel) is refused with "You'd lose edit access. Ask an Owner." Only owners can make it, since nobody else could undo it.
-- **Sub-pages** follow their parent's list unless they set their own. A record's page follows its database. Moving a page never opens it to more people.
+- **Sub-pages** follow their parent's list unless they set their own. A record's page, and the pages inside it, follow its database unless they set their own. Moving a page never opens it to more people.
 - **Private channels** keep their members; the list applies on top.
 - **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." It names the place only if they asked for it by that name; otherwise it's "this database". In a channel they can only view, agents don't reply or follow up for them, and a reply already under way stops when they lose Post.
 

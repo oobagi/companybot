@@ -10,6 +10,8 @@ export {
 	ArrowLeftIcon,
 	ArrowRightIcon,
 	ArrowUpIcon,
+	ArrowUpLeftIcon as LinkedIcon,
+	AlarmIcon as FollowUpIcon,
 	BookOpenIcon as SkillIcon,
 	BrainIcon as MemoryIcon,
 	BugIcon,

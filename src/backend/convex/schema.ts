@@ -1278,7 +1278,7 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
-		/** Only standalone pages can be nested. */
+		/** Only standalone pages have one: inside another page, or inside a record's body. */
 		parentId: v.optional(v.id("pages")),
 		/** Standalone pages only: a record's body shows the record's name. */
 		title: v.string(),
@@ -1287,7 +1287,7 @@ export default defineSchema({
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
-		/** Standalone pages: who can see and edit it. Unset follows its parent; a top-level page's is Everyone at Edit. */
+		/** Standalone pages: who can see and edit it. Unset follows its parent (inside a record's page, its database); a top-level page's is Everyone at Edit. */
 		access,
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])

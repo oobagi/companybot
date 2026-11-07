@@ -18,7 +18,7 @@ Each database has its own entry in Databases' sidebar (Databases in the rail); i
 - **List**: pick columns, click a header to sort, and filter by any field. Search by name and text.
 - **Saved views**: save a filter, sort and columns (or a board) to share with the workspace. View tab order and the All tab's columns and layout are also shared. Only people whose role can rearrange shared sidebar lists can change these, and the All tab's layout also takes Edit in the database.
 - **Board**: cards grouped by a choice field. A database without one can't be shown as a board; add a choice field first.
-- **Record page**: edit fields in place. Below: pending follow-ups agents set about it (see **help: automations**), linked records, chat messages that mention it, and the record's page for longer notes (see **help: pages**).
+- **Record page**: a page like any in Drive, with the record's fields at the top, edited in place. Under them, rows for records that link to it, chat messages that mention it, and follow-ups agents set about it (see **help: automations**). Then the page itself, for longer notes, with sub-pages and everything else a page has (see **help: pages**).
 - **History**: every change with who and when (an agent shows as "Companybot, for Jaden"). Undo reverses one change.
 - **Money**: each amount keeps its own currency. The workspace currency in [General](#/settings/general) only sets the default for new ones.
 
@@ -26,6 +26,6 @@ Each database has its own entry in Databases' sidebar (Databases in the rail); i
 Ask Companybot to find, add, change or delete records, or add fields ("start tracking roof type on clients"). It acts as you, and its changes appear in history and [Activity](#/settings/activity).
 
 ## Deleting
-Deleted records, databases and fields go to [Archive](#/settings/archive).
+Deleted records, databases and fields go to [Archive](#/settings/archive). A record's pages go with it, and come back when you restore it.
 `,
 } satisfies HelpPage;

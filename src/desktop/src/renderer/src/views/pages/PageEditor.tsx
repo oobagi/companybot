@@ -48,7 +48,8 @@ function openPageLink(event: MouseEvent<HTMLDivElement>) {
 	navigate("pages", id);
 }
 
-export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 }: { pageId: Id<"pages">; editable: boolean; standalone?: boolean; focusKey?: number }) {
+/** A page's body, the same for every page, a record's too: sub-pages (`/page`) and all. */
+export function PageEditor({ pageId, editable, focusKey = 0 }: { pageId: Id<"pages">; editable: boolean; focusKey?: number }) {
 	const create = useMutation(api.pages.create);
 	const { error, fail } = useRun();
 	const upload = useUpload();
@@ -80,19 +81,19 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 					<SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
 						// Uploads take pictures only, and the app loads no outside media: no video, audio or file blocks.
 						...getDefaultReactSlashMenuItems(sync.editor).filter((item) => !(["video", "audio", "file"] as const).some((k) => item.title === sync.editor.dictionary.slash_menu[k].title)),
-						...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
+						{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
 							try {
 								const id = await create({ title: "Untitled", parentId: pageId, insertInParent: false });
 								insertOrUpdateBlockForSlashMenu(sync.editor, { type: "page", props: { pageId: id } });
 								navigate("pages", id);
 							} catch (e) { fail(e); }
-						} }] : []),
+						} },
 					], query)} />
 				</BlockNoteView>
 			</div>
 			<UpgradePageLinks editor={sync.editor} editable={editable} />
 			<PageBlockRemoval editor={sync.editor} pageId={pageId} editable={editable} />
-			{standalone && <ChildPages editor={sync.editor} pageId={pageId} />}
+			<ChildPages editor={sync.editor} pageId={pageId} />
 		</PageReferences.Provider>
 	);
 }
