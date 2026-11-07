@@ -29,6 +29,7 @@ import {
 	setActivity,
 	textForModel,
 } from "./chatOps";
+import { type RecordTags, recordTags, storeTags, syncRecordMentions } from "./recordTags";
 import { filesForModel, turnImages } from "./files";
 import { type Member, type Who, installedSkills, liveWorkspace, memberOf, nameOf, requireMember, timeZoneOf } from "./lib";
 import { previewMessage } from "./linkPreviews";
@@ -433,6 +434,7 @@ export const turnContext = internalMutation({
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId, member);
 		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since, here);
+		const tags = recordTags(ctx, member);
 		const messages = (
 			await Promise.all(
 				recent
@@ -442,14 +444,14 @@ export const turnContext = internalMutation({
 					.map(async (m) => {
 						const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
 						if (m.status === "streaming" && m._id !== turn.triggerId && !(stream && showable(stream.parts))) return null;
-						return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
+						return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, tags, agent._id, skills);
 					}),
 			)
 		).filter((m) => m !== null);
 
 		// What it said meanwhile in this chat's other threads or main chat: a separate session, so without this it
 		// can contradict itself (one game told two ways). Never for a foreign run.
-		const elsewhere = foreign ? [] : await saidElsewhere(ctx, member, turn, since, here, names);
+		const elsewhere = foreign ? [] : await saidElsewhere(ctx, member, turn, since, here, names, tags);
 
 		const threadParent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
 		const parent = threadParent && await readReply(ctx, member, threadParent) ? threadParent : null;
@@ -486,12 +488,12 @@ export const turnContext = internalMutation({
 				private: chat.private,
 				topic: chat.topic ?? null,
 				thread: parent
-					? { parent: await toPlaceMessage(ctx, parent, names, agent._id), first }
+					? { parent: await toPlaceMessage(ctx, parent, names, tags, agent._id), first }
 					: null,
 				...(await placeMembers(ctx, chat, [member.userId, ...[parent, ...recent].flatMap((m) => (m ? [m.authorUserId, m.actingFor] : []))], names)),
 			},
 			messages,
-			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, agent._id))),
+			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, tags, agent._id))),
 			elsewhere,
 			asked,
 			triggerId: turn.triggerId ?? null,
@@ -546,7 +548,7 @@ const ELSEWHERE_MS = 24 * 60 * 60_000;
  * its last reply here, oldest first: what it already said in the same conversation. The same privacy as the
  * rest of its context: only replies this turn's person may read, that fit a shared place.
  */
-async function saidElsewhere(ctx: QueryCtx, member: Member, turn: Doc<"agentTurns">, since: number, here: (m: Doc<"chatMessages">) => Promise<boolean>, names: Namer) {
+async function saidElsewhere(ctx: QueryCtx, member: Member, turn: Doc<"agentTurns">, since: number, here: (m: Doc<"chatMessages">) => Promise<boolean>, names: Namer, tags: RecordTags) {
 	const after = Math.max(since, Date.now() - ELSEWHERE_MS);
 	const done = await ctx.db
 		.query("agentTurns")
@@ -563,7 +565,7 @@ async function saidElsewhere(ctx: QueryCtx, member: Member, turn: Doc<"agentTurn
 		said.push(reply);
 		if (said.length === ELSEWHERE_MAX) break;
 	}
-	return Promise.all(said.reverse().map(async (m) => ({ thread: !!m.threadId, message: await toPlaceMessage(ctx, m, names, turn.agentId) })));
+	return Promise.all(said.reverse().map(async (m) => ({ thread: !!m.threadId, message: await toPlaceMessage(ctx, m, names, tags, turn.agentId) })));
 }
 
 /** The agents one message went to before this pick, first first (router.apply runs them in turn). */
@@ -604,7 +606,7 @@ async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, 
 	return found.sort((a, b) => a._creationTime - b._creationTime);
 }
 
-async function toPlaceMessage(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
+async function toPlaceMessage(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, tags: RecordTags, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
 	const { for: person, ...who } = await names.of(m);
 	const author = { ...who, name: label({ ...who, for: person }) };
 	const reactions = await reactionGroups(ctx, m._id, names);
@@ -616,7 +618,8 @@ async function toPlaceMessage(ctx: QueryCtx, m: Doc<"chatMessages">, names: Name
 	return {
 		id: m._id,
 		author,
-		text: textForModel(m, m.authorAgentId === self ? "You" : author.name),
+		// Tagged records as the agent writes them, by name if its person can see them (a source of the turn, then).
+		text: textForModel({ ...m, text: await tags.forModel(m.text) }, m.authorAgentId === self ? "You" : author.name),
 		time: m._creationTime,
 		...(m.editedAt && { edited: true }),
 		...(!m.threadId && m.replyCount && { replyCount: m.replyCount }),
@@ -839,7 +842,8 @@ export const steer = internalMutation({
 		const names = namer(ctx);
 		const skills = await installedSkills(ctx, turn.workspaceId, turn.actorId, member);
 		const actor = { id: turn.actorId, name: (await names.user(turn.actorId)).name, timeZone: await timeZoneOf(ctx, turn.actorId) };
-		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(ctx, m, names, turn.agentId, skills))), actor);
+		const tags = recordTags(ctx, member);
+		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(ctx, m, names, tags, turn.agentId, skills))), actor);
 		await ctx.db.patch(turnId, {
 			steered: [...(turn.steered ?? []), ...messages.map((m) => m._id)],
 			...(turn.prompt !== undefined && { prompt: `${turn.prompt}\n\n${note}`, ...(turn.promptPlaces !== undefined && { promptPlaces: [...new Set([...turn.promptPlaces, ...await turnSources(ctx, member)])] }) }),
@@ -879,6 +883,29 @@ async function endStream(ctx: MutationCtx, reply: Doc<"chatMessages">, end: Part
 	const stream = await streamOf(ctx, reply._id);
 	await ctx.db.patch(reply._id, { ...(stream && { text: stream.text, parts: stream.parts }), ...end });
 	if (stream) await ctx.db.delete(stream._id);
+}
+
+/**
+ * The records a finished reply tags (`[@Name](record:id)`, the agent's choice: nothing here looks for names),
+ * kept as ids when its person can see them, like a person's message (messages.sendMessage); the rest stay as
+ * the names it wrote. So "I added [@Summit Homes](record:…) to Clients" links the record, and the record lists the reply.
+ */
+async function tagReply(ctx: MutationCtx, turn: Doc<"agentTurns">, replyId: Id<"chatMessages">) {
+	const reply = await ctx.db.get(replyId);
+	const member = await memberOf(ctx, turn.actorId, turn.workspaceId);
+	if (!reply || !member || ![reply.text, ...reply.parts.map((p) => (p.type === "text" ? p.text : ""))].some((t) => t.includes("record:"))) return;
+	const { text, recordIds } = await storeTags(ctx, member, reply.text);
+	const ids = new Set(recordIds);
+	const parts = await Promise.all(
+		reply.parts.map(async (p) => {
+			if (p.type !== "text") return p;
+			const stored = await storeTags(ctx, member, p.text);
+			for (const id of stored.recordIds) ids.add(id);
+			return { ...p, text: stored.text };
+		}),
+	);
+	await ctx.db.patch(reply._id, { text, parts, mentions: { ...reply.mentions, ...(ids.size > 0 && { recordIds: [...ids] }) } });
+	await syncRecordMentions(ctx, reply, [...ids]);
 }
 
 /** The running cost on a place: the thread parent, or the chat's activity. */
@@ -1014,6 +1041,7 @@ export const finishReply = internalMutation({
 		if (reply) {
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
 			await endStream(ctx, reply, { ...end, stats, ...(!shown && { quiet: true as const }) });
+			if (shown && !lost) await tagReply(ctx, turn, reply._id);
 			if (shown) await show(ctx, reply);
 			if (shown && !error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}

@@ -107,7 +107,7 @@ it("keeps a database view draft across tabs and clears it after saving", async (
 	state.queries["databaseViews:list"] = [{ _id: "view", name: "My view", filters: [], columns: ["name"], version: 1 }];
 	const type = { _id: "database", name: "Project", plural: "Projects", key: "project", canEdit: true, fields: [{ key: "name", label: "Name", kind: "text" }] } as never;
 	const screen = () => createElement(RecordList, { type, access });
-	await render(screen()); await click("My view"); await click("Filter");
+	await render(screen()); await click("My view"); await click("Filter"); await click("Name");
 	await click("All"); await click("My view"); await click("Save for everyone");
 	await render(createElement("div")); await render(screen()); await click("My view");
 	expect([...document.querySelectorAll("button")].some((b) => b.textContent === "Save for everyone")).toBe(false);

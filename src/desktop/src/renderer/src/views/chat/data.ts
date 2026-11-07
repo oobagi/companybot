@@ -1,10 +1,11 @@
 import { MESSAGE_PAGE } from "@companybot/core/chat";
+import { showRecordTags } from "@companybot/core/record-mentions";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { api } from "../../api";
-import { usePaginatedQuery, useQuery } from "../../convex";
+import { usePaginatedQuery, useQuery, useQueryOnce } from "../../convex";
 
 export type ChatList = NonNullable<FunctionReturnType<typeof api.chats.list>>;
 type ChatItem = ChatList["channels"][number];
@@ -12,15 +13,22 @@ export type ChatDetails = NonNullable<FunctionReturnType<typeof api.chats.get>>;
 /** `sending`: only on your message shown while it sends (`showSending`), before the server has it. */
 export type Message = FunctionReturnType<typeof api.messages.page>["page"][number] & { sending?: { files: number } };
 export type Participant = Message["author"];
-export type Mentions = { userIds: Id<"users">[]; agentIds: Id<"agents">[]; skillIds: string[] };
+export type Mentions = { userIds: Id<"users">[]; agentIds: Id<"agents">[]; skillIds: string[]; recordIds: Id<"records">[] };
 
 /** A channel the composer can name with #. `joined`: you're in it (public ones you aren't are offered too). */
 export type ChannelRef = { id: Id<"chats">; name: string; topic: string | null; private: boolean; joined: boolean };
 /** A skill the composer can invoke with /. */
 export type SkillRef = { id: string; name: string; description: string };
+/** A record the composer can tag with @, from a search across the databases you can see. */
+export type RecordRef = { id: Id<"records">; name: string; typeKey: string; typeName: string };
+/** A record tagged in a message, as it reads there (`@Summit Homes`, `@Private record`). */
+export type RecordTag = Message["records"][number];
 
-/** What messages show as chips, each clickable: @names (profile card), #channels (opens it), /skills (opens it). */
-export type TokenNames = { people: Participant[]; channels: { name: string; id: Id<"chats"> }[]; skills: SkillRef[] };
+/**
+ * What messages show as chips, each clickable: @names (profile card), #channels (opens it), /skills (opens it),
+ * and a message's own tagged records (opens the record).
+ */
+export type TokenNames = { people: Participant[]; channels: { name: string; id: Id<"chats"> }[]; skills: SkillRef[]; records?: RecordTag[] };
 
 /** Pages put together in the order shown: a thread's parent first, then by when each was shown. */
 export const inOrder = (messages: Message[], threadId?: Id<"chatMessages">) =>
@@ -51,6 +59,13 @@ export const showSending = (): OptimisticUpdate<FunctionArgs<typeof api.messages
 			.filter(({ args, value }) => value && args.workspaceId === workspaceId && args.chatId === chatId && args.threadId === threadId && args.paginationOpts.cursor === null);
 		const me = store.getQuery(api.workspace.team, { workspaceId })?.members.find((m) => m.isYou);
 		if (!newest.length || !me) return;
+		// Tagged records read as their names until the server has it (and says what each is).
+		const tagged: string[] = [];
+		const shown = showRecordTags(text.trim(), (_, label) => {
+			const name = `@${label ?? ""}`;
+			if (!tagged.includes(name)) tagged.push(name);
+			return name;
+		});
 		const message: Message = {
 			_id: `sending:${id}` as Id<"chatMessages">,
 			_creationTime: now,
@@ -58,7 +73,7 @@ export const showSending = (): OptimisticUpdate<FunctionArgs<typeof api.messages
 			chatId,
 			threadId: threadId ?? null,
 			author: { type: "user", id: me.userId, name: me.name || me.email, image: me.image },
-			text: text.trim(),
+			text: shown,
 			parts: [],
 			status: "done",
 			error: null,
@@ -76,6 +91,8 @@ export const showSending = (): OptimisticUpdate<FunctionArgs<typeof api.messages
 			linkPreviews: [],
 			pause: null,
 			ask: null,
+			// Not clickable until the server says which records they are.
+			records: tagged.map((name) => ({ text: name, id: null, typeKey: null, state: "live" as const })),
 			sending: { files: attachments.length },
 		};
 		for (const { args, value } of newest) store.setQuery(api.messages.page, args, { ...value!, page: [...value!.page, message] });
@@ -88,6 +105,7 @@ export function useDirectory() {
 	const chats = useQuery(api.chats.list);
 	const browse = useQuery(api.chats.browse);
 	const skillRows = useQuery(api.skills.list);
+	const mentionable = useQueryOnce(api.records.mentionable);
 	const people: (Participant & { isYou: boolean })[] =
 		team?.members.map((m) => ({ type: "user" as const, id: m.userId, name: m.name || m.email, image: m.image, isYou: m.isYou })) ?? [];
 	const agents: Participant[] = chats?.agents.map((a) => ({ type: "agent" as const, id: a._id, name: a.name, image: a.image })) ?? [];
@@ -101,6 +119,10 @@ export function useDirectory() {
 		agents,
 		channels,
 		skills,
+		records: useCallback(
+			async (query: string): Promise<RecordRef[]> => (await mentionable({ query })).map((r) => ({ id: r._id, name: r.title, typeKey: r.typeKey, typeName: r.typeName })),
+			[mentionable],
+		),
 		tokens: {
 			people: [...people, ...agents].filter((p) => p.name),
 			channels: channels.map((c) => ({ name: c.name, id: c.id })),

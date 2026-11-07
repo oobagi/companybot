@@ -5,7 +5,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { claimUpload, imageUrl } from "./images";
-import { type Member, capped, emptyPage, getMember, nameOf, requireMember } from "./lib";
+import { type Member, capped, emptyPage, getMember, memo, nameOf, requireMember } from "./lib";
+import { searchRecords } from "./recordReads";
 import {
 	createPage,
 	editorsOf,
@@ -74,23 +75,30 @@ export const get = query({
 		const reach = pageReach(ctx, member);
 		const ancestors = [];
 		for (const [i, a] of state.ancestors.entries()) {
-			const at = await reach(a);
+			const at = !a.recordId && (await reach(a));
 			const above = state.ancestors[i + 1];
 			if (at) ancestors.unshift(pageRow(a, member, at, !above || !!(await reach(above))));
 		}
+		// The record whose page this is, or is inside, for people who can see its database: the trail starts there.
+		const body = page.recordId ? page : state.ancestors.at(-1)?.recordId ? state.ancestors.at(-1)! : null;
+		const type = state.record && (await ctx.db.get(state.record.typeId));
+		const record = state.record && type && body && (await reach(body)) ? { _id: state.record._id, title: state.record.title, typeKey: type.key, plural: type.plural } : null;
 		// In Archive with an ancestor they can't see: say it's archived without naming or offering what holds it.
-		const trashPage = state.trashPage && state.trashPage._id !== page._id && !(await reach(state.trashPage)) ? null : (state.trashPage ?? page);
+		const trashPage = state.trashPage && state.trashPage._id !== page._id && !(await reach(state.trashPage)) ? null : (state.trashPage ?? (state.recordArchived ? null : page));
+		const trash = trashPage ? await trashInfo(ctx, member, trashPage._id) : record && state.recordArchived ? ((await trashInfo(ctx, member, record._id)) ?? (await trashInfo(ctx, member, type!._id))) : null;
 		return {
 			_id: page._id,
 			kind: kindOf(page),
-			title: page.title,
+			// A record's page is called what the record is.
+			title: page.recordId ? (state.record?.title ?? "") : page.title,
 			archived: state.archived,
 			// A parent they can't see stays unnamed and unlinked: the page reads as top-level to them.
 			parentId: state.ancestors[0] && (await reach(state.ancestors[0])) ? state.ancestors[0]._id : null,
 			ancestors,
 			recordId: page.recordId ?? null,
+			record,
 			canEdit: await canEdit(ctx, member, page),
-			trash: trashPage && (await trashInfo(ctx, member, trashPage._id)),
+			trash,
 			...access,
 			/** Its own list, or null when it follows its parent's (a record's page always follows its database). */
 			ownAccess: page.access ? access.access : null,
@@ -110,11 +118,11 @@ export const forRecord = query({
 	},
 });
 
-/** A standalone page or folder (`kind`), or a record's body (its existing one, if any). */
+/** A standalone page (top-level, or inside any page, a record's too) or folder (`kind`), or a record's body (its existing one, if any). */
 export const create = mutation({
 	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")), kind: v.optional(v.literal("folder")) },
 	handler: async (ctx, { title, recordId, parentId, kind }) => {
-		if (recordId && (parentId || kind)) throw new ConvexError("Record bodies can't be nested.");
+		if (recordId && (parentId || kind)) throw new ConvexError("A record's page stays with its record.");
 		const who = { member: await requireMember(ctx) };
 		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId, kind });
 	},
@@ -129,7 +137,7 @@ export const children = query({
 		const reach = pageReach(ctx, member);
 		if (parentId) {
 			const parent = await ctx.db.get(parentId);
-			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived || !(await reach(parent))) return emptyPage();
+			if (parent?.workspaceId !== member.workspaceId || (await pageState(ctx, parent)).archived || !(await reach(parent))) return emptyPage();
 		}
 		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("recordId", undefined).eq("archived", false))
 			.paginate(capped(paginationOpts, 50));
@@ -143,7 +151,10 @@ export const children = query({
 	},
 });
 
-/** Standalone pages whose titles match, with their ancestors' titles: the Move dialog's search. At most 20. */
+/**
+ * Pages whose titles match, with their ancestors' titles, then records' pages whose records match (path: their
+ * database): the Move dialog's search. At most 20 pages and 5 records.
+ */
 export const search = query({
 	args: { query: v.string() },
 	handler: async (ctx, { query: text }) => {
@@ -152,6 +163,7 @@ export const search = query({
 		// Record bodies can't be filtered out by the index, so walk hits until enough standalone, live pages are found.
 		const state = pageStates(ctx);
 		const reach = pageReach(ctx, member);
+		const titleOf = memo(async (recordId: Id<"records">) => (await ctx.db.get(recordId))?.title ?? "");
 		const rows = [];
 		let read = 0;
 		for await (const p of ctx.db.query("pages").withSearchIndex("search_title", (q) => q.search("title", text).eq("workspaceId", member.workspaceId).eq("archived", false))) {
@@ -160,9 +172,18 @@ export const search = query({
 			if (!level) continue;
 			const { archived, ancestors } = await state(p);
 			const path = [];
-			for (const a of ancestors.slice().reverse()) if (await reach(a)) path.push(a.title);
+			for (const a of ancestors.slice().reverse()) if (await reach(a)) path.push(a.recordId ? await titleOf(a.recordId) : a.title);
 			if (!archived) rows.push({ ...pageRow(p, member, level, !ancestors[0] || !!(await reach(ancestors[0]))), path });
 			if (rows.length === 20) break;
+		}
+		// A record's page is a place too, once it has one (opening the record makes it).
+		const types = new Map<Id<"recordTypes">, string>();
+		for (const { record } of (await searchRecords(ctx, member, text, { limit: 5 })).items) {
+			const body = await pageOfRecord(ctx, member.workspaceId, record._id);
+			const level = body && (await reach(body));
+			if (!body || !level) continue;
+			if (!types.has(record.typeId)) types.set(record.typeId, (await ctx.db.get(record.typeId))?.plural ?? "");
+			rows.push({ ...pageRow(body, member, level), title: record.title, path: [types.get(record.typeId)!] });
 		}
 		return rows;
 	},

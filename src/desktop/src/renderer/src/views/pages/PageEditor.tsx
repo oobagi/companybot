@@ -7,14 +7,14 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, GridSuggestionMenuController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
 import { linkedPageId, linkedRecordId, recordHref, validPageHref } from "@companybot/core/page-links";
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useFetch, useHeldQuery, useMutation } from "../../convex";
 import { BulletListIcon, CaretDownIcon, ChannelIcon, CheckListIcon, CodeIcon, DividerIcon, DragHandleIcon, ImageIcon, NumberedListIcon, PageIcon, ParagraphIcon, PlusIcon, PrivateIcon, QuoteIcon, ReactIcon, RecordIcon, TableIcon, TextHFiveIcon, TextHFourIcon, TextHOneIcon, TextHSixIcon, TextHThreeIcon, TextHTwoIcon, ToggleListIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type Level, type Worn, pickUp } from "../../sortable";
 import { useUpload } from "../../upload";
-import { EmptyState, Loading, Notice, useRun } from "../../ui";
+import { EmptyState, Loading, Notice, recordTagButton, useRun } from "../../ui";
 import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor, pageEditorSchema } from "./PageBlock";
 import { Avatar, PopoverPanel } from "../chat/common";
 import { type Participant, type TokenNames, useDirectory } from "../chat/data";
@@ -82,7 +82,8 @@ const blockDrag = createExtension({
  * @people, @agents and #channels in a page, as chips (`.token`, as in chat): plain text, as chat stores them, so
  * an agent reads a page as it reads a message and nothing is kept per mention; a name that matches the directory
  * (`mentionsKey`, set from `useDirectory`) is decorated where it stands (`splitTokens`). A click on a chip does what
- * it does in chat (`onChip`: a person's card, a channel opens). Records are links (`recordHref`), opened like page links.
+ * it does in chat (`onChip`: a person's card, a channel opens). Records are links (`recordHref`), drawn as chat's record chip
+ * (`recordTagButton`, the record icon before the name: `.record-chip` in styles.css) and opened like page links (`openLink`).
  */
 type Mentions = { tokens: TokenNames; onChip: (kind: string, id: string, chip: HTMLElement) => void };
 const mentionsKey = new PluginKey<Mentions>("mentions");
@@ -98,6 +99,10 @@ const mentions = createExtension({
 				const found: Decoration[] = [];
 				state.doc.descendants((node, pos) => {
 					if (!node.isText || !node.text) return;
+					if (node.marks.some((m) => m.type.name === "link" && linkedRecordId(m.attrs.href))) {
+						found.push(Decoration.inline(pos, pos + node.text.length, { class: `record-chip ${recordTagButton}`, "data-kind": "record" }));
+						return;
+					}
 					let at = pos;
 					for (const part of splitTokens(node.text, tokens)) {
 						const length = typeof part === "string" ? part.length : part.text.length;
@@ -159,6 +164,10 @@ const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor
 /** The editor in the app's chrome. Its floating UI is the children (PageEditor, stacked by `layer`); BlockNote's own is off. */
 function View({ editor, editable, children }: { editor: PageBlockEditor; editable: boolean; children?: ReactNode }) {
 	const fetch = useFetch();
+	// The record icon for record chips (`.record-chip::before`), as CSS: the chip is a decoration on the link's text, not React.
+	const icon = useRef<HTMLSpanElement>(null);
+	const [recordIcon, setRecordIcon] = useState("");
+	useEffect(() => { setRecordIcon(`url("data:image/svg+xml,${encodeURIComponent(icon.current?.innerHTML ?? "")}")`); }, []);
 	// A page or record link opens in the app: captured before BlockNote opens a window; also in read-only version previews.
 	const openLink = (event: MouseEvent<HTMLDivElement>) => {
 		if (event.button !== 0 && event.button !== 1) return;
@@ -172,7 +181,8 @@ function View({ editor, editable, children }: { editor: PageBlockEditor; editabl
 		else fetch(api.records.titles, { recordIds: [record as Id<"records">] }).then(([r]) => r && navigate("records", r.typeKey, r._id));
 	};
 	return (
-		<div onClickCapture={openLink} onAuxClickCapture={openLink}>
+		<div onClickCapture={openLink} onAuxClickCapture={openLink} style={{ "--record-icon": recordIcon } as CSSProperties}>
+			<span ref={icon} hidden><RecordIcon /></span>
 			<ComponentsContext.Provider value={components}>
 				<BlockNoteViewRaw editor={editor} editable={editable} theme="light" className={viewClass} formattingToolbar={false} linkToolbar={false} slashMenu={false} emojiPicker={false} sideMenu={false} filePanel={false} tableHandles={false}>
 					{children}
@@ -182,7 +192,8 @@ function View({ editor, editable, children }: { editor: PageBlockEditor; editabl
 	);
 }
 
-export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 }: { pageId: Id<"pages">; editable: boolean; standalone?: boolean; focusKey?: number }) {
+/** A page's body, the same for every page, a record's too: sub-pages (`/page`) and all. */
+export function PageEditor({ pageId, editable, focusKey = 0 }: { pageId: Id<"pages">; editable: boolean; focusKey?: number }) {
 	const create = useMutation(api.pages.create);
 	const { error, fail } = useRun();
 	const upload = useUpload();
@@ -240,7 +251,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 				{/* Blocks don't go in table cells, so no slash menu there (BlockNote's own rule). */}
 				<SuggestionMenuController triggerCharacter="/" floatingUIOptions={floating(layer.menus)} shouldOpen={(state) => !state.selection.$from.parent.type.isInGroup("tableContent")} getItems={async (query) => filterSuggestionItems([
 					...slashItems(sync.editor),
-					...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
+					{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
 						try {
 							// The server adds the child's block (at the end, with the page itself, so there's never a child without
 							// one); once it's here, it moves to where the cursor was: into its empty block, else after it.
@@ -255,7 +266,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 							});
 							navigate("pages", id);
 						} catch (e) { fail(e); }
-					} }] : []),
+					} },
 				], query)} />
 				<SuggestionMenuController triggerCharacter="@" shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={(query) => mentionItems(sync.editor, directory, query, fetch)} />
 				<SuggestionMenuController triggerCharacter="#" shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={async (query) => channelItems(sync.editor, directory, query)} />

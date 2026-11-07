@@ -14,7 +14,7 @@ import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignO
 import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, updateButton, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
-import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
 import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
@@ -24,7 +24,6 @@ import { AppRail } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
 import { type AppTab, type TabBadge, appTabs } from "./views/RailPins";
 import { type PinKey, pinOf, usePins } from "./pins";
-import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
@@ -34,6 +33,7 @@ import { type SectionId, useSections, useUnsectioned } from "./sections";
 import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
 import { DriveView } from "./views/drive/Views";
+import { ComingSoon } from "./views/ComingSoon";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
@@ -150,7 +150,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /drive/<view>, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox, /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -161,9 +161,9 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
-	// The rail's tab on screen. Customize's tabs (Agents, Connectors, Skills, Automations) keep their /settings/<tab> addresses; the rest of Settings lights none.
+	// The rail's tab on screen. Settings (Customize included) lights none.
 	const tab: AppTab | undefined =
-		view === "chat" ? "chat" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
+		view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "records" ? "databases" : view === "sites" ? "sites" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	const [newSection, setNewSection] = useState(false);
@@ -178,11 +178,11 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	// Where "Back to app" goes from Settings.
 	const lastApp = useRef<string[]>(["chat"]);
 	if (tab) lastApp.current = route;
-	// Each tab reopens where you left it; clicking the open one goes to its start (the first database, Customize's Agents).
+	// Each tab reopens where you left it; clicking the open one goes to its start (the first database).
 	const lastIn = useRef<Partial<Record<AppTab, string[]>>>({});
 	if (tab) lastIn.current[tab] = route;
 	const startOf = (t: AppTab): string[] =>
-		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
+		({ home: ["home"], chat: ["chat"], inbox: ["inbox"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], sites: ["sites"] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
 	const { status: update } = useUpdates();
@@ -293,7 +293,6 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									)}
 									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} openView={view === "drive" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} />}
-									{tab === "customize" && <CustomizeNav open={settingsTab} />}
 								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
@@ -320,6 +319,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
 						{view === "files" && <FileView fileId={route[1]} />}
 						{view === "drive" && <DriveView id={route[1]} />}
+						{(view === "home" || view === "inbox" || view === "sites") && <ComingSoon tab={view} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>
@@ -402,19 +402,6 @@ function DatabasesNav({
 			{creatingIn && <DatabaseDialog onCreated={(id) => place(id, creatingIn)} onClose={() => setCreatingIn(undefined)} />}
 			{dialog}
 		</>
-	);
-}
-
-/** Customize's sidebar: Agents, and what they work with (Connectors, Skills, Automations). */
-function CustomizeNav({ open }: { open: string }) {
-	return (
-		<div className="flex flex-col gap-px">
-			{customizeTabs.map((t) => (
-				<Item key={t.id} icon={<t.icon />} active={open === t.id} onClick={() => navigate("settings", t.id)}>
-					{t.label}
-				</Item>
-			))}
-		</div>
 	);
 }
 

@@ -188,7 +188,7 @@ function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored:
 						<button
 							type="button"
 							onClick={() => run(restore({ versionId: v._id, expectedVersion: memory.version }), onRestored)}
-							className={`shrink-0 ${compactButton}`}
+							className={compactButton}
 						>
 							<RestoreIcon /> Restore
 						</button>

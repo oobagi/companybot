@@ -16,7 +16,7 @@ export interface PageRead {
 	kind?: "page" | "folder";
 	title: string;
 	parentId?: string | null;
-	ancestors?: { id: string; title: string }[];
+	ancestors?: { id: string; title: string; record?: string }[];
 	subpages?: { id: string; kind?: "page" | "folder"; title: string }[];
 	subpagesMore?: boolean;
 	/** A folder's files. */
@@ -59,7 +59,7 @@ export const readInput = z.object({
 export type PageReadInput = z.infer<typeof readInput>;
 
 export const findInput = z.object({
-	parent: z.string().nullable().optional().describe("List what's directly in this page or folder (id or exact title); null lists the top level of Drive. Rows include parentId and kind (page or folder), so page through every level to read the tree."),
+	parent: z.string().nullable().optional().describe("List what's directly in this page or folder (id or exact title), or in a record's page by the record's id; null lists the top level of Drive. Rows include parentId and kind (page or folder), so page through every level to read the tree."),
 	search: z.string().optional().describe("Words in the title. Leave out to list pages by title."),
 	trashed: z.boolean().optional().describe("Pages and folders in Archive instead"),
 	cursor: z.string().optional().describe("From a previous result with more: true"),
@@ -68,7 +68,7 @@ export type PageFindInput = z.infer<typeof findInput>;
 
 export const writeInput = z.object({
 	action: z.union([z.literal("write"), z.literal("move")]).optional().describe("write (default) creates or edits a page or folder; move changes its parent and keeps content and descendants"),
-	parent: z.string().nullable().optional().describe("Parent page or folder id (not its title) for creation or action move; null moves to the top level of Drive. Folders go in folders only; record bodies cannot be nested."),
+	parent: z.string().nullable().optional().describe("Parent page or folder id (not its title), or a record's id to put the page in that record's page, for creation or action move; null moves to the top level of Drive. Folders go in folders only; a record's own page can't move."),
 	...writeTarget,
 	kind: z.literal("folder").optional().describe("Create a folder (title, optional parent) instead of a page: it holds pages, files and folders, and has no content"),
 	title: z.string().optional().describe("A new page's or folder's title, or a new title for a page or folder (not a record's body)"),
@@ -113,7 +113,7 @@ export const pageTools: ToolDef[] = [
 	defineTool({
 		id: "pages.find",
 		title: "Find pages",
-		description: "The workspace's pages (wiki, how-tos, meeting notes) and Drive's folders (kind folder): by title, or matching words in the title. Records' page bodies aren't listed: find the record, then read it with `record`. Files are files_find.",
+		description: "The workspace's pages (wiki, how-tos, meeting notes) and Drive's folders (kind folder): by title, or matching words in the title. Records' page bodies aren't listed: find the record, then read it with `record`, or list the pages inside it with `parent` set to the record's id. Files are files_find.",
 		input: findInput,
 		readOnly: true,
 		execute: (input, { pages }) => pages.find(input),
@@ -142,7 +142,7 @@ export const pageTools: ToolDef[] = [
 		id: "pages.write",
 		title: "Write a page",
 		description:
-			"Create a page (title, optional parent and markdown) or a folder (kind folder), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Name pages and folders by id (pages_find gives them). Archiving waits for confirmation. Other writes run right away in the person's own chats and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
+			"Create a page (title, optional parent and markdown; parent can be a record's id, to put it in that record's page) or a folder (kind folder), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Name pages by id (pages_find gives them). Archiving waits for confirmation. Other writes run right away in the person's own chats and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
 		// Acting as the person, like records.save: runs in their own chats, asks in runs following someone
 		// else's words, and Never rules and owner locks reach it. Archiving always asks.

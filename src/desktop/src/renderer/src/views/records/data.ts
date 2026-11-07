@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { usePaginatedQuery, useQuery } from "../../convex";
 import type { Refs } from "./logic";
@@ -30,8 +30,13 @@ export const useCurrency = () => useQuery(api.workspace.settings)?.currency ?? "
 
 /** Rows of a list, loading more as `setEnd`'s element scrolls into view. Short pages with more to come keep loading. */
 export function usePagedRows(args: ListArgs) {
-	const { results, status, loadMore } = usePaginatedQuery(api.records.list, args as never, { initialNumItems: 25 });
-	const rows = results as Row[];
+	const { results, status: live, loadMore } = usePaginatedQuery(api.records.list, args as never, { initialNumItems: 25 });
+	// A new sort or filter loads a new first page: keep showing the last list meanwhile, so it doesn't flash.
+	const last = useRef<{ rows: Row[]; status: typeof live }>(undefined);
+	if (live !== "LoadingFirstPage") last.current = { rows: results as Row[], status: live };
+	const stale = live === "LoadingFirstPage" && !!last.current;
+	const rows = stale ? last.current!.rows : (results as Row[]);
+	const status = stale ? last.current!.status : live;
 	const refs = useRefs(rows);
 	const [end, setEnd] = useState<HTMLDivElement | null>(null);
 	const [atEnd, setAtEnd] = useState(false);
@@ -43,7 +48,7 @@ export function usePagedRows(args: ListArgs) {
 	}, [end]);
 	// Re-checked after every page, so a short page (isDone false) asks again while the end is in view.
 	useEffect(() => {
-		if (atEnd && status === "CanLoadMore") loadMore(25);
-	}, [atEnd, status, rows.length, loadMore]);
-	return { rows, refs, status, loadMore, setEnd };
+		if (atEnd && live === "CanLoadMore") loadMore(25);
+	}, [atEnd, live, rows.length, loadMore]);
+	return { rows, refs, status, stale, loadMore, setEnd };
 }

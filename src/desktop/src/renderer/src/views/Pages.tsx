@@ -1,10 +1,10 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { ArchiveIcon, ArrowRightIcon, HistoryIcon, PageIcon, PlusIcon, PrivateIcon } from "../icons";
-import { NotFound, Notice, Page, barPrimaryButton, useRun } from "../ui";
+import { Loading, NotFound, Notice, Page, barPrimaryButton, useRun } from "../ui";
 import { DriveEmpty, DriveListing } from "./drive/DriveListing";
 import { useDriveUploads } from "./drive/upload";
 import { MovePage, NewMenu, PageAccess } from "./pages/PageTree";
@@ -12,12 +12,14 @@ import { PageEditor } from "./pages/PageEditor";
 import { PageHistory } from "./pages/PageHistory";
 import { PageTitle } from "./pages/PageTitle";
 import { MenuItem, archiveQuestion, useConfirm } from "./chat/common";
+import { recordPath } from "./records/logic";
 import { AccessLock } from "./access";
 import { TrashNotice } from "./Trash";
 
 // Drive: folders, standalone pages (wiki, SOPs, meeting notes) and files. Its sidebar is the tree;
 // /pages is the top level, /pages/<id> opens a folder (its listing) or a page (its editor).
-// Records' page bodies use the same editor on the record's page. See wiki/drive.md and wiki/pages.md.
+// Every page has one screen (`PageView`), Notion's way: a page in Drive, and a record's page, the same screen
+// with the record's properties above its body (RecordPage). See wiki/drive.md and wiki/pages.md.
 
 export { DriveNav, NewMenu } from "./pages/PageTree";
 
@@ -54,11 +56,50 @@ function useFolderActions(parentId: Id<"pages"> | undefined, canEdit: boolean) {
 	};
 }
 
+/**
+ * The page screen, Drive's and every record's: the title (Enter goes on into the body), the title's menu (its
+ * actions), what sits above the body (a record's properties), then the body. `body`: undefined while it loads,
+ * null for a record nobody has written in that you can't edit.
+ */
+export function PageView({ title, crumbs, editableTitle, onRename, menu, badge, notices, above, body, children }: {
+	title: string;
+	crumbs: Crumbs;
+	editableTitle: boolean;
+	onRename: (title: string) => Promise<unknown>;
+	menu: (close: () => void) => React.ReactNode;
+	badge?: React.ReactNode;
+	notices?: React.ReactNode;
+	above?: React.ReactNode;
+	body: { pageId: Id<"pages">; editable: boolean } | null | undefined;
+	/** Dialogs. */
+	children?: React.ReactNode;
+}) {
+	const [focusBody, setFocusBody] = useState(0);
+	return (
+		<Page title={title} crumbs={crumbs} heading={<PageTitle title={title} editable={editableTitle} onSave={onRename} onEnter={() => setFocusBody((n) => n + 1)} />} menu={menu} badge={badge} gutter>
+			{notices}
+			{above}
+			{body === undefined ? <Loading /> : body && <PageEditor pageId={body.pageId} editable={body.editable} focusKey={focusBody} />}
+			{children}
+		</Page>
+	);
+}
+
 function PageOrFolder({ pageId }: { pageId: Id<"pages"> }) {
 	const page = useQuery(api.pages.get, { pageId });
-	// The trail is the folders it's in; the sidebar already says Drive.
-	const crumbs = (page?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] }));
+	// A record's own page opens as its record.
+	const record = page?.record;
+	const own = !!page?.recordId && record;
+	useEffect(() => {
+		if (own) navigate(...recordPath(own.typeKey, own._id));
+	}, [own]);
+	// The trail is the folders it's in (the sidebar already says Drive); inside a record's page: Database › Record › the pages between.
+	const crumbs = [
+		...(record ? [{ label: record.plural, to: recordPath(record.typeKey) }, { label: record.title, to: recordPath(record.typeKey, record._id) }] : []),
+		...(page?.ancestors ?? []).map((p) => ({ label: p.title, to: ["pages", p._id] })),
+	];
 	if (!page) return <NotFound crumbs={crumbs} loaded={page === null} icon={<PageIcon />} title="Page not found" />;
+	if (own) return null;
 	return page.kind === "folder" ? <FolderScreen page={page} crumbs={crumbs} /> : <PageScreen page={page} crumbs={crumbs} />;
 }
 
@@ -73,12 +114,13 @@ function useItemActions(page: Loaded) {
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	const folder = page.kind === "folder";
-	const back = () => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : ["pages"]));
+	// Archiving opens where it was: the page or folder above, else its record, else Drive.
+	const back = () => navigate(...(page.ancestors.length ? ["pages", page.ancestors.at(-1)!._id] : page.record ? recordPath(page.record.typeKey, page.record._id) : ["pages"]));
 	// The title's menu: the same items as the row's in the sidebar.
 	const menu = (close: () => void) => (
 		<>
 			{page.canEdit && <MenuItem onClick={() => { close(); setMoving(true); }}><ArrowRightIcon /> Move to…</MenuItem>}
-			{!page.recordId && <MenuItem onClick={() => { close(); setSharing(true); }}><PrivateIcon /> Who can access</MenuItem>}
+			<MenuItem onClick={() => { close(); setSharing(true); }}><PrivateIcon /> Who can access</MenuItem>
 			{page.canEdit && !page.archived && (
 				<MenuItem onClick={() => { close(); confirm(archiveQuestion(page.title, () => run(remove({ kind: page.kind, id: page._id }), back), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it.")); }}>
 					<ArchiveIcon /> Archive
@@ -123,23 +165,22 @@ function PageScreen({ page, crumbs }: { page: Loaded; crumbs: Crumbs }) {
 	const pageId = page._id;
 	const rename = useMutation(api.pages.rename);
 	const [history, setHistory] = useState(false);
-	const [focusBody, setFocusBody] = useState(0);
 	const item = useItemActions(page);
 	return (
-		<Page
+		<PageView
 			title={page.title}
 			crumbs={crumbs}
-			heading={<PageTitle title={page.title} editable={page.canEdit} onSave={(title) => rename({ pageId, title })} onEnter={() => setFocusBody((n) => n + 1)} />}
+			editableTitle={page.canEdit}
+			onRename={(title) => rename({ pageId, title })}
 			menu={(close) => <>
 				<MenuItem onClick={() => { close(); setHistory(true); }}><HistoryIcon /> History</MenuItem>
 				{item.menu(close)}
 			</>}
 			badge={item.badge}
-			gutter
+			notices={item.dialogs}
+			body={{ pageId, editable: page.canEdit }}
 		>
-			{item.dialogs}
-			<PageEditor pageId={pageId} editable={page.canEdit} standalone={!page.recordId} focusKey={focusBody} />
 			{history && <PageHistory pageId={pageId} canRestore={page.canEdit} onClose={() => setHistory(false)} />}
-		</Page>
+		</PageView>
 	);
 }

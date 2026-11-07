@@ -229,7 +229,7 @@ describe("pages", () => {
 		await expect(other.mutation(api.pages.rename, { pageId, title: "Mine" })).rejects.toThrow();
 	});
 
-	it("are found by title for Move to…, with their path, never record bodies or Trash", async () => {
+	it("are found by title for Move to…, with their path, records' pages by the record's name, never Trash", async () => {
 		const { owner } = await ownerAndMember();
 		const wiki = await owner.mutation(api.pages.create, { title: "Wiki" });
 		const sales = await owner.mutation(api.pages.create, { title: "Sales playbook", parentId: wiki });
@@ -237,11 +237,12 @@ describe("pages", () => {
 		await owner.mutation(api.trash.move, { kind: "page", id: old });
 		const types = await owner.query(api.recordTypes.list);
 		const recordId = await owner.mutation(api.records.create, { typeId: types.find((x) => x.key === "client")!._id, values: { name: "Playbook Co" } });
-		await owner.mutation(api.pages.create, { recordId });
+		const body = await owner.mutation(api.pages.create, { recordId });
 		await owner.mutation(api.pages.rename, { pageId: wiki, title: "Playbooks" });
 		expect(await owner.query(api.pages.search, { query: "playbook" })).toEqual([
 			expect.objectContaining({ _id: wiki, path: [] }),
 			expect.objectContaining({ _id: sales, path: ["Playbooks"] }),
+			expect.objectContaining({ _id: body, title: "Playbook Co", path: [types.find((x) => x.key === "client")!.plural] }),
 		]);
 		expect(await owner.query(api.pages.search, { query: "  " })).toEqual([]);
 	});

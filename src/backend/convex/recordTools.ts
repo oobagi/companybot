@@ -1,3 +1,4 @@
+import { changeField, previewChange } from "./fieldChanges";
 import {
 	type RecordFindInput,
 	type RecordPage,
@@ -277,6 +278,7 @@ const fieldOut = (f: Doc<"recordFields">, linksTo?: string) => ({
 	key: f.key,
 	label: f.label,
 	kind: f.kind,
+	...(f.icon && { icon: f.icon }),
 	position: f.position,
 	...(f.archived && { inTrash: true }),
 	...(f.options && { choices: f.options, options: f.options.filter((o) => !o.retired).map((o) => o.label) }),
@@ -437,6 +439,8 @@ export const undoFor = internalMutation({
 			if (!historyId) throw new ConvexError("Change not found.");
 			const undoneBy = await undoChange(ctx, who, historyId);
 			const entry = (await ctx.db.get(historyId))!;
+			// A field's kind change: its values convert back in the background.
+			if (!entry.recordId) return { undone: change, name: (await ctx.db.get(entry.fieldId!))?.label ?? "a field", field: true, converting: true, change: undoneBy };
 			return { undone: change, ...(await recordOut(ctx, member, entry.recordId!)), change: undoneBy };
 		});
 	}),
@@ -447,28 +451,45 @@ export const saveFieldFor = internalMutation({
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
-			const { type: typeName, field: name, label, kind, options: rawOptions, linksTo, multiple, trash, position } = fieldInput.parse(input);
+			const { type: typeName, field: name, label, kind, icon, options: rawOptions, linksTo, multiple, trash, position, preview } = fieldInput.parse(input);
 			const options = rawOptions?.map((o) => typeof o === "string" ? { label: o } : o);
 			const type = await typeByKey(ctx, member, typeName);
 			let fieldId: Id<"recordFields">;
+			let changed: Awaited<ReturnType<typeof changeField>> | undefined;
 			if (trash !== undefined) {
-				if (!name || label || kind || options || linksTo || multiple !== undefined || position !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
+				if (!name || label || kind || icon !== undefined || options || linksTo || multiple !== undefined || position !== undefined) throw new ConvexError("Say which field to delete or restore, on its own.");
 				fieldId = fieldNamed(await fieldsOf(ctx, type._id), name, type, !trash, false)._id;
 				await setFieldTrashed(ctx, who, fieldId, trash);
 			} else if (name) {
 				const field = fieldNamed(await fieldsOf(ctx, type._id), name, type, false, false);
-				if ((kind && kind !== field.kind) || linksTo || multiple !== undefined)
-					throw new ConvexError("Only a field's name and options can change. Add a new field instead.");
-				await updateField(ctx, who, field._id, { label, options, position });
+				const linkTypeId = linksTo ? (await typeByKey(ctx, member, linksTo))._id : field.linkTypeId;
+				// Saying the setup it has already changes nothing.
+				const setup = (kind !== undefined && kind !== field.kind) || (multiple !== undefined && multiple !== !!field.multiple) || (linksTo !== undefined && linkTypeId !== field.linkTypeId);
+				const shape = setup && {
+					kind: kind ?? field.kind,
+					multiple: multiple ?? !!field.multiple,
+					linkTypeId,
+					options: (kind ?? field.kind) === "choice" && field.kind !== "choice" ? options : undefined,
+				};
+				if (preview) {
+					if (!shape) throw new ConvexError("Preview a change to kind, multiple or linksTo.");
+					const result = await previewChange(ctx, member, field._id, shape);
+					return { type: type.key, typePlural: type.plural, ...fieldOut(field, field.linkTypeId && (await ctx.db.get(field.linkTypeId))?.key), preview: true as const, ...(result ?? { unchanged: true }) };
+				}
+				const choiceEdit = options && !(shape && shape.options);
+				if (label !== undefined || icon !== undefined || position !== undefined || choiceEdit) await updateField(ctx, who, field._id, { label, icon, options: choiceEdit ? options : undefined, position });
+				if (shape) changed = await changeField(ctx, who, field._id, shape);
 				fieldId = field._id;
 			} else {
 				if (position !== undefined) throw new ConvexError("Create the field before moving it.");
 				if (!label || !kind) throw new ConvexError("Give the new field a label and a kind.");
 				const linkTypeId = linksTo ? (await typeByKey(ctx, member, linksTo))._id : undefined;
-				fieldId = (await createField(ctx, who, type._id, { label, kind, options, linkTypeId, multiple }))._id;
+				fieldId = (await createField(ctx, who, type._id, { label, kind, ...(icon && { icon }), options, linkTypeId, multiple }))._id;
 			}
 			const f = (await ctx.db.get(fieldId))!;
-			return { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };
+			const out = { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };
+			// The change id undoes it (records_undo); values convert in the background, by the preview's counts.
+			return changed ? { ...out, changed: changed.change, change: changed.historyId, converting: true, preview: changed.preview } : out;
 		});
 	}),
 });

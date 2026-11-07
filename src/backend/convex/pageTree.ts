@@ -48,21 +48,18 @@ export const keptAccess = (member: Member, page: Pick<Doc<"pages">, "access">, b
 
 /**
  * Share this reader across a list to avoid rereading common ancestors. Missing parents fail closed during purge.
- * `access`: the Who can access list that rules the page: its own, else the nearest ancestor's; a record's
- * page, its database's. `type`: that database, for a record's page.
+ * `ancestors`: nearest first, up to the top level or a record's body (which has no parent). `access`: the Who
+ * can access list that rules the page: its own, else the nearest ancestor's, else, in a record's page, its
+ * database's. `type`: that database, when its list rules the page. `record`: the record whose page this is or
+ * is inside; the page is in Archive with it.
  */
 export function pageStates(ctx: QueryCtx, get: (id: Id<"pages">) => Promise<Doc<"pages"> | null> = (id) => ctx.db.get(id)) {
 	const seen = new Map<Id<"pages">, Promise<Doc<"pages"> | null>>();
-	const typeOf = memo(async (recordId: Id<"records">) => {
+	const recordOf = memo(async (recordId: Id<"records">) => {
 		const record = await ctx.db.get(recordId);
-		return record && (await ctx.db.get(record.typeId));
+		return { record, type: record && (await ctx.db.get(record.typeId)) };
 	});
 	return async (page: Doc<"pages">): Promise<PageState> => {
-		if (page.recordId) {
-			const type = await typeOf(page.recordId);
-			// A record's page has no parent; it's in Archive with its record (pageOps.requireEditable checks that).
-			return { ancestors: [], archived: page.archived, trashPage: page.archived ? page : undefined, access: type ? type.access : [], type: type ?? undefined };
-		}
 		const ancestors: Doc<"pages">[] = [];
 		let current = page;
 		let trashPage = page.archived ? page : undefined;
@@ -76,7 +73,12 @@ export function pageStates(ctx: QueryCtx, get: (id: Id<"pages">) => Promise<Doc<
 			if (parent.archived) trashPage = parent;
 			current = parent;
 		}
-		return { ancestors, archived: !!trashPage, trashPage, access: [page, ...ancestors].find((p) => p.access)?.access };
+		const own = [page, ...ancestors].find((p) => p.access)?.access;
+		if (!current.recordId) return { ancestors, archived: !!trashPage, trashPage, access: own };
+		// A record's page, or a page inside one: in Archive with its record (or its database), and following the database's list.
+		const { record, type } = await recordOf(current.recordId);
+		const recordArchived = !record || !type || record.archived || type.archived;
+		return { ancestors, archived: !!trashPage || recordArchived, trashPage, recordArchived, access: own ?? (type ? type.access : []), type: own || !type ? undefined : type, record: record ?? undefined };
 	};
 }
 
@@ -87,13 +89,15 @@ export type PageState = {
 	missingId?: Id<"pages">;
 	access: AccessList;
 	type?: Doc<"recordTypes">;
+	record?: Doc<"records">;
+	/** In Archive because its record or database is. */
+	recordArchived?: boolean;
 };
 export const pageState = (ctx: QueryCtx, page: Doc<"pages">) => pageStates(ctx)(page);
 
-/** Record bodies are neither parents nor children. Folders go in folders; files go in folders; pages go in either. */
+/** Where a new or moved row can go: any page you can edit, a record's page too; folders and files go in folders only. */
 export async function parentFor(ctx: QueryCtx, member: Member, parentId: Id<"pages">, child: ChildKind = "page") {
 	const parent = await requirePage(ctx, member, parentId);
-	if (parent.recordId) throw new ConvexError("Record bodies can't contain sub-pages.");
 	if (child !== "page" && kindOf(parent) !== "folder") throw new ConvexError(`${child === "file" ? "Files" : "Folders"} go in folders, or at the top level of Drive.`);
 	await requireEditable(ctx, member, parent);
 	const state = await pageState(ctx, parent);
@@ -104,7 +108,7 @@ export async function parentFor(ctx: QueryCtx, member: Member, parentId: Id<"pag
 /** Shared app/agent move, with bounded cycle/depth checks and history. */
 export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, parentId?: Id<"pages">) {
 	await requireEditable(ctx, who.member, page);
-	if (page.recordId) throw new ConvexError("Record bodies can't be nested.");
+	if (page.recordId) throw new ConvexError("A record's page stays with its record.");
 	if (page.parentId === parentId) return;
 	const before = await pageState(ctx, page);
 	const destination = parentId ? await parentFor(ctx, who.member, parentId, kindOf(page)) : null;

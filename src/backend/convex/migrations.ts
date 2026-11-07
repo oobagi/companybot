@@ -483,6 +483,15 @@ export const pageChildBlocks = migrations.define({
 });
 
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
+// Customize left the rail for workspace settings: saved rail orders drop its id.
+export const railDropCustomize = migrations.define({
+	table: "arrangements",
+	batchSize: 100,
+	migrateOne: async (ctx, row) => {
+		if (row.list === "rail" && row.ids.includes("customize")) await ctx.db.patch(row._id, { ids: row.ids.filter((id) => id !== "customize") });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -518,6 +527,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.lastWorkspaces,
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
+	internal.migrations.railDropCustomize,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

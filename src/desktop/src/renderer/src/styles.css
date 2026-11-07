@@ -18,6 +18,23 @@
 	/* The app's body size (between text-sm and text-base), and a size under text-xs for a message's hover time. */
 	--text-body: 15px;
 	--text-2xs: 10px;
+	/* Choice option tints, Notion's: a soft background and dark text in the same hue (`optionTints` in views/records/fields.tsx). */
+	--color-option-brown: #eee0da;
+	--color-option-brown-ink: #442a1e;
+	--color-option-orange: #fadec9;
+	--color-option-orange-ink: #49290e;
+	--color-option-yellow: #fdecc8;
+	--color-option-yellow-ink: #402c1b;
+	--color-option-green: #dbeddb;
+	--color-option-green-ink: #1c3829;
+	--color-option-blue: #d3e5ef;
+	--color-option-blue-ink: #183347;
+	--color-option-purple: #e8deee;
+	--color-option-purple-ink: #412454;
+	--color-option-pink: #f5e0e9;
+	--color-option-pink-ink: #4c2337;
+	--color-option-red: #ffe2dd;
+	--color-option-red-ink: #5d1715;
 }
 
 html,
@@ -104,9 +121,12 @@ body {
 .page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content[data-content-type="heading"] { font-size: var(--level); font-weight: 700; }
 /* Placeholders (on the empty block's ::after) plain, as the app's, not BlockNote's italic. */
 .page-editor .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after { font-style: normal; }
-/* Links as chat's: the link color, underlined on hover (page links are the exception, further down). */
-.page-editor .bn-inline-content a[href]:not([href^="companybot://page/"]) { color: var(--color-link); }
-.page-editor .bn-inline-content a[href]:not([href^="companybot://page/"]):hover { text-decoration: underline; }
+/* Links as chat's: the link color, underlined on hover (page links, further down, and record chips are the exceptions). */
+.page-editor .bn-inline-content a[href]:not([href^="companybot://"]) { color: var(--color-link); }
+.page-editor .bn-inline-content a[href]:not([href^="companybot://"]):hover { text-decoration: underline; }
+/* A record link is chat's record chip (`recordTagButton`), the record icon drawn before its name (the icon's SVG, from `View`). */
+.page-editor .record-chip { cursor: pointer; }
+.page-editor .record-chip::before { content: ""; display: inline-block; width: 1em; height: 1em; margin-right: 0.25rem; vertical-align: -0.125em; background: currentColor; mask: var(--record-icon) center / contain no-repeat; }
 /* Nested blocks show by indentation alone: no BlockNote guide lines. */
 .page-editor .bn-block-group .bn-block-group .bn-block-outer::before { display: none; }
 /* A toggle's caret is a plain chevron (BlockNote's is Material's filled triangle); BlockNote turns the button when open. */
@@ -229,6 +249,11 @@ body {
 	color: var(--color-link);
 	font-weight: 500;
 	padding-inline: 0.125rem;
+}
+/* A record in the composer: the app's grays, like its chip in a sent message (ui.tsx `recordTagButton`). */
+.token.record-token {
+	background: var(--color-neutral-100);
+	color: var(--color-neutral-800);
 }
 
 /* Drag to reorder (sortable.ts): the row you hold floats over the others, which slide out of its way. */

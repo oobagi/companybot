@@ -72,7 +72,8 @@ export type SectionTab = keyof typeof sectionTabs;
 export const SECTIONS_MAX = 50;
 export const SECTION_ITEMS_MAX = 500;
 export const SECTION_NAME_MAX = 80;
-export const railTabs = ["chat", "drive", "databases", "customize"];
+/** The rail's tabs, in the order a new rail shows them. The one list: the desktop draws these, the server accepts only these. */
+export const railTabs: readonly string[] = ["home", "chat", "inbox", "drive", "databases", "sites"];
 /** Drive's sidebar rows above its tree: Home (the top level) and the views (desktop `views/drive/Views.tsx`). */
 export const driveRowIds = ["home", "recent", "shared", "private"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */

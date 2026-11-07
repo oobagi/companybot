@@ -3,7 +3,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
-import { ArrowUpIcon, ChannelIcon, PrivateIcon, SkillIcon } from "../../icons";
+import { ArrowUpIcon, ChannelIcon, DatabaseIcon, PrivateIcon, SkillIcon } from "../../icons";
 import { AttachButton, type Attachments, PendingFiles } from "./Attachments";
 import { Avatar } from "./common";
 import { ComposerTools } from "./ComposerTools";
@@ -96,7 +96,8 @@ export function Composer({
 		const key = latest.current.saveAt;
 		// Emptied at once, so it feels sent; a send that fails puts it all back.
 		const taken = files?.take();
-		const sending = latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill }, taken?.ids ?? []);
+		const mentions = { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill, recordIds: tokens.record as Id<"records">[] };
+		const sending = latest.current.onSend(text, mentions, taken?.ids ?? []);
 		editor.commands.clearContent(true);
 		setEmpty(true);
 		sending.then(
@@ -153,10 +154,12 @@ function Picker({ menu, onHighlight, onPick, onPickEmoji }: { menu: Menu; onHigh
 				<EmojiPanel search={menu.query} selected={menu.items[menu.index]?.label} onPick={onPickEmoji} />
 			) : (
 				<>
-					<p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>
-					<ul role="listbox" className="pb-1">
+					{menu.items[0]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>}
+					<ul role="listbox" className="max-h-96 overflow-y-auto pb-1">
 						{menu.items.map((c, i) => (
 							<li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === menu.index}>
+								{/* Records come after people and agents, under their own heading. */}
+								{c.kind === "record" && menu.items[i - 1]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>Records</p>}
 								<button type="button" onClick={() => onPick(i)} onMouseEnter={() => onHighlight(i)} data-active={i === menu.index || undefined} className={`${rowButton} items-center gap-2`}>
 									<Row candidate={c} />
 								</button>
@@ -185,6 +188,17 @@ function Row({ candidate: c }: { candidate: Candidate }) {
 			<>
 				<span className="flex size-6 shrink-0 items-center justify-center text-lg">{c.label}</span>
 				<span className="truncate">:{c.id}:</span>
+			</>
+		);
+	}
+	if (c.kind === "record") {
+		return (
+			<>
+				<span className="flex size-6 shrink-0 items-center justify-center text-neutral-500">
+					<DatabaseIcon />
+				</span>
+				<span className="truncate">{c.label}</span>
+				<span className={`ml-auto shrink-0 ${metadataClass}`}>{c.typeName}</span>
 			</>
 		);
 	}

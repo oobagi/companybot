@@ -358,6 +358,56 @@ describe("fields", () => {
 		expect(await titles(owner, { typeId: client._id, filters: [{ field: "status", eq: "lead" }] })).toEqual(["Bolt", "Acme"]);
 	});
 
+	it("gives fields an icon and options colors, keeping colors an older app leaves out", async () => {
+		const { t, owner, client } = await setup();
+		const stage = await owner.mutation(api.fields.create, {
+			typeId: client._id,
+			label: "Stage",
+			kind: "choice",
+			icon: "flag",
+			options: [{ label: "New" }, { label: "Won", color: "green" }, { label: "Lost" }],
+		});
+		// New options without a color take the palette in turn.
+		expect(stage).toMatchObject({ icon: "flag", options: [{ label: "New", color: "gray" }, { label: "Won", color: "green" }, { label: "Lost", color: "orange" }] });
+		const [won, lost] = [stage.options![1]!, stage.options![2]!];
+
+		await owner.mutation(api.fields.update, { fieldId: stage._id, icon: "trophy", options: [{ id: won.id, label: "Won", color: "blue" }, { id: lost.id, label: "Lost" }, { label: "Paused" }] });
+		// Apps up to 0.1.0-alpha.10, and agents naming options by label, send them without colors: each keeps its own.
+		await owner.mutation(api.fields.update, { fieldId: stage._id, options: [{ id: won.id, label: "Won!" }, { id: lost.id, label: "Lost" }, { id: "paused", label: "Paused" }] });
+		const options = () => owner.query(api.recordTypes.list).then((types) => types.find((t) => t.key === "client")!.fields.find((f) => f._id === stage._id)!);
+		expect(await options()).toMatchObject({
+			icon: "trophy",
+			options: [
+				{ label: "Won!", color: "blue" },
+				{ label: "Lost", color: "orange" },
+				// The fourth option the field has had, so the fourth color.
+				{ id: "paused", label: "Paused", color: "yellow" },
+				{ label: "New", color: "gray", retired: true },
+			],
+		});
+		await owner.mutation(api.fields.update, { fieldId: stage._id, icon: null });
+		expect((await options()).icon).toBeUndefined();
+
+		const history = await t.run((ctx) => ctx.db.query("recordHistory").withIndex("by_type", (q) => q.eq("typeId", client._id)).collect());
+		expect(history.filter((h) => h.fieldId === stage._id).map((h) => h.changes)).toEqual([
+			[{ key: "label", new: "Stage" }, { key: "icon", new: "flag" }],
+			[
+				{ key: "icon", old: "flag", new: "trophy" },
+				{ key: "options", old: ["New", "Won", "Lost"], new: ["Won", "Lost", "Paused"] },
+				{ key: "colors", old: ["Won: green"], new: ["Won: blue"] },
+			],
+			[{ key: "options", old: ["Won", "Lost", "Paused"], new: ["Won!", "Lost", "Paused"] }],
+			[{ key: "icon", old: "trophy" }],
+		]);
+
+		await expect(owner.mutation(api.fields.update, { fieldId: stage._id, icon: "rocket" })).rejects.toThrow("icon is one of");
+		await expect(owner.mutation(api.fields.update, { fieldId: stage._id, options: [{ id: won.id, label: "Won", color: "teal" }] })).rejects.toThrow("color is one of");
+		// Options from before colors stay without one until someone picks it.
+		const status = client.fields.find((f) => f.key === "status")!;
+		await owner.mutation(api.fields.update, { fieldId: status._id, label: "State" });
+		expect((await owner.query(api.recordTypes.list)).find((t) => t.key === "client")!.fields.find((f) => f._id === status._id)!.options!.every((o) => !o.color)).toBe(true);
+	});
+
 	it("archives fields without losing values, and keeps the name field", async () => {
 		const { owner, client } = await setup();
 		const website = client.fields.find((f) => f.key === "website")!;
