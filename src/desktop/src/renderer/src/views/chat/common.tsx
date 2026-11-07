@@ -1,7 +1,7 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
-import { Notice, Scroll, ScrollUnder, Stacked, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
+import { Notice, Scroll, ScrollUnder, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
@@ -207,7 +207,7 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 		<Layer
 			onClose={onClose}
 			overlayClassName="bg-neutral-900/20"
-			className={`dialog flex max-h-[85vh] w-full ${widths[size]} flex-col overflow-hidden rounded-2xl bg-white text-body text-neutral-900 shadow-xl`}
+			className={`flex max-h-[85vh] w-full ${widths[size]} flex-col overflow-hidden rounded-2xl bg-white text-body text-neutral-900 shadow-xl`}
 		>
 			{/* The title stays put and the content scrolls under it, fading out as in chat (`Scroll`); `DialogButtons` stick to the bottom the same way. */}
 			<Scroll
@@ -222,7 +222,7 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 				}
 			>
 				<div className="flex flex-col gap-5 px-6 pb-6">
-					<Stacked>{children}</Stacked>
+					{children}
 				</div>
 			</Scroll>
 		</Layer>

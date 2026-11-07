@@ -189,19 +189,6 @@ body {
 	transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 160ms;
 }
 
-/* In a dialog the dialog is the card: lists lose their box and their lines, and line up with the title and buttons. */
-.dialog .card-list {
-	border-width: 0;
-	border-radius: 0;
-}
-.dialog .card-list > * {
-	border-width: 0;
-}
-.dialog .card-list > *,
-.dialog .card-inset {
-	padding-inline: 0;
-}
-
 /* A sidebar tree's elbow into a nested row: the guide line's 1.5px stroke, turning right. */
 .tree-elbow {
 	border-bottom: 1.5px solid var(--color-neutral-300);
@@ -213,12 +200,3 @@ body {
 	border-left: 1.5px solid var(--color-neutral-300);
 }
 
-/* A stacked field's control (`Setting` in a dialog or on sign-in): full width and a size up, so a form reads at a glance. */
-.stacked-control > * {
-	width: 100%;
-}
-.stacked-control :is(input:not([type="checkbox"]), textarea, button[aria-haspopup]) {
-	min-height: 2.5rem;
-	border-color: var(--color-neutral-300);
-	font-size: var(--text-body);
-}

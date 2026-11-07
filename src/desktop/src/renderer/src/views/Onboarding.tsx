@@ -8,7 +8,7 @@ import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
 import { appTabs } from "./RailPins";
-import { Form, Notice, Setting, Settings, Stacked, chipRemoveButton, compactControlClass, descriptionClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Form, Notice, Setting, Settings, chipRemoveButton, compactControlClass, descriptionClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
@@ -85,14 +85,14 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 						<NameField name={name} onChange={setTypedName} />
 					)}
 					{step === "company" && (
-						<Stacked><Settings>
-							<Setting label="Company">
-								<input autoFocus aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={wideControlClass} />
+						<Settings>
+							<Setting wide label="Company">
+								<input autoFocus aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={`${compactControlClass} w-full`} />
 							</Setting>
-							<Setting label="Currency" hint="For amounts on deals and invoices. Changeable later in Settings.">
-								<CurrencySelect className={wideControlClass} value={currency} onChange={setCurrency} />
+							<Setting wide label="Currency" hint="For amounts on deals and invoices. Changeable later in Settings.">
+								<CurrencySelect className={`${compactControlClass} w-full`} value={currency} onChange={setCurrency} />
 							</Setting>
-						</Settings></Stacked>
+						</Settings>
 					)}
 					{step === "team" && (
 						<InviteBox
@@ -172,7 +172,7 @@ function InviteBox({
 }) {
 	const input = useRef<HTMLInputElement>(null);
 	return (
-		<Stacked><Settings>
+		<Settings>
 		<Setting wide label="Emails" hint="Type one and press Enter, or paste a list.">
 			<div onClick={() => input.current?.focus()} className={`${compactControlClass} flex min-h-24 w-full cursor-text flex-wrap content-start gap-1.5`}>
 				{invites.map((email) => (
@@ -199,7 +199,7 @@ function InviteBox({
 				/>
 			</div>
 		</Setting>
-		</Settings></Stacked>
+		</Settings>
 	);
 }
 
@@ -317,10 +317,10 @@ export function NameOnboarding() {
 
 function NameField({ name, onChange }: { name: string; onChange: (name: string) => void }) {
 	return (
-		<Stacked><Settings>
-			<Setting label="Your name">
-				<input autoFocus aria-label="Your name" value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={wideControlClass} />
+		<Settings>
+			<Setting wide label="Your name">
+				<input autoFocus aria-label="Your name" value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={`${compactControlClass} w-full`} />
 			</Setting>
-		</Settings></Stacked>
+		</Settings>
 	);
 }
