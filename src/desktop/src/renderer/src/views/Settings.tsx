@@ -4,10 +4,11 @@ import { type ImageModelInfo, type ModelInfo, defaultImageModel, imageModelNote,
 import { ROUTER_MODEL, isDecisionModel } from "@companybot/core/router";
 import { type Access, can } from "@companybot/core/permissions";
 import { formatUsd, monthLabel, usageMonth } from "@companybot/core/usage";
+import { DOWNLOAD_URL } from "@companybot/core/invite-email";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { describeUpdate, desktop, useUpdates } from "../desktop";
+import { describeUpdate, desktop, openLink, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, compactDangerButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
@@ -167,19 +168,30 @@ function GeneralTab({ access }: { access: Access }) {
 
 function AppVersion() {
 	const { version, status } = useUpdates();
-	if (!desktop) return null;
+	const app = desktop();
+	// In a browser it's always the latest version; offer the desktop app instead.
+	if (!app)
+		return (
+			<Settings title="App">
+				<Setting label="Desktop app" hint="For Mac, in its own window, with a dock count.">
+					<button type="button" onClick={() => openLink(DOWNLOAD_URL)} className={actionButton}>
+						Download
+					</button>
+				</Setting>
+			</Settings>
+		);
 	return (
 		<Settings title="App">
 			<Setting label={`Companybot ${version}`} hint={status ? describeUpdate(status) : undefined}>
 				{status?.state === "ready" ? (
-					<button type="button" onClick={() => void desktop?.updates.install()} className={actionPrimaryButton}>
+					<button type="button" onClick={() => void app.updates.install()} className={actionPrimaryButton}>
 						Restart to update
 					</button>
 				) : (
 					<button
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
-						onClick={() => void desktop?.updates.check()}
+						onClick={() => void app.updates.check()}
 						className={actionButton}
 					>
 						Check for updates
@@ -188,6 +200,14 @@ function AppVersion() {
 			</Setting>
 		</Settings>
 	);
+}
+
+/** Where notifications and the unread count show, which differs in a browser, and whether the browser blocks them. */
+function notificationsHint() {
+	if (desktop()) return "When Companybot isn't in front, and the dock count.";
+	if (typeof Notification !== "undefined" && Notification.permission === "denied")
+		return "Your browser blocks them: allow notifications for this site in its settings. The count still shows in the tab's title.";
+	return "When Companybot's tab isn't in front, and the count in the tab's title.";
 }
 
 /** A danger zone's row: does something that can't be undone, once you've typed `confirm` (its name, or your email). */
@@ -425,7 +445,7 @@ function ProfileTab() {
 						onChange={(sendWith) => draft.set({ ...value, sendWith })}
 					/>
 				</Setting>
-				<Setting label="Notifications" hint="When Companybot isn't in front, and the dock count.">
+				<Setting label="Notifications" hint={notificationsHint()}>
 					<Select
 						className={wideControlClass}
 						value={value.notify}

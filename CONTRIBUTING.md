@@ -19,7 +19,7 @@ pnpm dev            # this checkout's own local Convex backend + the desktop app
 
 - Sign in with any email. Local backends skip the email code.
 - `pnpm dev --reset` wipes this checkout's local data.
-- `pnpm --filter @companybot/desktop preview:web` serves the UI in a browser at `localhost:5173`.
+- `pnpm dev --web` runs the same app in a browser instead (vite prints the address). See [Architecture → Web and desktop](wiki/architecture.md#web-and-desktop).
 - Connector sign-in (OAuth) doesn't work on local backends. They have no public URL for the callback.
 
 ### Running it outside the team

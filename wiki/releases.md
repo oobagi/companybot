@@ -38,5 +38,8 @@ Same Apple Developer account as yap. Set them in companybot with `gh secret set 
 ## App icon
 `src/desktop/resources/icon.png` (1024px; electron-builder makes the `.icns`). Its source is `icon.svg` beside it, the repo logo (`.github/assets/logo.svg`) on Apple's icon grid. After editing the SVG, render it to a 1024px PNG with a transparent background.
 
+## Web app
+The web build (`pnpm build:web`, [Architecture](architecture.md#web-and-desktop)) isn't part of `pnpm release`: once a Vercel project is linked, it redeploys from `main` on its own and every browser gets it on its next load. It talks to the same prod backend, which `pnpm release` deploys.
+
 ## Not done yet
 Windows builds.

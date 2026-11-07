@@ -11,6 +11,8 @@
     "dev": "node scripts/dev.mjs",
     "dev:backend": "convex dev",
     "dev:desktop": "pnpm --filter @companybot/desktop dev",
+    "dev:web": "pnpm --filter @companybot/desktop dev:web",
+    "build:web": "pnpm --filter @companybot/desktop build:web",
     "test": "pnpm -r test",
     "test:scale": "pnpm --filter @companybot/backend test:scale",
     "typecheck": "pnpm -r typecheck",

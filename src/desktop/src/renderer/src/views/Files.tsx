@@ -12,6 +12,7 @@ import { PageTitle } from "./pages/PageTitle";
 import { MenuItem, archiveQuestion, useConfirm } from "./chat/common";
 import { AccessLock } from "./access";
 import { TrashNotice } from "./Trash";
+import { openLink } from "../desktop";
 
 // A file in Drive, at /files/<id>: shown inline where we can, with rename, move, access and Archive
 // like a page. See wiki/drive.md.
@@ -41,7 +42,7 @@ function FileScreen({ fileId }: { fileId: Id<"driveFiles"> }) {
 			wide
 			badge={<AccessLock lock={file.lock ?? null} />}
 			menu={(close) => <>
-						{file.url && <MenuItem onClick={() => { close(); window.open(file.url!, "_blank"); }}><OpenOutsideIcon /> Open in browser</MenuItem>}
+						{file.url && <MenuItem onClick={() => { close(); openLink(file.url!); }}><OpenOutsideIcon /> Open in browser</MenuItem>}
 						{file.canEdit && <MenuItem onClick={() => { close(); setMoving(true); }}><ArrowRightIcon /> Move to…</MenuItem>}
 						<MenuItem onClick={() => { close(); setSharing(true); }}><PrivateIcon /> Who can access</MenuItem>
 						{file.canEdit && !file.archived && <MenuItem onClick={() => { close(); confirm(archiveQuestion(file.name, () => run(remove({ kind: "file", id: fileId }), back))); }}><ArchiveIcon /> Archive</MenuItem>}

@@ -3,6 +3,7 @@ import { linkedPageId } from "@companybot/core/page-links";
 import { code } from "@streamdown/code";
 import { type ComponentProps, type MouseEvent, useMemo, useState } from "react";
 import { type Components, type LinkSafetyModalProps, defaultComponents, defaultRehypePlugins, Streamdown } from "streamdown";
+import { desktop } from "./desktop";
 import { navigate } from "./router";
 import { Notice, descriptionClass, primaryButton, secondaryButton, useRun } from "./ui";
 import { DialogButtons, Modal } from "./views/chat/common";
@@ -27,7 +28,7 @@ function ExternalLinkModal({ url, onClose, onConfirm }: LinkSafetyModalProps) {
 	const { busy, error, run } = useRun();
 	return (
 		<Modal title="Open external link?" size="md" onClose={onClose}>
-			<p className={descriptionClass}>This link opens in your browser.</p>
+			<p className={descriptionClass}>{desktop() ? "This link opens in your browser." : "This link opens in a new tab."}</p>
 			<p className="max-h-40 overflow-y-auto rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm wrap-anywhere select-text">{url}</p>
 			<Notice>{error}</Notice>
 			<DialogButtons>

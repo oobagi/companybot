@@ -36,7 +36,8 @@
     "./connectors": "./src/connectors.ts",
     "./link-preview": "./src/link-preview.ts",
     "./public-role": "./src/public-role.ts",
-    "./inbox": "./src/inbox.ts"
+    "./inbox": "./src/inbox.ts",
+    "./invite-email": "./src/invite-email.ts"
   },
   "scripts": {
     "test": "vitest run",

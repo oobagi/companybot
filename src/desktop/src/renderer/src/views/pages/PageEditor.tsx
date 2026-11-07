@@ -10,6 +10,7 @@ import { linkedPageId, linkedRecordId, recordHref, validPageHref } from "@compan
 import { type CSSProperties, type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useFetch, useHeldQuery, useMutation } from "../../convex";
+import { openLink } from "../../desktop";
 import { BulletListIcon, CaretDownIcon, ChannelIcon, CheckListIcon, CodeIcon, DividerIcon, DragHandleIcon, ImageIcon, NumberedListIcon, PageIcon, ParagraphIcon, PlusIcon, PrivateIcon, QuoteIcon, ReactIcon, RecordIcon, TableIcon, TextHFiveIcon, TextHFourIcon, TextHOneIcon, TextHSixIcon, TextHThreeIcon, TextHTwoIcon, ToggleListIcon } from "../../icons";
 import { navigate } from "../../router";
 import { type Level, type Worn, pickUp } from "../../sortable";
@@ -46,7 +47,7 @@ const links = {
 	// BlockNote's default opens every link with window.open, page links too; those navigate in openPageLink instead.
 	onClick: (event: globalThis.MouseEvent) => {
 		const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
-		if (anchor && !linkedPageId(anchor.getAttribute("href") ?? "")) window.open(anchor.href, anchor.target);
+		if (anchor && !linkedPageId(anchor.getAttribute("href") ?? "")) openLink(anchor.href);
 		return true;
 	},
 };
