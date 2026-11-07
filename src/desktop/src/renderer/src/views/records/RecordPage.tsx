@@ -105,8 +105,9 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 	const [editing, setEditing] = useState<TypeField>();
 	// The name is the page's title, edited there like Notion's.
 	const live = type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[];
+	// Body-sized, like the page under it (Notion's properties read at the text's size).
 	return (
-		<section className="flex flex-col gap-1">
+		<section className="flex flex-col gap-1 text-base">
 			<dl className="grid grid-cols-[10rem_1fr] items-start gap-x-4 gap-y-1">
 				{live.map((field) => (
 					<FieldRow
@@ -138,13 +139,13 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 	return (
 		<>
 			{/* The label opens the field's settings, for whoever may change them. */}
-			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
+			<dt className="flex min-w-0 items-center py-1 text-neutral-500">
 				{onEditField ? (
 					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
-						<FieldIcon field={field} /> <span className="truncate">{field.label}</span>
+						<FieldIcon field={field} large /> <span className="truncate">{field.label}</span>
 					</button>
 				) : (
-					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} /> <span className="truncate">{field.label}</span></span>
+					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} large /> <span className="truncate">{field.label}</span></span>
 				)}
 			</dt>
 			<dd className="flex min-w-0 flex-col">

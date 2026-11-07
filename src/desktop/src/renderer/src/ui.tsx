@@ -488,8 +488,8 @@ export const toolButton = `inline-flex h-7 shrink-0 items-center gap-1.5 rounded
 export const filterChip = "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-neutral-300 px-2.5 text-sm text-neutral-500 hover:bg-neutral-50 data-active:border-solid data-active:border-neutral-200 data-active:bg-neutral-100 data-active:text-neutral-900 data-active:hover:bg-neutral-200/70";
 /** A field in `toolButton`'s row (the search box): its height. */
 export const toolControlClass = `h-7 rounded-md px-2 text-sm ${controlClass}`;
-/** An action at the end of a list of field labels, in their look (Add field). */
-export const labelButton = `-mx-1.5 flex w-fit items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+/** An action at the end of a list of field labels, in their look and size (Add field). */
+export const labelButton = `-mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;

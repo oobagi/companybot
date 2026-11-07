@@ -341,7 +341,8 @@ const kindIcons: Record<FieldKind, typeof TextIcon> = {
 };
 
 /** A field's icon beside its name, like Notion's properties: the one picked for it, else its kind's. */
-export function FieldIcon({ field, className = "" }: { field: { kind: FieldKind; icon?: string }; className?: string }) {
+export function FieldIcon({ field, large, className = "" }: { field: { kind: FieldKind; icon?: string }; large?: boolean; className?: string }) {
 	const Icon = fieldIconSet[field.icon as FieldIconId] ?? kindIcons[field.kind];
-	return <Icon className={`shrink-0 text-neutral-400 ${className}`} />;
+	// `large` beside body-sized text (a record's properties): a touch bigger than the text and darker, so it doesn't look faint.
+	return <Icon className={`shrink-0 ${large ? "size-[1.125em] text-neutral-500" : "text-neutral-400"} ${className}`} />;
 }
