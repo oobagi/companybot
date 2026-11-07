@@ -444,6 +444,17 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		database: { index: "by_type", eq: ["typeId"] },
 		field: { index: "by_field", eq: ["fieldId"] },
 	},
+	// A field change and the old values it keeps go with its field, database or workspace.
+	fieldChanges: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		database: { index: "by_type", eq: ["typeId"] },
+		field: { index: "by_field", eq: ["fieldId"] },
+	},
+	fieldChangeValues: {
+		childOf: { table: "fieldChanges", index: "by_change", field: "changeId" },
+		record: { index: "by_record", eq: ["recordId"] },
+		keep: "Kept values go with their change (childOf), or with their record when it's deleted forever.",
+	},
 	// Deleting a message deletes its rows here too (messages.remove).
 	recordMentions: {
 		channel: { index: "by_chat", eq: ["chatId"] },

@@ -298,6 +298,7 @@ export function Tabs<T extends string>({
 	menu,
 	drag,
 	children,
+	end,
 }: {
 	tabs: readonly { id: T; label: string }[];
 	value: T;
@@ -308,11 +309,15 @@ export function Tabs<T extends string>({
 	menu?: (close: () => void) => React.ReactNode;
 	/** Extra controls after the last tab. */
 	children?: React.ReactNode;
+	/** Controls at the row's far end, like a view's search and filters. They keep their place; the tabs scroll. */
+	end?: React.ReactNode;
 }) {
 	const tabClass = (open: boolean) =>
 		`-mb-px max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
 	return (
-		<nav className="flex flex-wrap gap-1 border-b border-neutral-200">
+		<nav className="flex items-end gap-2 border-b border-neutral-200">
+			{/* -mb-px: the open tab's underline sits on the row's line, inside the scroll box. */}
+			<div className="-mb-px flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none]">
 			{tabs.map((t) => {
 				const d = drag?.(t.id);
 				return (
@@ -330,6 +335,8 @@ export function Tabs<T extends string>({
 				);
 			})}
 			{children}
+			</div>
+			{end && <div className="flex shrink-0 items-center gap-1.5 self-center pb-1 text-sm">{end}</div>}
 		</nav>
 	);
 }
@@ -446,26 +453,46 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
-/** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
-export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
-/** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
-export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): the same box, smaller. */
+/** An input, select or textarea: the same box as `buttonBox`, so a row of fields and buttons lines up. */
+export const compactControlClass = `rounded-xl px-3 py-2 text-sm ${controlClass}`;
+/**
+ * Every text button's box: one height, padding and corner. The looks below only add color, so
+ * buttons can't drift apart. Their names say where they go (the lint rules check that).
+ */
+const buttonBox = `inline-flex min-h-9.5 shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm ${disabledButtonClass}`;
+const outlined = `${buttonBox} border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`;
+const filled = `${buttonBox} border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700`;
+const quiet = `${buttonBox} border-transparent text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900`;
+/** On a screen, beside fields (Filter, Columns, Discard). */
+export const compactButton = outlined;
+/** `compactButton` for a destructive action (Leave channel). */
+export const compactDangerButton = `${buttonBox} border-neutral-200 bg-white text-red-600 hover:bg-red-50`;
+/** Submits a row of fields on a screen (Invite, Add, Save). */
+export const compactPrimaryButton = filled;
+/** A dialog's buttons, in `DialogButtons`. */
+export const primaryButton = filled;
+export const dangerButton = `${buttonBox} border-red-600 bg-red-600 text-white hover:bg-red-700`;
+export const secondaryButton = outlined;
+/** The top bar: quiet actions (Edit, History), and the create action (`NewButton`). */
+export const barButton = quiet;
+export const barDangerButton = `${buttonBox} border-transparent text-neutral-600 hover:bg-red-50 hover:text-red-700`;
+export const barPrimaryButton = filled;
+/** Where a card, popover or settings row acts on its own (Deny, Upload, Check for updates). */
+export const actionButton = outlined;
+export const actionPrimaryButton = filled;
+/** `compactButton` inside a line of small text (a message's notes, a paused-agents line): smaller. */
 export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** `compactButton` for a destructive action (Leave channel): the same box, red text. */
-export const compactDangerButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 ${disabledButtonClass}`;
-/** Submits a row of compact controls (Invite, Add, Save): their box, filled. */
-export const compactPrimaryButton = `rounded-lg border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
-export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
-export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
-export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
-/** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
-export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+/** A database's view toolbar (Search, Filter, Columns, Layout): quiet like Notion's, gray until hovered or open. */
+export const toolButton = `inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100 aria-expanded:text-neutral-900 ${disabledButtonClass}`;
+/** A database filter, as a chip under the toolbar (`data-active` once it filters something). */
+export const filterChip = "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-neutral-300 px-2.5 text-sm text-neutral-500 hover:bg-neutral-50 data-active:border-solid data-active:border-neutral-200 data-active:bg-neutral-100 data-active:text-neutral-900 data-active:hover:bg-neutral-200/70";
+/** A field in `toolButton`'s row (the search box): its height. */
+export const toolControlClass = `h-7 rounded-md px-2 text-sm ${controlClass}`;
+/** An action at the end of a list of field labels, in their look and size (Add field). */
+export const labelButton = `-mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
-export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 /** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
 export const trailingAction =
 	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
@@ -473,10 +500,6 @@ export const trailingAction =
 export const composerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50";
 /** The composer's Send: a round dark button with an arrow, grey until there's something to send. */
 export const sendButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white disabled:bg-neutral-200";
-/** `secondaryButton`'s size where a card, popover or settings row acts on its own (Deny, Message, Join, Check for updates). */
-export const actionButton = secondaryButton;
-/** `primaryButton`'s size where a card, popover or settings row acts on its own (Allow once, Connect, Restart to update). */
-export const actionPrimaryButton = primaryButton;
 /** The landing screen's one big dark button (Get started). */
 export const heroButton = "rounded-xl bg-neutral-900 px-6 py-2.5 text-base text-white hover:bg-neutral-800";
 /** The sidebar footer's "Update ready · Restart": small dark text block. */
@@ -542,6 +565,10 @@ export const rowButton = `flex w-full rounded-lg px-2 py-1.5 text-left text-sm h
 export const listRowButton = "flex w-full gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50";
 /** A square in a grid of choices (an emoji). */
 export const tileButton = "flex size-8 items-center justify-center rounded-lg hover:bg-neutral-100";
+/** `tileButton` that shows which one is picked (`aria-pressed`): a field's icon. */
+export const pickedTileButton = `${tileButton} text-lg text-neutral-600 hover:text-neutral-900 aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900`;
+/** A square beside an input that opens a picker for it: a field's icon beside its name, an option's color. */
+export const swatchButton = "inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white text-lg text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 aria-expanded:bg-neutral-50";
 /** A picture that opens full size. */
 export const imageButton = "overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300";
 /** An on/off pill with a count (a reaction): filled while on (`aria-pressed`). */
@@ -553,6 +580,8 @@ export const descriptionClass = "text-sm text-neutral-500";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */
 export const hintClass = "text-sm text-neutral-400";
+/** A quiet panel of facts in a form, like what a change will do before it's confirmed. */
+export const notePanelClass = "flex flex-col gap-1.5 rounded-xl bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
 /** One item as a bordered box: an entry, a rule, a member. */
 export const cardClass = "rounded-xl border border-neutral-200 px-4 py-3";
 /** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
@@ -675,10 +704,14 @@ export function RenameInput({ value, onSave, onDone, className = "" }: { value: 
 }
 
 /** Shows a query's error in place of what failed, plainly. Remount (new `key`) to try again. */
-export class ErrorBoundary extends Component<{ children: React.ReactNode }, { error?: unknown }> {
+/** Shows a render error as a notice. A new `resetKey` (the query that failed changed) tries again, without remounting. */
+export class ErrorBoundary extends Component<{ children: React.ReactNode; resetKey?: string }, { error?: unknown }> {
 	state: { error?: unknown } = {};
 	static getDerivedStateFromError(error: unknown) {
 		return { error };
+	}
+	componentDidUpdate(before: { resetKey?: string }) {
+		if (before.resetKey !== this.props.resetKey && this.state.error !== undefined) this.setState({ error: undefined });
 	}
 	render() {
 		return this.state.error !== undefined ? <Notice>{errorMessage(this.state.error)}</Notice> : this.props.children;
@@ -843,10 +876,10 @@ export function ConflictNotice({ draft, who }: { draft: { stale: boolean; discar
 	return (
 		<div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
 			<p className="flex-1">{who || "Someone"} saved a change while you were editing.</p>
-			<button type="button" onClick={draft.discard} className={`${compactButton} bg-white`}>
+			<button type="button" onClick={draft.discard} className={compactButton}>
 				Use theirs
 			</button>
-			<button type="button" onClick={draft.keepMine} className={`${compactButton} bg-white`}>
+			<button type="button" onClick={draft.keepMine} className={compactButton}>
 				Keep mine
 			</button>
 		</div>

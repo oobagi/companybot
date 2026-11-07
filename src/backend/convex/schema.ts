@@ -193,6 +193,17 @@ export const fieldValue = v.union(
 /** core's FieldKind. */
 export const fieldKind = oneOf(fieldKinds);
 
+/** core's FieldShape, with the linked database by id: what a field's values depend on. */
+export const fieldShape = v.object({
+	kind: fieldKind,
+	options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
+	linkTypeId: v.optional(v.id("recordTypes")),
+	multiple: v.optional(v.boolean()),
+});
+
+/** core's ChangeCounts. */
+export const changeCounts = v.object({ checked: v.number(), converted: v.number(), cleared: v.number(), partly: v.number(), examples: v.array(v.string()) });
+
 /** core's AutomationAudience. */
 export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
 
@@ -1226,6 +1237,8 @@ export default defineSchema({
 		typeId: v.id("recordTypes"),
 		...viewConfig,
 		version: v.number(),
+		/** Why its filters, sort or grouping changed without anyone saving it (a field's kind changed). Cleared by the next save. */
+		notice: v.optional(v.string()),
 	}).index("by_type", ["typeId"]),
 
 	// A field on a database. Its values live on `records.values[key]`; renaming keeps the key.
@@ -1235,10 +1248,17 @@ export default defineSchema({
 		key: v.string(),
 		label: v.string(),
 		kind: fieldKind,
-		/** Removed options stay, `retired`, so records using them keep their meaning. */
-		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()) }))),
+		/** One of core's `fieldIcons`; without one the app shows the kind's icon. */
+		icon: v.optional(v.string()),
+		/** Removed options stay, `retired`, so records using them keep their meaning. `color`: one of core's `optionColors`. */
+		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
 		linkTypeId: v.optional(v.id("recordTypes")),
 		multiple: v.optional(v.boolean()),
+		/**
+		 * Set while its kind, one/several or linked database is changing (fieldChanges.ts): values are
+		 * converting in the background, so the field and its values can't be edited until it's unset.
+		 */
+		change: v.optional(v.id("fieldChanges")),
 		/** Display order. */
 		position: v.number(),
 		/** In Trash: its values stay on every record but can't be set, filtered or sorted. */
@@ -1268,6 +1288,8 @@ export default defineSchema({
 		.index("by_type", ["typeId", "archived"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
+		// Every record of a database by creation time, in Archive or not: a field change converts them in this order.
+		.index("by_type_created", ["typeId"])
 		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
 
 	// A page: a standalone doc (wiki, SOP, meeting notes) or a record's body. Its content lives
@@ -1381,7 +1403,7 @@ export default defineSchema({
 			v.literal("field.archived"),
 			v.literal("field.restored"),
 		),
-		/** Records: changed values by field key. Fields: changed settings ("label", "options"). */
+		/** Records: changed values by field key. Fields: changed settings ("label", "icon", "options", "colors"). */
 		changes: v.array(v.object({ key: v.string(), old: v.optional(fieldValue), new: v.optional(fieldValue) })),
 		userId: v.id("users"),
 		agentId: v.optional(v.id("agents")),
@@ -1394,6 +1416,55 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type", ["typeId"])
 		.index("by_field", ["fieldId"]),
+
+	// A change to a field's kind, one/several or linked database, converting every record's value in
+	// batches (fieldChanges.ts). Forward changes keep each changed record's old value so the change can
+	// be undone; undoing is a change too (`undoes`), and keeps none.
+	fieldChanges: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		fieldId: v.id("recordFields"),
+		from: fieldShape,
+		to: fieldShape,
+		/** Set on an undo: the change it reverses. */
+		undoes: v.optional(v.id("fieldChanges")),
+		/** Set once this change has been undone (or is being). */
+		undoneBy: v.optional(v.id("fieldChanges")),
+		status: v.union(v.literal("running"), v.literal("done")),
+		/** Records created at or before this have been converted. */
+		doneThrough: v.number(),
+		counts: changeCounts,
+		/** Its line in the field's history. */
+		historyId: v.optional(v.id("recordHistory")),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		finishedAt: v.optional(v.number()),
+		/** Forward changes: old values are kept until then, so it can be undone. */
+		keepUntil: v.optional(v.number()),
+		/** Its kept values were deleted (keepUntil passed): it can't be undone. */
+		forgotten: v.optional(v.boolean()),
+		/** Its latest scheduled run, so `resume` can tell a failed run from a slow one. */
+		run: v.optional(v.id("_scheduled_functions")),
+		updatedAt: v.number(),
+		error: v.optional(v.string()),
+	})
+		.index("by_field", ["fieldId"])
+		.index("by_type", ["typeId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_history", ["historyId"])
+		.index("by_status", ["status", "updatedAt"])
+		.index("by_keep", ["keepUntil"]),
+
+	// A record's value before a field change rewrote it, and what it wrote, so undo restores it exactly
+	// (unless the record changed since). Only records whose value changed have one.
+	fieldChangeValues: defineTable({
+		changeId: v.id("fieldChanges"),
+		recordId: v.id("records"),
+		old: v.optional(fieldValue),
+		new: v.optional(fieldValue),
+	})
+		.index("by_change", ["changeId", "recordId"])
+		.index("by_record", ["recordId"]),
 
 	// A chat message that references a record, so the record can show where it was discussed.
 	recordMentions: defineTable({

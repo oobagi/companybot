@@ -3,7 +3,7 @@ import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuer
 import type { OptimisticUpdate } from "convex/browser";
 import { type PaginatedQueryReference, useAction as useConvexAction, useConvex, useMutation as useConvexMutation } from "convex/react";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
-import { createContext, useCallback, useContext } from "react";
+import { createContext, useCallback, useContext, useRef } from "react";
 
 // The app's Convex hooks. Use these, not convex/react's: each call carries the workspace this
 // window has open, so a request always acts where it was made, whatever another device opened
@@ -36,6 +36,16 @@ export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 ) {
 	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
 	return useCachedPaginatedQuery(query, args === "skip" ? "skip" : withWorkspace(args as Args, workspaceId), options);
+}
+
+/**
+ * A query's last result while new args load (`useQuery` gives undefined until then), so a list
+ * keeps showing instead of flashing empty. Undefined only before the first result.
+ */
+export function useSettled<T>(value: T | undefined): T | undefined {
+	const last = useRef(value);
+	if (value !== undefined) last.current = value;
+	return last.current;
 }
 
 // Stable between renders (like convex/react's), so effects can depend on them.

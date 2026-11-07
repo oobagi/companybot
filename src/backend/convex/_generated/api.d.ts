@@ -33,6 +33,7 @@ import type * as crypto from "../crypto.js";
 import type * as customConnectors from "../customConnectors.js";
 import type * as databaseViews from "../databaseViews.js";
 import type * as dictation from "../dictation.js";
+import type * as fieldChanges from "../fieldChanges.js";
 import type * as fields from "../fields.js";
 import type * as fileText from "../fileText.js";
 import type * as files from "../files.js";
@@ -118,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   customConnectors: typeof customConnectors;
   databaseViews: typeof databaseViews;
   dictation: typeof dictation;
+  fieldChanges: typeof fieldChanges;
   fields: typeof fields;
   fileText: typeof fileText;
   files: typeof files;

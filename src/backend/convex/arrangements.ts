@@ -188,7 +188,8 @@ function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
 		case "workspaces": return !!ctx.db.normalizeId("workspaces", id);
 		case "expanded": return !!ctx.db.normalizeId("pages", id);
 		case "sections": case "folded": return sidebarSections.includes(id);
-		case "rail": return railTabs.includes(id) || isPinKey(id);
+		// COMPAT(0.1.0-alpha.10): that app still draws a Customize tab and may move it; newer ones ignore the id.
+		case "rail": return railTabs.includes(id) || id === "customize" || isPinKey(id);
 		default: return true;
 	}
 }

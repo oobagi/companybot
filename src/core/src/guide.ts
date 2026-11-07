@@ -91,8 +91,9 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 				"- Before changing or deleting more than 3 records at once, list them and ask the person to confirm. Add or change fields only when asked.",
 			);
 		}
+		if (has("records.save_field")) lines.push("- Changing a field's kind, one/several or linked database rewrites every record's value: run records_save_field with preview: true first, tell the person how many values convert and how many would be cleared, then make the change (it asks them to approve). It converts in the background and can be undone for 30 days.");
 		if (has("records.history")) lines.push("- records_history pages full record history by id or workspace Activity without id; source agents reads visible tool activity. Continue with continueCursor while isDone is false.");
-		if (has("records.undo")) lines.push("- Record changes return a change id; records_undo reverses those if they ask.");
+		if (has("records.undo")) lines.push("- Record and field kind changes return a change id; records_undo reverses those if they ask.");
 		if (has("widgets.table")) lines.push("- Show 3+ records with widgets_table, passing `from: { ref, path: \"rows\", fields }` with field keys.");
 		if (has("widgets.card")) lines.push("- Show one record worth a closer look with widgets_card.");
 		lines.push(

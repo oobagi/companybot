@@ -272,10 +272,13 @@ export function Popover({
 	label,
 	disabled,
 	matchWidth,
+	active,
 	className = "",
 	panelClassName,
 	children,
 }: {
+	/** Marks the button `data-active` (a filter chip that's filtering). */
+	active?: boolean;
 	/** What you click. */
 	trigger: React.ReactNode;
 	/** Tooltip and accessible name for the button, when the trigger is only an icon or avatar. */
@@ -298,7 +301,7 @@ export function Popover({
 			matchWidth={matchWidth}
 			className={panelClassName}
 			target={
-				<button type="button" title={label} aria-label={label} disabled={disabled} onClick={() => setOpened(!opened)} className={className}>
+				<button type="button" title={label} aria-label={label} disabled={disabled} data-active={active || undefined} onClick={() => setOpened(!opened)} className={className}>
 					{trigger}
 				</button>
 			}
