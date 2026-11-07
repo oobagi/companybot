@@ -244,11 +244,12 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							<Scroll
 								className="no-drag"
 								header={
-									// pt-2.5: its name sits on the same line as the top bar's title.
+									// pt-2.5: its name sits on the same line as the top bar's title. It's a row's height (30px), as Settings'
+									// Back to app is, so what's under it starts at the same place on every tab.
 									<div className="drag px-3 pt-2.5 pb-4">
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
-												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+												<h1 className="min-w-0 flex-1 truncate px-2 py-[5px] text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
 												{/* The + here adds to the rows right under the name (channels, databases) and adds sections; a section (Direct messages, All files, the ones people add) has its own on its header. */}
 												{tab === "chat" && (
 													<span className="no-drag flex">
