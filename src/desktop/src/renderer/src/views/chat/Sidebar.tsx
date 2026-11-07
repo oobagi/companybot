@@ -290,9 +290,10 @@ export function Group({ title, section, add, menu, rename, drag, divider, childr
 			<div
 				{...divider}
 				// While renaming, a drag would take the text selection, and right-click is the input's own.
+				// min-h-6: as tall with its + and ⋯ as without, so every section's rows start at the same place.
 				onPointerDown={renaming ? undefined : d.handle?.onPointerDown}
 				onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt({ x: e.clientX, y: e.clientY })) : undefined}
-				className={`flex items-center justify-between gap-1 px-2 pb-1 ${divider?.className ?? ""}`}
+				className={`flex min-h-6 items-center justify-between gap-1 px-2 pb-1 ${divider?.className ?? ""}`}
 			>
 				{renaming && rename ? (
 					<RenameInput value={rename.value} onSave={rename.onSave} onDone={() => setRenaming(false)} className="-my-0.5 -ml-1 min-w-0 flex-1 px-1 py-0.5 text-xs" />
