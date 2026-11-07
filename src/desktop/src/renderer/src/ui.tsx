@@ -559,6 +559,10 @@ export const rowButton = `flex w-full rounded-lg px-2 py-1.5 text-left text-sm h
 export const listRowButton = "flex w-full gap-3 px-4 py-2 text-left text-sm hover:bg-neutral-50";
 /** A square in a grid of choices (an emoji). */
 export const tileButton = "flex size-8 items-center justify-center rounded-lg hover:bg-neutral-100";
+/** `tileButton` that shows which one is picked (`aria-pressed`): a field's icon. */
+export const pickedTileButton = `${tileButton} text-lg text-neutral-600 hover:text-neutral-900 aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900`;
+/** A square beside an input that opens a picker for it: a field's icon beside its name, an option's color. */
+export const swatchButton = "inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white text-lg text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 aria-expanded:bg-neutral-50";
 /** A picture that opens full size. */
 export const imageButton = "overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300";
 /** An on/off pill with a count (a reaction): filled while on (`aria-pressed`). */

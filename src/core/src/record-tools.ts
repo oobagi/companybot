@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fieldKinds } from "./records";
+import { fieldIcons, fieldKinds, optionColors } from "./records";
 import { type ToolDef, defineTool, jsonOutput, resultText as text } from "./tools";
 
 /**
@@ -31,7 +31,7 @@ export interface RecordTypesResult {
 		plural: string;
 		version: number;
 		inTrash?: boolean;
-		fields: { key: string; label: string; kind: string; options?: string[]; choices?: { id: string; label: string; retired?: boolean }[]; position?: number; inTrash?: boolean; linksTo?: string; multiple?: true }[];
+		fields: { key: string; label: string; kind: string; icon?: string; options?: string[]; choices?: { id: string; label: string; retired?: boolean; color?: string }[]; position?: number; inTrash?: boolean; linksTo?: string; multiple?: true }[];
 	}[];
 }
 
@@ -104,10 +104,11 @@ export const fieldInput = z.object({
 	field: z.string().optional().describe("An existing field's key (not its label), to rename it or change its options. Omit to add a field."),
 	label: z.string().optional().describe('The field\'s name, e.g. "Roof type". Required when adding.'),
 	kind: z.enum(fieldKinds).optional().describe("Required when adding; can't change later. user = a teammate; link = another record."),
+	icon: z.enum(fieldIcons).nullable().optional().describe("The icon shown beside the field's name instead of its kind's; null puts the kind's back."),
 	options: z
-		.array(z.union([z.string(), z.strictObject({ id: z.string().optional(), label: z.string() })])).max(100)
+		.array(z.union([z.string(), z.strictObject({ id: z.string().optional(), label: z.string(), color: z.enum(optionColors).optional() })])).max(100)
 		.optional()
-		.describe("Choice fields: every option, in order. Use {id,label} from records_types choices to rename without changing stored values. When changing, list all to keep: one left out is retired (records keep it; it can't be picked)."),
+		.describe("Choice fields: every option, in order. Use {id,label} from records_types choices to rename without changing stored values. When changing, list all to keep: one left out is retired (records keep it; it can't be picked). Without a color, an option keeps its own; a new one gets the next in turn."),
 	position: z.number().int().min(1).max(100).optional().describe("Move an existing field to this display position, starting at 1 after Name."),
 	linksTo: z.string().optional().describe("Link fields: the key or id of the database it points at"),
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several"),
@@ -334,7 +335,7 @@ export const recordTools: ToolDef[] = [
 		id: "records.save_field",
 		title: "Save a field",
 		description:
-			'Add a field to a database ("add a Priority field"), rename one, change its choice options, delete it (to Archive) or restore it. Only after the person asked for it or confirmed it.',
+			'Add a field to a database ("add a Priority field"), rename one, set its icon, change its choice options and their colors, delete it (to Archive) or restore it. Only after the person asked for it or confirmed it.',
 		input: fieldInput,
 		riskFor: (input) => input.trash === true ? "locked" : "inside",
 		execute: (input, { records }) => records.saveField(input),

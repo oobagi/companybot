@@ -55,6 +55,8 @@ const buttonClasses = new Set([
 	"rowButton",
 	"listRowButton",
 	"tileButton",
+	"pickedTileButton",
+	"swatchButton",
 	"imageButton",
 	"chipButton",
 	"surfaceButton",

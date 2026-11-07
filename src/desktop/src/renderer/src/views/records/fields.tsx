@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Checkbox, Select, currencyPickerClass, fieldCellClass, fieldEditClass, fieldPickerClass } from "../../controls";
-import { type FieldKind, type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
+import { type FieldIconId, type FieldKind, type FieldValue, type Money, type OptionColor, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
@@ -9,7 +9,7 @@ import { bareIconButton, compactControlClass, hintClass, linkButton, useDebounce
 import { MenuItem, Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
-import { AmountIcon, CalendarIcon, CaretUpDownIcon, CheckboxIcon, ChoiceIcon, CloseIcon, EmailIcon, LinkFieldIcon, NumberIcon, PhoneIcon, PrivateIcon, TextIcon, UserIcon, WebsiteIcon } from "../../icons";
+import { AmountIcon, CalendarIcon, CaretUpDownIcon, CheckboxIcon, ChoiceIcon, CloseIcon, EmailIcon, LinkFieldIcon, NumberIcon, PhoneIcon, PrivateIcon, TextIcon, UserIcon, WebsiteIcon, fieldIconSet } from "../../icons";
 
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
@@ -19,6 +19,7 @@ const empty = "text-neutral-400";
 /** A value, read-only. Links open their record; ones to a deleted record say so and don't open. */
 export function ValueView({ field, value, refs }: { field: TypeField; value: FieldValue | undefined; refs: Refs }) {
 	if (value === undefined) return <span className={empty}>—</span>;
+	if (field.kind === "choice") return <ChoiceChips field={field} ids={[value].flat().map(String)} />;
 	if (field.kind === "link") return <LinkChips field={field} ids={[value].flat().map(String)} refs={refs} />;
 	if (field.kind === "url") {
 		return (
@@ -55,9 +56,43 @@ function LinkChips({ field, ids, refs, onRemove }: { field: TypeField; ids: stri
 	);
 }
 
-export function Chip({ children, onRemove }: { children: React.ReactNode; onRemove?: () => void }) {
+/**
+ * Choice option tints, Notion's: a soft background with dark text in its hue, so a colored chip
+ * reads as calmly as a gray one. Tokens in styles.css (`--color-option-*`).
+ */
+const optionTints: Record<OptionColor, string> = {
+	default: "bg-neutral-100 text-neutral-800",
+	gray: "bg-neutral-200/80 text-neutral-700",
+	brown: "bg-option-brown text-option-brown-ink",
+	orange: "bg-option-orange text-option-orange-ink",
+	yellow: "bg-option-yellow text-option-yellow-ink",
+	green: "bg-option-green text-option-green-ink",
+	blue: "bg-option-blue text-option-blue-ink",
+	purple: "bg-option-purple text-option-purple-ink",
+	pink: "bg-option-pink text-option-pink-ink",
+	red: "bg-option-red text-option-red-ink",
+};
+
+/** An option's tint; options from before colors, and unknown colors, are `default`. */
+export const tintOf = (color?: string) => optionTints[color as OptionColor] ?? optionTints.default;
+
+/** A choice field's values as chips in their options' colors. */
+export function ChoiceChips({ field, ids }: { field: TypeField; ids: string[] }) {
 	return (
-		<span className="flex max-w-full items-center gap-1 rounded-md bg-neutral-100 px-1.5 text-sm leading-5">
+		<span className="flex flex-wrap gap-1.5">
+			{ids.map((id) => (
+				<Chip key={id} color={field.options?.find((o) => o.id === id)?.color}>
+					<span className="truncate">{valueText(field, id)}</span>
+				</Chip>
+			))}
+		</span>
+	);
+}
+
+/** A value as a chip: a pick, a person, a linked record. `color`: a choice option's (`optionColors`). */
+export function Chip({ children, color, onRemove }: { children: React.ReactNode; color?: string; onRemove?: () => void }) {
+	return (
+		<span className={`flex max-w-full items-center gap-1 rounded-md px-1.5 text-sm leading-5 ${tintOf(color)}`}>
 			{children}
 			{onRemove && (
 				<button type="button" onClick={onRemove} className={bareIconButton} title="Remove" aria-label="Remove">
@@ -186,11 +221,12 @@ function PickEditor({ field, ids, refs, onSave }: { field: TypeField; ids: strin
 	const options = useOptions(field);
 	const save = (next: string[]) => onSave(field.multiple ? next : (next[0] ?? null));
 	const label = (id: string) => (refs[id]?.locked ? "Locked" : valueText(field, id, refs));
+	const color = (id: string) => field.options?.find((o) => o.id === id)?.color;
 	return (
 		<Popover
 			trigger={
 				ids.length ? (
-					ids.map((id) => <Chip key={id}><span className="truncate">{label(id)}</span></Chip>)
+					ids.map((id) => <Chip key={id} color={color(id)}><span className="truncate">{label(id)}</span></Chip>)
 				) : (
 					<span className="text-neutral-400">—</span>
 				)
@@ -207,7 +243,7 @@ function PickEditor({ field, ids, refs, onSave }: { field: TypeField; ids: strin
 								{field.kind === "link" ? (
 									<LinkChips field={field} ids={ids} refs={refs} onRemove={(id) => save(ids.filter((i) => i !== id))} />
 								) : (
-									ids.map((id) => <Chip key={id} onRemove={() => save(ids.filter((i) => i !== id))}>{label(id)}</Chip>)
+									ids.map((id) => <Chip key={id} color={color(id)} onRemove={() => save(ids.filter((i) => i !== id))}>{label(id)}</Chip>)
 								)}
 							</span>
 						)}
@@ -219,7 +255,7 @@ function PickEditor({ field, ids, refs, onSave }: { field: TypeField; ids: strin
 								.filter((o) => !ids.includes(o.id))
 								.map((o) => (
 									<MenuItem key={o.id} onClick={() => pick(o.id)}>
-										<span className="min-w-0 truncate">{o.label}</span>
+										{field.kind === "choice" ? <Chip color={o.color}><span className="truncate">{o.label}</span></Chip> : <span className="min-w-0 truncate">{o.label}</span>}
 									</MenuItem>
 								))
 						)}
@@ -232,7 +268,7 @@ function PickEditor({ field, ids, refs, onSave }: { field: TypeField; ids: strin
 }
 
 /** What a choice or person field can be set to: live options, or the workspace's people. */
-export function useOptions(field: TypeField): { id: string; label: string }[] {
+export function useOptions(field: TypeField): { id: string; label: string; color?: string }[] {
 	const team = useQuery(api.workspace.team, field.kind === "user" ? {} : "skip");
 	if (field.kind === "user") return team?.members.map((m) => ({ id: m.userId, label: m.name || m.email })) ?? [];
 	return field.options?.filter((o) => !o.retired) ?? [];
@@ -304,8 +340,8 @@ const kindIcons: Record<FieldKind, typeof TextIcon> = {
 	link: LinkFieldIcon,
 };
 
-/** A field's kind as an icon beside its name, like Notion's properties. */
-export function FieldIcon({ kind, className = "" }: { kind: FieldKind; className?: string }) {
-	const Icon = kindIcons[kind];
+/** A field's icon beside its name, like Notion's properties: the one picked for it, else its kind's. */
+export function FieldIcon({ field, className = "" }: { field: { kind: FieldKind; icon?: string }; className?: string }) {
+	const Icon = fieldIconSet[field.icon as FieldIconId] ?? kindIcons[field.kind];
 	return <Icon className={`shrink-0 text-neutral-400 ${className}`} />;
 }

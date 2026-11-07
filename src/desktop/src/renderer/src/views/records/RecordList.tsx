@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, hintClass, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -363,7 +363,7 @@ function RecordResults({
 }) {
 	const { rows, refs, status, stale, loadMore, setEnd } = usePagedRows(args);
 
-	const header = (key: string, label: string, canSort: boolean, kind?: FieldKind) => {
+	const header = (key: string, label: string, canSort: boolean, field?: TypeField) => {
 		const on = sort?.field === key;
 		const next = (): Sort | undefined => {
 			const first = key === "updatedAt" ? "desc" : "asc";
@@ -374,12 +374,12 @@ function RecordResults({
 			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
 				{canSort ? (
 					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
-						{kind && <FieldIcon kind={kind} />}
+						{field && <FieldIcon field={field} />}
 						{label}
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
 					</button>
 				) : (
-					<span className="flex items-center gap-1.5">{kind && <FieldIcon kind={kind} />}{label}</span>
+					<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}{label}</span>
 				)}
 			</th>
 		);
@@ -398,7 +398,7 @@ function RecordResults({
 				columns={columns}
 				stale={stale}
 				head={[
-					...columns.map((f) => header(f.key, f.label, sortable(f), f.kind)),
+					...columns.map((f) => header(f.key, f.label, sortable(f), f)),
 					header("updatedAt", "Updated", true),
 				]}
 			/>}
@@ -465,7 +465,7 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
 	if (rows.length === 0) return <NoMatches />;
-	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium"><span className="flex items-center gap-1.5"><FieldIcon kind={f.kind} />{f.label}</span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
+	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium"><span className="flex items-center gap-1.5"><FieldIcon field={f} />{f.label}</span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }
 
@@ -512,7 +512,7 @@ function FieldMenu({ label, fields, onPick, children }: { label: string; fields:
 					<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Filter by</p>
 					{fields.map((f) => (
 						<MenuItem key={f.key} onClick={() => (close(), onPick(f))}>
-							<FieldIcon kind={f.kind} />
+							<FieldIcon field={f} />
 							<span className="flex-1 truncate">{f.label}</span>
 						</MenuItem>
 					))}
@@ -551,6 +551,8 @@ function FilterChip({
 			: filter.value.map((id) => options.find((o) => o.id === id)?.label ?? id).join(", ")
 		: filter.value;
 	const summary = !needsValue(filter.op) ? opLabels[filter.op] : !set ? "" : filter.op === "is" || filter.op === "anyOf" ? value : `${opLabels[filter.op]} ${value}`;
+	// Choices show as their chips, in their colors: "Status: [Open] [Done]".
+	const picked = field.kind === "choice" && filter.op === "anyOf" && Array.isArray(filter.value) && filter.value.length > 0 ? filter.value : null;
 	return (
 		<PopoverPanel
 			opened={open}
@@ -558,11 +560,22 @@ function FilterChip({
 			className="flex w-80 flex-col gap-2 p-2"
 			target={
 				<button type="button" onClick={() => onOpen(!open)} data-active={active || undefined} className={filterChip}>
-					<FieldIcon kind={field.kind} />
-					<span className="max-w-64 truncate">
-						{field.label}
-						{summary && <span className="font-normal">: {summary}</span>}
-					</span>
+					<FieldIcon field={field} />
+					{picked ? (
+						<span className="flex max-w-80 min-w-0 items-center gap-1">
+							<span className="shrink-0">{field.label}:</span>
+							{picked.map((id) => (
+								<Chip key={id} color={options.find((o) => o.id === id)?.color}>
+									<span className="max-w-32 truncate text-xs">{options.find((o) => o.id === id)?.label ?? id}</span>
+								</Chip>
+							))}
+						</span>
+					) : (
+						<span className="max-w-64 truncate">
+							{field.label}
+							{summary && <span className="font-normal">: {summary}</span>}
+						</span>
+					)}
 					<CaretDownIcon />
 				</button>
 			}
@@ -590,7 +603,7 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 		return (
 			<span className="flex flex-wrap items-center gap-1.5">
 				{ids.map((id) => (
-					<Chip key={id} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
+					<Chip key={id} color={options.find((o) => o.id === id)?.color} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
 				))}
 				{field.kind === "link" ? (
 					field.linkType && <RecordPicker
@@ -602,6 +615,23 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 							onChange([...ids, id]);
 						}}
 					/>
+				) : field.kind === "choice" ? (
+					// Options as their chips, as when picking one on a record.
+					<Popover trigger={<span className="text-neutral-400">Pick…</span>} className={`inline-flex items-center ${compactControlClass}`} panelClassName="flex max-h-72 w-56 flex-col gap-px overflow-y-auto p-1">
+						{(close) =>
+							options.filter((o) => !ids.includes(o.id)).length ? (
+								options
+									.filter((o) => !ids.includes(o.id))
+									.map((o) => (
+										<MenuItem key={o.id} onClick={() => (close(), onChange([...ids, o.id]))}>
+											<Chip color={o.color}><span className="truncate">{o.label}</span></Chip>
+										</MenuItem>
+									))
+							) : (
+								<span className={`px-2 py-1 ${hintClass}`}>All picked.</span>
+							)
+						}
+					</Popover>
 				) : (
 					<Select
 						value=""
@@ -679,7 +709,7 @@ function GroupPicker({ fields, value, onChange }: { fields: TypeField[]; value: 
 					<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Group by</p>
 					{fields.map((f) => (
 						<MenuItem key={f.key} onClick={() => (close(), onChange(f.key))}>
-							<FieldIcon kind={f.kind} />
+							<FieldIcon field={f} />
 							<span className="flex-1 truncate">{f.label}</span>
 							{f.key === value.key && <CheckIcon className="text-neutral-500" />}
 						</MenuItem>
@@ -723,7 +753,7 @@ function ColumnsPicker({
 						const shown = columns.includes(f.key);
 						const name = (
 							<>
-								<FieldIcon kind={f.kind} />
+								<FieldIcon field={f} />
 								<span className={`flex-1 truncate ${shown ? "" : "text-neutral-400"}`}>{f.label}</span>
 							</>
 						);
