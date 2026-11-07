@@ -24,7 +24,7 @@ export function PagesView({ pageId }: { pageId?: string }) {
 			// No title: the sidebar beside it already says Drive, as Chat with nothing open.
 			<Page title="">
 				<EmptyState icon={<DriveIcon />} title="No page open">
-					Open a page from the sidebar, or press + beside Drive to write one.
+					Open a page from the sidebar, or press + beside Drive to write one. Live charts and dashboards in pages are coming soon.
 				</EmptyState>
 			</Page>
 		);

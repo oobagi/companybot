@@ -8,7 +8,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardButton, cardClass, compactButton, descriptionClass, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
+import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardButton, cardClass, compactButton, descriptionClass, labelButton, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
 import { Modal, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageEditor } from "../pages/PageEditor";
@@ -17,7 +17,7 @@ import { PageTitle } from "../pages/PageTitle";
 import { TrashNotice } from "../Trash";
 import { PendingWakeups } from "../Wakeups";
 import { AddField, EditField } from "./fieldDialogs";
-import { ValueEditor, ValueView } from "./fields";
+import { FieldIcon, ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
 
 // One record's page: its fields, editable in place, its page body (notes, plans: a page,
@@ -118,9 +118,9 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 					/>
 				))}
 			</dl>
-			<div className="flex gap-4 pt-2 text-sm">
+			<div className="pt-2">
 				{type.canManage && !record.archived && (
-					<button type="button" onClick={() => setAdding(true)} className={compactButton}>
+					<button type="button" onClick={() => setAdding(true)} className={labelButton}>
 						<PlusIcon /> Add field
 					</button>
 				)}
@@ -140,11 +140,11 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 			{/* The label opens the field's settings, for whoever may change them. */}
 			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
 				{onEditField ? (
-					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
-						{field.label}
+					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
+						<FieldIcon kind={field.kind} /> <span className="truncate">{field.label}</span>
 					</button>
 				) : (
-					<span className="truncate py-0.5">{field.label}</span>
+					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon kind={field.kind} /> <span className="truncate">{field.label}</span></span>
 				)}
 			</dt>
 			<dd className="flex min-w-0 flex-col">
@@ -264,7 +264,7 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 								<span className={metadataClass}>Undone</span>
 							) : (
 								canUndo && (
-									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className={`shrink-0 ${compactButton}`}>
+									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className={compactButton}>
 										<RestoreIcon /> Undo
 									</button>
 								)
