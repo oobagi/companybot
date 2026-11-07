@@ -16,6 +16,8 @@ export const arrangementLists = {
 	recent: { scope: "personal", entity: undefined },
 	/** The rail's one group, in your order: its tabs (`railTabs`) and your pins, mixed. */
 	rail: { scope: "personal", entity: undefined },
+	/** Drive's rows above its tree, in your order: Home and the views (`driveRowIds`). */
+	driveRows: { scope: "personal", entity: undefined },
 	workspaces: { scope: "account", entity: undefined },
 } as const;
 export type ArrangementList = keyof typeof arrangementLists;
@@ -71,6 +73,8 @@ export const SECTIONS_MAX = 50;
 export const SECTION_ITEMS_MAX = 500;
 export const SECTION_NAME_MAX = 80;
 export const railTabs = ["chat", "drive", "databases", "customize"];
+/** Drive's sidebar rows above its tree: Home (the top level) and the views (desktop `views/drive/Views.tsx`). */
+export const driveRowIds = ["home", "recent", "shared", "private"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
 

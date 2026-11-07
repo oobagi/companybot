@@ -1,4 +1,4 @@
-import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, extraIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
+import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, driveRowIds, extraIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { can } from "@companybot/core/permissions";
 import { ConvexError, getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -228,6 +228,7 @@ function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
 		case "expanded": return !!ctx.db.normalizeId("pages", id);
 		case "folded": return builtInSections.includes(id) || !!ctx.db.normalizeId("sidebarSections", id);
 		case "rail": return railTabs.includes(id) || isPinKey(id);
+		case "driveRows": return driveRowIds.includes(id);
 		default: return true;
 	}
 }

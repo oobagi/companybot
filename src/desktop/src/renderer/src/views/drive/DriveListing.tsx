@@ -41,7 +41,7 @@ export function DriveListing({ parentId, uploads, onDrop, onDismissUpload, empty
 						<DriveRows
 							level={level}
 							renderPage={(p, drag) => (
-								<button key={p._id} type="button" {...drag?.item} onClick={() => navigate("pages", p._id)} className={`${listRowButton} items-center ${drag?.item.className ?? ""} ${drag?.over ? "bg-neutral-100" : ""}`}>
+								<button key={p._id} type="button" {...drag?.item} onClick={() => navigate("pages", p._id)} className={`${listRowButton} items-center ${drag?.item.className ?? ""} ${drag?.over ? "bg-neutral-200" : ""}`}>
 									<span className="shrink-0 text-neutral-500">{p.kind === "folder" ? <FolderIcon /> : <PageIcon />}</span>
 									<span className="min-w-0 flex-1 truncate">{p.title}</span>
 									<span className={`shrink-0 ${metadataClass}`}>{p.kind === "folder" ? "Folder" : "Page"}</span>

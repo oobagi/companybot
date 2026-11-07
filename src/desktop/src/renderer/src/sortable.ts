@@ -397,11 +397,11 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 		requestAnimationFrame(() => put(along, across));
 		setTimeout(then, GLIDE);
 	};
-	/** Put back: it glides home and the others close up. */
+	/** Put back: it glides home (into nothing) and the others close up. */
 	const back = () => {
 		if (!live || live.dropping) return stop();
 		cleanup();
-		glide({ ...live, dropping: true, shifts: new Map() }, 0, 0, stop);
+		glide({ ...live, dropping: true, shifts: new Map(), target: { ...live.target, onto: undefined } }, 0, 0, stop);
 	};
 	/** The click that ends a drag isn't a click on the row. */
 	const swallowClick = () => {
@@ -508,7 +508,8 @@ export function useDragList({ id, group, axis = "y", enabled, inset = 0, accepts
 			const lifted = mine && now.from.list === key && now.from.id === id;
 			return {
 				ref,
-				lift: lifted ? (now.dropping ? "sortable-landing" : "sortable-lifted") : "",
+				// Dropped into a row (a folder), it shrinks and fades into it as it lands: `sortable-into`.
+				lift: lifted ? (now.dropping ? (now.target.onto ? "sortable-landing sortable-into" : "sortable-landing") : "sortable-lifted") : "",
 				shift: mine && !lifted ? { className: `sortable-shift sortable-${axis}`, style: shiftStyle(now.shifts.get(slotKey(key, id))) } : { className: "", style: undefined },
 				onPointerDown: enabled && pickable ? (e: React.PointerEvent) => begin(key, id, e.currentTarget as HTMLElement, e) : undefined,
 			};

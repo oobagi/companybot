@@ -1,5 +1,6 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { driveRowIds } from "@companybot/core/arrangements";
 import { FILE_ACCEPT } from "@companybot/core/files";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
@@ -8,7 +9,7 @@ import { ArchiveIcon, ArrowRightIcon, ArrowUpIcon, FolderIcon, HouseIcon, PageIc
 import { AccessLock, WhoCanAccess } from "../access";
 import { navigate } from "../../router";
 import { type Section, type SectionId, dropAt, itemsGroup, unsectionedList, useSections } from "../../sections";
-import { type Dragged, type RowDrag, useDragList, useDragStatic, useSortable } from "../../sortable";
+import { type Dragged, type RowDrag, useDragStatic, useSortable } from "../../sortable";
 import { LoadMore, Notice, compactControlClass, descriptionClass, metadataClass, useDebounced, useRun, trailingAction } from "../../ui";
 import { GUIDE_WIDTH, Group, Item, SectionGroup, SectionsNav } from "../chat/Sidebar";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
@@ -35,7 +36,10 @@ export type FileRow = { _id: FileId; name: string; type: string; size: number; p
 /** Something that can be moved: a page or folder (pages rows), or a file. */
 export type Movable = { kind: "page" | "folder" | "file"; _id: string; title: string; parentId?: PageId | null };
 
-const asItem = (from: Dragged) => from.data as DriveItem;
+/** The page, folder or file a dragged row is; none for Drive's own rows (Home and the views), which no level takes. */
+const asItem = (from: Dragged) => from.data as DriveItem | undefined;
+const same = (id: string) => id;
+const homeRow = { id: "home", label: "Home", icon: <HouseIcon /> };
 
 export function DriveNav({ openId, openFileId, openView, canEdit }: { openId: string | undefined; openFileId: string | undefined; openView: string | undefined; canEdit: boolean }) {
 	const workspace = useWorkspace();
@@ -64,8 +68,8 @@ function DriveNavTree({ openId, openFileId, openView, canEdit }: { openId?: stri
 	const { error, run } = useRun();
 	const moves = useDriveMoves(run);
 	const group = itemsGroup("drive");
-	// Home is the top level: a row dropped on it leaves its folder.
-	const home = useDragList({ group, enabled: false, holds: (_, from) => { const item = asItem(from); return item.canEdit && !!item.parentId; }, onDropOn: (from) => moves.into(asItem(from), undefined) });
+	// Home and the views, in your order (`driveRows`); only they land among them. Home is the top level: a row dropped on it leaves its folder.
+	const rows = useSortable("driveRows", driveRowIds, same, "y", undefined, { group, accepts: (from) => !asItem(from), holds: (id, from) => { const item = asItem(from); return id === "home" && !!item?.canEdit && !!item.parentId; }, onDropOn: (from) => moves.into(asItem(from)!, undefined) });
 	const toggle = (id: string, open = !expanded.has(id)) => changeExpanded({ op: open ? "add" : "remove", id });
 	const sections = useSections("drive");
 	/** `sectionId`: made by a section's +, so it goes in that section. */
@@ -136,14 +140,16 @@ function DriveNavTree({ openId, openFileId, openView, canEdit }: { openId?: stri
 		<div className="flex flex-col gap-4">
 			{batches.map((ids, i) => <PruneExpanded key={i} ids={ids} onPrune={prune} />)}
 			<div className="flex flex-col gap-px">
-				<Item drag={home.item("home")} over={home.onto("home")} icon={<HouseIcon />} label="Home" active={!openId && !openFileId && !openView} onClick={() => navigate("pages")}>
-					<span className="truncate">Home</span>
-				</Item>
-				{driveViews.map((v) => (
-					<Item key={v.id} icon={v.icon} label={v.label} active={openView === v.id} onClick={() => navigate("drive", v.id)}>
-						<span className="truncate">{v.label}</span>
-					</Item>
-				))}
+				{rows.sorted.map((id) => {
+					const home = id === "home";
+					const row = home ? homeRow : driveViews.find((v) => v.id === id);
+					if (!row) return null;
+					return (
+						<Item key={id} drag={rows.drag(id)} over={home ? rows.onto(id) : undefined} icon={row.icon} label={row.label} active={home ? !openId && !openFileId && !openView : openView === id} onClick={() => (home ? navigate("pages") : navigate("drive", id))}>
+							<span className="truncate">{row.label}</span>
+						</Item>
+					);
+				})}
 			</div>
 			<Group
 				title="All files"
@@ -198,9 +204,9 @@ function DriveSection({ section, at, moves, renderPage, renderFile, keep, add, c
 			rowDrag={{
 				data: item,
 				// Only top-level rows come in (a nested one goes to Home first); it leaves its old section with the move.
-				accepts: (from) => !asItem(from).parentId,
-				holds: (id, from) => { const p = pages.get(id); const dragged = asItem(from); return !!p?.canEdit && dragged.canEdit && dragged.id !== p._id && dragged.parentId !== p._id && (p.kind === "folder" || dragged.kind === "page"); },
-				onDropOn: (from, id) => moves.into(asItem(from), id as PageId),
+				accepts: (from) => { const item = asItem(from); return !!item && !item.parentId; },
+				holds: (id, from) => { const p = pages.get(id); const dragged = asItem(from); return !!p?.canEdit && !!dragged && dragged.canEdit && dragged.id !== p._id && dragged.parentId !== p._id && (p.kind === "folder" || dragged.kind === "page"); },
+				onDropOn: (from, id) => moves.into(asItem(from)!, id as PageId),
 			}}
 			render={(id, drag) => { const page = pages.get(id); return page ? renderPage(page, drag, false) : renderFile(files.get(id)!, drag, false); }}>
 			{children}
@@ -299,11 +305,11 @@ export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder",
 		inset: drag.inset,
 		data: (id): DriveItem => { const row = find(id); return { kind: row ? kindOf(row) : "page", id, canEdit: !!row?.canEdit, parentId }; },
 		// Its own rows reorder (that needs only `sidebar.arrange`), and at the top a section's come back.
-		accepts: (from) => { const item = asItem(from); return item.parentId === parentId || comesIn(item); },
+		accepts: (from) => { const item = asItem(from); return !!item && (item.parentId === parentId || comesIn(item)); },
 		// A folder takes anything, a page only pages; not what's already in it.
-		holds: (id, from) => { const p = find(id); const item = asItem(from); return !!p && !isFile(p) && !!p.canEdit && item.canEdit && item.id !== p._id && item.parentId !== p._id && (p.kind === "folder" || item.kind === "page"); },
-		onReceive: (from, index, shown) => { const item = asItem(from); if (item.parentId === parentId) top?.onReceive(from, index, shown); else drag.moves.to(item, parentId, shown, index); },
-		onDropOn: (from, id) => drag.moves.into(asItem(from), id as PageId),
+		holds: (id, from) => { const p = find(id); const item = asItem(from); return !!p && !isFile(p) && !!p.canEdit && !!item && item.canEdit && item.id !== p._id && item.parentId !== p._id && (p.kind === "folder" || item.kind === "page"); },
+		onReceive: (from, index, shown) => { const item = asItem(from)!; if (item.parentId === parentId) top?.onReceive(from, index, shown); else drag.moves.to(item, parentId, shown, index); },
+		onDropOn: (from, id) => drag.moves.into(asItem(from)!, id as PageId),
 		}),
 	});
 	const exhausted = pages.status === "Exhausted" && (!withFiles || files.status === "Exhausted");
