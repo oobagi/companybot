@@ -5,12 +5,12 @@ import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
 import { api } from "../../api";
-import { Checkbox, Segmented, Select } from "../../controls";
+import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, CalendarIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -189,59 +189,52 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						<PlusIcon />
 					</button>
 				)}
-				{canEdit && selected && draft.dirty && (
-					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactButton}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
-						Save for everyone
+				{/* The view's controls share the tabs' row, like Notion's, so the records start right under it. */}
+				<div className="ml-auto flex flex-wrap items-center gap-2 self-center pb-1 text-sm">
+					{canEdit && selected && draft.dirty && (
+						<button type="button" disabled={draft.stale} className={compactButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
+							Save for everyone
+						</button>
+					)}
+					<input
+						type="search"
+						value={search}
+						onChange={(e) => setSearch(e.target.value)}
+						placeholder={`Search ${noun}`}
+						className={`${compactControlClass} w-44`}
+					/>
+					<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
+						<FilterIcon className="text-neutral-400" /> Filter
 					</button>
-				)}
+					{(selected || writable) && <ColumnsPicker
+						label={layout === "board" ? "Properties" : "Columns"}
+						fields={fields}
+						columns={columns}
+						onChange={setColumns}
+						onNewField={type.canManage ? () => setAddingField("text") : undefined}
+					/>}
+					{(selected || type.canSetDisplay) && layout === "board" && group && (
+						<label className="flex items-center gap-2 text-neutral-600">
+							Group by
+							<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
+						</label>
+					)}
+					{(selected || type.canSetDisplay) && (
+						<LayoutPicker
+							value={preview ?? layout}
+							// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
+							// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
+							onChange={(l) => {
+								if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
+								setPreview(l);
+							}}
+						/>
+					)}
+				</div>
 			</Tabs>
 			<Notice>{error}</Notice>
 			{dialog}
 			<ConflictNotice draft={draft} />
-			<div className={toolbarClass}>
-				<input
-					type="search"
-					value={search}
-					onChange={(e) => setSearch(e.target.value)}
-					placeholder={`Search ${noun}`}
-					className={wideControlClass}
-				/>
-				<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
-					<FilterIcon className="text-neutral-400" /> Filter
-				</button>
-				{(selected || writable) && <ColumnsPicker
-					label={layout === "board" ? "Properties" : "Columns"}
-					fields={fields}
-					columns={columns}
-					onChange={setColumns}
-					onNewField={type.canManage ? () => setAddingField("text") : undefined}
-				/>}
-				{(selected || type.canSetDisplay) && layout === "board" && group && (
-					<label className="flex items-center gap-2 text-neutral-600">
-						Group by
-						<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
-					</label>
-				)}
-				{(selected || type.canSetDisplay) && <span className="ml-auto">
-					<Segmented
-						label="Layout"
-						value={preview ?? layout}
-						options={[
-							{ value: "table", label: "Table" },
-							{ value: "board", label: "Board" },
-							{ value: "calendar", label: "Calendar" },
-							{ value: "form", label: "Form" },
-							{ value: "gallery", label: "Gallery" },
-						]}
-						// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
-						// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
-						onChange={(l) => {
-							if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
-							setPreview(l);
-						}}
-					/>
-				</span>}
-			</div>
 			{filters.length > 0 && (
 				<div className="-mt-2 flex flex-col gap-2">
 					{filters.map((f) => (
@@ -498,6 +491,41 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 			placeholder={field.kind === "currency" ? "1000 or EUR 1000" : "Value"}
 			className={`${compactControlClass} w-44`}
 		/>
+	);
+}
+
+/** The view's layout, as a menu: the one in use on the button, the coming-soon ones marked. */
+const layoutOptions = [
+	{ value: "table", label: "Table", icon: <DatabaseIcon />, soon: false },
+	{ value: "board", label: "Board", icon: <BoardIcon />, soon: false },
+	{ value: "calendar", label: "Calendar", icon: <CalendarIcon />, soon: true },
+	{ value: "form", label: "Form", icon: <FormIcon />, soon: true },
+	{ value: "gallery", label: "Gallery", icon: <GalleryIcon />, soon: true },
+] as const;
+
+function LayoutPicker({ value, onChange }: { value: Layout | Preview; onChange: (layout: Layout | Preview) => void }) {
+	const current = layoutOptions.find((o) => o.value === value)!;
+	return (
+		<Popover
+			label="Layout"
+			trigger={
+				<>
+					<span className="text-neutral-400">{current.icon}</span> {current.label} <CaretDownIcon className="text-neutral-400" />
+				</>
+			}
+			className={compactButton}
+			panelClassName="flex w-48 flex-col gap-px p-1"
+		>
+			{(close) =>
+				layoutOptions.map((o) => (
+					<MenuItem key={o.value} onClick={() => (close(), onChange(o.value))}>
+						<span className="text-neutral-400">{o.icon}</span>
+						<span className="flex-1">{o.label}</span>
+						{o.soon ? <span className="text-xs text-neutral-400">Soon</span> : o.value === value && <CheckIcon className="text-neutral-500" />}
+					</MenuItem>
+				))
+			}
+		</Popover>
 	);
 }
 
