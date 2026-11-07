@@ -8,7 +8,7 @@ import { SideMenuExtension } from "@blocknote/core/extensions";
 import { linkedPageId, validPageHref } from "@companybot/core/page-links";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
-import { useMutation } from "../../convex";
+import { useHeldQuery, useMutation } from "../../convex";
 import { PageIcon } from "../../icons";
 import { navigate } from "../../router";
 import { useUpload } from "../../upload";
@@ -61,6 +61,9 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 	// page doesn't exist. Say it's unavailable instead of showing that as an error.
 	const [gone, setGone] = useState(false);
 	const syncFailed = (e: Error) => (/doesn't exist server-side/.test(e.message) ? setGone(true) : fail(e));
+	// The body loads through prosemirror-sync's own query hook, outside the app's query cache (convex.ts). Held here
+	// too, the snapshot stays live a minute after leaving (main.tsx), so coming back to a page doesn't load again.
+	useHeldQuery(api.pageSync.getSnapshot, { id: pageId });
 	const sync = useBlockNoteSync<PageBlockEditor>(api.pageSync, pageId, { editorOptions: { schema: pageEditorSchema, links, uploadFile: (file) => uploadImage.current!(file) }, onSyncError: syncFailed });
 	useEffect(() => {
 		if (focusKey && editable && sync.editor) {

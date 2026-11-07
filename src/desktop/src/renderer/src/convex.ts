@@ -29,6 +29,12 @@ export function useQuery<Q extends FunctionReference<"query">>(query: Q, ...[arg
 	return useCachedQuery(query as FunctionReference<"query">, args === "skip" ? "skip" : withWorkspace(args as Args, workspaceId));
 }
 
+/**
+ * Keeps a query live in the cache (main.tsx) without adding the workspace: to hold a read another library
+ * makes on its own, with its own args (the page sync's snapshot, views/pages/PageEditor.tsx).
+ */
+export const useHeldQuery = useCachedQuery;
+
 export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 	query: Q,
 	args: Parameters<typeof useCachedPaginatedQuery<Q>>[1],

@@ -163,8 +163,20 @@ body {
 	z-index: 50;
 	filter: drop-shadow(0 6px 12px rgb(0 0 0 / 0.12));
 }
+.sortable-lifted {
+	scale: 1.03;
+}
 .sortable-landing {
-	transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 160ms;
+	scale: 1;
+	transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), scale 160ms, filter 160ms;
+}
+/* A row in a card (ui.tsx `listClass`) lifts without growing, which would push its edges past the card's border;
+   it goes opaque and rounded so the rows sliding under it don't show through. */
+.card-list .sortable-lifted,
+.card-list .sortable-landing {
+	scale: 1;
+	border-radius: var(--radius-lg);
+	background: var(--color-white);
 }
 /* A tree row picked up (Drive's sidebar): its guides stay out of the drag, so the lines hold still while the row steps between levels. */
 .sortable-lifted .tree-line,

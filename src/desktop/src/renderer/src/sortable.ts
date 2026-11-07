@@ -318,9 +318,9 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	let live: Session | undefined;
 
 	const offset = () => last - p0 + (area ? scrollOf(area, axis) - scroll0 : 0);
-	/** Moves the row `along` the axis and `across` it (to the level it's over); `lifted`, a touch bigger. */
-	const put = (along: number, across: number, lifted: boolean) => {
-		el.style.transform = `${axis === "y" ? `translate3d(${across}px, ${along}px, 0)` : `translate3d(${along}px, ${across}px, 0)`}${lifted ? " scale(1.03)" : ""}`;
+	/** Moves the row `along` the axis and `across` it (to the level it's over). Its lift (a shadow, a touch bigger) is CSS: `sortable-lifted`. */
+	const put = (along: number, across: number) => {
+		el.style.transform = axis === "y" ? `translate3d(${across}px, ${along}px, 0)` : `translate3d(${along}px, ${across}px, 0)`;
 	};
 	const update = () => {
 		if (!live || live.dropping) return;
@@ -336,7 +336,7 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 			session = live = { ...live, ...next };
 			notify();
 		}
-		put(d, step(live), true);
+		put(d, step(live));
 	};
 	const autoscroll = () => {
 		frame = 0;
@@ -394,7 +394,7 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	const glide = (s: Session, along: number, across: number, then: () => void) => {
 		session = live = s;
 		notify();
-		requestAnimationFrame(() => put(along, across, false));
+		requestAnimationFrame(() => put(along, across));
 		setTimeout(then, GLIDE);
 	};
 	/** Put back: it glides home and the others close up. */
