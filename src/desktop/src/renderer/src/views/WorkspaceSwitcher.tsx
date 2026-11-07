@@ -6,7 +6,7 @@ import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { CountBadge, Form, MenuDivider, Notice, Setting, Settings, compactButton, compactPrimaryButton, primaryButton, rowButton, secondaryButton, useRun, wideControlClass } from "../ui";
+import { CountBadge, Form, MenuDivider, Notice, compactButton, compactPrimaryButton, primaryButton, rowButton, secondaryButton, useRun, fullControlClass } from "../ui";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
 
 const none: never[] = [];
@@ -190,7 +190,7 @@ function NewWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: 
 	// `busy` only stops it once React has re-rendered.
 	const sending = useRef(false);
 	return (
-		<Modal title="New workspace" onClose={onClose}>
+		<Modal title="New workspace" size="md" onClose={onClose}>
 			<Form
 				onSubmit={() => {
 					if (sending.current || !name.trim()) return;
@@ -199,11 +199,7 @@ function NewWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: 
 				}}
 			>
 				<Notice>{error}</Notice>
-				<Settings>
-					<Setting label="Name">
-						<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} className={wideControlClass} />
-					</Setting>
-				</Settings>
+				<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Workspace name" className={fullControlClass} />
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Cancel

@@ -88,7 +88,7 @@ function FieldSettings({ draft, set, field }: { draft: Draft; set: (d: Partial<D
 				</Setting>
 			)}
 			{severalKinds.includes(draft.kind) && (
-				<Setting inline label="Holds several" hint={field && field.kind === draft.kind && field.multiple && !draft.multiple ? "Each record keeps its first value." : "More than one value per record."}>
+				<Setting label="Holds several" hint={field && field.kind === draft.kind && field.multiple && !draft.multiple ? "Each record keeps its first value." : "More than one value per record."}>
 					<Checkbox label="Holds several" checked={draft.multiple} onChange={(multiple) => set({ multiple })} />
 				</Setting>
 			)}
@@ -303,7 +303,7 @@ function OptionsEditor({
 						className={`${compactControlClass} flex-1`}
 					/>
 					<button type="button" onClick={() => onChange(options.filter((_, j) => j !== i))} aria-label="Remove" title="Remove option" className={iconDangerButton}>
-						<TrashIcon size={16} />
+						<TrashIcon />
 					</button>
 				</span>
 			))}

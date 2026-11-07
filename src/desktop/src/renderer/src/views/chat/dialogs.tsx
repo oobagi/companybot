@@ -29,7 +29,7 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 					<Setting label="Topic" hint="Optional. What's this channel about?">
 						<input aria-label="Topic" value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="What's it about?" className={wideControlClass} />
 					</Setting>
-					<Setting inline label="Private" hint="Only people added can see it.">
+					<Setting label="Private" hint="Only people added can see it.">
 						<Checkbox checked={isPrivate} onChange={setPrivate} label="Private" />
 					</Setting>
 				</Settings>
@@ -230,7 +230,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 									title="Remove from channel"
 									className={iconDangerButton}
 								>
-									<UserMinusIcon size={16} />
+									<UserMinusIcon />
 								</button>
 							)}
 						</li>

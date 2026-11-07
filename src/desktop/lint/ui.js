@@ -138,7 +138,7 @@ const rules = {
 	"no-stacked-form": rule(
 		"`Field` and `inputClass` are the old hand-made form: forms are `Settings`/`Setting`, which stack by themselves in dialogs.",
 		{
-			field: "`Field` is the old hand-made form. Put each input in a `Setting` inside `Settings`: a row in a card on a screen, stacked (label over a full-width control) in a dialog or on sign-in (`Stacked`). Dialogs keep `DialogButtons`; screens keep `SaveBar`.",
+			field: "`Field` is the old hand-made form. Put each input in a `Setting` inside `Settings`: a row in a card, the same on a screen and in a dialog (`wide` puts a long control under its label); sign-in and onboarding ask with `Question`. Dialogs keep `DialogButtons`; screens keep `SaveBar`.",
 			input: "`inputClass` is the old big input. Use `wideControlClass` (or `compactControlClass`) in a `Setting` row; a textarea in a `Setting wide` row takes `compactControlClass w-full`.",
 		},
 		(context) => ({

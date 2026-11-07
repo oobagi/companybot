@@ -75,7 +75,7 @@ No Convex account needed: outside the team, `pnpm dev` runs an anonymous local b
 
 ```sh
 pnpm test && pnpm typecheck
-pnpm --filter @companybot/desktop preview:web   # the UI in a browser at localhost:5173
+pnpm dev --web      # the same app in a browser (vite prints the address)
 ```
 
 Server secrets (AI Gateway key, sign-in email, encryption key) are listed in [`.env.example`](.env.example). More in [Architecture → Run](wiki/architecture.md#run).

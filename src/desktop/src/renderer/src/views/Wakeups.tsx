@@ -92,7 +92,7 @@ export function WakeupList({ wakeups, recordId }: { wakeups: Wakeup[]; recordId?
 									})
 								}
 							>
-								<CloseIcon size={16} />
+								<CloseIcon />
 							</button>
 						)}
 					</div>

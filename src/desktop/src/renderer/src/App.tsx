@@ -161,16 +161,19 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
+	// A page inside a record belongs to its database, not Drive (the record page already loaded it, so no flicker).
+	const openPage = useQuery(api.pages.get, view === "pages" && route[1] ? { pageId: route[1] as Id<"pages"> } : "skip");
+	const pageRecord = view === "pages" ? openPage?.record : undefined;
 	// The rail's tab on screen. Settings (Customize included) lights none.
 	const tab: AppTab | undefined =
-		view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "records" ? "databases" : view === "sites" ? "sites" : undefined;
+		view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	const [newSection, setNewSection] = useState(false);
 	const sectionTab = tab === "chat" || tab === "drive" || tab === "databases" ? tab : undefined;
 	const addSection = can(access, "sidebar.arrange") ? { label: "New section", onClick: () => setNewSection(true) } : undefined;
 	// The database on screen, by key, and the record open in it.
-	const typeKey = view === "records" ? route[1] : undefined;
+	const typeKey = view === "records" ? route[1] : pageRecord?.typeKey;
 	const recordId = view === "records" ? route[2] : undefined;
 	// Workspace settings reopen on the tab you left them on.
 	const lastWorkspaceSettings = useRef<string[]>(["settings", "general"]);
@@ -244,11 +247,12 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							<Scroll
 								className="no-drag"
 								header={
-									// pt-2.5: its name sits on the same line as the top bar's title.
+									// pt-2.5: its name sits on the same line as the top bar's title. It's a row's height (30px), as Settings'
+									// Back to app is, so what's under it starts at the same place on every tab.
 									<div className="drag px-3 pt-2.5 pb-4">
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
-												<h1 className="min-w-0 flex-1 truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+												<h1 className="min-w-0 flex-1 truncate px-2 py-1.25 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
 												{/* The + here adds to the rows right under the name (channels, databases) and adds sections; a section (Direct messages, All files, the ones people add) has its own on its header. */}
 												{tab === "chat" && (
 													<span className="no-drag flex">
