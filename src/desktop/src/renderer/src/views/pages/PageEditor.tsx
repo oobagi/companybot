@@ -1,8 +1,10 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { BlockNoteEditor, docToBlocks, filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
+import { BlockNoteEditor, createExtension, docToBlocks, filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
 import { type DefaultSuggestionItem, SideMenuExtension, SuggestionMenu as SuggestionMenuExtension, getDefaultSlashMenuItems } from "@blocknote/core/extensions";
 import "@blocknote/react/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, GridSuggestionMenuController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
 import { linkedPageId, validPageHref } from "@companybot/core/page-links";
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -10,12 +12,13 @@ import { api } from "../../api";
 import { useHeldQuery, useMutation } from "../../convex";
 import { BulletListIcon, CaretDownIcon, CheckListIcon, CodeIcon, DividerIcon, DragHandleIcon, ImageIcon, NumberedListIcon, PageIcon, ParagraphIcon, PlusIcon, QuoteIcon, ReactIcon, TableIcon, TextHFiveIcon, TextHFourIcon, TextHOneIcon, TextHSixIcon, TextHThreeIcon, TextHTwoIcon, ToggleListIcon } from "../../icons";
 import { navigate } from "../../router";
+import { type Worn, pickUp } from "../../sortable";
 import { useUpload } from "../../upload";
 import { EmptyState, Loading, Notice, useRun } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
 import { PageLevel } from "./PageTree";
 import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor, pageEditorSchema } from "./PageBlock";
-import { components } from "./editorComponents";
+import { HandleButton, components } from "./editorComponents";
 import { promotePageLinks } from "./pageBlockUpgrades";
 import { PageBlockRemoval } from "./PageBlockRemoval";
 
@@ -44,10 +47,32 @@ const links = {
 	},
 };
 /**
- * The schema and links of every page editor, and `page-editor` on the editor element itself: a dragged block's
- * preview is a clone BlockNote appends to <body> with the editor element's classes, so it keeps the app's styles.
+ * What the blocks wear while one is dragged (sortable.ts `pickUp`: the lift, the slide, the lifted block's
+ * transform), as decorations. Set on a block's element directly, ProseMirror reads the change back and draws
+ * the block again, bare; BlockNote's drop cursor marks its block the same way.
  */
-const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } } };
+const wornKey = new PluginKey<Map<string, Worn>>("blockDrag");
+const blockDrag = createExtension({
+	key: "blockDrag",
+	prosemirrorPlugins: [new Plugin({
+		key: wornKey,
+		state: { init: () => new Map<string, Worn>(), apply: (tr, prev) => tr.getMeta(wornKey) ?? prev },
+		props: {
+			decorations(state) {
+				const worn = wornKey.getState(state);
+				if (!worn?.size) return DecorationSet.empty;
+				const decorations: Decoration[] = [];
+				state.doc.descendants((node, pos) => {
+					const w = worn.get(node.attrs.id);
+					if (w) decorations.push(Decoration.node(pos, pos + node.nodeSize, w));
+				});
+				return DecorationSet.create(state.doc, decorations);
+			},
+		},
+	})],
+});
+/** The schema, links and drag of every page editor, and `page-editor` on the editor element itself (styles.css). */
+const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } }, extensions: [blockDrag] };
 
 /** Capture before BlockNote opens a window; also works in read-only version previews. */
 function openPageLink(event: MouseEvent<HTMLDivElement>) {
@@ -227,17 +252,41 @@ function AddBlock() {
 	return <SideButton label={editor.dictionary.side_menu.add_block_label} icon={<PlusIcon />} onClick={onClick} />;
 }
 
-/** Drags the block; a click opens its menu, which holds the side menu in place while open. */
+/**
+ * Drags the block up and down among its siblings with the app's drag (sortable.ts `pickUp`), as a sidebar row:
+ * it follows the pointer while the others slide out of its way, and glides into the gap when let go; then the
+ * block moves there (one step, so one undo). Not the browser's drag-and-drop, which BlockNote uses: that drags a
+ * picture of the block glued to the pointer and drops only on an exact line. A click opens its menu, which holds
+ * the side menu in place while open.
+ */
 function DragHandle() {
 	const editor = useBlockNoteEditor(pageEditorSchema);
 	const sideMenu = useExtension(SideMenuExtension);
 	const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
 	const portalElement = usePortalElement();
 	if (!block) return null;
+	const pick = (e: React.PointerEvent) => {
+		const group = editor.domElement?.querySelector(`.bn-block-outer[data-id="${block.id}"]`)?.parentElement;
+		if (!group) return;
+		const rows = new Map<string, HTMLElement>();
+		for (const el of group.children) if (el instanceof HTMLElement && el.dataset.id) rows.set(el.dataset.id, el);
+		const ids = [...rows.keys()];
+		const paint = (worn: Map<string, Worn>) => editor.transact((tr) => { tr.setMeta(wornKey, worn); });
+		pickUp(e, block.id, rows, (index) => {
+			const rest = ids.filter((id) => id !== block.id);
+			const moved = editor.getBlock(block.id);
+			if (!rest.length || ids.indexOf(block.id) === index || !moved) return;
+			editor.transact(() => {
+				editor.removeBlocks([block.id]);
+				if (index < rest.length) editor.insertBlocks([moved], rest[index]!, "before");
+				else editor.insertBlocks([moved], rest[rest.length - 1]!, "after");
+			});
+		}, paint);
+	};
 	return (
 		<MenuRoot onOpenChange={(open) => (open ? sideMenu.freezeMenu() : sideMenu.unfreezeMenu())} position="left" portalElement={portalElement}>
 			<MenuTrigger>
-				<SideButton label={editor.dictionary.side_menu.drag_handle_label} icon={<DragHandleIcon />} draggable onDragStart={(e) => sideMenu.blockDragStart(e, block)} onDragEnd={sideMenu.blockDragEnd} />
+				<HandleButton label={editor.dictionary.side_menu.drag_handle_label} icon={<DragHandleIcon />} onPointerDown={pick} />
 			</MenuTrigger>
 			<PageDragHandleMenu />
 		</MenuRoot>

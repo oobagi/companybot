@@ -270,6 +270,19 @@ body {
 	border-radius: var(--radius-lg);
 	background: var(--color-white);
 }
+/* A page's block picked up by its ⋮⋮ (PageEditor.tsx): an opaque, rounded card over the blocks sliding under it, at
+   its size, its text where it was (the inset comes out of the margin); the + and ⋮⋮ stay out of the way until it's let go. */
+.page-editor .sortable-lifted,
+.page-editor .sortable-landing {
+	scale: 1;
+	border-radius: 8px;
+	background: var(--color-white);
+	margin-inline: -0.5rem;
+	padding-inline: 0.5rem;
+}
+.sorting .bn-side-menu {
+	visibility: hidden;
+}
 /* Let go over a folder (sortable.ts `onto`), the row shrinks and fades into it while the others close up. */
 .sortable-landing.sortable-into {
 	scale: 0.92;

@@ -151,10 +151,10 @@ function MenuLabel({ className, children }: Generic<"Menu", "Label">) {
 	return <MantineMenu.Label className={cx(menuLabel, className)}>{children}</MantineMenu.Label>;
 }
 
-/** A small handle: the side menu's + and ⋮⋮, a table cell's ▾. Dragging when BlockNote says so. */
-function HandleButton({ className, children, icon, onClick, onDragStart, onDragEnd, draggable, label, ref, ...rest }: P<"SideMenu", "Button"> & { ref?: Ref<HTMLButtonElement> }) {
+/** A small handle: the side menu's + and ⋮⋮, a table cell's ▾. Dragging when BlockNote says so, or by the pointer (the ⋮⋮, PageEditor.tsx). */
+export function HandleButton({ className, children, icon, onClick, onDragStart, onDragEnd, onPointerDown, draggable, label, ref, ...rest }: P<"SideMenu", "Button"> & { ref?: Ref<HTMLButtonElement>; onPointerDown?: (e: React.PointerEvent<HTMLButtonElement>) => void }) {
 	return (
-		<button type="button" ref={ref} {...rest} aria-label={label} onClick={onClick} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} className={cx(smallIconButton, "text-lg", draggable && "cursor-grab", className)}>
+		<button type="button" ref={ref} {...rest} aria-label={label} onClick={onClick} draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} onPointerDown={onPointerDown} className={cx(smallIconButton, "text-lg", (draggable || onPointerDown) && "cursor-grab", className)}>
 			{icon ?? children}
 		</button>
 	);

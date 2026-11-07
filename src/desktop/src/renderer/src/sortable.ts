@@ -67,6 +67,8 @@ type ListEntry = {
 	data: (id: string) => unknown;
 	onDrop: (from: Dragged, index: number) => void;
 	onDropOn: (from: Dragged, id: string) => void;
+	/** Moves a row instead of setting its element's transform (`pickUp`'s rows, which something else draws). */
+	move?: (id: string, transform: string) => void;
 };
 type StaticEntry = { group: string; el: HTMLElement; endOf?: string; startOf?: string };
 const lists = new Map<string, ListEntry>();
@@ -295,13 +297,14 @@ const THRESHOLD = 4;
 const EDGE = 40;
 const GLIDE = 160;
 
-function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEvent) {
+/** Takes the pointer from `e` to drag row `id` of `list`; `ended` runs once it's let go, however that went. */
+function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEvent | PointerEvent, ended?: () => void): boolean {
 	const l = lists.get(list);
-	if (!l || session || e.button !== 0 || e.ctrlKey || e.metaKey) return;
+	if (!l || session || e.button !== 0 || e.ctrlKey || e.metaKey) return false;
 	// Move the whole row, not just its handle (a sidebar row's handle is inside it): the row carries the
 	// landing transition, so moving only the handle would snap into place instead of gliding.
 	const el = l.els.get(id) ?? handle;
-	if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable=true]")) return;
+	if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable=true]")) return false;
 	const { axis, group } = l;
 	const from: Dragged = { list, id, data: l.data(id) };
 	// Lists a row may land in: the ones in its group that take it (recents take pins, not tabs; Drive's files take none of their own).
@@ -319,9 +322,8 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 
 	const offset = () => last - p0 + (area ? scrollOf(area, axis) - scroll0 : 0);
 	/** Moves the row `along` the axis and `across` it (to the level it's over). Its lift (a shadow, a touch bigger) is CSS: `sortable-lifted`. */
-	const put = (along: number, across: number) => {
-		el.style.transform = axis === "y" ? `translate3d(${across}px, ${along}px, 0)` : `translate3d(${along}px, ${across}px, 0)`;
-	};
+	const put = (along: number, across: number) => carry(axis === "y" ? `translate3d(${across}px, ${along}px, 0)` : `translate3d(${along}px, ${across}px, 0)`);
+	const carry = (transform: string) => { if (l.move) l.move(id, transform); else el.style.transform = transform; };
 	const update = () => {
 		if (!live || live.dropping) return;
 		const dragged = live.slots[live.source]!;
@@ -386,9 +388,10 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	};
 	function stop() {
 		cleanup();
-		el.style.transform = "";
+		carry("");
 		session = live = undefined;
 		notify();
+		ended?.();
 	}
 	/** Glides the row to `along` and `across` with its landing transition (the others slide too), then `then`. */
 	const glide = (s: Session, along: number, across: number, then: () => void) => {
@@ -411,17 +414,18 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	};
 	const up = () => {
 		cleanup();
-		if (!live) return;
+		if (!live) return ended?.();
 		swallowClick();
 		const done = live;
 		const { onto } = done.target;
 		const finish = () => {
-			el.style.transform = "";
+			carry("");
 			session = undefined;
 			// The drop and the end of the drag render together, so nothing flickers back.
 			if (onto) lists.get(onto.list)?.onDropOn(done.from, onto.id);
 			else lists.get(done.target.list)?.onDrop(done.from, done.target.index);
 			notify();
+			ended?.();
 		};
 		glide({ ...done, dropping: true, ...(onto && { shifts: closed(done) }) }, landing(done), step(done), finish);
 	};
@@ -442,6 +446,45 @@ function begin(list: string, id: string, handle: HTMLElement, e: React.PointerEv
 	window.addEventListener("keydown", key, true);
 	window.addEventListener("dragstart", native, true);
 	window.addEventListener("blur", cancel);
+	return true;
+}
+
+let picks = 0;
+
+/** What a row of a `pickUp` list wears during the drag: its lift or slide (`class`) and how far it's moved (`style`). */
+export type Worn = { class: string; style: string };
+
+/**
+ * A drag in a list whose rows aren't React's (the page editor's blocks, which ProseMirror draws): `rows` are
+ * its elements in order, by id. Picks `id` up with the pointer from `e` and gives `paint` what each row wears
+ * (what `useDragList` would render: the drag's classes, the slide, the lifted row's transform) as it changes,
+ * then nothing once it's over; `onDrop` gets the index it landed at, counted without it.
+ */
+export function pickUp(e: React.PointerEvent | PointerEvent, id: string, rows: Map<string, HTMLElement>, onDrop: (index: number) => void, paint: (worn: Map<string, Worn>) => void, axis: Axis = "y") {
+	const key = `pick:${++picks}`;
+	let transform = "";
+	const repaint = () => {
+		const s = session?.group === key ? session : undefined;
+		const worn = new Map<string, Worn>();
+		if (s) {
+			for (const rowId of rows.keys()) {
+				if (rowId === s.from.id) worn.set(rowId, { class: s.dropping ? "sortable-landing" : "sortable-lifted", style: transform ? `transform: ${transform}` : "" });
+				else worn.set(rowId, { class: `sortable-shift sortable-${axis}`, style: `--sort-shift: ${s.shifts.get(slotKey(key, rowId)) ?? 0}px` });
+			}
+		}
+		paint(worn);
+	};
+	lists.set(key, {
+		group: key, axis, els: rows, enabled: true, inset: 0, accepts: () => true, holds: () => false, data: () => undefined, onDrop: (_, index) => onDrop(index), onDropOn: () => {},
+		move: (_, to) => { transform = to; repaint(); },
+	});
+	const unsubscribe = subscribe(repaint);
+	const end = () => {
+		unsubscribe();
+		lists.delete(key);
+		repaint();
+	};
+	if (!begin(key, id, e.currentTarget as HTMLElement, e, end)) end();
 }
 
 /** How far a row slides while another is dragged past it; `.sortable-shift` in styles.css moves it. */
