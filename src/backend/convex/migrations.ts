@@ -113,6 +113,21 @@ export const companybotFollowupTools = migrations.define({
 	},
 });
 
+// Drive got files (driveFiles.ts) and Companybot the tools for them. New workspaces get them from
+// default-agents.ts; this adds them to each existing Companybot that still has its default skills.load
+// grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
+export const companybotFileTools = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("files.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "files.*"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
 // Schedules became cron (core schedules.ts). This writes each stored "one time on some weekdays"
 // schedule (made ones and retained library definitions) as its cron, unchanged in meaning and not a
 // new version, and starts its runs after its last one, so nothing runs twice or makes up a run.
@@ -468,6 +483,15 @@ export const pageChildBlocks = migrations.define({
 });
 
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
+// Customize left the rail for workspace settings: saved rail orders drop its id.
+export const railDropCustomize = migrations.define({
+	table: "arrangements",
+	batchSize: 100,
+	migrateOne: async (ctx, row) => {
+		if (row.list === "rail" && row.ids.includes("customize")) await ctx.db.patch(row._id, { ids: row.ids.filter((id) => id !== "customize") });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -475,6 +499,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.usageThisMonth,
 	internal.migrations.companybotImageTool,
 	internal.migrations.companybotFollowupTools,
+	internal.migrations.companybotFileTools,
 	internal.migrations.cronSchedules,
 	internal.migrations.customRoles,
 	internal.migrations.customRolesMembers,
@@ -502,6 +527,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.lastWorkspaces,
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
+	internal.migrations.railDropCustomize,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

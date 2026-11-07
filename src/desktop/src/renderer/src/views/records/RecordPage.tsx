@@ -6,23 +6,23 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ArchiveIcon, DatabaseIcon, HistoryIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
+import { ArchiveIcon, ChatIcon, DatabaseIcon, FollowUpIcon, HistoryIcon, LinkedIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, Loading, NotFound, Notice, Page, Section, Tabs, barButton, cardButton, cardClass, compactButton, descriptionClass, insetClass, listClass, listRowButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
-import { Modal, archiveQuestion, useConfirm } from "../chat/common";
+import { LoadMore, NotFound, Notice, Section, Tabs, cardButton, cardClass, compactButton, descriptionClass, labelButton, linkButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
+import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
-import { PageEditor } from "../pages/PageEditor";
 import { PageHistory } from "../pages/PageHistory";
-import { PageTitle } from "../pages/PageTitle";
+import { PageView } from "../Pages";
 import { TrashNotice } from "../Trash";
-import { PendingWakeups } from "../Wakeups";
+import { WakeupList } from "../Wakeups";
 import { AddField, EditField } from "./fieldDialogs";
-import { ValueEditor, ValueView } from "./fields";
+import { Chip, FieldIcon, ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
 
-// One record's page: its fields, editable in place, its page body (notes, plans: a page,
-// wiki/pages.md), then what links to it, where it was discussed, and its history with undo.
-// The same page for every type.
+// One record's page: the page screen every page has (Pages.tsx `PageView`), with the record's
+// properties above its body, Notion's way, and what else is about it as quiet rows under them
+// (records linking here, chat messages mentioning it, follow-ups). History has property changes
+// with undo, and the body's versions. The same page for every type.
 
 export function RecordPage({ type, recordId, access }: { type: RecordType; recordId: Id<"records">; access: Access }) {
 	const record = useQuery(api.records.get, { recordId });
@@ -31,73 +31,63 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 	const remove = useMutation(api.trash.move);
 	const { confirm, dialog } = useConfirm();
 	const update = useMutation(api.records.update);
-	const { error, run } = useRun();
 	const { pins, toggle } = usePins();
 	const pinned = pins.includes(`rec:${recordId}`);
+	const found = !!record && record.typeId === type._id;
+	const body = useBody(recordId, pageId, found && can(access, "pages.edit") && record.canEdit && !record.archived);
 	const crumbs = [{ label: type.plural, to: recordPath(type.key) }];
-	if (!record || record.typeId !== type._id) {
+	if (!record || !found) {
 		return <NotFound crumbs={crumbs} loaded={record !== undefined} icon={<DatabaseIcon />} title={`${type.name} not found`} />;
 	}
 	// The switch, and Edit in its database's Who can access list.
 	const canEdit = type.canEdit;
 
 	return (
-		<Page
+		<PageView
 			title={record.title}
 			crumbs={crumbs}
-			heading={<PageTitle title={record.title} editable={canEdit && !record.archived} onSave={(name) => update({ recordId, values: { name } })} />}
-			actions={
+			editableTitle={canEdit && !record.archived}
+			onRename={(name) => update({ recordId, values: { name } })}
+			menu={(close) => <>
+				{!record.archived && <MenuItem onClick={() => { close(); toggle(`rec:${recordId}`); }}>{pinned ? <><UnpinIcon /> Unpin from rail</> : <><PinIcon /> Pin to rail</>}</MenuItem>}
+				<MenuItem onClick={() => { close(); setHistory(true); }}><HistoryIcon /> History</MenuItem>
+				{canEdit && !record.archived && <MenuItem onClick={() => { close(); confirm(archiveQuestion(record.title, () => remove({ kind: "record", id: recordId }), "Pages inside it will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>}
+			</>}
+			notices={
 				<>
-					{!record.archived && (
-						<button type="button" onClick={() => toggle(`rec:${recordId}`)} className={barButton}>
-							{pinned ? <UnpinIcon /> : <PinIcon />} {pinned ? "Unpin" : "Pin"}
-						</button>
-					)}
-					<button type="button" onClick={() => setHistory(true)} className={barButton}>
-						<HistoryIcon /> History
-					</button>
-					{canEdit && !record.archived && (
-						<button type="button" onClick={() => confirm(archiveQuestion(record.title, () => remove({ kind: "record", id: recordId })))} className={barButton}>
-							<ArchiveIcon /> Archive
-						</button>
-					)}
+					<Notice>{body.error}</Notice>
+					{dialog}
+					{record.trash && <TrashNotice trash={record.trash} />}
 				</>
 			}
+			above={
+				<div className="flex flex-col gap-1">
+					<Fields type={type} record={record} editable={canEdit && !record.archived} />
+					<About recordId={recordId} />
+				</div>
+			}
+			body={body.page}
 		>
-			<Notice>{error}</Notice>
-			{dialog}
-			{record.trash && <TrashNotice trash={record.trash} />}
-			<Fields type={type} record={record} editable={canEdit && !record.archived} />
-			<PendingWakeups recordId={recordId} title="Follow-ups" />
-			<Body recordId={recordId} pageId={pageId} editable={can(access, "pages.edit") && record.canEdit && !record.archived} />
-			<Linked recordId={recordId} />
-			<Discussion recordId={recordId} />
 			<RecordHistory open={history} onClose={() => setHistory(false)} type={type} recordId={recordId} pageId={pageId} canUndo={canEdit} canRestore={can(access, "pages.edit") && type.canEdit && !record.archived} />
-		</Page>
+		</PageView>
 	);
 }
 
 type RecordDoc = NonNullable<FunctionReturnType<typeof api.records.get>>;
 
 /**
- * The record's page body: always an editor, like a Notion page under its properties. It's
- * made the first time someone who can edit opens the record (or an agent writes in it), so
- * records nobody opens carry no empty documents. Creating is idempotent.
+ * The record's page body, as PageView takes it. It's made the first time someone who can edit opens the
+ * record (or an agent writes in it), so records nobody opens carry no empty documents. Creating is idempotent.
  */
-function Body({ recordId, pageId, editable }: { recordId: Id<"records">; pageId: Id<"pages"> | null | undefined; editable: boolean }) {
+function useBody(recordId: Id<"records">, pageId: Id<"pages"> | null | undefined, editable: boolean) {
 	const create = useMutation(api.pages.create);
 	const { error, run } = useRun();
 	const missing = pageId === null && editable;
 	useEffect(() => {
 		if (missing) void run(create({ recordId }));
 	}, [missing, recordId]);
-	if (pageId === undefined || (pageId === null && !editable)) return null;
-	return (
-		<section className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
-			<Notice>{error}</Notice>
-			{pageId ? <PageEditor pageId={pageId} editable={editable} /> : !error && <Loading />}
-		</section>
-	);
+	const page = pageId ? { pageId, editable } : pageId === null && (!editable || error) ? null : undefined;
+	return { page, error };
 }
 
 function Fields({ type, record, editable }: { type: RecordType; record: RecordDoc; editable: boolean }) {
@@ -105,8 +95,9 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 	const [editing, setEditing] = useState<TypeField>();
 	// The name is the page's title, edited there like Notion's.
 	const live = type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[];
+	// Body-sized, like the page under it (Notion's properties read at the text's size).
 	return (
-		<section className="flex flex-col gap-1">
+		<section className="flex flex-col gap-1 text-base">
 			<dl className="grid grid-cols-[10rem_1fr] items-start gap-x-4 gap-y-1">
 				{live.map((field) => (
 					<FieldRow
@@ -118,9 +109,9 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 					/>
 				))}
 			</dl>
-			<div className="flex gap-4 pt-2 text-sm">
+			<div className="pt-2">
 				{type.canManage && !record.archived && (
-					<button type="button" onClick={() => setAdding(true)} className={compactButton}>
+					<button type="button" onClick={() => setAdding(true)} className={labelButton}>
 						<PlusIcon /> Add field
 					</button>
 				)}
@@ -138,17 +129,18 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 	return (
 		<>
 			{/* The label opens the field's settings, for whoever may change them. */}
-			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
+			<dt className="flex min-w-0 items-center py-1 text-neutral-500">
 				{onEditField ? (
-					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
-						{field.label}
+					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
+						<FieldIcon field={field} large /> <span className="truncate">{field.label}</span>
+						{field.changing && <span className={metadataClass}>Converting…</span>}
 					</button>
 				) : (
-					<span className="truncate py-0.5">{field.label}</span>
+					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} large /> <span className="truncate">{field.label}</span></span>
 				)}
 			</dt>
 			<dd className="flex min-w-0 flex-col">
-				{editable ? (
+				{editable && !field.changing ? (
 					<ValueEditor
 						field={field}
 						value={value}
@@ -166,43 +158,83 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 	);
 }
 
-/** Live records that link here ("deals for this client"), grouped by type and field. */
-function Linked({ recordId }: { recordId: Id<"records"> }) {
+/**
+ * What else is about this record, as rows like its properties (Notion's backlinks): live records that link here
+ * ("Deals · Client"), chat messages that mention it, and follow-ups agents set about it. Only rows with something.
+ */
+function About({ recordId }: { recordId: Id<"records"> }) {
 	const types = useTypes();
 	const { results, status, loadMore } = usePaginatedQuery(api.records.linked, { recordId }, { initialNumItems: 25 });
-	if (!types || (results.length === 0 && status === "Exhausted")) return null;
+	const messages = useQuery(api.records.discussion, { recordId });
+	const wakeups = useQuery(api.wakeups.list, { recordId });
+	if (!types) return null;
 	const groups = new Map<string, typeof results>();
 	for (const r of results) groups.set(`${r.typeId}:${r.fieldId}`, [...(groups.get(`${r.typeId}:${r.fieldId}`) ?? []), r]);
+	if (!groups.size && !messages?.length && !wakeups?.length) return null;
 	return (
-		<Section title="Linked">
-			{[...groups.entries()].map(([key, rows]) => {
+		<dl className="grid grid-cols-[10rem_1fr] items-start gap-x-4 gap-y-1">
+			{[...groups.entries()].map(([key, rows], i) => {
 				const type = types.find((t) => t._id === rows[0]!.typeId);
 				const field = type?.fields.find((f) => f._id === rows[0]!.fieldId);
 				if (!type) return null;
 				return (
-					<div key={key} className="flex flex-col gap-1">
-						<p className={`${descriptionClass} ${insetClass}`}>
-							{type.plural}
-							{field && <span className="text-neutral-400"> · {field.label}</span>}
-						</p>
-						<div className={listClass}>
+					<AboutRow key={key} icon={<LinkedIcon />} label={field ? `${type.plural} · ${field.label}` : type.plural}>
+						<span className="flex flex-wrap items-center gap-1.5 py-0.5">
 							{rows.map((r) => (
-								<button
-									key={r._id}
-									type="button"
-									onClick={() => navigate(...recordPath(type.key, r._id))}
-									className={`${listRowButton} items-baseline`}
-								>
-									<span className="font-medium">{r.title}</span>
-									<span className="truncate text-neutral-500">{summary(type, r.values, r.refs)}</span>
-								</button>
+								<Chip key={r._id}>
+									<button type="button" onClick={() => navigate(...recordPath(type.key, r._id))} title={summary(type, r.values, r.refs)} className={linkButton}>
+										{r.title}
+									</button>
+								</Chip>
 							))}
-						</div>
-					</div>
+							{i === groups.size - 1 && <LoadMore status={status} onMore={() => loadMore(25)} />}
+						</span>
+					</AboutRow>
 				);
 			})}
-			<LoadMore status={status} onMore={() => loadMore(25)} />
-		</Section>
+			{!!messages?.length && (
+				// The chat messages that tag this record (@ in the composer, or an agent's reply).
+				<AboutRow icon={<ChatIcon />} label="In chat">
+					<Popover trigger={`Tagged in ${messages.length}${messages.length === 50 ? "+" : ""} ${messages.length === 1 ? "message" : "messages"}`} className={`${linkButton} py-0.5`} panelClassName="flex max-h-96 w-96 flex-col gap-2 overflow-y-auto p-2">
+						{messages.map((m) => (
+							<button
+								key={m.messageId}
+								type="button"
+								onClick={() => navigate("chat", m.chatId, ...(m.threadId ? ["thread", m.threadId] : ["message", m.messageId]))}
+								className={`flex-col gap-1 text-sm ${cardButton}`}
+							>
+								<span className="flex min-w-0 items-baseline gap-2">
+									<span className="truncate font-medium">{m.author}</span>
+									<span className={`min-w-0 truncate ${metadataClass}`}>{m.where}</span>
+									<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(m.time)}</span>
+								</span>
+								<span className="line-clamp-3 text-neutral-600">{m.text}</span>
+							</button>
+						))}
+					</Popover>
+				</AboutRow>
+			)}
+			{!!wakeups?.length && (
+				<AboutRow icon={<FollowUpIcon />} label="Follow-ups">
+					<Popover trigger={`${wakeups.length} pending`} className={`${linkButton} py-0.5`} panelClassName="flex max-h-96 w-96 flex-col overflow-y-auto p-2">
+						<WakeupList wakeups={wakeups} recordId={recordId} />
+					</Popover>
+				</AboutRow>
+			)}
+		</dl>
+	);
+}
+
+/** One row beside the properties, lined up with them. */
+function AboutRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+	return (
+		<>
+			<dt className={`flex min-w-0 items-center gap-2 py-1 ${descriptionClass}`}>
+				<span className="shrink-0 text-neutral-400">{icon}</span>
+				<span className="truncate" title={label}>{label}</span>
+			</dt>
+			<dd className="flex min-w-0 px-2 py-0.5 text-sm">{children}</dd>
+		</>
 	);
 }
 
@@ -213,32 +245,6 @@ function summary(type: RecordType, values: Record<string, FieldValue>, refs: Ref
 		.slice(0, 3)
 		.map((f) => valueText(f, values[f.key], refs))
 		.join(" · ");
-}
-
-/** Chat messages that mention this record, each opening the message in its chat. */
-function Discussion({ recordId }: { recordId: Id<"records"> }) {
-	const messages = useQuery(api.records.discussion, { recordId });
-	if (!messages?.length) return null;
-	return (
-		<Section title="Discussion">
-			<div className="flex flex-col gap-2">
-				{messages.map((m) => (
-					<button
-						key={m.messageId}
-						type="button"
-						onClick={() => navigate("chat", m.chatId, ...(m.threadId ? ["thread", m.threadId] : ["message", m.messageId]))}
-						className={`flex-col gap-1 text-sm ${cardButton}`}
-					>
-						<span className="flex items-baseline gap-2">
-							<span className="font-medium">{m.author}</span>
-							<span className={`ml-auto ${metadataClass}`}>{timeAgo(m.time)}</span>
-						</span>
-						<span className="line-clamp-3 text-neutral-600">{m.text}</span>
-					</button>
-				))}
-			</div>
-		</Section>
-	);
 }
 
 /** Who changed what, old → new, newest first. Each change can be undone unless something changed it since. */
@@ -264,7 +270,7 @@ function History({ type, recordId, canUndo }: { type: RecordType; recordId: Id<"
 								<span className={metadataClass}>Undone</span>
 							) : (
 								canUndo && (
-									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className={`shrink-0 ${compactButton}`}>
+									<button type="button" onClick={() => e.action === "created" || e.action === "restored" ? confirm(archiveQuestion("this record", () => undo({ historyId: e._id }), "Undoing this change archives the record.")) : run(undo({ historyId: e._id }))} className={compactButton}>
 										<RestoreIcon /> Undo
 									</button>
 								)

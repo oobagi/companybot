@@ -63,10 +63,17 @@ const roleRefs = <T extends "members" | "invites" | "connectorInstalls">(): Edge
 	where: (_get, row, root) => !!row.roles?.includes(root.roleId!),
 	scrub: (row, _get, root) => ({ roles: row.roles!.filter((id: string) => id !== root.roleId) }) as unknown as Partial<Doc<T>>,
 });
-const roleAccess = <T extends "chats" | "recordTypes" | "pages">(): Edge<T> => ({
+const roleAccess = <T extends "chats" | "recordTypes" | "pages" | "driveFiles">(): Edge<T> => ({
 	index: "by_workspace", eq: ["workspaceId"],
 	where: (_get, row, root) => !!row.access?.some((e: { role: string }) => e.role === root.roleId),
 	scrub: (row, _get, root) => ({ access: withoutRole(row.access as NonNullable<AccessList>, root.roleId!) }) as unknown as Partial<Doc<T>>,
+});
+
+/** Sidebar sections holding what's going (`root[key]`): they let go of it. A workspace has few. */
+const heldIn = (key: "chatId" | "typeId" | "pageId"): Edge<"sidebarSections"> => ({
+	index: "by_workspace", eq: ["workspaceId"],
+	where: (_get, row, root) => row.ids.includes(root[key]!),
+	scrub: (row, _get, root) => ({ ids: row.ids.filter((id) => id !== root[key]) }),
 });
 
 /** A channel seat, not a DM: DMs keep people who left as past participants. */
@@ -83,13 +90,21 @@ async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
 	if (page) await deletePage(ctx, page._id);
 }
 
-/** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. */
-const deleteContent = (ctx: MutationCtx, row: Doc<"pages">) => ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
+/** A page's content is the prosemirrorSync component's, deleted by the component a little at a time. Folders have none. */
+const deleteContent = async (ctx: MutationCtx, row: Doc<"pages">) => {
+	if (row.kind !== "folder") await ctx.scheduler.runAfter(0, internal.pageSync.deleteDoc, { id: row._id });
+};
 
-/** A page going inside another cascade: its content, then a page cascade for its versions, moves and images. */
+/** A page going inside another cascade: its content, then a page cascade for its versions, moves and images (a folder's: what it held). */
 async function deleteContentAndRest(ctx: MutationCtx, row: Doc<"pages">) {
 	await deleteContent(ctx, row);
 	await startCascade(ctx, "page", { workspaceId: row.workspaceId, pageId: row._id });
+}
+
+/** A file in Archive on its own, going with its folder: its Archive entry goes too. */
+async function forgetFileTrashEntry(ctx: MutationCtx, row: Doc<"driveFiles">) {
+	const entry = row.archived && (await trashEntry(ctx, row._id));
+	if (entry) await ctx.db.delete(entry._id);
 }
 
 /** A page image's file goes with the last page that has it (copies share it). */
@@ -182,6 +197,15 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		workspace: { index: "by_list", eq: ["workspaceId"] },
 		member: { index: "by_user", eq: ["userId", "workspaceId"] },
 		user: { index: "by_user", eq: ["userId"] },
+	},
+	// The workspace's sidebar layout. What a section holds leaves it when deleted forever (a top-level file,
+	// which has no cascade, in deleteDriveFile); archived things stay in it, unseen, and come back on restore.
+	sidebarSections: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		channel: heldIn("chatId"),
+		database: heldIn("typeId"),
+		page: heldIn("pageId"),
+		keep: "Sections are the workspace's layout, like shared arrangements: they stay when whoever made them leaves.",
 	},
 	preferences: {
 		user: { index: "by_user", eq: ["userId"] },
@@ -444,6 +468,17 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		database: { index: "by_type", eq: ["typeId"] },
 		field: { index: "by_field", eq: ["fieldId"] },
 	},
+	// A field change and the old values it keeps go with its field, database or workspace.
+	fieldChanges: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		database: { index: "by_type", eq: ["typeId"] },
+		field: { index: "by_field", eq: ["fieldId"] },
+	},
+	fieldChangeValues: {
+		childOf: { table: "fieldChanges", index: "by_change", field: "changeId" },
+		record: { index: "by_record", eq: ["recordId"] },
+		keep: "Kept values go with their change (childOf), or with their record when it's deleted forever.",
+	},
 	// Deleting a message deletes its rows here too (messages.remove).
 	recordMentions: {
 		channel: { index: "by_chat", eq: ["chatId"] },
@@ -472,6 +507,14 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	pageImages: {
 		workspace: { index: "by_url", eq: ["workspaceId"], onDelete: deleteImageFile },
 		page: { index: "by_page", eq: ["pageId"], onDelete: deleteImageFile },
+	},
+	// Files in Drive (driveFiles.ts): the workspace's, like pages; a folder's go with it, their Archive entries too.
+	driveFiles: {
+		role: roleAccess<"driveFiles">(),
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		page: { index: "by_parent", eq: ["workspaceId", ["parentId", "pageId"]], onDelete: forgetFileTrashEntry },
+		keep: "Files are the workspace's, like pages. Deleting one forever (trash.ts) deletes its row and its stored file at once.",
+		files: ["storageId"],
 	},
 
 	trash: {

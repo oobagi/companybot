@@ -119,6 +119,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("chatMembers", { chatId: dm, workspaceId, userId: memberId });
 		for (const seat of (await ctx.db.query("chatMembers").collect()).filter((r) => r.workspaceId === workspaceId)) await ensureSeatActivity(ctx, (await ctx.db.get(seat.chatId))!, seat);
 		await ctx.db.insert("chatActivity", { workspaceId, chatId: channel, lastMessageAt: now });
+		await ctx.db.insert("sidebarSections", { workspaceId, tab: "chat", name: "Board", ids: [channel] });
 		const message = { chatId: channel, workspaceId, parts: [], status: "done" as const };
 		const said = await ctx.db.insert("chatMessages", { ...message, authorUserId: memberId, text: "Hi", mentions: { userIds: [], agentIds: [] } });
 		const mention = await ctx.db.insert("chatMessages", { ...message, authorUserId: ownerId, text: "@member", mentions: { userIds: [memberId], agentIds: [] } });
@@ -168,11 +169,16 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordValues", { recordId, fieldId, str: "roof", at: now });
 		await ctx.db.insert("recordHistory", { workspaceId, typeId, recordId, action: "created", changes: [], userId: memberId });
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
+		const counts = { checked: 1, converted: 1, cleared: 0, partly: 0, examples: [] };
+		const changeId = await ctx.db.insert("fieldChanges", { workspaceId, typeId, fieldId, from: { kind: "text" }, to: { kind: "text" }, status: "done", doneThrough: now, counts, userId: memberId, updatedAt: now, keepUntil: now + 1 });
+		await ctx.db.insert("fieldChangeValues", { changeId, recordId, old: "roof", new: "Roof" });
 		mine.push(await ctx.db.insert("wakeups", { workspaceId, agentId, chatId: channel, actorId: memberId, createdBy: memberId, note: "Chase it", recordId, typeId, foreign: false, status: "pending", at: now + 60_000 }));
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
 		await ctx.db.insert("pageImages", { workspaceId, pageId, storageId: await ctx.storage.store(new Blob(["x"])), url: `https://x.convex.cloud/api/storage/${pageId}` });
 		await ctx.db.insert("pageMoves", { workspaceId, pageId, n: 1, userId: memberId, from: "Pages", to: "Wiki" });
+		const folderId = await ctx.db.insert("pages", { workspaceId, kind: "folder", title: "Contracts", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
+		await ctx.db.insert("driveFiles", { workspaceId, parentId: folderId, name: "msa.pdf", type: "application/pdf", size: 1, storageId: await ctx.storage.store(new Blob(["%PDF-"])), archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		const trashedId = await ctx.db.insert("records", { workspaceId, typeId, title: "Old", values: { name: "Old" }, searchText: "old", archived: true, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("trash", { workspaceId, kind: "record", itemId: trashedId, name: "Old", typeId, deletedBy: memberId, deletedAt: now });
 		return mine;

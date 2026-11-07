@@ -73,6 +73,17 @@ describe("records tools", () => {
 			expect(toolRisk(t), t.id).toBe(t.id === "records.undo" ? "locked" : t.readOnly ? "none" : "inside");
 	});
 
+	it("ask before changing a field's kind, one/several or linked database, but not to preview it", () => {
+		const saveField = builtinTools.find((t) => t.id === "records.save_field")!;
+		const risk = (input: object) => saveField.riskFor!(input as never);
+		expect(risk({ type: "deal", field: "stage", kind: "text" })).toBe("locked");
+		expect(risk({ type: "deal", field: "stage", multiple: true })).toBe("locked");
+		expect(risk({ type: "deal", field: "client", linksTo: "task" })).toBe("locked");
+		expect(risk({ type: "deal", field: "stage", kind: "text", preview: true })).toBe("none");
+		expect(risk({ type: "deal", field: "stage", label: "Phase" })).toBe("inside");
+		expect(risk({ type: "deal", label: "Phase", kind: "text" })).toBe("inside");
+	});
+
 	it("tool lines tell what actually happened, never claiming a failed call worked", () => {
 		const line = (name: string, status: "running" | "done" | "error", input: unknown, output?: unknown) =>
 			toolLine(callLabel(name, builtinTools, [], { input, output }), status);

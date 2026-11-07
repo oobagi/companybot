@@ -3,7 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { canPost, reachOf } from "./chatOps";
 import { type Member, nameOf } from "./lib";
-import { pageStates } from "./pageTree";
+import { fileStates, pageStates } from "./pageTree";
 import { type AccessList, chatAccess, reach } from "./placeAccess";
 import { allowedRoles, connectorIn } from "./connectorAccess";
 import { inheritPlaces, placeAudience, type UsedPlace } from "./replySources";
@@ -64,7 +64,14 @@ async function loadSource(ctx: QueryCtx, member: Member, id: UsedPlace, audience
 	if (pageId) {
 		const page = await ctx.db.get(pageId);
 		const access = page ? (await pages(page)).access : [];
-		return { membersOnly: false, where: "", access, visible: !!page && page.workspaceId === member.workspaceId && !!reach(member, access), name: page?.title ?? "a deleted page", why: `the ${page?.title ?? "deleted"} page` };
+		const kind = page?.kind === "folder" ? "folder" : "page";
+		return { membersOnly: false, where: "", access, visible: !!page && page.workspaceId === member.workspaceId && !!reach(member, access), name: page?.title ?? `a deleted ${kind}`, why: `the ${page?.title ?? "deleted"} ${kind}` };
+	}
+	const fileId = ctx.db.normalizeId("driveFiles", id);
+	if (fileId) {
+		const file = await ctx.db.get(fileId);
+		const access = file ? (await fileStates(ctx, pages)(file)).access : [];
+		return { membersOnly: false, where: "", access, visible: !!file && file.workspaceId === member.workspaceId && !!reach(member, access), name: file?.name ?? "a deleted file", why: `the ${file?.name ?? "deleted"} file` };
 	}
 	const chatId = ctx.db.normalizeId("chats", id);
 	const chat = chatId && (await ctx.db.get(chatId));

@@ -6,7 +6,7 @@ import { type Member, accessOf, rolesOf } from "./lib";
 import { chatAccess, reach, type AccessList } from "./placeAccess";
 import { canReadSources, opensSource, type Source, writeSourceReader } from "./replyPrivacy";
 
-type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
+type Place = Id<"recordTypes"> | Id<"pages"> | Id<"driveFiles"> | Id<"chats">;
 export type UsedPlace = Place | Id<"users"> | Id<"connectorInstalls">;
 const writes = new WeakMap<Member, Promise<void>>();
 
@@ -63,7 +63,7 @@ export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sour
 }
 
 /** Direct Owner access changes may release deleted installs, only on the place being deliberately re-shared. */
-export async function changeAccessSources(ctx: MutationCtx, member: Member, place: Doc<"recordTypes"> | Doc<"chats"> | Doc<"pages">, audience: { access?: AccessList; users?: Id<"users">[] }) {
+export async function changeAccessSources(ctx: MutationCtx, member: Member, place: Doc<"recordTypes"> | Doc<"chats"> | Doc<"pages"> | Doc<"driveFiles">, audience: { access?: AccessList; users?: Id<"users">[] }) {
 	const retained: UsedPlace[] = [];
 	for (const id of place.usedPlaces ?? []) {
 		if (id === place._id) continue;
@@ -144,7 +144,7 @@ export async function placeAudience(ctx: QueryCtx, member: Member, chatId: Id<"c
 }
 
 /** The destination's audience, loaded once; the returned check refuses any source it can't open. */
-async function audienceFit(ctx: QueryCtx, member: Member, audience: Audience | undefined, place: Doc<"recordTypes"> | Doc<"pages"> | Doc<"chats"> | null, readSource: (id: UsedPlace) => Promise<Source>) {
+async function audienceFit(ctx: QueryCtx, member: Member, audience: Audience | undefined, place: Doc<"recordTypes"> | Doc<"pages"> | Doc<"driveFiles"> | Doc<"chats"> | null, readSource: (id: UsedPlace) => Promise<Source>) {
 	const placeId = place?._id;
 	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience && typeof audience === "object" && !("filtered" in audience) ? audience : undefined];
 	// Content edits keep the destination's saved sources, which can narrow its audience beyond its access list.

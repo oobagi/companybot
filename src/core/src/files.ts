@@ -7,8 +7,12 @@ import { type ImageType, imageTypes, sniffImage } from "./images";
 
 export const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 export const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export const PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-export const fileTypes = [...imageTypes, "application/pdf", DOCX, XLSX, "text/plain", "text/markdown", "text/csv", "application/json"] as const;
+export const fileTypes = [...imageTypes, "application/pdf", DOCX, XLSX, PPTX, "text/plain", "text/markdown", "text/csv", "application/json"] as const;
+/** What can be attached or put in Drive, for people and for file pickers. */
+export const FILE_KINDS_LABEL = "a picture, PDF, Word, Excel or PowerPoint file, or plain text (Markdown, CSV, JSON)";
+export const FILE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,.json";
 export type FileType = (typeof fileTypes)[number];
 
 /** Convex HTTP actions take request bodies up to 20 MB, so that's the most one file can be. */
@@ -47,7 +51,7 @@ export function sniffFile(bytes: Uint8Array, name: string): FileType | undefined
 	return sniffText(bytes, name);
 }
 
-/** A PDF, Word or Excel file, by its bytes. */
+/** A PDF, Word, Excel or PowerPoint file, by its bytes. */
 export function sniffDocument(bytes: Uint8Array): FileType | undefined {
 	if (startsWith(bytes, "%PDF-")) return "application/pdf";
 	if (startsWith(bytes, "PK\x03\x04")) return sniffZip(bytes);
@@ -56,17 +60,18 @@ export function sniffDocument(bytes: Uint8Array): FileType | undefined {
 /** Why this file can't be attached, or undefined if it can. */
 export function fileError(bytes: Uint8Array, name: string, size = bytes.length) {
 	if (size > FILE_MAX_BYTES) return `Pick a file under ${FILE_MAX_BYTES / 1024 / 1024} MB.`;
-	if (!sniffFile(bytes, name)) return "Attach a picture, PDF, Word or Excel file, or plain text (Markdown, CSV, JSON).";
+	if (!sniffFile(bytes, name)) return `Attach ${FILE_KINDS_LABEL}.`;
 }
 
 const startsWith = (bytes: Uint8Array, text: string) => [...text].every((c, i) => bytes[i] === c.charCodeAt(0));
 
-/** Word and Excel files are ZIPs: told apart by the parts listed in the archive, without unpacking any. */
+/** Office files are ZIPs: told apart by the parts listed in the archive, without unpacking any. */
 function sniffZip(bytes: Uint8Array): FileType | undefined {
 	const names = zipNames(bytes);
 	if (!names.has("[Content_Types].xml")) return;
 	if (names.has("word/document.xml")) return DOCX;
 	if (names.has("xl/workbook.xml")) return XLSX;
+	if (names.has("ppt/presentation.xml")) return PPTX;
 }
 
 export function zipNames(bytes: Uint8Array) {
@@ -161,10 +166,11 @@ export function formatFileSize(bytes: number) {
 	return `${+(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** "PDF", "Word", "Excel", "PNG", "Text"…: a file's kind for people. */
+/** "PDF", "Word", "Excel", "PowerPoint", "PNG", "Text"…: a file's kind for people. */
 export function fileKind(type: string) {
 	if (type === DOCX) return "Word";
 	if (type === XLSX) return "Excel";
+	if (type === PPTX) return "PowerPoint";
 	if (type === "application/pdf") return "PDF";
 	if (type === "application/json") return "JSON";
 	if (type === "text/csv") return "CSV";

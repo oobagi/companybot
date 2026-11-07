@@ -5,10 +5,11 @@ import { useState } from "react";
 import { describeAllowed } from "@companybot/core/action-words";
 import { agentOptions } from "../agent-options";
 import { api } from "../api";
-import { usePaginatedQuery, useQuery } from "../convex";
+import { useMutation, usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon } from "../icons";
-import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo, titleButton, PageActions } from "../ui";
+import { EmptyState, LoadMore, Loading, NoMatches, Notice, Section, cardClass, descriptionClass, metadataClass, smallButton, timeAgo, titleButton, PageActions, useRun } from "../ui";
+import { useConfirm } from "./chat/common";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
@@ -57,16 +58,39 @@ export function ActivityTab() {
 }
 
 function DatabaseActivity({ results, status, loadMore }: { results: FunctionReturnType<typeof api.records.activity>["page"]; status: string; loadMore: (count: number) => void }) {
+	const undo = useMutation(api.records.undo);
+	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	return (
 		<Section title="Database changes">
+			{dialog}
+			<Notice>{error}</Notice>
 			{results.map((e) => {
 				const [kind, action] = e.action.includes(".") ? e.action.split(".") : ["record", e.action];
 				return <div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>
 					<div className="flex items-baseline gap-2">
 						<span className="font-medium">{e.undoes ? "Undid a change to" : actionLabels[action!] ?? action} {kind}: {e.subject ?? e.record ?? e.field ?? e.type}</span>
-						<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(e.time)}</span>
+						<span className={`ml-auto shrink-0 ${metadataClass}`}>{e.fieldChange?.running ? "Converting…" : timeAgo(e.time)}</span>
+						{/* A field's kind change: undone here while its old values are kept (30 days). */}
+						{e.fieldChange?.undoable && (
+							<button
+								type="button"
+								className={smallButton}
+								onClick={() =>
+									confirm({
+										title: `Undo this change to “${e.field}”?`,
+										action: "Undo",
+										danger: false,
+										body: "The field goes back to how it was, and every record gets its old value back, unless it was changed since.",
+										onConfirm: () => run(undo({ historyId: e._id })),
+									})
+								}
+							>
+								Undo
+							</button>
+						)}
 					</div>
-					<p className={descriptionClass}>By {whoLabel(e)}</p>
+					<p className={descriptionClass}>By {whoLabel(e)}{e.fieldChange && !e.fieldChange.running && `. ${e.fieldChange.converted.toLocaleString()} values converted${e.fieldChange.cleared ? `, ${e.fieldChange.cleared.toLocaleString()} cleared` : ""}`}</p>
 					{e.changes.map((c) => <p key={c.key} className="break-words text-neutral-600">{c.label}: {valueText(undefined, c.old, e.refs) || "empty"} → {valueText(undefined, c.new, e.refs) || "empty"}</p>)}
 				</div>;
 			})}

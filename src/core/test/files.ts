@@ -1,6 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 
-// Small real files for tests: a Word document, an Excel workbook, and a one-page PDF.
+// Small real files for tests: a Word document, an Excel workbook, a PowerPoint deck, and a one-page PDF.
 
 const contentTypes = strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
 
@@ -28,6 +28,18 @@ export function xlsx(sheet: string, rows: (string | number)[][]) {
 		"xl/_rels/workbook.xml.rels": strToU8('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
 		"xl/worksheets/sheet1.xml": strToU8(`<worksheet><sheetData>${sheetRows}</sheetData></worksheet>`),
 		"xl/sharedStrings.xml": strToU8(`<sst>${shared.map((s) => `<si><t>${s}</t></si>`).join("")}</sst>`),
+	});
+}
+
+/** A .pptx with one slide per entry, each a list of paragraphs; slides are listed in reverse part order to check ordering. */
+export function pptx(...slides: string[][]) {
+	const n = slides.length;
+	const slideXml = (lines: string[]) => `<p:sld xmlns:a="a" xmlns:p="p"><p:cSld><p:spTree>${lines.map((l) => `<p:sp><p:txBody><a:p><a:r><a:t>${l}</a:t></a:r></a:p></p:txBody></p:sp>`).join("")}</p:spTree></p:cSld></p:sld>`;
+	return zipSync({
+		"[Content_Types].xml": contentTypes,
+		"ppt/presentation.xml": strToU8(`<p:presentation><p:sldIdLst>${slides.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${n - i}"/>`).join("")}</p:sldIdLst></p:presentation>`),
+		"ppt/_rels/presentation.xml.rels": strToU8(`<Relationships>${slides.map((_, i) => `<Relationship Id="rId${n - i}" Target="slides/slide${n - i}.xml"/>`).join("")}</Relationships>`),
+		...Object.fromEntries(slides.map((lines, i) => [`ppt/slides/slide${n - i}.xml`, strToU8(slideXml(lines))])),
 	});
 }
 

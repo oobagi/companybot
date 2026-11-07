@@ -10,10 +10,10 @@ import { useConfirm } from "./chat/common";
 import { recordPath } from "./records/logic";
 
 // Pending wakeups (backend wakeups.ts): follow-ups agents set, check-ins and job callbacks. Shown
-// in Settings → Automations and on the record they're about, each cancellable by its person,
+// in Settings → Automations and among the properties of the record they're about (RecordPage), each cancellable by its person,
 // whoever set it up, or anyone whose roles can change agents, so what's going to run is always visible.
 
-type Wakeup = FunctionReturnType<typeof api.wakeups.list>[number];
+export type Wakeup = FunctionReturnType<typeof api.wakeups.list>[number];
 
 const when = (ms: number) =>
 	new Date(ms).toLocaleString([], { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -28,14 +28,23 @@ function repeats(w: Wakeup) {
 /** What it'll do, in a line: its note, or what kind of wake it is. */
 const what = (w: Wakeup) => w.note ?? (w.place ? (w.job ? "When its job finishes" : "Look around for anything worth doing") : "In a chat you can't see");
 
-/** Pending wakeups, soonest first: all you can see, or one record's. Nothing when there are none. */
-export function PendingWakeups({ recordId, title, note }: { recordId?: Id<"records">; title: string; note?: string }) {
-	const wakeups = useQuery(api.wakeups.list, { recordId });
-	const cancel = useMutation(api.wakeups.cancel);
-	const { confirm, dialog } = useConfirm();
+/** Pending wakeups, soonest first: all you can see. Nothing when there are none. */
+export function PendingWakeups({ title, note }: { title: string; note?: string }) {
+	const wakeups = useQuery(api.wakeups.list, {});
 	if (!wakeups?.length) return null;
 	return (
 		<Section title={title} note={note}>
+			<WakeupList wakeups={wakeups} />
+		</Section>
+	);
+}
+
+/** Wakeups as cards, each cancellable by whoever may. `recordId`: they're all about this record, so none names it. */
+export function WakeupList({ wakeups, recordId }: { wakeups: Wakeup[]; recordId?: Id<"records"> }) {
+	const cancel = useMutation(api.wakeups.cancel);
+	const { confirm, dialog } = useConfirm();
+	return (
+		<>
 			{dialog}
 			<div className="flex flex-col gap-2">
 				{wakeups.map((w) => (
@@ -89,6 +98,6 @@ export function PendingWakeups({ recordId, title, note }: { recordId?: Id<"recor
 					</div>
 				))}
 			</div>
-		</Section>
+		</>
 	);
 }
