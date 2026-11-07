@@ -35,7 +35,7 @@ import {
 } from "../ui";
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, Modal, clock, dayLabel } from "./chat/common";
-import { Item } from "./chat/Sidebar";
+import { AddButton, Item } from "./chat/Sidebar";
 
 // Inbox: conversations with people outside the workspace, by email and text (backend inbox.ts). The
 // sidebar lists them, the latest first; one opens here with what was said, the agent's replies waiting
@@ -61,9 +61,19 @@ export function InboxNav({ openId }: { openId: string | undefined }) {
 	);
 }
 
+/** The + beside Inbox's name: starts a conversation from an agent's address or number. */
+export function InboxAdd() {
+	const [starting, setStarting] = useState(false);
+	return (
+		<>
+			<AddButton label="New conversation" onClick={() => setStarting(true)} />
+			{starting && <NewConversation onClose={() => setStarting(false)} />}
+		</>
+	);
+}
+
 /** Inbox on screen: the open conversation, else an empty state. */
 export function InboxView({ access, conversationId }: { access: Access; conversationId: string | undefined }) {
-	const [starting, setStarting] = useState(false);
 	const list = useQuery(api.inbox.list);
 	if (!can(access, "inbox.use"))
 		return (
@@ -71,19 +81,17 @@ export function InboxView({ access, conversationId }: { access: Access; conversa
 				<EmptyState icon={<InboxIcon />} title="No access to Inbox">Ask an owner for a role that can see Inbox.</EmptyState>
 			</Scroll>
 		);
-	const newButton = <NewButton label="New conversation" onClick={() => setStarting(true)} />;
 	return (
 		<>
-			{starting && <NewConversation onClose={() => setStarting(false)} />}
 			{conversationId ? (
-				<ConversationScreen key={conversationId} id={conversationId as Id<"inboxConversations">} actions={newButton} />
+				<ConversationScreen key={conversationId} id={conversationId as Id<"inboxConversations">} />
 			) : (
-				<Scroll header={<TopBar title="">{newButton}</TopBar>}>
+				<Scroll header={<TopBar title="" />}>
 					{list === undefined ? (
 						<Loading />
 					) : (
 						<EmptyState icon={<InboxIcon />} title={list?.length ? "Pick a conversation" : "No conversations yet"}>
-							{list?.length ? "Open one from the list." : "When someone emails or texts one of your agents, it shows up here."}
+							{list?.length ? "Open one from the list." : "When someone emails or texts one of your agents, it shows up here. Start one with + beside Inbox."}
 						</EmptyState>
 					)}
 				</Scroll>
@@ -92,7 +100,7 @@ export function InboxView({ access, conversationId }: { access: Access; conversa
 	);
 }
 
-function ConversationScreen({ id, actions }: { id: Id<"inboxConversations">; actions: React.ReactNode }) {
+function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 	const c = useQuery(api.inbox.get, { id });
 	const takeOver = useMutation(api.inbox.takeOver);
 	const handBack = useMutation(api.inbox.handBack);
@@ -100,7 +108,7 @@ function ConversationScreen({ id, actions }: { id: Id<"inboxConversations">; act
 	if (c === undefined) return <Scroll header={<TopBar title="" />}><Loading /></Scroll>;
 	if (c === null)
 		return (
-			<Scroll header={<TopBar title="Not found">{actions}</TopBar>}>
+			<Scroll header={<TopBar title="Not found" />}>
 				<EmptyState icon={<InboxIcon />} title="Conversation not found">It may have been deleted with its agent.</EmptyState>
 			</Scroll>
 		);
@@ -121,7 +129,6 @@ function ConversationScreen({ id, actions }: { id: Id<"inboxConversations">; act
 							<TakeOverIcon /> Hand back to {c.agentName}
 						</button>
 					)}
-					{actions}
 				</TopBar>
 			}
 			footer={<ReplyBox conversation={c} />}

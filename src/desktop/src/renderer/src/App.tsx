@@ -34,7 +34,7 @@ import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
 import { DriveView } from "./views/drive/Views";
 import { ComingSoon } from "./views/ComingSoon";
-import { InboxNav, InboxView } from "./views/Inbox";
+import { InboxAdd, InboxNav, InboxView } from "./views/Inbox";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
@@ -257,6 +257,11 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 												{tab === "chat" && (
 													<span className="no-drag flex">
 														<ChannelsAdd onOpen={open} onNewSection={addSection?.onClick} />
+													</span>
+												)}
+												{tab === "inbox" && can(access, "inbox.use") && (
+													<span className="no-drag flex">
+														<InboxAdd />
 													</span>
 												)}
 												{(tab === "databases" || tab === "drive") && (

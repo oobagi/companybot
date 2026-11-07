@@ -22,7 +22,7 @@ Anyone whose role can **see Inbox and reply to customers** (Member can, unless a
 - **Reply** from the box at the bottom. It goes from the agent's address or number, as the business.
 - **Take over**: the agent stops answering that conversation, and you answer.
 - **Hand back**: the agent answers again from the next message.
-- **New conversation** (top bar): email or text someone from an agent's address or number. One you start is yours: hand it back when the agent should answer.
+- **New conversation** (the + beside Inbox in the sidebar): email or text someone from an agent's address or number. One you start is yours: hand it back when the agent should answer.
 
 Notes the agent takes for staff show in the conversation in yellow; customers never see them.
 
