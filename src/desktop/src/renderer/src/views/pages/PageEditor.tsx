@@ -1,5 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { BlockNoteEditor, createExtension, docToBlocks, filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
+import { BlockNoteEditor, createExtension, docToBlocks, filterSuggestionItems } from "@blocknote/core";
 import { type DefaultSuggestionItem, SideMenuExtension, SuggestionMenu as SuggestionMenuExtension, getDefaultSlashMenuItems } from "@blocknote/core/extensions";
 import "@blocknote/react/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
@@ -15,14 +15,12 @@ import { navigate } from "../../router";
 import { type Level, type Worn, pickUp } from "../../sortable";
 import { useUpload } from "../../upload";
 import { EmptyState, Loading, Notice, useRun } from "../../ui";
-import { useLinkedPages } from "./useLinkedPages";
-import { PageLevel } from "./PageTree";
 import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor, pageEditorSchema } from "./PageBlock";
 import { Avatar, PopoverPanel } from "../chat/common";
 import { type Participant, type TokenNames, useDirectory } from "../chat/data";
 import { ProfileCards } from "../chat/Profile";
 import { matches } from "../chat/editor";
-import { EMOJI_COLUMNS, loadEmoji, menuEmoji, rememberEmoji, savedTone, withTone } from "../chat/emoji";
+import { COMPLETED_SHORTCODE, EMOJI_COLUMNS, emojiForShortcode, loadEmoji, loadedEmoji, menuEmoji, rememberEmoji, savedTone, withTone } from "../chat/emoji";
 import { splitTokens } from "../chat/tokens";
 import { EmojiMenu, type EmojiPick, HandleButton, components } from "./editorComponents";
 import { promotePageLinks } from "./pageBlockUpgrades";
@@ -119,13 +117,34 @@ const mentions = createExtension({
 	})],
 });
 
+/** A typed `:smile:` becomes 😄, as in chat, once the emoji data is loaded (opening the `:` menu loads it). */
+const emojiShortcodes = createExtension({
+	key: "emojiShortcodes",
+	prosemirrorPlugins: [new Plugin({
+		props: {
+			handleTextInput(view, from, to, text) {
+				if (text !== ":") return false;
+				const $from = view.state.doc.resolve(from);
+				const match = COMPLETED_SHORTCODE.exec(`${$from.parent.textBetween(0, $from.parentOffset)}:`);
+				const index = loadedEmoji();
+				const emoji = match && index && emojiForShortcode(index, match[1]!);
+				if (!emoji) return false;
+				view.dispatch(view.state.tr.insertText(emoji.char, from - match[1]!.length - 1, to));
+				return true;
+			},
+		},
+	})],
+});
+
 // Tab and Shift+Tab never leave the editor. BlockNote hands them to the browser when it can't nest or un-nest the
 // block (the first block, or one as deep as it goes) or when the formatting toolbar is open, so focus jumped to the next button.
+// With a menu open, Tab takes the lit item, as Enter does (and as in chat).
 const tabStays = createExtension({
 	key: "tabStays",
 	keyboardShortcuts: {
 		Tab: ({ editor }) => {
-			editor.nestBlock();
+			if (editor.getExtension(SuggestionMenuExtension)?.shown()) editor.domElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+			else editor.nestBlock();
 			return true;
 		},
 		"Shift-Tab": ({ editor }) => {
@@ -135,7 +154,7 @@ const tabStays = createExtension({
 	},
 });
 
-const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } }, extensions: [blockDrag, tabStays, mentions] };
+const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } }, extensions: [blockDrag, tabStays, mentions, emojiShortcodes] };
 
 /** The editor in the app's chrome. Its floating UI is the children (PageEditor, stacked by `layer`); BlockNote's own is off. */
 function View({ editor, editable, children }: { editor: PageBlockEditor; editable: boolean; children?: ReactNode }) {
@@ -223,8 +242,17 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 					...slashItems(sync.editor),
 					...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
 						try {
-							const id = await create({ title: "Untitled", parentId: pageId, insertInParent: false });
-							insertOrUpdateBlockForSlashMenu(sync.editor, { type: "page", props: { pageId: id } });
+							// The server adds the child's block (at the end, with the page itself, so there's never a child without
+							// one); once it's here, it moves to where the cursor was: into its empty block, else after it.
+							const at = sync.editor.getTextCursorPosition().block;
+							const id = await create({ title: "Untitled", parentId: pageId });
+							const block = await pageBlockFor(sync.editor, id);
+							const cursor = sync.editor.getBlock(at.id);
+							if (block && cursor && cursor.id !== block.id) sync.editor.transact(() => {
+								sync.editor.removeBlocks([block.id]);
+								if (cursor.type === "paragraph" && Array.isArray(cursor.content) && cursor.content.length === 0) sync.editor.replaceBlocks([cursor.id], [block]);
+								else sync.editor.insertBlocks([block], cursor.id, "after");
+							});
 							navigate("pages", id);
 						} catch (e) { fail(e); }
 					} }] : []),
@@ -242,7 +270,6 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 			)}
 			<UpgradePageLinks editor={sync.editor} editable={editable} />
 			<PageBlockRemoval editor={sync.editor} pageId={pageId} editable={editable} />
-			{standalone && <ChildPages editor={sync.editor} pageId={pageId} />}
 		</PageReferences.Provider>
 	);
 }
@@ -427,7 +454,7 @@ function DragHandle() {
 	return (
 		<MenuRoot onOpenChange={(open) => (open ? sideMenu.freezeMenu() : sideMenu.unfreezeMenu())} position="left" portalElement={portalElement}>
 			<MenuTrigger>
-				<HandleButton label={editor.dictionary.side_menu.drag_handle_label} icon={<DragHandleIcon />} onPointerDown={pick} />
+				<HandleButton label={editor.dictionary.side_menu.drag_handle_label} icon={<DragHandleIcon weight="bold" />} onPointerDown={pick} />
 			</MenuTrigger>
 			<PageDragHandleMenu />
 		</MenuRoot>
@@ -446,7 +473,7 @@ function PageDragHandleMenu() {
 }
 
 /** BlockNote's table handles, with the app's icons. */
-const PageTableHandle = (props: TableHandleProps) => <TableHandle {...props}><DragHandleIcon /></TableHandle>;
+const PageTableHandle = (props: TableHandleProps) => <TableHandle {...props}><DragHandleIcon weight="bold" /></TableHandle>;
 const PageExtendButton = (props: ExtendButtonProps) => <ExtendButton {...props}><PlusIcon /></ExtendButton>;
 const PageTableCellButton = (props: TableCellButtonProps) => <TableCellButton {...props}><CaretDownIcon /></TableCellButton>;
 
@@ -462,15 +489,20 @@ export function VersionPreview({ content }: { content: string }) {
 	return <View editor={editor} editable={false} />;
 }
 
-/**
- * Children without a block in this document (one the server is adding right now) show as rows. The server is
- * the only one that adds sub-page blocks (pageOps `appendPageBlock`): two writers raced and doubled them.
- */
-function ChildPages({ editor, pageId }: { editor: PageBlockEditor; pageId: Id<"pages"> }) {
-	const linked = useLinkedPages(editor);
-	const placed = useRef(new Set<string>());
-	for (const id of linked) placed.current.add(id);
-	return <div className="flex flex-col gap-1"><PageLevel parentId={pageId} render={(p) => !placed.current.has(p._id) && <PageBlockRow key={p._id} pageId={p._id} />} /></div>;
+/** The block for a child page once the server's insert of it has synced here (a few seconds at most), else nothing. */
+function pageBlockFor(editor: PageBlockEditor, pageId: string) {
+	const find = () => {
+		let found: ReturnType<PageBlockEditor["getBlock"]>;
+		editor.forEachBlock((block) => { if (block.type === "page" && block.props.pageId === pageId) found = block; return !found; });
+		return found;
+	};
+	return new Promise<ReturnType<typeof find>>((resolve) => {
+		const now = find();
+		if (now) return resolve(now);
+		const done = (block: ReturnType<typeof find>) => { clearTimeout(timer); unsubscribe(); resolve(block); };
+		const unsubscribe = editor.onChange(() => { const block = find(); if (block) done(block); });
+		const timer = setTimeout(() => done(undefined), 4000);
+	});
 }
 
 /** Existing page links become blocks, including ones with text accidentally typed beside them. */

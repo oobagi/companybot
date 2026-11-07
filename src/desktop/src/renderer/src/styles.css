@@ -118,6 +118,7 @@ body {
 .page-editor .bn-toggle-add-block-button:hover { background: none; }
 /* A #channel chip opens the channel (PageEditor `mentions`); a person's is text. */
 .page-editor .token[data-kind] { cursor: pointer; }
+.page-editor .token[data-kind]:hover { text-decoration: underline; }
 /* Quote, divider, code, table, image and checked items in the app's neutrals, not BlockNote's grays. */
 .page-editor [data-content-type="quote"] blockquote { color: var(--color-neutral-600); border-left: 2px solid var(--color-neutral-300); }
 .page-editor [data-content-type="divider"] hr { border-top-color: var(--color-neutral-200); }

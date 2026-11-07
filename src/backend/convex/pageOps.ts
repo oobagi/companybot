@@ -141,7 +141,7 @@ export function requireContent(page: Doc<"pages">) {
 }
 
 /** A standalone page or folder, or a record's body (returned if it already has one). Pages start empty. */
-export async function createPage(ctx: MutationCtx, who: Who, to: { title: string; parentId?: Id<"pages">; insertInParent?: boolean; kind?: "folder" } | { recordId: Id<"records"> }) {
+export async function createPage(ctx: MutationCtx, who: Who, to: { title: string; parentId?: Id<"pages">; kind?: "folder" } | { recordId: Id<"records"> }) {
 	const { member } = who;
 	checkPermission(member, "pages.edit");
 	const parentId = "parentId" in to ? to.parentId : undefined;
@@ -170,7 +170,7 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 	});
 	if (kind === "folder") return pageId;
 	await sync.create(ctx, pageId, { type: "doc", content: [{ type: "blockGroup", content: [emptyBlock()] }] });
-	if (parentId && "title" in to && to.insertInParent !== false) {
+	if (parentId && "title" in to) {
 		await appendPageBlock(ctx, who, await requirePage(ctx, member, parentId), pageId);
 	}
 	return pageId;

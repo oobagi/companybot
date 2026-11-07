@@ -17,6 +17,13 @@ export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_genera
 /** Raw calls as `userId`. Convex Auth reads the user id from the token subject. */
 export const identityOf = (t: ReturnType<typeof convexTest>, userId: Id<"users">) => t.withIdentity({ subject: `${userId}|session` });
 
+/** A sub-page from before sub-pages were blocks: parented, with no block for it in the parent (migrations.pageChildBlocks adds one). */
+export async function oldChild(t: ReturnType<typeof convexTest>, owner: Awaited<ReturnType<typeof signIn>>, title: string, parentId: Id<"pages">) {
+	const id = await owner.mutation(api.pages.create, { title });
+	await t.run((ctx) => ctx.db.patch(id, { parentId }));
+	return id;
+}
+
 /**
  * A signed-in person, with their first workspace open: the ones that invited them, else "My company"
  * from onboarding (workspace.setUp). The main agent's welcome (onboarding.ts) is taken back so
