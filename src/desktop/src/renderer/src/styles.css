@@ -188,14 +188,15 @@ body {
 	scale: 1;
 	transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), scale 160ms, filter 160ms, opacity 160ms;
 }
-/* A card's first and last rows take its corners, so a row's background (hover, a drop target) stays inside them. */
+/* A card's first and last rows curve with its corners (its radius, less its 1px border), so a row's
+   background (hover, a drop target) fills them without a sliver at the border. */
 .card-list > :first-child {
-	border-top-left-radius: inherit;
-	border-top-right-radius: inherit;
+	border-top-left-radius: calc(var(--radius-xl) - 1px);
+	border-top-right-radius: calc(var(--radius-xl) - 1px);
 }
 .card-list > :last-child {
-	border-bottom-left-radius: inherit;
-	border-bottom-right-radius: inherit;
+	border-bottom-left-radius: calc(var(--radius-xl) - 1px);
+	border-bottom-right-radius: calc(var(--radius-xl) - 1px);
 }
 /* A row in a card (ui.tsx `listClass`) lifts without growing, which would push its edges past the card's border;
    it goes opaque and rounded so the rows sliding under it don't show through. */
@@ -225,6 +226,7 @@ body {
 }
 .dialog .card-list > * {
 	border-width: 0;
+	border-radius: 0;
 }
 .dialog .card-list > *,
 .dialog .card-inset {

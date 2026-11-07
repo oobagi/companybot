@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { navigate } from "../router";
 import { ArchiveIcon, ArrowRightIcon, HistoryIcon, PageIcon, PlusIcon, PrivateIcon } from "../icons";
-import { NotFound, Notice, Page, barButton, useRun } from "../ui";
+import { NotFound, Notice, Page, barPrimaryButton, useRun } from "../ui";
 import { DriveEmpty, DriveListing } from "./drive/DriveListing";
 import { useDriveUploads } from "./drive/upload";
 import { MovePage, NewMenu, PageAccess } from "./pages/PageTree";
@@ -49,7 +49,7 @@ function useFolderActions(parentId: Id<"pages"> | undefined, canEdit: boolean) {
 		uploads: uploads.into(parentId),
 		dismissUpload: uploads.dismiss,
 		drop: (files: File[]) => uploads.start(files, parentId),
-		actions: canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files, parentId)} className={barButton} trigger={<><PlusIcon /> New</>} />,
+		actions: canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files, parentId)} className={barPrimaryButton} trigger={<><PlusIcon /> New</>} />,
 		dialogs: <Notice>{error}</Notice>,
 	};
 }
