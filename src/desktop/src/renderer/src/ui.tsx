@@ -304,7 +304,7 @@ export function Page({
 				{/* The column's text is `--text` wide, padded `--pad`. `--bleed`: from the text out to the screen's edge, for `.bleed`. */}
 				<div
 					style={{ "--text": wide ? "61rem" : "39rem", "--pad": gutter ? "4rem" : "1.5rem" } as React.CSSProperties}
-					className="mx-auto flex w-full max-w-[calc(var(--text)+2*var(--pad))] flex-1 flex-col gap-6 px-(--pad) pt-6 pb-10 [--bleed:max(var(--pad),calc((100cqw-var(--text))/2))]"
+					className="mx-auto flex w-full max-w-[calc(var(--text)+2*var(--pad))] flex-1 flex-col gap-6 px-(--pad) pt-page-top pb-10 [--bleed:max(var(--pad),calc((100cqw-var(--text))/2))]"
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
 					{children}
@@ -668,7 +668,7 @@ export function NotFound({ crumbs, loaded, icon, title, children = "It may have 
 /** Placeholder shown only on first load; later visits come from the cache. */
 export function Loading() {
 	return (
-		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 pt-6 pb-10">
+		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 pt-page-top pb-10">
 			<div className="h-4 w-1/3 rounded bg-neutral-100" />
 			<div className="h-4 w-2/3 rounded bg-neutral-100" />
 			<div className="h-4 w-1/2 rounded bg-neutral-100" />

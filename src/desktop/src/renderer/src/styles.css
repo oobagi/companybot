@@ -5,6 +5,8 @@
 
 /* The shadcn-style color names Streamdown's classes use, mapped to our neutrals. */
 @theme inline {
+	/* The gap between a screen's top bar and its content (`pt-page-top`): one value for every screen. */
+	--spacing-page-top: 0.5rem;
 	--color-background: var(--color-white);
 	--color-foreground: var(--color-neutral-900);
 	--color-muted: var(--color-neutral-50);
