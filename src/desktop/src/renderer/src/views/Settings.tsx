@@ -27,8 +27,13 @@ import { UsageTab } from "./Usage";
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
 // the bottom of the rail) and the open workspace (the workspace switcher, in the title bar).
-// Customize's tabs keep their /settings/<tab> addresses but open from the rail (Customize),
-// so Settings' sidebar doesn't list them (`inRail`).
+// Workspace tabs are grouped by what they manage: the workspace, its people, its agents, and its
+// connections to other apps.
+/** Agents, Connectors, Skills or Automations (`customize/`), as a settings tab. */
+const item = <I extends CustomizeTab>(id: I) => {
+	const t = customizeTabs.find((c) => c.id === id)!;
+	return { id, label: t.label, icon: <t.icon /> };
+};
 const sections = [
 	{ title: "Account", scope: "account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
 	{
@@ -36,21 +41,30 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
-			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
-			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
-			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
-			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "usage", label: "Usage", description: "What AI cost this month", icon: <UsageIcon /> },
+			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
 	{
-		title: "Customize",
+		title: "People",
 		scope: "workspace",
-		inRail: true,
-		tabs: customizeTabs.map((t) => ({ id: t.id, label: t.label, icon: <t.icon /> })),
+		tabs: [
+			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
+			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
+		],
 	},
+	{
+		title: "Agents",
+		scope: "workspace",
+		tabs: [
+			item("agents"),
+			item("skills"),
+			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
+			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
+		],
+	},
+	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations")] },
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
 type SettingsTab = (typeof settingsTabs)[number]["id"];
@@ -96,7 +110,7 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 	const scope = settingsScope(tab);
 	return (
 		<>
-			{sections.filter((s) => s.scope === scope && !("inRail" in s)).map((s) => (
+			{sections.filter((s) => s.scope === scope).map((s) => (
 				<Group key={s.title} title={s.title}>
 					{s.tabs.map((t) => (
 						<Item key={t.id} icon={t.icon} active={t.id === tab} onClick={() => navigate("settings", t.id)}>

@@ -9,7 +9,7 @@ import { Checkbox, Segmented, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, CalendarIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
@@ -38,6 +38,13 @@ import {
 // scroll. Deleted records are in Trash.
 
 type Layout = "table" | "board";
+/** Layouts picked but not saved: a board with no choice field to group by, and the ones coming soon. */
+type Preview = "board" | "calendar" | "form" | "gallery";
+const soonLayouts = {
+	calendar: { icon: <CalendarIcon />, title: "Calendar is coming soon", text: "See records on a calendar by one of their date fields, like jobs by their scheduled day." },
+	form: { icon: <FormIcon />, title: "Form is coming soon", text: "A simple screen for adding a record with just the fields you pick. The same forms will go on your sites." },
+	gallery: { icon: <GalleryIcon />, title: "Gallery is coming soon", text: "Records as cards with a picture, for things like products, properties or your team." },
+};
 
 /** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
 type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
@@ -59,6 +66,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const saveView = useMutation(api.databaseViews.save);
 	const removeView = useMutation(api.databaseViews.remove);
 	const [viewId, setViewId] = useState("all");
+	const [preview, setPreview] = useState<Preview>();
 	const selected = views?.find((v) => v._id === viewId);
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
@@ -99,7 +107,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
-	const open = (id: string) => setViewId(id);
+	const open = (id: string) => (setViewId(id), setPreview(undefined));
 	// Someone deleted the open view.
 	useEffect(() => {
 		if (views && viewId !== "all" && !selected) open("all");
@@ -217,13 +225,20 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				{(selected || type.canSetDisplay) && <span className="ml-auto">
 					<Segmented
 						label="Layout"
-						value={layout}
+						value={preview ?? layout}
 						options={[
 							{ value: "table", label: "Table" },
-							// A board groups cards by a choice field: none, no board (the server refuses it too).
-							...(groupFields.length || layout === "board" ? [{ value: "board" as const, label: "Board" }] : []),
+							{ value: "board", label: "Board" },
+							{ value: "calendar", label: "Calendar" },
+							{ value: "form", label: "Form" },
+							{ value: "gallery", label: "Gallery" },
 						]}
-						onChange={(l) => change({ layout: l })}
+						// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
+						// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
+						onChange={(l) => {
+							if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
+							setPreview(l);
+						}}
 					/>
 				</span>}
 			</div>
@@ -240,7 +255,20 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					))}
 				</div>
 			)}
-			{query.trim() ? (
+			{preview === "board" ? (
+				<EmptyState icon={<DatabaseIcon />} title="Boards group by a choice field">
+					Add a choice field, like Status with New, Contacted and Won, and each choice becomes a column.
+					{type.canManage && (
+						<span className="mt-3 flex justify-center">
+							<button type="button" onClick={() => setAddingField("choice")} className={compactButton}>
+								<PlusIcon /> Add a choice field
+							</button>
+						</span>
+					)}
+				</EmptyState>
+			) : preview ? (
+				<EmptyState icon={soonLayouts[preview].icon} title={soonLayouts[preview].title}>{soonLayouts[preview].text}</EmptyState>
+			) : query.trim() ? (
 				<>
 					<p className="-mt-2 text-xs text-neutral-500">Top 20 live {noun} matching the name or text. Filters and sort don't apply to search.</p>
 					<SearchResults type={type} query={query} columns={shown} />
@@ -286,7 +314,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				</Modal>
 			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
-			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => setColumns([...columns, key])} onClose={() => setAddingField(undefined)} />}
+			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => (setColumns([...columns, key]), preview === "board" && (setPreview(undefined), change({ layout: "board", groupBy: key })))} onClose={() => setAddingField(undefined)} />}
 		</Page>
 	);
 }

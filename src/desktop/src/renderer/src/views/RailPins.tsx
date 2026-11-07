@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { OptimisticUpdate } from "convex/browser";
 import { useMutation, useQuery, useWorkspace } from "../convex";
-import { ChannelIcon, ChatIcon, CustomizeIcon, DatabaseIcon, DriveIcon, HideIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, ShowIcon, UnpinIcon } from "../icons";
+import { ChannelIcon, ChatIcon, DatabaseIcon, DriveIcon, HideIcon, HomeIcon, InboxIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, ShowIcon, SitesIcon, UnpinIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { type PinKey, RECENT_SHOWN, pathOf, setRailVia, splitPin, usePins, useRailVia } from "../pins";
 import { navigate } from "../router";
@@ -17,10 +17,12 @@ type TipFor = ReturnType<typeof useTip>["tipFor"];
 
 /** The rail's tabs: the parts of the app, in the order a new rail shows them. They're pins you can't remove. */
 export const appTabs = [
+	{ id: "home", label: "Home", icon: HomeIcon },
 	{ id: "chat", label: "Chat", icon: ChatIcon },
+	{ id: "inbox", label: "Inbox", icon: InboxIcon },
 	{ id: "drive", label: "Drive", icon: DriveIcon },
 	{ id: "databases", label: "Databases", icon: DatabaseIcon },
-	{ id: "customize", label: "Customize", icon: CustomizeIcon },
+	{ id: "sites", label: "Sites", icon: SitesIcon },
 ] as const;
 export type AppTab = (typeof appTabs)[number]["id"];
 
