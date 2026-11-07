@@ -17,8 +17,8 @@ export const PageReferences = createContext<Map<string, PageReference> | null>(n
 
 /**
  * A page is an atomic block. Its title comes from the page, never from editable link text, and the block stores
- * only the id (backend pageBlocks.ts): one you can't open shows as "Page". Its row is taller than a line of text,
- * but the block stays a line's height (negative margins) so BlockNote's side menu (a line tall, top-aligned) centers on it.
+ * only the id (backend pageBlocks.ts): one you can't open shows as "Page". The editor's + and ⋮⋮ sit on the
+ * title's line, as on any block's first line (PageEditor.tsx).
  */
 export function PageBlockRow({ pageId, editable = false }: { pageId: string; editable?: boolean }) {
 	const page = useQuery(api.pages.get, { pageId });
@@ -30,8 +30,8 @@ export function PageBlockRow({ pageId, editable = false }: { pageId: string; edi
 	const [renaming, setRenaming] = useState(false);
 	const name = page ? page.title : "Page";
 	return (
-		<div className="group/page -my-1.5 flex w-full min-w-0 cursor-pointer items-center rounded-md select-none hover:bg-neutral-100/70" contentEditable={false}>
-			<a href={pageHref(pageId)} draggable={false} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-2 pl-0.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
+		<div className="group/page flex w-full min-w-0 cursor-pointer items-center rounded-md select-none hover:bg-neutral-100/70" contentEditable={false}>
+			<a href={pageHref(pageId)} draggable={false} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pr-2 pl-0.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
 				<PageIcon className="shrink-0 text-neutral-400" />
 				<span className="truncate underline decoration-neutral-300 underline-offset-2">{name}</span>
 				{page?.archived && <span className="text-xs text-neutral-400">Archived</span>}

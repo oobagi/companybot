@@ -56,17 +56,41 @@ body {
 }
 
 /* The page editor (views/pages/PageEditor.tsx). Its menus and toolbars are the app's own
-   (editorComponents.tsx); what BlockNote's block CSS still draws from its theme variables (text,
-   the selected block's outline, color swatches) takes the app's neutrals. Headings stay below the
-   title; the font is the app's. */
+   (editorComponents.tsx); what BlockNote's block CSS draws itself takes the app's font, size and
+   neutrals here. `page-editor` is on BlockNote's container and, through the editor's `domAttributes`,
+   on the editor element itself: a dragged block's preview is a clone BlockNote appends to <body> with
+   the editor element's classes, so it keeps every rule here. BlockNote's stylesheet loads first
+   (PageEditor.tsx imports it), so a tie in specificity goes to these. */
 .page-editor {
+	font-family: inherit;
+	font-size: var(--text-body);
 	--bn-colors-editor-text: var(--color-neutral-900);
 	--bn-colors-editor-background: transparent;
 	--bn-colors-border: var(--color-neutral-200);
+	--bn-colors-hovered-background: var(--color-neutral-100);
+	/* Placeholders and an empty toggle's prompt. */
 	--bn-colors-side-menu: var(--color-neutral-400);
 	--bn-border-radius: 8px;
+	/* Text and background colors (the Colors menus, their swatches, the colored text): the app's palette. */
+	--bn-colors-highlights-gray-text: var(--color-neutral-500);
+	--bn-colors-highlights-gray-background: var(--color-neutral-100);
+	--bn-colors-highlights-brown-text: var(--color-amber-900);
+	--bn-colors-highlights-brown-background: var(--color-amber-100);
+	--bn-colors-highlights-red-text: var(--color-red-600);
+	--bn-colors-highlights-red-background: var(--color-red-100);
+	--bn-colors-highlights-orange-text: var(--color-orange-600);
+	--bn-colors-highlights-orange-background: var(--color-orange-100);
+	--bn-colors-highlights-yellow-text: var(--color-yellow-600);
+	--bn-colors-highlights-yellow-background: var(--color-yellow-100);
+	--bn-colors-highlights-green-text: var(--color-green-700);
+	--bn-colors-highlights-green-background: var(--color-green-100);
+	--bn-colors-highlights-blue-text: var(--color-sky-700);
+	--bn-colors-highlights-blue-background: var(--color-sky-100);
+	--bn-colors-highlights-purple-text: var(--color-violet-700);
+	--bn-colors-highlights-purple-background: var(--color-violet-100);
+	--bn-colors-highlights-pink-text: var(--color-pink-700);
+	--bn-colors-highlights-pink-background: var(--color-pink-100);
 }
-.page-editor .bn-editor { font-family: inherit; }
 /* Headings at the app's sizes through BlockNote's own `--level`, which sizes the block (its placeholder, its
    line and where the + and ⋮⋮ sit), not the tag inside it, which would leave the rest at BlockNote's 3em. */
 .page-editor [data-content-type="heading"] { --level: 1.5rem; }
@@ -76,6 +100,40 @@ body {
 .page-editor .bn-block-content { transition: none; }
 .page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content { font-size: inherit; font-weight: inherit; }
 .page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content[data-content-type="heading"] { font-size: var(--level); font-weight: 700; }
+/* Placeholders (on the empty block's ::after) plain, as the app's, not BlockNote's italic. */
+.page-editor .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after { font-style: normal; }
+/* Links as chat's: the link color, underlined on hover (page links are the exception, further down). */
+.page-editor .bn-inline-content a[href]:not([href^="companybot://page/"]) { color: var(--color-link); }
+.page-editor .bn-inline-content a[href]:not([href^="companybot://page/"]):hover { text-decoration: underline; }
+/* Nested blocks show by indentation alone: no BlockNote guide lines. */
+.page-editor .bn-block-group .bn-block-group .bn-block-outer::before { display: none; }
+/* A toggle's caret is a plain chevron (BlockNote's is Material's filled triangle); BlockNote turns the button when open. */
+.page-editor .bn-toggle-button { width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; padding: 0; color: var(--color-neutral-500); }
+.page-editor .bn-toggle-button > svg { display: none; }
+.page-editor .bn-toggle-button::before { content: ""; width: .45rem; height: .45rem; border-right: 1.5px solid; border-bottom: 1.5px solid; transform: translateX(-20%) rotate(-45deg); }
+.page-editor .bn-toggle-add-block-button { font-size: inherit; }
+/* Quote, divider, code, table, image and checked items in the app's neutrals, not BlockNote's grays. */
+.page-editor [data-content-type="quote"] blockquote { color: var(--color-neutral-600); border-left: 2px solid var(--color-neutral-300); }
+.page-editor [data-content-type="divider"] hr { border-top-color: var(--color-neutral-200); }
+.page-editor [data-content-type="checkListItem"][data-checked="true"] .bn-inline-content { color: var(--color-neutral-400); }
+.page-editor .bn-block-content[data-content-type="codeBlock"] { color: var(--color-neutral-900); background-color: var(--color-neutral-50); border: 1px solid var(--color-neutral-200); border-radius: 8px; font-size: var(--text-sm); }
+.page-editor .bn-block-content[data-content-type="codeBlock"] > pre { padding: .75rem 1rem; }
+.page-editor .bn-block-content[data-content-type="codeBlock"] > div > select { color: var(--color-neutral-500); top: .375rem; left: .75rem; }
+.page-editor .bn-block-content[data-content-type="codeBlock"]:hover > div > select, .page-editor .bn-block-content[data-content-type="codeBlock"] > div > select:focus { opacity: 1; }
+.page-editor [data-content-type="table"] :is(th, td) { border-color: var(--color-neutral-200); }
+.page-editor [data-content-type="table"] th { background-color: var(--color-neutral-50); font-weight: 600; }
+.page-editor .selectedCell::after { background-color: color-mix(in srgb, var(--color-sky-600) 10%, transparent); }
+.page-editor .column-resize-handle, .page-editor .bn-table-drop-cursor { background-color: var(--color-sky-600); }
+.page-editor [data-file-block] .bn-visual-media { border-radius: 8px; }
+.page-editor [data-file-block] .bn-add-file-button { color: var(--color-neutral-500); background-color: var(--color-neutral-50); border: 1px dashed var(--color-neutral-300); border-radius: 8px; }
+.page-editor .bn-editor[contenteditable="true"] [data-file-block] .bn-add-file-button:hover { background-color: var(--color-neutral-100); }
+.page-editor [data-file-block] .bn-add-file-button-text { font-size: var(--text-sm); }
+.page-editor [data-file-block] .bn-file-caption { color: var(--color-neutral-500); font-size: var(--text-sm); }
+/* The selected block (an image, a divider, a table; the drop target of a drag) in the app's accent, lightly. */
+.page-editor :is(.bn-block-content.ProseMirror-selectednode > *, .ProseMirror-selectednode > .bn-block-content > *, .bn-block-content .ProseMirror-selectednode, .bn-block-outer[data-drop-target="true"])::after {
+	background-color: color-mix(in srgb, var(--color-sky-600) 8%, transparent);
+	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-sky-600) 35%, transparent);
+}
 .page-editor .bn-block-content[data-content-type="page"] { width: 100%; }
 /* What only BlockNote's class names tell apart: the slash and emoji menus fill the room BlockNote
    measures for them and scroll inside it, the colors menu scrolls, a table's + bars run its right

@@ -1,8 +1,8 @@
-import { BlockNoteViewRaw, type ComponentProps, type Components, elementOverflow, preventFocusOnTap, useAutoFocus, useMergeRefs } from "@blocknote/react";
+import { BlockNoteViewRaw, type ComponentProps, type Components, elementOverflow, preventFocusOnTap, useAutoFocus, useDictionary, useMergeRefs } from "@blocknote/react";
 import { Menu as MantineMenu, Popover as MantinePopover } from "@mantine/core";
 import { type Ref, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { CaretDownIcon, CaretRightIcon, CheckIcon, UploadIcon } from "../../icons";
+import { AlignCenterIcon, AlignJustifyIcon, AlignLeftIcon, AlignRightIcon, BoldIcon, CaptionIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CodeIcon, DownloadIcon, EditIcon, IndentIcon, ItalicIcon, LinkIcon, MergeCellsIcon, OpenOutsideIcon, OutdentIcon, ReplaceIcon, ShowIcon, StrikethroughIcon, TrashIcon, UnderlineIcon, UnlinkIcon, UploadIcon } from "../../icons";
 import { Tabs, barButton, compactButton, compactControlClass, compactPrimaryButton, iconButton, pillLinkButton, smallIconButton, useTip, versionRowButton } from "../../ui";
 
 /**
@@ -40,10 +40,35 @@ function ToolbarRoot({ className, "aria-label": label, children, onMouseEnter, o
 	);
 }
 
+/**
+ * The app's icon for each of BlockNote's toolbar buttons, which come with fixed ones (react-icons), by the
+ * label BlockNote gives them; one not named here keeps its own (the Colors swatch).
+ */
+type Dictionary = ReturnType<typeof useDictionary>;
+const toolbarIcons = new WeakMap<Dictionary, Map<string, typeof CheckIcon>>();
+function toolbarIcon(dict: Dictionary, label: string | undefined) {
+	let icons = toolbarIcons.get(dict);
+	if (!icons) {
+		const t = dict.formatting_toolbar;
+		const files = (tooltips: Record<string, string>, Icon: typeof CheckIcon) => Object.values(tooltips).map((tooltip): [string, typeof CheckIcon] => [tooltip, Icon]);
+		icons = new Map([
+			[t.bold.tooltip, BoldIcon], [t.italic.tooltip, ItalicIcon], [t.underline.tooltip, UnderlineIcon], [t.strike.tooltip, StrikethroughIcon], [t.code.tooltip, CodeIcon],
+			[t.link.tooltip, LinkIcon], [t.nest.tooltip, IndentIcon], [t.unnest.tooltip, OutdentIcon],
+			[t.align_left.tooltip, AlignLeftIcon], [t.align_center.tooltip, AlignCenterIcon], [t.align_right.tooltip, AlignRightIcon], [t.align_justify.tooltip, AlignJustifyIcon],
+			[t.file_caption.tooltip, CaptionIcon], [t.file_preview_toggle.tooltip, ShowIcon], [t.table_cell_merge.tooltip, MergeCellsIcon],
+			...files(t.file_replace.tooltip, ReplaceIcon), ...files(t.file_rename.tooltip, EditIcon), ...files(t.file_download.tooltip, DownloadIcon), ...files(t.file_delete.tooltip, TrashIcon),
+			[dict.link_toolbar.open.tooltip, OpenOutsideIcon], [dict.link_toolbar.delete.tooltip, UnlinkIcon],
+		]);
+		toolbarIcons.set(dict, icons);
+	}
+	return label ? icons.get(label) : undefined;
+}
+
 /** An icon button (text when BlockNote gives words); its tooltip is the app's `useTip`, portaled out of the toolbar's transform. */
 function ToolbarButton({ className, children, icon, label, mainTooltip, secondaryTooltip, isSelected, isDisabled, onClick, variant: _variant, ref, ...rest }: P<"FormattingToolbar", "Button"> & { ref?: Ref<HTMLButtonElement> }) {
 	const { tipFor, tip, hideTip } = useTip("below");
 	const hover = mainTooltip ? tipFor(mainTooltip, secondaryTooltip) : undefined;
+	const Icon = toolbarIcon(useDictionary(), label ?? mainTooltip);
 	return (
 		<>
 			<button
@@ -58,7 +83,7 @@ function ToolbarButton({ className, children, icon, label, mainTooltip, secondar
 				disabled={isDisabled}
 				className={cx(children ? barButton : `${iconButton} text-base`, "aria-pressed:bg-neutral-200 aria-pressed:text-neutral-900", className)}
 			>
-				{children ?? icon}
+				{children ?? (Icon ? <Icon /> : icon)}
 			</button>
 			{tip && createPortal(tip, document.body)}
 		</>

@@ -3,7 +3,7 @@ import { BlockNoteEditor, docToBlocks, filterSuggestionItems, insertOrUpdateBloc
 import { type DefaultSuggestionItem, SideMenuExtension, SuggestionMenu as SuggestionMenuExtension, getDefaultSlashMenuItems } from "@blocknote/core/extensions";
 import "@blocknote/react/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
-import { BlockColorsItem, BlockNoteViewRaw, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
+import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, GridSuggestionMenuController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
 import { linkedPageId, validPageHref } from "@companybot/core/page-links";
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
@@ -21,10 +21,19 @@ import { PageBlockRemoval } from "./PageBlockRemoval";
 
 // A page's content: BlockNote, synced live through prosemirror-sync (backend pageSync.ts).
 // The sync calls name only the page; the backend finds its workspace. See wiki/pages.md.
-// BlockNote's menus and toolbars are the app's own (editorComponents.tsx); its block CSS is the one import above.
+// BlockNote's menus and toolbars are the app's own (editorComponents.tsx); its block CSS is the one import above,
+// styled in styles.css (`.page-editor`).
 
 /** BlockNote pads the left for its block handles: pull it back so text lines up with the title. */
 const viewClass = "page-editor -mx-[54px]";
+/**
+ * Where the editor's floating UI stacks: over the sticky top bar (z-30), so a menu opened from it isn't drawn
+ * under the bar, and under the app's dialogs and popovers (z-50). The + and ⋮⋮ lowest, so the toolbar over a
+ * selection is never under the hovered block's handles; menus and panels on top. BlockNote's table handles take
+ * no option for it and keep its own (10): they sit on the table, under everything here.
+ */
+const layer = { handles: 40, toolbars: 41, menus: 42 };
+const floating = (zIndex: number) => ({ elementProps: { style: { zIndex } } });
 const links = {
 	isValidLink: validPageHref,
 	// BlockNote's default opens every link with window.open, page links too; those navigate in openPageLink instead.
@@ -34,6 +43,11 @@ const links = {
 		return true;
 	},
 };
+/**
+ * The schema and links of every page editor, and `page-editor` on the editor element itself: a dragged block's
+ * preview is a clone BlockNote appends to <body> with the editor element's classes, so it keeps the app's styles.
+ */
+const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } } };
 
 /** Capture before BlockNote opens a window; also works in read-only version previews. */
 function openPageLink(event: MouseEvent<HTMLDivElement>) {
@@ -46,12 +60,12 @@ function openPageLink(event: MouseEvent<HTMLDivElement>) {
 	navigate("pages", id);
 }
 
-/** The editor in the app's chrome. The side menu, slash menu and table handles are the children; BlockNote's own are off. */
+/** The editor in the app's chrome. Its floating UI is the children (PageEditor, stacked by `layer`); BlockNote's own is off. */
 function View({ editor, editable, children }: { editor: PageBlockEditor; editable: boolean; children?: ReactNode }) {
 	return (
 		<div onClickCapture={openPageLink} onAuxClickCapture={openPageLink}>
 			<ComponentsContext.Provider value={components}>
-				<BlockNoteViewRaw editor={editor} editable={editable} theme="light" className={viewClass} slashMenu={false} sideMenu={false} tableHandles={false}>
+				<BlockNoteViewRaw editor={editor} editable={editable} theme="light" className={viewClass} formattingToolbar={false} linkToolbar={false} slashMenu={false} emojiPicker={false} sideMenu={false} filePanel={false} tableHandles={false}>
 					{children}
 				</BlockNoteViewRaw>
 			</ComponentsContext.Provider>
@@ -75,7 +89,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 	// The body loads through prosemirror-sync's own query hook, outside the app's query cache (convex.ts). Held here
 	// too, the snapshot stays live a minute after leaving (main.tsx), so coming back to a page doesn't load again.
 	useHeldQuery(api.pageSync.getSnapshot, { id: pageId });
-	const sync = useBlockNoteSync<PageBlockEditor>(api.pageSync, pageId, { editorOptions: { schema: pageEditorSchema, links, uploadFile: (file) => uploadImage.current!(file) }, onSyncError: syncFailed });
+	const sync = useBlockNoteSync<PageBlockEditor>(api.pageSync, pageId, { editorOptions: { ...editorOptions, uploadFile: (file) => uploadImage.current!(file) }, onSyncError: syncFailed });
 	// Enter in the title puts the cursor on the first line of text; with none (a body of pages, tables or
 	// pictures only) it makes a line at the top to type on, rather than selecting a block.
 	useEffect(() => {
@@ -93,9 +107,11 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 		<PageReferences.Provider value={references.current}>
 			<Notice>{error}</Notice>
 			<View editor={sync.editor} editable={editable}>
-				{/* Over the sticky top bar (z-30), so the drag handle's menu isn't drawn under it; BlockNote puts its toolbar there too. */}
 				<SideMenuController sideMenu={PageSideMenu} floatingUIOptions={sideMenuFloating} />
-				<SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
+				<FormattingToolbarController formattingToolbar={PageFormattingToolbar} floatingUIOptions={floating(layer.toolbars)} />
+				<LinkToolbarController floatingUIOptions={floating(layer.toolbars)} />
+				{/* Blocks don't go in table cells, so no slash menu there (BlockNote's own rule). */}
+				<SuggestionMenuController triggerCharacter="/" floatingUIOptions={floating(layer.menus)} shouldOpen={(state) => !state.selection.$from.parent.type.isInGroup("tableContent")} getItems={async (query) => filterSuggestionItems([
 					...slashItems(sync.editor),
 					...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
 						try {
@@ -105,6 +121,8 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 						} catch (e) { fail(e); }
 					} }] : []),
 				], query)} />
+				<GridSuggestionMenuController triggerCharacter=":" columns={10} minQueryLength={2} floatingUIOptions={floating(layer.menus)} />
+				<FilePanelController floatingUIOptions={floating(layer.menus)} />
 				<TableHandlesController tableHandle={PageTableHandle} extendButton={PageExtendButton} tableCellHandle={PageTableCellButton} />
 			</View>
 			<UpgradePageLinks editor={sync.editor} editable={editable} />
@@ -130,26 +148,61 @@ function slashItems(editor: PageBlockEditor): DefaultReactSuggestionItem[] {
 }
 
 /**
- * The + and ⋮⋮ on the block's first line: its top padding, then half a line. BlockNote's own offsets assume
- * its heading sizes (3em, 2em…), not the app's. The menu floats over the sticky top bar (z-30), so the drag
- * handle's menu isn't drawn under it.
+ * BlockNote's toolbar; its block type picker gets the app's icons here, its buttons theirs in editorComponents.tsx.
+ * Both come with fixed ones (react-icons).
+ */
+function PageFormattingToolbar() {
+	const editor = useBlockNoteEditor(pageEditorSchema);
+	const items = useMemo(() => blockTypeSelectItems(editor).map((item) => ({ ...item, icon: typeIcon(item) })), [editor]);
+	return <FormattingToolbar blockTypeSelectItems={items} />;
+}
+const typeIcons: Record<string, typeof PageIcon> = { paragraph: ParagraphIcon, quote: QuoteIcon, bulletListItem: BulletListIcon, numberedListItem: NumberedListIcon, checkListItem: CheckListIcon, toggleListItem: ToggleListIcon, codeBlock: CodeIcon };
+const headingIcons = [TextHOneIcon, TextHTwoIcon, TextHThreeIcon, TextHFourIcon, TextHFiveIcon, TextHSixIcon];
+function typeIcon(item: BlockTypeSelectItem): BlockTypeSelectItem["icon"] {
+	const Icon = (item.type === "heading" ? headingIcons[Number(item.props?.level ?? 1) - 1] : typeIcons[item.type]) ?? ParagraphIcon;
+	return (props) => <Icon {...props} />;
+}
+
+/**
+ * The + and ⋮⋮ on the hovered block's first line, whatever the block: the line box of its first text (a
+ * heading's, a wrapped list item's, a table's first cell's, a page block's title), else a line's worth at its
+ * top (an image, a divider). BlockNote's own offsets assume its heading sizes (3em, 2em…), not the app's.
  */
 function useSideMenuFloating(editor: PageBlockEditor | null) {
 	return useMemo(() => ({
-		elementProps: { style: { zIndex: 40 } },
+		...floating(layer.handles),
 		useFloatingOptions: {
 			middleware: [{
 				name: "first-line",
-				fn: ({ x, y, rects }: { x: number; y: number; rects: { floating: { height: number } } }) => {
+				fn: ({ x, y, rects, elements }: { x: number; y: number; rects: { floating: { height: number } }; elements: { reference: { getBoundingClientRect: () => { top: number } } } }) => {
 					const id = editor?.getExtension(SideMenuExtension)?.store?.state?.block?.id;
 					const content = id ? editor?.domElement?.querySelector<HTMLElement>(`[data-id="${id}"] .bn-block-content`) : undefined;
-					const line = content && parseFloat(getComputedStyle(content.firstElementChild ?? content).lineHeight);
-					if (!content || !line) return { x, y };
-					return { x, y: y + parseFloat(getComputedStyle(content).paddingTop) + line / 2 - rects.floating.height / 2 };
+					if (!content) return { x, y };
+					const line = firstLine(content);
+					return { x, y: y + line.top - elements.reference.getBoundingClientRect().top + line.height / 2 - rects.floating.height / 2 };
 				},
 			}],
 		},
 	}), [editor]);
+}
+
+/** A block's first line: the box of its first text or line break, else a line's height under its top padding. */
+function firstLine(content: HTMLElement) {
+	const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+		acceptNode: (node) => ((node instanceof Text ? node.data.trim() !== "" : node instanceof HTMLBRElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+	});
+	const first = walker.nextNode();
+	if (first) {
+		const range = document.createRange();
+		if (first instanceof Text) {
+			range.setStart(first, 0);
+			range.setEnd(first, 1);
+		} else range.selectNode(first);
+		const rect = range.getClientRects()[0];
+		if (rect?.height) return rect;
+	}
+	const top = content.getBoundingClientRect().top + parseFloat(getComputedStyle(content).paddingTop);
+	return { top, height: parseFloat(getComputedStyle(content.firstElementChild ?? content).lineHeight) || 0 };
 }
 
 /** The + and ⋮⋮ beside the hovered block, with the app's icons (BlockNote's own buttons carry fixed ones). */
@@ -212,9 +265,9 @@ let schemaEditor: PageBlockEditor | undefined;
 /** An old version's content (ProseMirror JSON), read-only. */
 export function VersionPreview({ content }: { content: string }) {
 	const editor = useMemo(() => {
-		schemaEditor ??= BlockNoteEditor.create({ schema: pageEditorSchema, links });
+		schemaEditor ??= BlockNoteEditor.create(editorOptions);
 		const doc = schemaEditor.pmSchema.nodeFromJSON(JSON.parse(content));
-		return BlockNoteEditor.create({ schema: pageEditorSchema, links, initialContent: docToBlocks(doc) });
+		return BlockNoteEditor.create({ ...editorOptions, initialContent: docToBlocks(doc) });
 	}, [content]);
 	return <View editor={editor} editable={false} />;
 }
