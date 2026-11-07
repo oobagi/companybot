@@ -87,6 +87,7 @@ export {
 	AlarmIcon as FollowUpIcon,
 	ArrowUpRightIcon as LinkFieldIcon,
 	AtIcon as EmailIcon,
+	EnvelopeSimpleIcon as MailIcon,
 	BookOpenIcon as SkillIcon,
 	BrainIcon as MemoryIcon,
 	BugIcon,

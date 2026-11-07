@@ -17,6 +17,8 @@
 	--color-primary-foreground: var(--color-white);
 	/* Links in messages and replies: the same blue as @mentions (`.token`), the app's one accent, so they read as clickable. */
 	--color-link: var(--color-sky-700);
+	/* Texts we send a customer in Inbox: blue bubbles, as a phone shows the ones you sent (`sentBubbleClass`). */
+	--color-sent: var(--color-blue-500);
 	/* The app's body size (between text-sm and text-base), and a size under text-xs for a message's hover time. */
 	--text-body: 15px;
 	--text-2xs: 10px;
