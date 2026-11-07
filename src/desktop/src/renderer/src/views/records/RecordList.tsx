@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -88,6 +88,13 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		selected?.version ?? 0,
 	);
 	const { filters, sort } = draft.value;
+	// The view as saved, under `name`: renaming it, or saving it unchanged to clear its notice.
+	const resave = (name: string) => {
+		if (!selected || !saved) return;
+		const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
+		const filters = saved.filters.map(toCondition).filter((c) => c !== null);
+		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy }));
+	};
 	const layout = selected ? draft.value.layout : display.layout;
 	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
@@ -234,12 +241,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 										onSubmit={(form) => {
 											const name = String(new FormData(form).get("name")).trim();
 											close();
-											if (name && name !== selected.name) {
-												const columns = saved.columns.filter(live);
-												const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
-												const filters = saved.filters.map(toCondition).filter((c) => c !== null);
-												run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns, layout: saved.layout, groupBy }));
-											}
+											if (name && name !== selected.name) resave(name);
 										}}
 									>
 										<input name="name" aria-label="View name" autoFocus required maxLength={120} defaultValue={selected.name} className={`${compactControlClass} w-full`} />
@@ -266,7 +268,17 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			{dialog}
 			<ConflictNotice draft={draft} />
 			{/* Why the view's filters or sort changed without anyone saving it: a field's kind changed. */}
-			{(selected?.notice || tidied) && <p className={hintClass}>{tidied ?? selected?.notice}</p>}
+			{(selected?.notice || tidied) && (
+				<p className={`${hintClass} flex items-center gap-1.5`}>
+					{tidied ?? selected?.notice}
+					{/* A saved view's notice is everyone's: dismissing it saves the view as it is, which clears it. */}
+					{(tidied || canEdit) && (
+						<button type="button" aria-label="Dismiss" title="Dismiss" onClick={() => (tidied ? setTidied(undefined) : selected && resave(selected.name))} className={trailingAction}>
+							<CloseIcon />
+						</button>
+					)}
+				</p>
+			)}
 			{(filters.length > 0 || sort) && (
 				<div className="-mt-2 flex flex-wrap items-center gap-1.5">
 					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} onChange={setSort} />}
