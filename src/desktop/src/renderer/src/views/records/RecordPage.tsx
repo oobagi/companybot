@@ -17,7 +17,7 @@ import { PageTitle } from "../pages/PageTitle";
 import { TrashNotice } from "../Trash";
 import { PendingWakeups } from "../Wakeups";
 import { AddField, EditField } from "./fieldDialogs";
-import { ValueEditor, ValueView } from "./fields";
+import { FieldIcon, ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
 
 // One record's page: its fields, editable in place, its page body (notes, plans: a page,
@@ -140,11 +140,11 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 			{/* The label opens the field's settings, for whoever may change them. */}
 			<dt className={`flex min-w-0 items-center py-1 ${descriptionClass}`}>
 				{onEditField ? (
-					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 max-w-full truncate rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
-						{field.label}
+					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
+						<FieldIcon kind={field.kind} /> <span className="truncate">{field.label}</span>
 					</button>
 				) : (
-					<span className="truncate py-0.5">{field.label}</span>
+					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon kind={field.kind} /> <span className="truncate">{field.label}</span></span>
 				)}
 			</dt>
 			<dd className="flex min-w-0 flex-col">

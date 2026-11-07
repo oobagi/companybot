@@ -1,6 +1,6 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Checkbox, Select, currencyPickerClass, fieldCellClass, fieldEditClass, fieldPickerClass } from "../../controls";
-import { type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
+import { type FieldKind, type FieldValue, type Money, TEXT_MAX, currencyCodes, formatMoney, minorDigits } from "@companybot/core/records";
 import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
@@ -9,7 +9,7 @@ import { bareIconButton, compactControlClass, hintClass, linkButton, useDebounce
 import { MenuItem, Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
-import { CaretUpDownIcon, CloseIcon, PrivateIcon } from "../../icons";
+import { AmountIcon, CalendarIcon, CaretUpDownIcon, CheckboxIcon, ChoiceIcon, CloseIcon, EmailIcon, LinkFieldIcon, NumberIcon, PhoneIcon, PrivateIcon, TextIcon, UserIcon, WebsiteIcon } from "../../icons";
 
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
@@ -301,4 +301,24 @@ function RecordSearch({ typeId, exclude, onPick }: { typeId: string; exclude: st
 			{results?.length === 0 && <span className={`px-2 py-1 ${hintClass}`}>No matches.</span>}
 		</>
 	);
+}
+
+const kindIcons: Record<FieldKind, typeof TextIcon> = {
+	text: TextIcon,
+	number: NumberIcon,
+	currency: AmountIcon,
+	date: CalendarIcon,
+	checkbox: CheckboxIcon,
+	choice: ChoiceIcon,
+	email: EmailIcon,
+	phone: PhoneIcon,
+	url: WebsiteIcon,
+	user: UserIcon,
+	link: LinkFieldIcon,
+};
+
+/** A field's kind as an icon beside its name, like Notion's properties. */
+export function FieldIcon({ kind, className = "" }: { kind: FieldKind; className?: string }) {
+	const Icon = kindIcons[kind];
+	return <Icon className={`shrink-0 text-neutral-400 ${className}`} />;
 }

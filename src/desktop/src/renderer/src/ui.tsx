@@ -482,6 +482,10 @@ export const actionButton = outlined;
 export const actionPrimaryButton = filled;
 /** `compactButton` inside a line of small text (a message's notes, a paused-agents line): smaller. */
 export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+/** A database's view toolbar (Search, Filter, Columns, Layout): quiet like Notion's, gray until hovered or open. */
+export const toolButton = `inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100 aria-expanded:text-neutral-900 ${disabledButtonClass}`;
+/** A field in `toolButton`'s row (the search box): its height. */
+export const toolControlClass = `h-7 rounded-md px-2 text-sm ${controlClass}`;
 /** An action at the end of a list of field labels, in their look (Add field). */
 export const labelButton = `-mx-1.5 flex w-fit items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */

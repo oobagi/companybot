@@ -10,13 +10,13 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
 import { AddField } from "./fieldDialogs";
-import { Chip, RecordPicker, useOptions } from "./fields";
+import { Chip, FieldIcon, RecordPicker, useOptions } from "./fields";
 import {
 	type Filter,
 	type Refs,
@@ -153,7 +153,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				end={
 					<>
 						{canEdit && selected && draft.dirty && (
-							<button type="button" disabled={draft.stale} className={compactButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
+							<button type="button" disabled={draft.stale} className={toolButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
 								Save for everyone
 							</button>
 						)}
@@ -167,15 +167,15 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 								onBlur={() => !search && setSearching(false)}
 								onKeyDown={(e) => e.key === "Escape" && (setSearch(""), setSearching(false))}
 								placeholder={`Search ${noun}`}
-								className={`${compactControlClass} w-40`}
+								className={`${toolControlClass} w-40`}
 							/>
 						) : (
-							<button type="button" aria-label={`Search ${noun}`} title="Search" onClick={() => setSearching(true)} className={compactButton}>
-								<SearchIcon className="text-neutral-400" />
+							<button type="button" aria-label={`Search ${noun}`} title="Search" onClick={() => setSearching(true)} className={toolButton}>
+								<SearchIcon />
 							</button>
 						)}
-						<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} aria-label="Filter" title="Filter" className={compactButton}>
-							<FilterIcon className="text-neutral-400" /> <span className="@max-xl:hidden">Filter</span>
+						<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} aria-label="Filter" title="Filter" className={toolButton}>
+							<FilterIcon /> <span className="@max-xl:hidden">Filter</span>
 						</button>
 						{(selected || writable) && <ColumnsPicker
 							label={layout === "board" ? "Properties" : "Columns"}
@@ -185,9 +185,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							onNewField={type.canManage ? () => setAddingField("text") : undefined}
 						/>}
 						{(selected || type.canSetDisplay) && layout === "board" && group && (
-							<label className="flex items-center gap-2 text-neutral-600">
-								<span className="@max-xl:hidden">Group by</span>
-								<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
+							<label className="flex items-center text-neutral-500">
+								<span className="pl-2 @max-xl:hidden">Group by</span>
+								<Select className={toolButton} value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
 							</label>
 						)}
 						{(selected || type.canSetDisplay) && (
@@ -347,7 +347,7 @@ function RecordResults({
 }) {
 	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
 
-	const header = (key: string, label: string, canSort: boolean) => {
+	const header = (key: string, label: string, canSort: boolean, kind?: FieldKind) => {
 		const on = sort?.field === key;
 		const next = (): Sort | undefined => {
 			const first = key === "updatedAt" ? "desc" : "asc";
@@ -357,12 +357,13 @@ function RecordResults({
 		return (
 			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
 				{canSort ? (
-					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex items-center gap-1 ${on ? "text-neutral-900" : ""}`}>
+					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
+						{kind && <FieldIcon kind={kind} />}
 						{label}
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
 					</button>
 				) : (
-					label
+					<span className="flex items-center gap-1.5">{kind && <FieldIcon kind={kind} />}{label}</span>
 				)}
 			</th>
 		);
@@ -380,7 +381,7 @@ function RecordResults({
 				refs={refs}
 				columns={columns}
 				head={[
-					...columns.map((f) => header(f.key, f.label, sortable(f))),
+					...columns.map((f) => header(f.key, f.label, sortable(f), f.kind)),
 					header("updatedAt", "Updated", true),
 				]}
 			/>}
@@ -427,7 +428,7 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
 	if (rows.length === 0) return <NoMatches />;
-	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium">{f.label}</th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
+	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium"><span className="flex items-center gap-1.5"><FieldIcon kind={f.kind} />{f.label}</span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }
 
@@ -523,10 +524,10 @@ function LayoutPicker({ value, onChange }: { value: Layout | Preview; onChange: 
 			label="Layout"
 			trigger={
 				<>
-					<span className="text-neutral-400">{current.icon}</span> <span className="@max-xl:hidden">{current.label}</span> <CaretDownIcon className="text-neutral-400" />
+					{current.icon} <span className="@max-xl:hidden">{current.label}</span> <CaretDownIcon />
 				</>
 			}
-			className={compactButton}
+			className={toolButton}
 			panelClassName="flex w-48 flex-col gap-px p-1"
 		>
 			{(close) =>
@@ -560,10 +561,10 @@ function ColumnsPicker({
 		<Popover
 			trigger={
 				<>
-					<PropertiesIcon className="text-neutral-400" /> <span className="@max-xl:hidden">{label}</span>
+					<PropertiesIcon /> <span className="@max-xl:hidden">{label}</span>
 				</>
 			}
-			className={compactButton}
+			className={toolButton}
 			panelClassName="flex w-56 flex-col gap-px p-1"
 		>
 			{(close) => (
