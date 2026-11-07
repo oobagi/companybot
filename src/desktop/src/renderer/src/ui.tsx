@@ -539,8 +539,8 @@ export const chipRemoveButton = "rounded-full p-0.5 text-neutral-400 hover:bg-ne
 export const timeRemoveButton = "rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700";
 /** The × on a side chat tab, over the tab's pill. */
 export const tabCloseButton = "flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900";
-/** The + after a list's view tabs, sized like a tab. */
-export const tabAddButton = "flex h-9.5 items-center px-3 pb-0.5 text-base text-neutral-500 hover:text-neutral-800";
+/** The + after a list's view tabs: the same button as the toolbar's at the row's other end, level with the tab names. */
+export const tabAddButton = `${toolButton} mb-1.5`;
 /** A suggested first message in an empty agent chat. */
 export const suggestionButton =
 	"rounded-xl border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400";
