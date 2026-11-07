@@ -80,6 +80,8 @@ export {
 	ArrowLeftIcon,
 	ArrowRightIcon,
 	ArrowUpIcon,
+	ArrowUpLeftIcon as LinkedIcon,
+	AlarmIcon as FollowUpIcon,
 	ArrowUpRightIcon as LinkFieldIcon,
 	AtIcon as EmailIcon,
 	BookOpenIcon as SkillIcon,

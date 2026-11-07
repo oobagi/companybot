@@ -117,15 +117,15 @@ export const pageOfRecord = (ctx: QueryCtx, workspaceId: Id<"workspaces">, recor
 		.first();
 
 /**
- * `pages.edit` and Edit in the page (its Who can access list) change it, unless the page or its record
- * is in Archive. Seeing it takes View.
+ * `pages.edit` and Edit in the page (its Who can access list) change it, unless the page, a page above it,
+ * or the record it's in is in Archive. Seeing it takes View.
  */
 export async function requireEditable(ctx: QueryCtx, member: Member, page: Doc<"pages">) {
 	checkPermission(member, "pages.edit");
 	const state = await pageState(ctx, page);
 	await requirePageAccess(ctx, member, page, "edit", state);
+	if (state.archived && state.recordArchived && !state.trashPage) throw new ConvexError(page.recordId ? "This record is in Archive. Restore it to make changes." : "This page's record is in Archive. Restore the record to make changes.");
 	if (state.archived) throw new ConvexError("This page is in Archive. Restore it to make changes.");
-	if (page.recordId && (await inTrash(ctx, await requireRecord(ctx, member, page.recordId)))) throw new ConvexError("This record is in Archive. Restore it to make changes.");
 }
 
 function cleanTitle(title: string) {

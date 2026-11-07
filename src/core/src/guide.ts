@@ -108,7 +108,7 @@ export function platformGuide(agent: Pick<AgentConfig, "tools">, available?: rea
 		if (has("pages.find")) lines.push("- Find a page with pages_find before creating one. Rows include parentId; parent lists one level (null for top level). Follow cursors and child ids to read the tree.");
 		if (has("pages.write"))
 			lines.push(
-				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes name pages and parents by id, never title: find them first. Create under parent; move with action move, page and parent (null for top level). Record bodies cannot be nested. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
+				`- ${has("pages.read") ? "Read a page with pages_read before you replace it; to" : "To"} add to it, append with pages_write. Writes name pages and parents by id, never title: find them first. Create under parent (a page's id, or a record's id for a page inside that record's page); move with action move, page and parent (null for top level). A record's own page stays with its record. Writes run when permitted and are saved in the page's history as you acting for the person, so they can be restored. Say in a sentence what you wrote, and where.`,
 			);
 	}
 	if (has("help.read")) lines.push("", "## Help", "For how-to and where-is questions about Companybot, read help_read first, then link the person to the exact screen, like [Members](#/settings/members).");
