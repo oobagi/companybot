@@ -512,7 +512,7 @@ export const iconButton = `no-drag inline-flex size-8 shrink-0 items-center just
 export const iconDangerButton = `inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-lg text-neutral-600 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 /** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
 export const trailingAction =
-	"flex size-6 shrink-0 items-center justify-center rounded-md text-base text-neutral-600 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
+	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-600 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
 /** The composer's round tools beside the text: attach, emoji, dictation. */
 export const composerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50";
 /** The composer's Send: a round dark button with an arrow, grey until there's something to send. */
