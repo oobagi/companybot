@@ -72,7 +72,23 @@ const blockDrag = createExtension({
 	})],
 });
 /** The schema, links and drag of every page editor, and `page-editor` on the editor element itself (styles.css). */
-const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } }, extensions: [blockDrag] };
+// Tab and Shift+Tab never leave the editor. BlockNote hands them to the browser when it can't nest or un-nest the
+// block (the first block, or one as deep as it goes) or when the formatting toolbar is open, so focus jumped to the next button.
+const tabStays = createExtension({
+	key: "tabStays",
+	keyboardShortcuts: {
+		Tab: ({ editor }) => {
+			editor.nestBlock();
+			return true;
+		},
+		"Shift-Tab": ({ editor }) => {
+			editor.unnestBlock();
+			return true;
+		},
+	},
+});
+
+const editorOptions = { schema: pageEditorSchema, links, domAttributes: { editor: { class: "page-editor" } }, extensions: [blockDrag, tabStays] };
 
 /** Capture before BlockNote opens a window; also works in read-only version previews. */
 function openPageLink(event: MouseEvent<HTMLDivElement>) {

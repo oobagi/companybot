@@ -1,4 +1,4 @@
-import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
+import { type BlockKeyboardOption, BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
 import { pageBlockConfig } from "@companybot/backend/page-blocks";
 import { pageHref } from "@companybot/core/page-links";
@@ -57,5 +57,15 @@ const pageBlock = createReactBlockSpec(pageBlockConfig, {
 	toExternalHTML: ({ block }) => <a href={pageHref(block.props.pageId)}>Page</a>,
 })();
 
-export const pageEditorSchema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, page: pageBlock } });
+// Enter on an empty line inside an open toggle leaves the toggle, as in Notion and as in any other nested block.
+// BlockNote's own setting for open toggles ("stay") adds empty lines forever; only Shift+Tab got you out.
+const leaves = <B, S extends { implementation: { experimental_keyboard?: BlockKeyboardOption<B> } }>(spec: S): S => {
+	const base = spec.implementation.experimental_keyboard;
+	const experimental_keyboard: BlockKeyboardOption<B> = (block) => ({ ...(typeof base === "function" ? base(block) : base), emptyChildEnter: "outdent" });
+	return { ...spec, implementation: { ...spec.implementation, experimental_keyboard } };
+};
+
+export const pageEditorSchema = BlockNoteSchema.create({
+	blockSpecs: { ...defaultBlockSpecs, heading: leaves(defaultBlockSpecs.heading), toggleListItem: leaves(defaultBlockSpecs.toggleListItem), page: pageBlock },
+});
 export type PageBlockEditor = typeof pageEditorSchema.BlockNoteEditor;

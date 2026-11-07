@@ -96,8 +96,10 @@ body {
 .page-editor [data-content-type="heading"] { --level: 1.5rem; }
 .page-editor [data-content-type="heading"][data-level="2"] { --level: 1.25rem; }
 .page-editor [data-content-type="heading"][data-level="3"] { --level: 1.125rem; }
-/* A block that changes type takes its new size at once: no BlockNote slide from the old one (`data-prev-type`). */
-.page-editor .bn-block-content { transition: none; }
+/* Blocks don't animate: a block that changes type takes its new size at once (no BlockNote slide from the old one,
+   `data-prev-type`), and one that nests or un-nests takes its indent at once (BlockNote eases the margin). */
+.page-editor .bn-block-outer:not(.sortable-shift), .page-editor .bn-block-content, .page-editor .bn-block-content::before { transition: none; }
+.page-editor .bn-block-outer[data-prev-depth-change] { margin-left: 0; }
 .page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content { font-size: inherit; font-weight: inherit; }
 .page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content[data-content-type="heading"] { font-size: var(--level); font-weight: 700; }
 /* Placeholders (on the empty block's ::after) plain, as the app's, not BlockNote's italic. */
@@ -107,11 +109,14 @@ body {
 .page-editor .bn-inline-content a[href]:not([href^="companybot://page/"]):hover { text-decoration: underline; }
 /* Nested blocks show by indentation alone: no BlockNote guide lines. */
 .page-editor .bn-block-group .bn-block-group .bn-block-outer::before { display: none; }
-/* A toggle's caret is a plain chevron (BlockNote's is Material's filled triangle); BlockNote turns the button when open. */
-.page-editor .bn-toggle-button { width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; padding: 0; color: var(--color-neutral-500); }
+/* A toggle's triangle is Notion's: small and solid, turning down when open (BlockNote turns the button), with a hover ring. */
+.page-editor .bn-toggle-button { width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; padding: 0; color: var(--color-neutral-600); border-radius: 4px; transition: transform .15s; }
+.page-editor .bn-toggle-button:hover { background: var(--color-neutral-100); }
 .page-editor .bn-toggle-button > svg { display: none; }
-.page-editor .bn-toggle-button::before { content: ""; width: .45rem; height: .45rem; border-right: 1.5px solid; border-bottom: 1.5px solid; transform: translateX(-20%) rotate(-45deg); }
-.page-editor .bn-toggle-add-block-button { font-size: inherit; }
+.page-editor .bn-toggle-button::before { content: ""; width: 0; height: 0; border-top: .3rem solid transparent; border-bottom: .3rem solid transparent; border-left: .45rem solid currentColor; margin-left: .15rem; }
+/* An empty open toggle's prompt is placeholder text, not a button: no hover chip, text cursor, at the children's indent. */
+.page-editor .bn-toggle-add-block-button { font-size: inherit; padding: 0; cursor: text; }
+.page-editor .bn-toggle-add-block-button:hover { background: none; }
 /* Quote, divider, code, table, image and checked items in the app's neutrals, not BlockNote's grays. */
 .page-editor [data-content-type="quote"] blockquote { color: var(--color-neutral-600); border-left: 2px solid var(--color-neutral-300); }
 .page-editor [data-content-type="divider"] hr { border-top-color: var(--color-neutral-200); }
