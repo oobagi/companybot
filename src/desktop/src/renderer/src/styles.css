@@ -55,12 +55,30 @@ body {
 	}
 }
 
-/* Page headings stay below the title; inherit the app's typography. */
+/* The page editor (views/pages/PageEditor.tsx). Its menus and toolbars are the app's own
+   (editorComponents.tsx); what BlockNote's block CSS still draws from its theme variables (text,
+   the selected block's outline, color swatches) takes the app's neutrals. Headings stay below the
+   title; the font is the app's. */
+.page-editor {
+	--bn-colors-editor-text: var(--color-neutral-900);
+	--bn-colors-editor-background: transparent;
+	--bn-colors-border: var(--color-neutral-200);
+	--bn-colors-side-menu: var(--color-neutral-400);
+	--bn-border-radius: 8px;
+}
 .page-editor .bn-editor { font-family: inherit; }
 .page-editor .bn-editor h1 { font-size: 1.5rem; }
 .page-editor .bn-editor h2 { font-size: 1.25rem; }
 .page-editor .bn-editor h3 { font-size: 1.125rem; }
 .page-editor .bn-block-content[data-content-type="page"] { width: 100%; }
+/* What only BlockNote's class names tell apart: the slash and emoji menus fill the room BlockNote
+   measures for them and scroll inside it, the colors menu scrolls, a table's + bars run its right
+   or bottom edge, and an upload's error line is red. */
+.page-editor .bn-suggestion-menu, .page-editor .bn-grid-suggestion-menu { max-height: inherit; }
+.page-editor .bn-color-picker-dropdown { overflow-y: auto; }
+.page-editor .bn-extend-button-add-remove-columns { height: 100%; width: 18px; margin-left: 4px; cursor: col-resize; }
+.page-editor .bn-extend-button-add-remove-rows { height: 18px; width: 100%; margin-top: 4px; cursor: row-resize; }
+.page-editor .bn-error-text { font-size: var(--text-sm); color: var(--color-red-600); }
 
 /* A header or footer over scrolling content (ui.tsx's Scroll): once something is scrolled
    under it, its background fades in, solid behind the bar and dissolving toward the content,

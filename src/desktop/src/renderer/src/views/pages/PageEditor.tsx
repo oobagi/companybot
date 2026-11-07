@@ -1,29 +1,27 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { BlockNoteEditor, docToBlocks, filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
-import { BlockNoteView, type Theme, lightDefaultTheme } from "@blocknote/mantine";
-import "@blocknote/mantine/style.css";
+import { type DefaultSuggestionItem, SideMenuExtension, SuggestionMenu as SuggestionMenuExtension, getDefaultSlashMenuItems } from "@blocknote/core/extensions";
+import "@blocknote/react/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
-import { BlockColorsItem, DragHandleMenu, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableColumnHeaderItem, TableRowHeaderItem, getDefaultReactSlashMenuItems, useBlockNoteEditor, useExtensionState } from "@blocknote/react";
-import { SideMenuExtension } from "@blocknote/core/extensions";
+import { BlockColorsItem, BlockNoteViewRaw, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
 import { linkedPageId, validPageHref } from "@companybot/core/page-links";
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useHeldQuery, useMutation } from "../../convex";
-import { PageIcon } from "../../icons";
+import { BulletListIcon, CaretDownIcon, CheckListIcon, CodeIcon, DividerIcon, DragHandleIcon, ImageIcon, NumberedListIcon, PageIcon, ParagraphIcon, PlusIcon, QuoteIcon, ReactIcon, TableIcon, TextHFiveIcon, TextHFourIcon, TextHOneIcon, TextHSixIcon, TextHThreeIcon, TextHTwoIcon, ToggleListIcon } from "../../icons";
 import { navigate } from "../../router";
 import { useUpload } from "../../upload";
 import { EmptyState, Loading, Notice, useRun } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
 import { PageLevel } from "./PageTree";
 import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor, pageEditorSchema } from "./PageBlock";
+import { components } from "./editorComponents";
 import { promotePageLinks } from "./pageBlockUpgrades";
 import { PageBlockRemoval } from "./PageBlockRemoval";
 
 // A page's content: BlockNote, synced live through prosemirror-sync (backend pageSync.ts).
 // The sync calls name only the page; the backend finds its workspace. See wiki/pages.md.
-
-/** BlockNote's own light theme, in the app's font. */
-const theme: Theme = { ...lightDefaultTheme, fontFamily: "inherit", colors: { ...lightDefaultTheme.colors, editor: { text: "var(--color-neutral-900)", background: "transparent" } } };
+// BlockNote's menus and toolbars are the app's own (editorComponents.tsx); its block CSS is the one import above.
 
 /** BlockNote pads the left for its block handles: pull it back so text lines up with the title. */
 const viewClass = "page-editor -mx-[54px]";
@@ -46,6 +44,19 @@ function openPageLink(event: MouseEvent<HTMLDivElement>) {
 	event.preventDefault();
 	event.stopPropagation();
 	navigate("pages", id);
+}
+
+/** The editor in the app's chrome. The side menu, slash menu and table handles are the children; BlockNote's own are off. */
+function View({ editor, editable, children }: { editor: PageBlockEditor; editable: boolean; children?: ReactNode }) {
+	return (
+		<div onClickCapture={openPageLink} onAuxClickCapture={openPageLink}>
+			<ComponentsContext.Provider value={components}>
+				<BlockNoteViewRaw editor={editor} editable={editable} theme="light" className={viewClass} slashMenu={false} sideMenu={false} tableHandles={false}>
+					{children}
+				</BlockNoteViewRaw>
+			</ComponentsContext.Provider>
+		</div>
+	);
 }
 
 export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 }: { pageId: Id<"pages">; editable: boolean; standalone?: boolean; focusKey?: number }) {
@@ -77,26 +88,81 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 	return (
 		<PageReferences.Provider value={references.current}>
 			<Notice>{error}</Notice>
-			<div onClickCapture={openPageLink} onAuxClickCapture={openPageLink}>
-				<BlockNoteView editor={sync.editor} editable={editable} theme={theme} className={viewClass} slashMenu={false} sideMenu={false}>
-					<SideMenuController sideMenu={(props) => <SideMenu {...props} dragHandleMenu={PageDragHandleMenu} />} />
-					<SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
-						// Uploads take pictures only, and the app loads no outside media: no video, audio or file blocks.
-						...getDefaultReactSlashMenuItems(sync.editor).filter((item) => !(["video", "audio", "file"] as const).some((k) => item.title === sync.editor.dictionary.slash_menu[k].title)),
-						...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
-							try {
-								const id = await create({ title: "Untitled", parentId: pageId, insertInParent: false });
-								insertOrUpdateBlockForSlashMenu(sync.editor, { type: "page", props: { pageId: id } });
-								navigate("pages", id);
-							} catch (e) { fail(e); }
-						} }] : []),
-					], query)} />
-				</BlockNoteView>
-			</div>
+			<View editor={sync.editor} editable={editable}>
+				{/* Over the sticky top bar (z-30), so the drag handle's menu isn't drawn under it; BlockNote puts its toolbar there too. */}
+				<SideMenuController sideMenu={PageSideMenu} floatingUIOptions={sideMenuFloating} />
+				<SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
+					...slashItems(sync.editor),
+					...(standalone ? [{ title: "Page", subtext: "Add a page inside", aliases: ["page", "subpage"], group: "Pages", icon: <PageIcon />, onItemClick: async () => {
+						try {
+							const id = await create({ title: "Untitled", parentId: pageId, insertInParent: false });
+							insertOrUpdateBlockForSlashMenu(sync.editor, { type: "page", props: { pageId: id } });
+							navigate("pages", id);
+						} catch (e) { fail(e); }
+					} }] : []),
+				], query)} />
+				<TableHandlesController tableHandle={PageTableHandle} extendButton={PageExtendButton} tableCellHandle={PageTableCellButton} />
+			</View>
 			<UpgradePageLinks editor={sync.editor} editable={editable} />
 			<PageBlockRemoval editor={sync.editor} pageId={pageId} editable={editable} />
 			{standalone && <ChildPages editor={sync.editor} pageId={pageId} />}
 		</PageReferences.Provider>
+	);
+}
+
+/** BlockNote's slash menu items with the app's icons. Uploads take pictures only, and the app loads no outside media: no video, audio or file blocks. */
+const slashIcons: Partial<Record<DefaultSuggestionItem["key"], typeof PageIcon>> = {
+	heading: TextHOneIcon, heading_2: TextHTwoIcon, heading_3: TextHThreeIcon, heading_4: TextHFourIcon, heading_5: TextHFiveIcon, heading_6: TextHSixIcon,
+	toggle_heading: TextHOneIcon, toggle_heading_2: TextHTwoIcon, toggle_heading_3: TextHThreeIcon,
+	paragraph: ParagraphIcon, quote: QuoteIcon, bullet_list: BulletListIcon, numbered_list: NumberedListIcon, check_list: CheckListIcon, toggle_list: ToggleListIcon,
+	table: TableIcon, image: ImageIcon, code_block: CodeIcon, divider: DividerIcon, emoji: ReactIcon,
+};
+const hiddenBlocks = new Set<DefaultSuggestionItem["key"]>(["video", "audio", "file"]);
+function slashItems(editor: PageBlockEditor): DefaultReactSuggestionItem[] {
+	return getDefaultSlashMenuItems(editor).filter((item) => !hiddenBlocks.has(item.key)).map((item) => {
+		const Icon = slashIcons[item.key];
+		return { ...item, icon: Icon ? <Icon /> : undefined };
+	});
+}
+
+const sideMenuFloating = { elementProps: { style: { zIndex: 40 } } };
+
+/** The + and ⋮⋮ beside the hovered block, with the app's icons (BlockNote's own buttons carry fixed ones). */
+function PageSideMenu() {
+	return <SideMenu><AddBlock /><DragHandle /></SideMenu>;
+}
+
+const SideButton = components.SideMenu.Button;
+const { Root: MenuRoot, Trigger: MenuTrigger } = components.Generic.Menu;
+
+/** Opens the slash menu in the block, or in a new one after it when it has text. */
+function AddBlock() {
+	const editor = useBlockNoteEditor(pageEditorSchema);
+	const suggestionMenu = useExtension(SuggestionMenuExtension);
+	const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
+	if (!block) return null;
+	const onClick = () => {
+		const empty = Array.isArray(block.content) && block.content.length === 0;
+		editor.setTextCursorPosition(empty ? block : editor.insertBlocks([{ type: "paragraph" }], block, "after")[0]!);
+		suggestionMenu.openSuggestionMenu("/");
+	};
+	return <SideButton label={editor.dictionary.side_menu.add_block_label} icon={<PlusIcon />} onClick={onClick} />;
+}
+
+/** Drags the block; a click opens its menu, which holds the side menu in place while open. */
+function DragHandle() {
+	const editor = useBlockNoteEditor(pageEditorSchema);
+	const sideMenu = useExtension(SideMenuExtension);
+	const block = useExtensionState(SideMenuExtension, { editor, selector: (state) => state?.block });
+	const portalElement = usePortalElement();
+	if (!block) return null;
+	return (
+		<MenuRoot onOpenChange={(open) => (open ? sideMenu.freezeMenu() : sideMenu.unfreezeMenu())} position="left" portalElement={portalElement}>
+			<MenuTrigger>
+				<SideButton label={editor.dictionary.side_menu.drag_handle_label} icon={<DragHandleIcon />} draggable onDragStart={(e) => sideMenu.blockDragStart(e, block)} onDragEnd={sideMenu.blockDragEnd} />
+			</MenuTrigger>
+			<PageDragHandleMenu />
+		</MenuRoot>
 	);
 }
 
@@ -111,6 +177,11 @@ function PageDragHandleMenu() {
 	</DragHandleMenu>;
 }
 
+/** BlockNote's table handles, with the app's icons. */
+const PageTableHandle = (props: TableHandleProps) => <TableHandle {...props}><DragHandleIcon /></TableHandle>;
+const PageExtendButton = (props: ExtendButtonProps) => <ExtendButton {...props}><PlusIcon /></ExtendButton>;
+const PageTableCellButton = (props: TableCellButtonProps) => <TableCellButton {...props}><CaretDownIcon /></TableCellButton>;
+
 let schemaEditor: PageBlockEditor | undefined;
 
 /** An old version's content (ProseMirror JSON), read-only. */
@@ -120,7 +191,7 @@ export function VersionPreview({ content }: { content: string }) {
 		const doc = schemaEditor.pmSchema.nodeFromJSON(JSON.parse(content));
 		return BlockNoteEditor.create({ schema: pageEditorSchema, links, initialContent: docToBlocks(doc) });
 	}, [content]);
-	return <div onClickCapture={openPageLink} onAuxClickCapture={openPageLink}><BlockNoteView editor={editor} editable={false} theme={theme} className={viewClass} /></div>;
+	return <View editor={editor} editable={false} />;
 }
 
 /**

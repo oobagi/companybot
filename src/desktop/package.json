@@ -20,7 +20,6 @@
   "//": "Everything is bundled by electron-vite, so the packaged app ships no node_modules. Keep all packages in devDependencies.",
   "devDependencies": {
     "@blocknote/core": "^0.56.0",
-    "@blocknote/mantine": "^0.56.0",
     "@blocknote/react": "^0.56.0",
     "@companybot/backend": "workspace:*",
     "@companybot/core": "workspace:*",
