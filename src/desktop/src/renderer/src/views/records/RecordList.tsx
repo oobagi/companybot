@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -30,7 +30,8 @@ import {
 	recordPath,
 	sortable,
 	toCondition,
-	filterFits,
+	filterProblem,
+	sortProblem,
 	valueText,
 } from "./logic";
 
@@ -65,6 +66,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// View tabs follow the workspace order. "All" stays first.
 	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
 	const saveView = useMutation(api.databaseViews.save);
+	const dismissNotice = useMutation(api.databaseViews.dismissNotice);
 	const removeView = useMutation(api.databaseViews.remove);
 	const [viewId, setViewId] = useState("all");
 	const [preview, setPreview] = useState<Preview>();
@@ -87,12 +89,20 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		selected?.version ?? 0,
 	);
 	const { filters, sort } = draft.value;
+	// Renames the view, keeping it as saved.
+	const rename = (name: string) => {
+		if (!selected || !saved) return;
+		const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
+		const filters = saved.filters.map(toCondition).filter((c) => c !== null);
+		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy }));
+	};
 	const layout = selected ? draft.value.layout : display.layout;
 	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
 	const groupFields = fields.filter(groupable);
 	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
 	const change = (next: Partial<Settings>) => {
+		setTidied(undefined);
 		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
 		draft.set(value);
 		if (!selected && writable && next.columns) {
@@ -134,24 +144,26 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	// A filter or sort made before a field's kind changed may not fit it now: it's dropped, and the bar says so.
-	const fitting = filters.filter((f) => {
+	// A filter or sort made before a field changed may not fit it now: it's dropped, and the bar says why.
+	const problems = filters.map((f) => {
 		const field = fields.find((x) => x.key === f.field);
-		return !field || filterFits(f, field);
+		const problem = field && filterProblem(f, field);
+		return problem && `Removed the filter on “${field.label}”: ${problem}.`;
 	});
-	const sortFits = !sort || !fields.some((f) => f.key === sort.field && (!sortable(f) || f.changing));
+	const fitting = filters.filter((_, i) => !problems[i]);
+	const sortField = sort && fields.find((f) => f.key === sort.field);
+	const sortIssue = sortField && sortProblem(sortField);
 	const [tidied, setTidied] = useState<string>();
 	useEffect(() => {
-		if (fitting.length === filters.length && sortFits) return;
-		const names = [...new Set([...filters.filter((f) => !fitting.includes(f)).map((f) => f.field), ...(sortFits ? [] : [sort!.field])])].map((k) => fields.find((f) => f.key === k)?.label ?? k);
-		setTidied(`${names.map((n) => `“${n}”`).join(", ")} changed kind, so ${names.length > 1 ? "their filters and sorts were" : "its filter or sort was"} removed.`);
-		change({ filters: fitting, sort: sortFits ? sort : undefined });
-	}, [fitting.length, filters.length, sortFits]);
+		if (fitting.length === filters.length && !sortIssue) return;
+		change({ filters: fitting, sort: sortIssue ? undefined : sort });
+		setTidied([...problems.filter(Boolean), ...(sortIssue ? [`Removed the sort by “${sortField.label}”: ${sortIssue}.`] : [])].join(" "));
+	}, [fitting.length, filters.length, sortIssue]);
 	const conditions = fitting.map(toCondition).filter((c) => c !== null);
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;
-	const sortField = sort && fields.find((f) => f.key === sort.field);
-	const args = { typeId: type._id, filters: conditions, sort: sortFits ? sort : undefined };
+	// While its field converts, the sort waits rather than going away.
+	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
 
@@ -230,12 +242,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 										onSubmit={(form) => {
 											const name = String(new FormData(form).get("name")).trim();
 											close();
-											if (name && name !== selected.name) {
-												const columns = saved.columns.filter(live);
-												const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
-												const filters = saved.filters.map(toCondition).filter((c) => c !== null);
-												run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns, layout: saved.layout, groupBy }));
-											}
+											if (name && name !== selected.name) rename(name);
 										}}
 									>
 										<input name="name" aria-label="View name" autoFocus required maxLength={120} defaultValue={selected.name} className={`${compactControlClass} w-full`} />
@@ -262,7 +269,17 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			{dialog}
 			<ConflictNotice draft={draft} />
 			{/* Why the view's filters or sort changed without anyone saving it: a field's kind changed. */}
-			{(selected?.notice || tidied) && <p className={hintClass}>{tidied ?? selected?.notice}</p>}
+			{(selected?.notice || tidied) && (
+				<p className={`${hintClass} flex items-center gap-1.5`}>
+					{tidied ?? selected?.notice}
+					{/* Yours (this list's) closes here; a saved view's is everyone's, so closing it takes Edit and clears it for all. */}
+					{(tidied || canEdit) && (
+						<button type="button" aria-label="Dismiss" title="Dismiss" onClick={() => (tidied ? setTidied(undefined) : selected && run(dismissNotice({ viewId: selected._id })))} className={trailingAction}>
+							<CloseIcon />
+						</button>
+					)}
+				</p>
+			)}
 			{(filters.length > 0 || sort) && (
 				<div className="-mt-2 flex flex-wrap items-center gap-1.5">
 					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} onChange={setSort} />}
@@ -308,15 +325,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
-							empty={sortField && !conditions.length ? (
-								// Sorting by a field lists only records with a value for it, so an empty list says why and how out.
-								<EmptyState icon={<DatabaseIcon />} title={`No ${noun} have a ${sortField.label}`}>
-									Sorting by a field lists only {noun} with a value for it.
-									<span className="mt-3 flex justify-center">
-										<button type="button" onClick={() => setSort(undefined)} className={compactButton}>Clear sort</button>
-									</span>
-								</EmptyState>
-							) : conditions.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
+							empty={conditions.length ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
 					</ErrorBoundary>
 				</>
@@ -377,16 +386,16 @@ function RecordResults({
 			return sort.order === first ? { field: key, order: first === "asc" ? "desc" : "asc" } : undefined;
 		};
 		return (
-			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
+			<th key={key} className="overflow-hidden px-3 py-2 text-left font-medium whitespace-nowrap">
 				{canSort ? (
-					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
+					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex max-w-full items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
 						{field && <FieldIcon field={field} />}
-						{label}
+						<span className="truncate">{label}</span>
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
 						{field?.changing && <span className={metadataClass}>Converting…</span>}
 					</button>
 				) : (
-					<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}{label}{field?.changing && <span className={metadataClass}>Converting…</span>}</span>
+					<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}<span className="truncate">{label}</span>{field?.changing && <span className={metadataClass}>Converting…</span>}</span>
 				)}
 			</th>
 		);
@@ -416,13 +425,30 @@ function RecordResults({
 	);
 }
 
+/**
+ * Each column's width in pixels, set by its kind so it holds still as values change (`table-fixed`):
+ * long values truncate. Updated, last, takes what's left of the screen, at least UPDATED_WIDTH.
+ */
+const columnWidth = (f: TypeField) =>
+	f.key === NAME_KEY ? 240
+	: f.kind === "checkbox" ? 96
+	: f.kind === "number" ? 112
+	: f.kind === "currency" || f.kind === "date" ? 144
+	: f.kind === "choice" || f.kind === "user" || f.kind === "link" ? 160
+	: 192;
+const UPDATED_WIDTH = 128;
+
 function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[]; stale?: boolean }) {
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
 		<div className="bleed">
 			{/* Dimmed while a new sort or filter loads, instead of flashing empty. */}
 			<div className={`w-max min-w-full overflow-hidden rounded-xl border border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
-				<table className="w-full text-sm">
+				<table className="min-w-full table-fixed text-sm" style={{ width: columns.reduce((n, f) => n + columnWidth(f), UPDATED_WIDTH) }}>
+					<colgroup>
+						{columns.map((f) => <col key={f.key} style={{ width: columnWidth(f) }} />)}
+						<col />
+					</colgroup>
 					<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
 						<tr>{head}</tr>
 					</thead>
@@ -432,18 +458,18 @@ function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordTyp
 								{columns.map((f) =>
 									f.key === NAME_KEY ? (
 										// The name opens the record; every other cell edits in place, like Notion's.
-										<td key={f.key} className="max-w-64 px-3 py-2 font-medium">
+										<td key={f.key} className="truncate px-3 py-2 font-medium">
 											<button type="button" onClick={() => navigate(...recordPath(type.key, r._id))} className={`${titleButton} max-w-full truncate hover:underline`}>
 												{valueText(f, r.values[f.key], refs) || "Untitled"}
 											</button>
 										</td>
 									) : (
-										<td key={f.key} className="max-w-72 min-w-32 px-1 py-0.5 align-middle text-neutral-700">
+										<td key={f.key} className="overflow-hidden px-1 py-0.5 align-middle text-neutral-700">
 											<Cell row={r} field={f} refs={refs} editable={type.canEdit && !f.changing} />
 										</td>
 									),
 								)}
-								<td className="px-3 py-2 whitespace-nowrap text-neutral-400">{timeAgo(r.updatedAt)}</td>
+								<td className="truncate px-3 py-2 text-neutral-400">{timeAgo(r.updatedAt)}</td>
 							</tr>
 						))}
 					</tbody>
@@ -461,7 +487,7 @@ function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs
 	if (!editable) return <span className="block truncate px-2 py-1"><ValueView field={field} value={value} refs={refs} /></span>;
 	return (
 		<span className="block" title={error}>
-			<ValueEditor field={field} value={value} refs={refs} onSave={(next) => run(update({ recordId: row._id, values: { [field.key]: next } }))} />
+			<ValueEditor field={field} value={value} refs={refs} oneLine onSave={(next) => run(update({ recordId: row._id, values: { [field.key]: next } }))} />
 			{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
 		</span>
 	);
@@ -472,7 +498,7 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
 	if (rows.length === 0) return <NoMatches />;
-	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium"><span className="flex items-center gap-1.5"><FieldIcon field={f} />{f.label}</span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
+	const head = [...columns.map((f) => <th key={f.key} className="overflow-hidden px-3 py-2 text-left font-medium whitespace-nowrap"><span className="flex items-center gap-1.5"><FieldIcon field={f} /><span className="truncate">{f.label}</span></span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }
 

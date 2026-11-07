@@ -1,6 +1,6 @@
 import type { Field } from "@companybot/core/records";
 import { describe, expect, it } from "vitest";
-import { defaultColumns, fromConditions, moneyInput, opsFor, recordPath, sortable, toCondition, valueText, whoLabel } from "./logic";
+import { defaultColumns, filterProblem, fromConditions, moneyInput, opsFor, recordPath, sortProblem, sortable, toCondition, valueText, whoLabel } from "./logic";
 
 const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: kind, label: kind, kind, ...extra });
 const stage = field("choice", {
@@ -20,6 +20,17 @@ describe("record screens", () => {
 	it("shows the name and the next few live fields by default", () => {
 		const fields = ["name", "a", "b", "c", "d", "e"].map((key) => ({ ...field("text"), key, _id: key, archived: key === "b" }));
 		expect(defaultColumns(fields)).toEqual(["name", "a", "c", "d", "e"]);
+	});
+
+	it("says why a filter or sort no longer fits a field that changed", () => {
+		expect(filterProblem({ field: "x", op: "gte", value: "5" }, field("text"))).toBe("it's a text field now, and that filter doesn't work on those");
+		expect(filterProblem({ field: "x", op: "gte", value: "abc" }, field("number"))).toBe("“abc” isn't a number");
+		expect(filterProblem({ field: "x", op: "gte", value: "soon" }, field("currency"))).toBe("“soon” isn't an amount");
+		expect(filterProblem({ field: "x", op: "anyOf", value: ["gone"] }, stage)).toBe("an option it picked was removed");
+		expect(filterProblem({ field: "x", op: "gte", value: "5" }, field("number"))).toBeUndefined();
+		expect(sortProblem(field("checkbox"))).toBe("it's a checkbox field now, and those can't be sorted");
+		expect(sortProblem(field("choice", { multiple: true }))).toBe("it holds several values now, and those can't be sorted");
+		expect(sortProblem(field("currency"))).toBeUndefined();
 	});
 
 	it("offers the operators records.list takes for each kind", () => {

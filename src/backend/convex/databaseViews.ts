@@ -91,6 +91,18 @@ export const save = mutation({
 	handler: async (ctx, { typeId, viewId, version, ...config }) => saveView(ctx, { member: await requireMember(ctx) }, typeId, config, viewId, version),
 });
 
+/** Clears the note saying a field change removed some of a view's filters, sort or grouping, for everyone. Takes Edit in the database, like saving. */
+export const dismissNotice = mutation({
+	args: { viewId: v.id("databaseViews") },
+	handler: async (ctx, { viewId }) => {
+		const member = await requireMember(ctx);
+		checkPermission(member, "records.edit");
+		const view = requireInWorkspace(member, await ctx.db.get(viewId), "View");
+		await viewsOf(ctx, member, view.typeId, "edit");
+		if (view.notice) await ctx.db.patch(view._id, { notice: undefined });
+	},
+});
+
 export const remove = mutation({
 	args: { viewId: v.id("databaseViews"), version: v.number() },
 	handler: async (ctx, { viewId, version }) => deleteView(ctx, { member: await requireMember(ctx) }, viewId, version),

@@ -33,7 +33,7 @@ type Row = Awaited<ReturnType<typeof toRows>>[number];
  * of: `eq`, `in` (any of: choice, person and link fields), a range (`gt`/`gte`/`lt`/`lte`:
  * number, amount and date fields), or `empty`. Fields holding several values take `eq`,
  * `in` and `empty`. `sort` by "createdAt", "updatedAt" or a field (records without a value
- * for it aren't listed). Without a sort it's newest first, unless the only usable filters
+ * for it come last, newest first). Without a sort it's newest first, unless the only usable filters
  * are ranges, which list in that field's order. A page can come back short with
  * `isDone: false` when a rare combination takes more than one request's reading budget:
  * ask for the next page. See wiki/data.md.

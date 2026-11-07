@@ -34,7 +34,7 @@ Separate tables per type (Night Owl's way) means a migration for every new type 
 `records.list` takes any number of filters (all must match) and one sort. Campaigns, pipelines, saved views and agent queries all sit on it.
 - **Conditions:** `eq`; `in` (any of, up to 50) on choice, person and link fields; ranges (`gt`/`gte`/`lt`/`lte`) on single-valued number, amount and date fields; `empty: true/false`. Fields holding several values (tags) take `eq`, `in` and `empty` only. Up to 10 filters.
 - **Plan:** one index stream *drives* the scan and sets the order; every other condition is checked on the record itself (`recordQuery.ts`). The driver is, in order:
-  1. the sort field, if sorting by a field (a range on it narrows the stream);
+  1. the sort field, if sorting by a field (a range on it narrows the stream). Records without a value for it come after the rest, newest first: the name rows (every live record has one) walked beside the field's rows by creation time (`by_field_at`, both in the same order), so they're found from index rows alone. A page can run from one part into the other; a filter that needs a value on the field (a range, `eq`, `empty: false`) skips the second part, and `empty: true` lists only it;
   2. `updatedAt` or `createdAt`, if sorting by one (the records' own indexes);
   3. the `eq`/`in` condition with the fewest index rows;
   4. else the range or `empty: false` condition with the fewest rows;

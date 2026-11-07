@@ -106,17 +106,21 @@ export function Chip({ children, color, onRemove }: { children: React.ReactNode;
 /**
  * An inline editor for one field. `onSave` gets what to send `records.update` for it:
  * the typed text (the server checks and normalizes it), ids, `{ amount, currency }`, or null to clear.
+ * `oneLine` (a table cell) keeps it to one line: long text scrolls instead of wrapping, and an
+ * amount leaves its currency to the record page.
  */
 export function ValueEditor({
 	field,
 	value,
 	refs,
 	onSave,
+	oneLine = false,
 }: {
 	field: TypeField;
 	value: FieldValue | undefined;
 	refs: Refs;
 	onSave: (value: unknown) => void;
+	oneLine?: boolean;
 }) {
 	switch (field.kind) {
 		case "checkbox":
@@ -135,18 +139,18 @@ export function ValueEditor({
 				/>
 			);
 		case "currency":
-			return <MoneyEditor value={value as Money | undefined} onSave={onSave} />;
+			return <MoneyEditor value={value as Money | undefined} onSave={onSave} oneLine={oneLine} />;
 		case "choice":
 		case "user":
 		case "link":
 			return <PickEditor field={field} ids={value === undefined ? [] : [value].flat().map(String)} refs={refs} onSave={onSave} />;
 		default:
-			return <TextEditor field={field} value={value === undefined ? "" : String(value)} onSave={onSave} />;
+			return <TextEditor field={field} value={value === undefined ? "" : String(value)} onSave={onSave} oneLine={oneLine} />;
 	}
 }
 
-/** Text, number, email, phone and web address. Long text wraps onto more lines. */
-function TextEditor({ field, value, onSave }: { field: TypeField; value: string; onSave: (value: unknown) => void }) {
+/** Text, number, email, phone and web address. Long text wraps onto more lines, unless `oneLine`. */
+function TextEditor({ field, value, onSave, oneLine }: { field: TypeField; value: string; onSave: (value: unknown) => void; oneLine: boolean }) {
 	const [draft, setDraft] = useSynced(value);
 	const commit = () => draft.trim() !== value && onSave(draft.trim() || null);
 	const keys = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -163,9 +167,10 @@ function TextEditor({ field, value, onSave }: { field: TypeField; value: string;
 		onKeyDown: keys,
 		maxLength: TEXT_MAX,
 		placeholder: "—",
-		className: `${fieldEditClass} placeholder:text-neutral-400`,
+		// Cut short with "…" in a table cell, until you click in.
+		className: `${fieldEditClass} placeholder:text-neutral-400 ${oneLine ? "truncate" : ""}`,
 	};
-	if (field.kind === "text" && field.key !== "name") {
+	if (field.kind === "text" && field.key !== "name" && !oneLine) {
 		return <textarea {...common} rows={Math.min(8, Math.max(1, draft.split("\n").length, Math.ceil(draft.length / 60)))} className={`${common.className} resize-none`} />;
 	}
 	const type = { email: "email", phone: "tel", url: "url", number: "text" }[field.kind as string] ?? "text";
@@ -173,7 +178,7 @@ function TextEditor({ field, value, onSave }: { field: TypeField; value: string;
 }
 
 /** An amount and its currency. New amounts start in the workspace's currency. */
-function MoneyEditor({ value, onSave }: { value: Money | undefined; onSave: (value: unknown) => void }) {
+function MoneyEditor({ value, onSave, oneLine }: { value: Money | undefined; onSave: (value: unknown) => void; oneLine: boolean }) {
 	const workspaceCurrency = useCurrency();
 	const currency = value?.currency ?? workspaceCurrency;
 	const saved = moneyInput(value, minorDigits(currency));
@@ -199,7 +204,7 @@ function MoneyEditor({ value, onSave }: { value: Money | undefined; onSave: (val
 				}}
 				className={`${fieldEditClass} placeholder:text-neutral-400`}
 			/>
-			<Select
+			{!oneLine && <Select
 				label="Currency"
 				value={currency}
 				disabled={!amount.trim()}
@@ -207,7 +212,7 @@ function MoneyEditor({ value, onSave }: { value: Money | undefined; onSave: (val
 				onChange={(c) => save(amount, c)}
 				caret={false}
 				className={currencyPickerClass}
-			/>
+			/>}
 		</span>
 	);
 }

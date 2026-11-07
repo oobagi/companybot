@@ -177,6 +177,11 @@ describe("changing a field's kind", () => {
 		expect(view!.sort).toBeUndefined();
 		expect(view!.groupBy).toBeUndefined();
 		expect(view!.notice).toContain("“Stage” changed");
+		// Dismissing the note clears it for everyone and leaves the view as saved.
+		await owner.mutation(api.databaseViews.dismissNotice, { viewId: view!._id });
+		const [after] = await owner.query(api.databaseViews.list, { typeId });
+		expect(after!.notice).toBeUndefined();
+		expect(after!.version).toBe(view!.version);
 	});
 
 	it("takes the databases switch and Edit in the database, and Name stays text", async () => {

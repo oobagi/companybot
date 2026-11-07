@@ -1,5 +1,5 @@
 import type { Field, FieldKind, FieldValue, Money } from "@companybot/core/records";
-import { formatDate, formatMoney, minorToDecimal } from "@companybot/core/records";
+import { formatDate, formatMoney, kindLabels, minorToDecimal } from "@companybot/core/records";
 import { moneyOf, parseDay, parseNumber } from "@companybot/core/field-change";
 
 // Pure rules for the record screens: columns, filters, sorting and how values read.
@@ -77,21 +77,35 @@ export function toCondition({ field, op, value }: Filter): Record<string, unknow
 	return { field, [op === "is" ? "eq" : op]: text };
 }
 
+/** "a date field", "an amount field": the field's kind as people say it. */
+function aKind(field: Field) {
+	const kind = kindLabels[field.kind].toLowerCase();
+	return `${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`;
+}
+
 /**
- * Whether a filter still fits its field. One made before the field's kind changed may not ("is abc"
- * on what's now a number); lists drop it rather than fail.
+ * Why a filter no longer fits its field, or undefined if it does. One made before the field
+ * changed may not ("is abc" on what's now a number); lists drop it and say why.
  */
-export function filterFits(filter: Filter, field: Field) {
-	if (!opsFor(field).includes(filter.op)) return false;
-	if (filter.op === "anyOf") return Array.isArray(filter.value) && (field.kind !== "choice" || filter.value.every((v) => field.options?.some((o) => o.id === v)));
-	if (!needsValue(filter.op)) return true;
-	if (Array.isArray(filter.value)) return false;
+export function filterProblem(filter: Filter, field: Field): string | undefined {
+	if (!opsFor(field).includes(filter.op)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
+	if (filter.op === "anyOf") {
+		if (!Array.isArray(filter.value)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
+		if (field.kind === "choice" && !filter.value.every((v) => field.options?.some((o) => o.id === v))) return "an option it picked was removed";
+		return undefined;
+	}
+	if (!needsValue(filter.op)) return undefined;
+	if (Array.isArray(filter.value)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
 	const text = filter.value.trim();
-	if (!text) return true;
-	if (field.kind === "number") return parseNumber(text) !== null;
-	if (field.kind === "currency") return moneyOf(text, "USD") !== null;
-	if (field.kind === "date") return parseDay(text) !== null;
-	return true;
+	if (!text) return undefined;
+	const valid = field.kind === "number" ? parseNumber(text) !== null : field.kind === "currency" ? moneyOf(text, "USD") !== null : field.kind === "date" ? parseDay(text) !== null : true;
+	return valid ? undefined : `“${text}” isn't ${field.kind === "currency" ? "an amount" : `a ${field.kind}`}`;
+}
+
+/** Why a list can't be sorted by the field now, or undefined if it can. */
+export function sortProblem(field: Field): string | undefined {
+	if (sortable(field)) return undefined;
+	return field.multiple ? "it holds several values now, and those can't be sorted" : `it's ${aKind(field)} field now, and those can't be sorted`;
 }
 
 /** Saved conditions back into the existing filter controls; ranges may have two bounds. */

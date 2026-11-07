@@ -346,13 +346,43 @@ async function readStream(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc"
 }
 
 /**
- * The streams for a plan id: "t" type, "u" updated, "s" sort field, or "c<i>" condition i.
+ * Which records hold a value for the sort field, read beside the name rows in the same order
+ * (both by creation time), so the records without one are found from index rows alone.
+ */
+class Holders {
+	private buffer: Item[] = [];
+	private more = true;
+	constructor(
+		private ctx: QueryCtx,
+		private budget: Budget,
+		private s: Stream,
+		private order: "asc" | "desc",
+		/** The last key read, so the next read carries on after it. */
+		private pos: Key | undefined,
+	) {}
+	/** Whether the record at `key` (a name row's) has a value; undefined when the budget runs out first. */
+	async has(key: Key): Promise<boolean | undefined> {
+		const sign = this.order === "asc" ? 1 : -1;
+		for (;;) {
+			while (this.buffer.length && compareKeys(this.buffer[0]!.key, key) * sign < 0) this.buffer.shift();
+			if (this.buffer.length) return compareKeys(this.buffer[0]!.key, key) === 0;
+			if (!this.more) return false;
+			if (!this.budget.has(this.s.keys.length + 2, CHUNK)) return undefined;
+			({ items: this.buffer, more: this.more } = await readStream(this.ctx, this.budget, this.s, this.order, this.pos, CHUNK));
+			if (this.buffer.length) this.pos = this.buffer.at(-1)!.key;
+		}
+	}
+}
+
+/**
+ * The streams for a plan id: "t" type, "u" updated, "s" sort field, "e" records without the
+ * sort field's value (after the ones with it), or "c<i>" condition i.
  * Live records by creation time come from their name rows (every live record has one), so
  * ties page by id; archived ones, which have no index rows, from the records themselves.
  */
 function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, fields: Fields, checks: Check[], sortStream?: Stream): Stream[] | undefined {
 	const name = fields.find((f) => f.key === NAME_KEY);
-	if (plan === "t" && !archived && name)
+	if ((plan === "t" || plan === "e") && !archived && name)
 		return [{ table: "recordValues", index: "by_field_at", prefix: [["fieldId", name._id]], keys: ["at", "recordId"] }];
 	if (plan === "t" || plan === "u")
 		return [
@@ -453,43 +483,66 @@ export async function findRecords(
 	const start = paginationOpts.cursor ? parseCursor(paginationOpts.cursor, fingerprint) : undefined;
 	const endCursor = paginationOpts.endCursor ?? undefined;
 	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
-	if (start && endAt && start.p !== endAt.p) throw new ConvexError("That page is out of date. Start the list again.");
+	// A page can run from the records with the sort field's value into those without it.
+	if (start && endAt && start.p !== endAt.p && !(start.p === "s" && endAt.p === "e")) throw new ConvexError("That page is out of date. Start the list again.");
 	const byField = sort && !["createdAt", "updatedAt"].includes(sort.field);
 	// Archived records have no index rows, so their lists scan the type and check every condition.
 	if (archived && byField) throw new ConvexError("Archived records can't be sorted by a field.");
 	let sortStream: Stream | undefined;
+	// Sorted by a field, records without a value come last, newest first: the field's rows by creation time tell them apart.
+	let holdersStream: Stream | undefined;
+	let onlyEmpty = false;
 	if (byField) {
 		const field = fields.find((f) => f.key === sort.field && !f.archived);
 		if (!field) throw new ConvexError(`There's no field “${sort.field}”.`);
 		if (field.multiple || field.kind === "link") throw new ConvexError(`Lists can't be sorted by “${field.label}”.`);
-		// Sorting by a field lists records that have it, so "is empty" on it matches nothing.
-		if (conditions.some((c) => c.field === field.key && c.empty === true)) return emptyPage();
 		// A range on the sort field narrows the scan (and picks the currency).
 		const own = checks.find((c) => c.field._id === field._id && (c.rangeStream?.lo || c.rangeStream?.hi));
 		sortStream = own?.rangeStream ?? valueStream(field);
+		// Any other condition on the field needs a value, and every record has a name.
+		const onField = conditions.filter((c) => c.field === field.key);
+		onlyEmpty = onField.some((c) => c.empty === true);
+		if (field.key !== NAME_KEY && onField.every((c) => c.empty === true))
+			holdersStream = { table: "recordValues", index: "by_field_at", prefix: [["fieldId", field._id]], keys: ["at", "recordId"] };
 	}
+	// "Is empty" on the sort field, with nothing to list without a value: nothing matches.
+	if (onlyEmpty && !holdersStream) return emptyPage();
 	const order = sort?.order ?? (byField ? "asc" : "desc");
 
-	const plan =
-		start?.p ?? endAt?.p ?? (archived ? (sort?.field === "updatedAt" ? "u" : "t") : await choosePlan(ctx, budget, checks, sort, sortStream));
-	const streams = streamsFor(plan, typeId, archived, fields, checks, sortStream);
-	if (!streams) throw new ConvexError("That page is out of date. Start the list again.");
-	// Ranges drive in their own order; everything else in the asked (or newest-first) order.
-	const streamOrder = plan.startsWith("c") && !checks[Number(plan.slice(1))]!.eqStreams ? "asc" : order;
-	const sign = streamOrder === "asc" ? 1 : -1;
+	let plan =
+		start?.p ??
+		(endAt && !(holdersStream && endAt.p === "e") ? endAt.p : undefined) ??
+		(archived ? (sort?.field === "updatedAt" ? "u" : "t") : onlyEmpty && holdersStream ? "e" : await choosePlan(ctx, budget, checks, sort, sortStream));
+	if (plan === "e" && !holdersStream) throw new ConvexError("That page is out of date. Start the list again.");
 	const cursor = (a: Key | undefined) => JSON.stringify({ q: fingerprint, p: plan, a } satisfies Cursor);
-	const end = endAt?.a;
-	const limit = end ? pageMax : Math.min(paginationOpts.numItems, pageMax);
+	const limit = endAt?.a ? pageMax : Math.min(paginationOpts.numItems, pageMax);
 	const lookups = checks.reduce((n, c) => n + c.lookups, 0);
 
 	let after = start?.a;
+	let streams: Stream[] = [];
+	let streamOrder: "asc" | "desc" = order;
+	let sign = 1;
+	let end: Key | undefined;
+	let holders: Holders | undefined;
+	let state: { s: Stream; buffer: Item[]; more: boolean }[] = [];
+	const begin = () => {
+		const found = streamsFor(plan, typeId, archived, fields, checks, sortStream);
+		if (!found) throw new ConvexError("That page is out of date. Start the list again.");
+		streams = found;
+		// Ranges drive in their own order, records without the sort field's value newest first, everything else in the asked (or newest-first) order.
+		streamOrder = plan === "e" ? "desc" : plan.startsWith("c") && !checks[Number(plan.slice(1))]!.eqStreams ? "asc" : order;
+		sign = streamOrder === "asc" ? 1 : -1;
+		end = endAt?.p === plan ? endAt.a : undefined;
+		holders = plan === "e" ? new Holders(ctx, budget, holdersStream!, streamOrder, after) : undefined;
+		// A k-way merge: each stream keeps a buffer, refilled only once it's used up, so no row is dropped.
+		state = streams.map((s) => ({ s, buffer: [] as Item[], more: true }));
+	};
+	begin();
 	const page: Doc<"records">[] = [];
 	// Stopped before the end: carry on from `after`. Within an `endCursor` page, ask the client to split it there.
 	const stop = (): PaginationResult<Doc<"records">> =>
 		endCursor ? { page, isDone: false, continueCursor: endCursor, splitCursor: cursor(after), pageStatus: "SplitRequired" } : { page, isDone: false, continueCursor: cursor(after) };
 
-	// A k-way merge: each stream keeps a buffer, refilled only once it's used up, so no row is dropped.
-	const state = streams.map((s) => ({ s, buffer: [] as Item[], more: true }));
 	for (;;) {
 		for (const st of state) {
 			if (st.buffer.length || !st.more) continue;
@@ -502,13 +555,30 @@ export async function findRecords(
 		let next: (typeof state)[number] | undefined;
 		for (const st of state)
 			if (st.buffer.length && (!next || compareKeys(st.buffer[0]!.key, next.buffer[0]!.key) * sign < 0)) next = st;
-		if (!next) return { page, isDone: true, continueCursor: endCursor ?? cursor(after) };
+		if (!next) {
+			if (plan !== "s" || !holdersStream) return { page, isDone: true, continueCursor: endCursor ?? cursor(after) };
+			// The page ends among the records with a value: the rest is the next page's.
+			if (endAt?.p === "s") return { page, isDone: false, continueCursor: endCursor! };
+			plan = "e";
+			after = undefined;
+			begin();
+			continue;
+		}
 		const { row, key } = next.buffer[0]!;
 		if (after && compareKeys(key, after) * sign <= 0) {
 			next.buffer.shift(); // the same record from another "any of" stream
 			continue;
 		}
 		if (end && compareKeys(key, end) * sign > 0) return { page, isDone: false, continueCursor: endCursor! };
+		if (holders) {
+			const has = await holders.has(key);
+			if (has === undefined) return stop();
+			if (has) {
+				next.buffer.shift();
+				after = key;
+				continue;
+			}
+		}
 		const fromIndex = "recordId" in row;
 		if (!budget.has(lookups + (fromIndex ? 1 : 0), lookups, fromIndex ? DOC_MAX : 0)) return stop();
 		next.buffer.shift();
