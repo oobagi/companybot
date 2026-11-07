@@ -141,6 +141,11 @@ body {
 	font-weight: 500;
 	padding-inline: 0.125rem;
 }
+/* A record in the composer: the app's grays, like its chip in a sent message (ui.tsx `recordTagButton`). */
+.token.record-token {
+	background: var(--color-neutral-100);
+	color: var(--color-neutral-800);
+}
 
 /* Drag to reorder (sortable.ts): the row you hold floats over the others, which slide out of its way. */
 .sorting,

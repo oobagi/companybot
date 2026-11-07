@@ -287,7 +287,7 @@ export function composerExtensions(options: {
 		Token.configure({
 			deleteTriggerWithBackspace: true,
 			renderText: ({ node }) => sentText(node),
-			renderHTML: ({ options: o, node }) => ["span", mergeAttributes(o.HTMLAttributes, { class: "token" }), chipText(node)],
+			renderHTML: ({ options: o, node }) => ["span", mergeAttributes(o.HTMLAttributes, { class: node.attrs.kind === "record" ? "token record-token" : "token" }), chipText(node)],
 			suggestions: (["@", "#", "/", ":"] as const).map((t) => options.menu.suggestion(t) as Omit<SuggestionOptions, "editor">),
 		}),
 		EmojiShortcodes,
