@@ -15,6 +15,7 @@ const buttonClasses = new Set([
 	"smallButton",
 	"labelButton",
 	"toolButton",
+	"filterChip",
 	"barButton",
 	"barDangerButton",
 	"barPrimaryButton",

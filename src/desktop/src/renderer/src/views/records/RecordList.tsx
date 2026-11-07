@@ -10,8 +10,8 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
-import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
@@ -105,6 +105,13 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		if (!selected && type.canSetDisplay && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
 	};
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
+	// The filter whose editor is open: a new one opens at once, like Notion's.
+	const [openFilter, setOpenFilter] = useState<string>();
+	const addFilter = (field: TypeField) => {
+		const id = crypto.randomUUID();
+		setFilters([...filters, { id, field: field.key, op: opsFor(field)[0]!, value: "" }]);
+		setOpenFilter(id);
+	};
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
 	const open = (id: string) => (setViewId(id), setPreview(undefined));
@@ -174,9 +181,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 								<SearchIcon />
 							</button>
 						)}
-						<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} aria-label="Filter" title="Filter" className={toolButton}>
+						<FieldMenu label="Filter" fields={fields} onPick={addFilter}>
 							<FilterIcon /> <span className="@max-xl:hidden">Filter</span>
-						</button>
+						</FieldMenu>
 						{(selected || writable) && <ColumnsPicker
 							label={layout === "board" ? "Properties" : "Columns"}
 							fields={fields}
@@ -246,16 +253,21 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			{dialog}
 			<ConflictNotice draft={draft} />
 			{filters.length > 0 && (
-				<div className="-mt-2 flex flex-col gap-2">
+				<div className="-mt-2 flex flex-wrap items-center gap-1.5">
 					{filters.map((f) => (
-						<FilterRow
+						<FilterChip
 							key={f.id}
 							fields={fields}
 							filter={f}
+							open={openFilter === f.id}
+							onOpen={(open) => setOpenFilter(open ? f.id : undefined)}
 							onChange={(next) => setFilters(filters.map((g) => (g === f ? { ...next, id: f.id } : g)))}
-							onRemove={() => setFilters(filters.filter((g) => g !== f))}
+							onRemove={() => (setOpenFilter(undefined), setFilters(filters.filter((g) => g !== f)))}
 						/>
 					))}
+					<FieldMenu label="Add filter" fields={fields} onPick={addFilter}>
+						<PlusIcon /> Add filter
+					</FieldMenu>
 				</div>
 			)}
 			{preview === "board" ? (
@@ -289,7 +301,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
-							empty={filters.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
+							empty={conditions.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
 					</ErrorBoundary>
 				</>
@@ -429,35 +441,80 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
 }
 
-function FilterRow({
+/** A menu of the database's fields, each with its kind's icon: Filter, Add filter. */
+function FieldMenu({ label, fields, onPick, children }: { label: string; fields: TypeField[]; onPick: (field: TypeField) => void; children: React.ReactNode }) {
+	return (
+		<Popover label={label} trigger={children} className={toolButton} panelClassName="flex max-h-80 w-56 flex-col gap-px overflow-y-auto p-1">
+			{(close) => (
+				<>
+					<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Filter by</p>
+					{fields.map((f) => (
+						<MenuItem key={f.key} onClick={() => (close(), onPick(f))}>
+							<FieldIcon kind={f.kind} />
+							<span className="flex-1 truncate">{f.label}</span>
+						</MenuItem>
+					))}
+				</>
+			)}
+		</Popover>
+	);
+}
+
+/**
+ * One filter as a chip, Notion's way: "Status: Open, Done". Clicking opens its editor, the
+ * condition and value, with a remove button. Tinted once it has a value, so it's filtering.
+ */
+function FilterChip({
 	fields,
 	filter,
+	open,
+	onOpen,
 	onChange,
 	onRemove,
 }: {
 	fields: TypeField[];
 	filter: Filter;
+	open: boolean;
+	onOpen: (open: boolean) => void;
 	onChange: (filter: Filter) => void;
 	onRemove: () => void;
 }) {
 	const field = fields.find((f) => f.key === filter.field) ?? fields[0]!;
+	const options = useOptions(field);
+	const set = Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== "";
+	const active = !needsValue(filter.op) || set;
+	const value = Array.isArray(filter.value)
+		? field.kind === "link"
+			? `${filter.value.length} ${filter.value.length === 1 ? "record" : "records"}`
+			: filter.value.map((id) => options.find((o) => o.id === id)?.label ?? id).join(", ")
+		: filter.value;
+	const summary = !needsValue(filter.op) ? opLabels[filter.op] : !set ? "" : filter.op === "is" || filter.op === "anyOf" ? value : `${opLabels[filter.op]} ${value}`;
 	return (
-		<div className="flex flex-wrap items-center gap-2 text-sm">
-			<Select
-				label="Field"
-				value={field.key}
-				options={fields.map((f) => ({ value: f.key, label: f.label }))}
-				onChange={(key) => {
-					const next = fields.find((f) => f.key === key)!;
-					onChange({ field: next.key, op: opsFor(next)[0]!, value: "" });
-				}}
-			/>
-			<Select label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
+		<PopoverPanel
+			opened={open}
+			onClose={() => onOpen(false)}
+			className="flex w-80 flex-col gap-2 p-2"
+			target={
+				<button type="button" onClick={() => onOpen(!open)} data-active={active || undefined} className={filterChip}>
+					<FieldIcon kind={field.kind} className="text-current" />
+					<span className="max-w-64 truncate">
+						{field.label}
+						{summary && <span className="font-normal">: {summary}</span>}
+					</span>
+					<CaretDownIcon />
+				</button>
+			}
+		>
+			<div className="flex items-center gap-1 text-sm">
+				<span className="truncate pl-1 text-neutral-500">{field.label}</span>
+				<Select className={toolButton} label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
+				<span className="flex-1" />
+				<button type="button" onClick={onRemove} className={iconButton} title="Remove filter" aria-label="Remove filter">
+					<TrashIcon />
+				</button>
+			</div>
 			{needsValue(filter.op) && <FilterValue field={field} filter={filter} onChange={(value) => onChange({ ...filter, value })} />}
-			<button type="button" onClick={onRemove} className={bareIconButton} title="Remove filter" aria-label="Remove filter">
-				<CloseIcon />
-			</button>
-		</div>
+		</PopoverPanel>
 	);
 }
 
@@ -497,10 +554,12 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 	return (
 		<input
 			type={type}
+			autoFocus
+			aria-label="Value"
 			value={typeof filter.value === "string" ? filter.value : ""}
 			onChange={(e) => onChange(e.target.value)}
 			placeholder={field.kind === "currency" ? "1000 or EUR 1000" : "Value"}
-			className={`${compactControlClass} w-44`}
+			className={`${compactControlClass} w-full`}
 		/>
 	);
 }
