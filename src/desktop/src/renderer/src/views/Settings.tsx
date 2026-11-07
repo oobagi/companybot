@@ -115,12 +115,11 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 const channels = [
 	{ label: "Slack", hint: "Message agents from your Slack workspace." },
 	{ label: "Microsoft Teams", hint: "Message agents from Teams." },
-	{ label: "Text messages", hint: "Text agents from your own phone." },
 ];
 
 function ChannelsTab() {
 	return (
-		<Settings note="Agents reply in chat today. An agent's own phone number and email are on its page.">
+		<Settings note="Agents reply in chat today. To text or email an agent, use its own number or address, on its page.">
 			{channels.map((c) => (
 				<Setting key={c.label} label={c.label} hint={c.hint}>
 					<span className={hintClass}>Coming soon</span>
