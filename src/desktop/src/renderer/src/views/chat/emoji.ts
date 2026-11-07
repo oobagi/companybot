@@ -77,6 +77,19 @@ export const loadedEmoji = () => loaded;
 /** The emoji in skin tone `tone` (1 light … 5 dark; 0 is the default yellow). */
 export const withTone = (e: Emoji, tone: number) => (tone > 0 && e.tones[tone - 1]) || e.char;
 
+/**
+ * What Enter takes in a `:query` menu: the best match for what's typed, or with nothing typed the latest
+ * recent, else the first emoji; in the saved skin tone.
+ */
+export function topEmoji(index: EmojiIndex, query: string, store: Store): string | undefined {
+	const tone = savedTone(store);
+	if (query) {
+		const best = searchEmoji(index, query, 1)[0];
+		return best && withTone(best, tone);
+	}
+	return recentEmoji(store)[0] ?? (index.emoji[0] && withTone(index.emoji[0], tone));
+}
+
 const words = (s: string) => s.toLowerCase().split(/[\s_:,-]+/).filter(Boolean);
 
 /**
@@ -130,7 +143,7 @@ export const COMPLETED_SHORTCODE = /(?:^|\s):([a-z0-9_+-]+):$/i;
 
 // Recents and the skin tone stay on this computer, like the sidebar's width.
 
-type Store = Pick<Storage, "getItem" | "setItem">;
+export type Store = Pick<Storage, "getItem" | "setItem">;
 export const RECENT_KEY = "emoji.recent";
 export const TONE_KEY = "emoji.tone";
 export const MAX_RECENT = 24;

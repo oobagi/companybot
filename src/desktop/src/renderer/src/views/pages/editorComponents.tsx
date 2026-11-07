@@ -1,4 +1,5 @@
-import { BlockNoteViewRaw, type ComponentProps, type Components, elementOverflow, preventFocusOnTap, useAutoFocus, useDictionary, useMergeRefs } from "@blocknote/react";
+import { BlockNoteViewRaw, type ComponentProps, type Components, elementOverflow, preventFocusOnTap, useAutoFocus, useDictionary, useMergeRefs , type SuggestionMenuProps } from "@blocknote/react";
+import { EmojiPanel } from "../chat/EmojiPanel";
 import { Menu as MantineMenu, Popover as MantinePopover } from "@mantine/core";
 import { type Ref, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -263,34 +264,19 @@ function SuggestionMenuLabel({ className, children }: P<"SuggestionMenu", "Label
 	return <div className={cx(menuLabel, className)}>{children}</div>;
 }
 
-// ---- Emoji picker (":" in the text)
+// ---- Emoji (":" in the text)
 
-function GridSuggestionMenuRoot({ className, children, id, columns }: P<"GridSuggestionMenu", "Root">) {
+/** What the `:` menu's one item carries: the typed query, and the emoji once one is clicked in the panel. */
+export type EmojiPick = { query: string; char?: string };
+
+/** The emoji panel as the `:` menu, driven by the typed query; mousedown is swallowed so the editor keeps focus for the pick. */
+export function EmojiMenu({ items, onItemClick }: SuggestionMenuProps<EmojiPick>) {
+	const query = items[0]?.query ?? "";
 	return (
-		// eslint-disable-next-line shadcn/no-inline-styles -- BlockNote decides the column count
-		<div id={id} role="grid" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }} className={cx(panel, "grid gap-1 overflow-y-auto p-2", className)}>
-			{children}
+		<div onMouseDown={(e) => e.preventDefault()} className={cx(panel, "w-80")}>
+			<EmojiPanel search={query} onPick={(char) => onItemClick?.({ query, char })} />
 		</div>
 	);
-}
-
-function GridSuggestionMenuItem({ className, isSelected, onClick, item, id }: P<"GridSuggestionMenu", "Item">) {
-	const ref = useKeepInView(isSelected);
-	return (
-		<div ref={ref} id={id} role="option" aria-selected={isSelected || undefined} onClick={onClick} className={cx("flex size-8 cursor-pointer items-center justify-center rounded-lg text-xl aria-selected:bg-neutral-100 hover:bg-neutral-100", className)}>
-			{item.icon}
-		</div>
-	);
-}
-
-function GridSuggestionMenuEmptyItem({ className, children, columns }: P<"GridSuggestionMenu", "EmptyItem">) {
-	// eslint-disable-next-line shadcn/no-inline-styles -- spans BlockNote's column count
-	return <div style={{ gridColumn: `1 / ${columns + 1}` }} className={cx("px-2 py-1.5 text-neutral-500", className)}>{children}</div>;
-}
-
-function GridSuggestionMenuLoader({ className, columns }: P<"GridSuggestionMenu", "Loader">) {
-	// eslint-disable-next-line shadcn/no-inline-styles -- spans BlockNote's column count
-	return <div style={{ gridColumn: `1 / ${columns + 1}` }}><Loader className={className} /></div>;
 }
 
 // ---- Table handles
@@ -442,13 +428,13 @@ function AttributionTooltip({ className, markClassName, backgroundColor, childre
 
 const toolbar = { Root: ToolbarRoot, Button: ToolbarButton, Select: ToolbarSelect };
 
-export const components: Components = {
+/** BlockNote's contract has a grid menu too (its own emoji picker); the app's `:` menu is the emoji panel (EmojiMenu), so none is drawn. */
+export const components = {
 	FormattingToolbar: toolbar,
 	LinkToolbar: toolbar,
 	FilePanel: { Root: PanelRoot, Button: PanelButton, FileInput: PanelFileInput, TabPanel: PanelTab, TextInput: PanelTextInput },
 	SideMenu: { Root: SideMenuRoot, Button: HandleButton },
 	SuggestionMenu: { Root: SuggestionMenuRoot, Item: SuggestionMenuItem, EmptyItem: SuggestionMenuEmptyItem, Label: SuggestionMenuLabel, Loader },
-	GridSuggestionMenu: { Root: GridSuggestionMenuRoot, Item: GridSuggestionMenuItem, EmptyItem: GridSuggestionMenuEmptyItem, Loader: GridSuggestionMenuLoader },
 	TableHandle: { Root: TableHandleRoot, ExtendButton },
 	Comments: { Card: CommentCard, CardSection: CommentCardSection, ExpandSectionsPrompt, Editor: CommentEditor, Comment },
 	Versioning: { Sidebar: VersioningSidebar, Header: VersioningHeader, Name: VersioningName, Snapshot: VersioningSnapshot, Loader },
@@ -460,4 +446,4 @@ export const components: Components = {
 		Popover: { Root: PopoverRoot, Trigger: PopoverTrigger, Content: PopoverContent },
 		Toolbar: toolbar,
 	},
-};
+} satisfies Omit<Components, "GridSuggestionMenu"> as Components;

@@ -7,7 +7,7 @@ import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import type { SuggestionKeyDownProps, SuggestionOptions, SuggestionProps } from "@tiptap/suggestion";
 import type { ChannelRef, Participant, SkillRef } from "./data";
-import { COMPLETED_SHORTCODE, type EmojiIndex, emojiForShortcode, loadEmoji, loadedEmoji, shortcodeMatches } from "./emoji";
+import { COMPLETED_SHORTCODE, type EmojiIndex, type Store, emojiForShortcode, loadEmoji, loadedEmoji, rememberEmoji, topEmoji } from "./emoji";
 
 // The composer is a one-block Tiptap editor (the same ProseMirror BlockNote uses for pages).
 // Mentions are atomic `token` nodes, so a chip is picked, deleted and sent as one thing:
@@ -45,8 +45,6 @@ export interface Menu {
 }
 
 const MAX_ITEMS = 8;
-/** Shorter than this and `:` is more likely a smiley or a time than a shortcode. */
-const MIN_EMOJI_QUERY = 2;
 
 /** `query` matches a name's start or any word's start ("sa" finds "Sam Lee" and "Ada Sampson"). */
 export const matches = (name: string, query: string) => {
@@ -55,10 +53,13 @@ export const matches = (name: string, query: string) => {
 	return n.startsWith(q) || n.split(/[\s-]+/).some((w) => w.startsWith(q));
 };
 
-/** The emoji `:query` offers, by shortcode. */
-export function emojiCandidates(index: EmojiIndex, query: string): Candidate[] {
-	if (query.length < MIN_EMOJI_QUERY) return [];
-	return shortcodeMatches(index, query, MAX_ITEMS).map((m) => ({ kind: "emoji", id: m.shortcode, label: m.emoji.char }));
+/**
+ * The `:query` menu is the emoji panel (EmojiPanel, driven by the query), so its one candidate is what Enter
+ * takes: the best match (`topEmoji`); none, and the menu closes.
+ */
+export function emojiCandidates(index: EmojiIndex, query: string, store: Store): Candidate[] {
+	const top = topEmoji(index, query, store);
+	return top ? [{ kind: "emoji", id: query, label: top }] : [];
 }
 
 export function candidatesFor(sources: Sources, trigger: Exclude<Trigger, ":">, query: string): Candidate[] {
@@ -118,6 +119,11 @@ export class SuggestionMenu {
 		if (this.menu) this.set({ ...this.menu, index });
 	}
 
+	/** An emoji clicked in the panel (its kind is read by nothing: insertEmoji takes the label). */
+	pickEmoji(char: string) {
+		if (this.command) this.command({ id: char, label: char, kind: "user" });
+	}
+
 	private set(menu: Menu | null) {
 		this.menu = menu;
 		this.publish(this.open ? menu : null);
@@ -132,7 +138,7 @@ export class SuggestionMenu {
 		};
 		return {
 			char: trigger,
-			items: async ({ query }) => (trigger === ":" ? emojiCandidates(await loadEmoji(), query) : candidatesFor(this.sources(), trigger, query)),
+			items: async ({ query }) => (trigger === ":" ? emojiCandidates(await loadEmoji(), query, localStorage) : candidatesFor(this.sources(), trigger, query)),
 			...(trigger === ":" && { command: insertEmoji }),
 			findSuggestionMatch: ({ $position }) => {
 				const before = $position.nodeBefore;
@@ -166,6 +172,8 @@ export class SuggestionMenu {
 
 /** A picked emoji replaces the `:query` typed, with a space after like a chip. */
 const insertEmoji: SuggestionOptions<Candidate, TokenAttrs>["command"] = ({ editor, range, props }) => {
+	if (!props.label) return;
+	rememberEmoji(localStorage, props.label);
 	editor.chain().focus().insertContentAt(range, `${props.label} `).run();
 };
 

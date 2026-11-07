@@ -6,13 +6,15 @@ import { type Emoji, type EmojiIndex, groupIcons, groups, loadEmoji, loadedEmoji
 const tones = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
 
 /**
- * The full emoji picker: search, categories, recents and a skin tone, all on this computer.
- * It fills whatever panel holds it (a `Popover`); `onPick` gets the emoji to put in.
+ * The emoji picker, the one everywhere: search, categories, recents and a skin tone, all on this computer.
+ * It fills whatever panel holds it (a `Popover`); `onPick` gets the emoji to put in. With `search`, it's
+ * driven by text typed elsewhere (`:smi` in a message or a page, `topEmoji` for Enter), so it has no box.
  */
-export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
+export function EmojiPanel({ onPick, search }: { onPick: (emoji: string) => void; search?: string }) {
 	const [index, setIndex] = useState<EmojiIndex | undefined>(loadedEmoji);
 	const [failed, setFailed] = useState(false);
-	const [query, setQuery] = useState("");
+	const [typed, setTyped] = useState("");
+	const query = search ?? typed;
 	const [tone, setTone] = useState(() => savedTone(localStorage));
 	const [recent, setRecent] = useState(() => recentEmoji(localStorage));
 	const [hover, setHover] = useState<Emoji>();
@@ -36,10 +38,10 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 
 	return (
 		<div className="flex w-80 flex-col gap-2 p-2">
-			<input
+			{search === undefined && <input
 				autoFocus
 				value={query}
-				onChange={(e) => setQuery(e.target.value)}
+				onChange={(e) => setTyped(e.target.value)}
 				onKeyDown={(e) => {
 					if (e.key !== "Enter") return;
 					e.preventDefault();
@@ -48,7 +50,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 				placeholder="Search emoji"
 				aria-label="Search emoji"
 				className={`w-full ${compactControlClass}`}
-			/>
+			/>}
 			{!query && (
 				<div className="flex justify-between">
 					{recent.length > 0 && (
