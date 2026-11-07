@@ -7,7 +7,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
 import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton } from "../ui";
+import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton, fullControlClass, hintClass } from "../ui";
 
 import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
@@ -222,13 +222,10 @@ function NewRoleDialog({ onClose }: { onClose: () => void }) {
 	const [name, setName] = useState("");
 	const { error, busy, run } = useRun();
 	return (
-		<Modal title="New role" onClose={onClose}>
+		<Modal title="New role" size="md" onClose={onClose}>
 			<Form onSubmit={() => run(create({ name }).then((id) => navigate("settings", "roles", id)), onClose)}>
-				<Settings>
-					<Setting label="Name" hint="Starts with every switch off. You turn on what it can do next.">
-						<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={wideControlClass} />
-					</Setting>
-				</Settings>
+				<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={fullControlClass} />
+				<p className={hintClass}>It starts with every switch off. You turn on what it can do next.</p>
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>

@@ -417,7 +417,7 @@ export function Settings({ title, note, action, children }: { title?: string; no
  */
 export function Setting({ label, hint, wide, children }: { label: string; hint?: string; wide?: boolean; children: React.ReactNode }) {
 	return (
-		<div className={`flex px-4 py-3 ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
+		<div className={`flex px-4 py-2.5 ${wide ? "flex-col gap-2" : "items-center gap-6"}`}>
 			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<p className="text-sm font-medium">{label}</p>
 				{hint && <p className="text-xs text-neutral-500">{hint}</p>}
@@ -614,8 +614,8 @@ export const listClass = "card-list flex flex-col divide-y divide-neutral-100 ro
 export const toolbarClass = "flex flex-wrap items-center gap-2 text-sm";
 /** A compact control in a screen's toolbar or a settings row: search boxes, pickers. */
 export const wideControlClass = `${compactControlClass} w-64`;
-/** A `Question`'s control: full width and a size up, so it reads at a glance. */
-export const questionControlClass = `${compactControlClass} w-full`;
+/** A control on its own, across its space: a `Question`'s, or a dialog's that asks one thing. */
+export const fullControlClass = `${compactControlClass} w-full`;
 
 /** A line between groups in a menu. */
 export function MenuDivider() {

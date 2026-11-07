@@ -200,7 +200,8 @@ export function Layer({ onClose, className, overlayClassName, children }: { onCl
  * A dialog. Its fields are `Settings`/`Setting` rows in a card, exactly as on a settings screen (never
  * stacked fields); a form (create, rename, invite) ends with `DialogButtons` (Cancel, then the action) at
  * the bottom right. Leave, Archive and the like go in `menu`, the ⋯ beside Close. `size="md"` for a yes/no
- * question with no rows; `size="xl"` for side-by-side content (page history).
+ * question with no rows, and for one that asks one thing (a name), which is just that field, full width
+ * (`fullControlClass`), the title asking it; `size="xl"` for side-by-side content (page history).
  */
 export function Modal({ title, size = "lg", menu, onClose, children }: { title: string; size?: "md" | "lg" | "xl"; menu?: (close: () => void) => React.ReactNode; onClose: () => void; children: React.ReactNode }) {
 	return (
@@ -212,8 +213,8 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 			{/* The title stays put and the content scrolls under it, fading out as in chat (`Scroll`); `DialogButtons` stick to the bottom the same way. */}
 			<Scroll
 				header={
-					<header className="flex items-center gap-1 px-6 pt-6 pb-5">
-						<MantineModal.Title className="min-w-0 flex-1 truncate text-lg font-medium">{title}</MantineModal.Title>
+					<header className="flex items-center gap-1 pt-4 pr-3 pb-3 pl-5">
+						<MantineModal.Title className="min-w-0 flex-1 truncate text-base font-semibold">{title}</MantineModal.Title>
 						{menu && <MoreMenu label="More">{menu}</MoreMenu>}
 						<IconButton label="Close" onClick={onClose}>
 							<CloseIcon />
@@ -221,7 +222,7 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 					</header>
 				}
 			>
-				<div className="flex flex-col gap-5 px-6 pb-6">
+				<div className="flex flex-col gap-4 px-5 pb-5">
 					{children}
 				</div>
 			</Scroll>
@@ -237,7 +238,7 @@ const widths = { md: "max-w-md", lg: "max-w-xl", xl: "max-w-4xl" };
 export function DialogButtons({ children }: { children: React.ReactNode }) {
 	const under = useContext(ScrollUnder);
 	return (
-		<div className="scrim-bottom sticky bottom-0 z-30 -mt-4 -mb-6 flex justify-end gap-2 pt-4 pb-6" data-under={under || undefined}>
+		<div className="scrim-bottom sticky bottom-0 z-30 -mt-4 -mb-5 flex justify-end gap-2 pt-4 pb-5" data-under={under || undefined}>
 			{children}
 		</div>
 	);

@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import { useState } from "react";
 import { api, errorMessage } from "../api";
-import { Form, Notice, Question, descriptionClass, questionControlClass, primaryButton, secondaryButton, useRun } from "../ui";
+import { Form, Notice, Question, descriptionClass, fullControlClass, primaryButton, secondaryButton, useRun } from "../ui";
 import { Mark, Split } from "./Landing";
 
 /**
@@ -52,12 +52,12 @@ export function SignIn({ onBack }: { onBack?: () => void }) {
 								value={code}
 								onChange={(e) => setCode(e.target.value)}
 								placeholder="123456"
-								className={`${questionControlClass} tracking-widest`}
+								className={`${fullControlClass} tracking-widest`}
 							/>
 						</Question>
 					) : (
 						<Question label="Email">
-							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={questionControlClass} />
+							<input autoFocus aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={fullControlClass} />
 						</Question>
 					)}
 				<Notice>{error}</Notice>

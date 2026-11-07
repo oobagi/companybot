@@ -8,7 +8,7 @@ import { CurrencySelect } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { ChannelIcon, CloseIcon, SignOutIcon } from "../icons";
 import { appTabs } from "./RailPins";
-import { Form, Notice, Question, chipRemoveButton, descriptionClass, primaryButton, secondaryButton, questionControlClass, useRun } from "../ui";
+import { Form, Notice, Question, chipRemoveButton, descriptionClass, primaryButton, secondaryButton, fullControlClass, useRun } from "../ui";
 import { AgentBadge, Avatar, AvatarStack } from "./chat/common";
 import { Group, Item } from "./chat/Sidebar";
 import { type OnboardingStep, onboardingSteps, parseInvites } from "./onboarding/logic";
@@ -87,10 +87,10 @@ export function Onboarding({ onDone }: { onDone: (id: Id<"workspaces">) => void 
 					{step === "company" && (
 						<div className="flex flex-col gap-4">
 							<Question label="Company">
-								<input autoFocus aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={questionControlClass} />
+								<input autoFocus aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Acme" className={fullControlClass} />
 							</Question>
 							<Question label="Currency" hint="For amounts on deals and invoices. Changeable later in Settings.">
-								<CurrencySelect className={questionControlClass} value={currency} onChange={setCurrency} />
+								<CurrencySelect className={fullControlClass} value={currency} onChange={setCurrency} />
 							</Question>
 						</div>
 					)}
@@ -173,7 +173,7 @@ function InviteBox({
 	const input = useRef<HTMLInputElement>(null);
 	return (
 		<Question label="Emails" hint="Type one and press Enter, or paste a list.">
-			<div onClick={() => input.current?.focus()} className={`${questionControlClass} flex min-h-24 cursor-text flex-wrap content-start gap-1.5`}>
+			<div onClick={() => input.current?.focus()} className={`${fullControlClass} flex min-h-24 cursor-text flex-wrap content-start gap-1.5`}>
 				{invites.map((email) => (
 					<span key={email} className="flex items-center gap-1.5 rounded-full bg-neutral-100 py-0.5 pr-1 pl-0.5 text-sm text-neutral-700">
 						<Avatar name={email} size="xs" />
@@ -316,7 +316,7 @@ export function NameOnboarding() {
 function NameField({ name, onChange }: { name: string; onChange: (name: string) => void }) {
 	return (
 		<Question label="Your name">
-				<input autoFocus aria-label="Your name" value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={questionControlClass} />
+				<input autoFocus aria-label="Your name" value={name} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Jaden" maxLength={60} className={fullControlClass} />
 			</Question>
 	);
 }

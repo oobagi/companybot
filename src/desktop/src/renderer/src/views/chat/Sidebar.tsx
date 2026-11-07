@@ -10,7 +10,7 @@ import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
 import { type Section, type SectionId, itemsGroup, unsectionedList, useSections, useUnsectioned } from "../../sections";
 import { type DragListOptions, type DragProps, type RowDrag, splitDrag, useDragList, useDragStatic, useSortable } from "../../sortable";
-import { CountBadge, Form, Notice, RenameInput, Setting, Settings, chevronButton, primaryButton, secondaryButton, surfaceButton, titleButton, trailingAction, useClock, useRun, wideControlClass } from "../../ui";
+import { CountBadge, Form, Notice, RenameInput, chevronButton, primaryButton, secondaryButton, surfaceButton, titleButton, trailingAction, useClock, useRun, fullControlClass } from "../../ui";
 import { AgentBadge, Avatar, DialogButtons, MenuItem, Modal, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
@@ -421,13 +421,9 @@ export function NewSection({ tab, onClose }: { tab: SectionTab; onClose: () => v
 	const [name, setName] = useState("");
 	const { error, run } = useRun();
 	return (
-		<Modal title="New section" onClose={onClose}>
+		<Modal title="New section" size="md" onClose={onClose}>
 			<Form onSubmit={() => run(create({ tab, name }), onClose)}>
-				<Settings>
-					<Setting label="Name">
-						<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder={tab === "chat" ? "e.g. Sales" : tab === "drive" ? "e.g. Clients" : "e.g. Pipeline"} className={wideControlClass} />
-					</Setting>
-				</Settings>
+				<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder={tab === "chat" ? "e.g. Sales" : tab === "drive" ? "e.g. Clients" : "e.g. Pipeline"} className={fullControlClass} />
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
