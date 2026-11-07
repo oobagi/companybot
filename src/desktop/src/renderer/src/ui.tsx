@@ -453,26 +453,26 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
-/** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
-export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
+/** An input, select or textarea: the same height as `secondaryButton` so a row of them lines up. */
+export const compactControlClass = `rounded-xl px-3 py-2 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
-export const compactButton = `inline-flex min-h-7.5 items-center justify-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+export const compactButton = `inline-flex min-h-9.5 items-center justify-center gap-1.5 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 /** `compactButton` inside a line of small text (a message's notes, a paused-agents line): the same box, smaller. */
 export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 /** `compactButton` for a destructive action (Leave channel): the same box, red text. */
-export const compactDangerButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 ${disabledButtonClass}`;
+export const compactDangerButton = `inline-flex min-h-9.5 items-center justify-center gap-1.5 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 ${disabledButtonClass}`;
 /** Submits a row of compact controls (Invite, Add, Save): their box, filled. */
-export const compactPrimaryButton = `rounded-lg border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+export const compactPrimaryButton = `inline-flex min-h-9.5 items-center justify-center gap-1.5 rounded-xl border border-neutral-900 bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 export const primaryButton = `rounded-xl bg-neutral-900 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const dangerButton = `rounded-xl bg-red-600 px-4 py-2 text-sm text-white ${disabledButtonClass}`;
 export const secondaryButton = `rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 /** Buttons in the top bar: quiet ones, and the create action (`NewButton`). */
-export const barButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
+export const barButton = `flex min-h-9.5 items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
 export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
-export const barDangerButton = `flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
-export const barPrimaryButton = `flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
+export const barDangerButton = `flex min-h-9.5 items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-neutral-600 hover:bg-red-50 hover:text-red-700 ${disabledButtonClass}`;
+export const barPrimaryButton = `flex min-h-9.5 items-center gap-1.5 rounded-xl bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 /** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
 export const trailingAction =
 	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
