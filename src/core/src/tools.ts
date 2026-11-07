@@ -6,6 +6,7 @@ import type { ChatStore } from "./chat";
 import type { ImageStore } from "./image-tools";
 import type { MemoryStore } from "./memory";
 import type { PageStore } from "./page-tools";
+import type { FileStore } from "./drive-tools";
 import type { RecordStore } from "./record-tools";
 import type { SkillStore } from "./skills";
 import type { Risk } from "./action-rules";
@@ -33,6 +34,8 @@ export interface ToolContext {
 	records: RecordStore;
 	/** Pages and records' page bodies, as the actor may read and change them. */
 	pages: PageStore;
+	/** Files in Drive, as the actor may read and change them (drive-tools.ts). */
+	files: FileStore;
 	/** This turn's data results, by ref, so widgets can show them. */
 	results: ResultStore;
 	/** Web search and pages, capped per turn (web.ts). */

@@ -249,19 +249,28 @@ const actionSlot = createContext<HTMLElement | null>(null);
  */
 export function Page({
 	title,
+	menu,
+	badge,
 	crumbs,
 	heading,
 	description,
 	actions,
 	wide,
+	gutter,
 	children,
 }: {
 	title: string;
+	/** Actions for what's on screen (History, Move to…, Archive): the title opens them, with a caret to say so. */
+	menu?: (close: () => void) => React.ReactNode;
+	/** After the title in the bar: its access lock (`AccessLock`), as the sidebar shows it on the row. */
+	badge?: React.ReactNode;
 	crumbs?: Crumb[];
 	heading?: React.ReactNode;
 	description?: string;
 	actions?: React.ReactNode;
 	wide?: boolean;
+	/** Room beside the column, title included, for the page editor's + and ⋮⋮ (54px): they never hang over the sidebar. */
+	gutter?: boolean;
 	children: React.ReactNode;
 }) {
 	// Where `PageActions` from the content land, after `actions`.
@@ -270,18 +279,32 @@ export function Page({
 		<Scroll
 			className="@container"
 			header={
-				<TopBar crumbs={crumbs} title={<span className="truncate">{title}</span>} description={description}>
+				<TopBar
+					crumbs={crumbs}
+					title={
+						<>
+							{menu ? (
+								<Popover trigger={<><span className="truncate">{title}</span><CaretDownIcon className="shrink-0 text-neutral-400" /></>} className="no-drag -mx-1 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-neutral-100 aria-expanded:bg-neutral-100" panelClassName="w-56 p-1">
+									{menu}
+								</Popover>
+							) : (
+								<span className="truncate">{title}</span>
+							)}
+							{badge}
+						</>
+					}
+					description={description}
+				>
 					{actions}
 					<span ref={setSlot} className="contents" />
 				</TopBar>
 			}
 		>
 			<actionSlot.Provider value={slot}>
-				{/* `--bleed`: from the column's content out to the screen's edge, for `.bleed`. */}
+				{/* The column's text is `--text` wide, padded `--pad`. `--bleed`: from the text out to the screen's edge, for `.bleed`. */}
 				<div
-					className={`mx-auto flex w-full flex-1 flex-col gap-6 px-6 pt-8 pb-10 ${
-						wide ? "max-w-5xl [--bleed:max(1.5rem,calc((100cqw-64rem)/2+1.5rem))]" : "max-w-2xl [--bleed:max(1.5rem,calc((100cqw-42rem)/2+1.5rem))]"
-					}`}
+					style={{ "--text": wide ? "61rem" : "39rem", "--pad": gutter ? "4rem" : "1.5rem" } as React.CSSProperties}
+					className="mx-auto flex w-full max-w-[calc(var(--text)+2*var(--pad))] flex-1 flex-col gap-6 px-(--pad) pt-6 pb-10 [--bleed:max(var(--pad),calc((100cqw-var(--text))/2))]"
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
 					{children}
@@ -582,7 +605,7 @@ export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${dis
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
 export const insetClass = "px-[17px]";
 /** Rows in one bordered box, split by lines. In a dialog the dialog is the box: no border, rows flush (styles.css). */
-export const listClass = "flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
+export const listClass = "card-list flex flex-col divide-y divide-neutral-100 rounded-xl border border-neutral-200";
 /**
  * The row of compact controls atop a screen's content: search and filters, or a one-line add
  * form (`Form className`). One class so every screen's row has the same height and spacing.
@@ -643,7 +666,7 @@ export function NotFound({ crumbs, loaded, icon, title, children = "It may have 
 /** Placeholder shown only on first load; later visits come from the cache. */
 export function Loading() {
 	return (
-		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 py-10">
+		<div className="mx-auto flex w-full max-w-2xl animate-pulse flex-col gap-3 px-6 pt-6 pb-10">
 			<div className="h-4 w-1/3 rounded bg-neutral-100" />
 			<div className="h-4 w-2/3 rounded bg-neutral-100" />
 			<div className="h-4 w-1/2 rounded bg-neutral-100" />

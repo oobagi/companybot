@@ -7,7 +7,7 @@ export default {
 	text: `# Archive
 [Archive](#/settings/archive) holds archived items until you restore them or explicitly delete them forever.
 
-- **What goes there**: records, databases, fields, pages, channels, agents, skills, automations and team memories. Personal memories are deleted for good.
+- **What goes there**: records, databases, fields, pages, folders (with everything in them), files, channels, agents, skills, automations and team memories. Personal memories are deleted for good.
 - **Restore**: anyone who could delete the item can restore it, whoever deleted it. It comes back where it was, links included.
 - **Before archiving**: Companybot asks you to confirm. Archiving preserves content and never automatically deletes it.
 - **Delete forever**: people whose role can delete things forever from Archive (agents never can).

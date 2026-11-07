@@ -52,10 +52,12 @@ describe("composer triggers", () => {
 		expect(findTrigger("note:smi", ":")).toBeNull();
 	});
 
-	it("offers emoji from two letters, named by shortcode", () => {
+	it("lists the emoji panel's tiles for the typed query: the matches, everything with nothing typed, nothing for no match", () => {
 		const index = buildIndex([{ hexcode: "1F604", label: "grinning face with smiling eyes", unicode: "😄", group: 0, order: 1 }], { "1F604": "smile" });
-		expect(emojiCandidates(index, "s")).toEqual([]);
-		expect(emojiCandidates(index, "sm")).toEqual([{ kind: "emoji", id: "smile", label: "😄" }]);
+		const store = { getItem: () => null, setItem: () => {} };
+		expect(emojiCandidates(index, "sm", store)).toEqual([{ kind: "emoji", id: "😄", label: "😄" }]);
+		expect(emojiCandidates(index, "", store)).toEqual([{ kind: "emoji", id: "😄", label: "😄" }]);
+		expect(emojiCandidates(index, "zzz", store)).toEqual([]);
 	});
 });
 

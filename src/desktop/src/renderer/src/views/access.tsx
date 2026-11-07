@@ -5,17 +5,20 @@ import { CaretDownIcon, CheckIcon, PlusIcon, PrivateIcon, RestoreIcon } from "..
 import { Notice, Section, compactButton, hintClass, listClass, useRun } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 
-// Who can access a channel, database or page (core place-access.ts): Everyone or roles, each at
-// View or Edit (Post, for a channel). One control for all three, so they read the same.
+// Who can access a channel, database, page, folder or file (core place-access.ts): Everyone or roles,
+// each at View or Edit (Post, for a channel). One control for all of them, so they read the same.
 
 export type AccessEntry = { role: string; level: "view" | "edit" };
+
+/** Something in Drive that can follow a list instead of keeping its own: its parent page's, its folder's, or the default. */
+export type Follow = { following: boolean; parent?: "page" | "folder"; what?: "page" | "folder" | "file"; onFollow: () => Promise<unknown> };
 
 /**
  * The "Who can access" section of a dialog: one row per role, its level a quiet menu with Remove
  * under it, and + Add on the heading (as in a share dialog); editable when `onSave` is given; each
  * change saves at once (the server checks who may). `hint` adds a line under the heading.
- * `follow`: a page that can follow its parent's list (a top-level page's is the default, Everyone at
- * Edit). Changing anything while it follows gives the page its own list; a button goes back.
+ * `follow`: a page, folder or file that can follow its parent's list (a top-level one's is the default,
+ * Everyone at Edit). Changing anything while it follows gives it its own list; a button goes back.
  */
 export function WhoCanAccess({
 	access,
@@ -28,7 +31,7 @@ export function WhoCanAccess({
 	onSave?: (access: AccessEntry[]) => Promise<unknown>;
 	kind: PlaceKind;
 	hint?: string;
-	follow?: { following: boolean; parent: boolean; onFollow: () => Promise<unknown> };
+	follow?: Follow;
 }) {
 	const roles = useQuery(api.roles.list);
 	const me = useQuery(api.workspace.me);
@@ -51,10 +54,11 @@ export function WhoCanAccess({
 	const without = (role: string) => access.filter((x) => x.role !== role);
 	const guarded = access.some((e) => locksOut(without(e.role)));
 	const addable = [{ id: EVERYONE, name: "Everyone" }, ...roles.filter((r) => r.builtIn !== "owner")].filter((r) => !access.some((e) => e.role === r.id));
-	const from = follow?.parent ? "its parent page" : "the default";
+	const from = follow?.parent === "folder" ? "its folder" : follow?.parent === "page" ? "its parent page" : "the default";
+	const what = follow?.what ?? "page";
 	const lines = [
 		hint,
-		follow && (follow.following ? `Same as ${from}; changing it gives this page its own list.` : "This page has its own list."),
+		follow && (follow.following ? `Same as ${from}; changing it gives this ${what} its own list.` : `This ${what} has its own list.`),
 		`Owners can always ${verb}${kind === "channel" ? " in it" : " it"}.`,
 		onSave && guarded && `Taking away your own ${verb === "post" ? "Post" : "Edit"} needs an Owner.`,
 	];
@@ -71,7 +75,7 @@ export function WhoCanAccess({
 	);
 	const reset = follow && !follow.following && (
 		<button type="button" className={compactButton} onClick={() => run(follow.onFollow())}>
-			<RestoreIcon /> {follow.parent ? "Use parent page's" : "Reset to default"}
+			<RestoreIcon /> {follow.parent === "folder" ? "Use folder's" : follow.parent === "page" ? "Use parent page's" : "Reset to default"}
 		</button>
 	);
 	return (

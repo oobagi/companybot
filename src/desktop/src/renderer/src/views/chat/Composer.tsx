@@ -11,6 +11,7 @@ import type { Mentions } from "./data";
 import { pastedFiles } from "./composerFiles";
 import { keepDraft, textKey, useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn, typedMentions } from "./editor";
+import { EmojiPanel } from "./EmojiPanel";
 import { Form, metadataClass, rowButton, sendButton } from "../../ui";
 
 export type SendWith = Doc<"preferences">["sendWith"];
@@ -114,7 +115,7 @@ export function Composer({
 
 	return (
 		<div className="relative flex w-full flex-col">
-			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} />}
+			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} onPickEmoji={(char) => suggestions.pickEmoji(char)} />}
 			<div className="flex flex-col">
 				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300 ${attachments ? "" : "pl-4"}`} onSubmit={submit}>
 					{attachments && <PendingFiles attachments={attachments} />}
@@ -141,29 +142,32 @@ export function Composer({
 
 const hints: Record<Menu["trigger"], string> = { "@": "People and agents", "#": "Channels", "/": "Skills", ":": "Emoji" };
 
-/** The menu over the box. Arrows move, Enter or Tab picks, Escape closes; the mouse works too. */
-function Picker({ menu, onHighlight, onPick }: { menu: Menu; onHighlight: (i: number) => void; onPick: (i: number) => void }) {
+/**
+ * The menu over the box. Arrows move, Enter or Tab picks, Escape closes; the mouse works too. For `:` it's the
+ * emoji panel, driven by what's typed (its one item is what Enter takes).
+ */
+function Picker({ menu, onHighlight, onPick, onPickEmoji }: { menu: Menu; onHighlight: (i: number) => void; onPick: (i: number) => void; onPickEmoji: (char: string) => void }) {
 	return (
-		<div className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg">
-			{menu.items[0]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>}
-			<ul role="listbox" className="max-h-96 overflow-y-auto pb-1">
-				{menu.items.map((c, i) => (
-					<li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === menu.index}>
-						{/* Records come after people and agents, under their own heading. */}
-						{c.kind === "record" && menu.items[i - 1]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>Records</p>}
-						<button
-							type="button"
-							// mousedown, not click: the editor must keep focus, or the chip lands nowhere.
-							onMouseDown={(e) => (e.preventDefault(), onPick(i))}
-							onMouseEnter={() => onHighlight(i)}
-							data-active={i === menu.index || undefined}
-							className={`${rowButton} items-center gap-2`}
-						>
-							<Row candidate={c} />
-						</button>
-					</li>
-				))}
-			</ul>
+		// mousedown is swallowed: the editor must keep focus, or the pick lands nowhere.
+		<div onMouseDown={(e) => e.preventDefault()} className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg">
+			{menu.trigger === ":" ? (
+				<EmojiPanel search={menu.query} selected={menu.items[menu.index]?.label} onPick={onPickEmoji} />
+			) : (
+				<>
+					{menu.items[0]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>}
+					<ul role="listbox" className="max-h-96 overflow-y-auto pb-1">
+						{menu.items.map((c, i) => (
+							<li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === menu.index}>
+								{/* Records come after people and agents, under their own heading. */}
+								{c.kind === "record" && menu.items[i - 1]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>Records</p>}
+								<button type="button" onClick={() => onPick(i)} onMouseEnter={() => onHighlight(i)} data-active={i === menu.index || undefined} className={`${rowButton} items-center gap-2`}>
+									<Row candidate={c} />
+								</button>
+							</li>
+						))}
+					</ul>
+				</>
+			)}
 		</div>
 	);
 }

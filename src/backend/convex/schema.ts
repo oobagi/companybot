@@ -1,5 +1,5 @@
 import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
-import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
+import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
@@ -8,8 +8,9 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
@@ -416,6 +417,16 @@ export default defineSchema({
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_entity", ["entityId"]),
 
+	// Sections people add to a tab's sidebar (core `sectionTabs`), shared by the workspace like Discord's
+	// categories (sidebarSections.ts). `ids`: what it holds, in order; each item is in one of its tab's
+	// sections at most. Their order is the `sectionOrder` arrangement; who folds one, `folded`.
+	sidebarSections: defineTable({
+		workspaceId: v.id("workspaces"),
+		tab: sectionTab,
+		name: v.string(),
+		ids: v.array(v.string()),
+	}).index("by_workspace", ["workspaceId", "tab"]),
+
 	// Personal preferences follow the person across devices.
 	preferences: defineTable({
 		userId: v.id("users"),
@@ -434,6 +445,8 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 		/** Recents under their pins on the rail. Left out means shown. */
 		showRecents: v.optional(v.boolean()),
+		/** Drive shows each level's folders above its pages and files, as Finder can (off: one order by hand). */
+		foldersFirst: v.optional(v.boolean()),
 	}).index("by_user", ["userId"]),
 
 	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
@@ -1300,9 +1313,14 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
-		/** Only standalone pages have one: inside another page, or inside a record's body. */
+		/**
+		 * A folder in Drive: a page row with no content, holding pages, files and other folders (driveFiles.ts).
+		 * Unset is a page. Folders sit in folders or at the top level; pages hold sub-pages only.
+		 */
+		kind: v.optional(v.literal("folder")),
+		/** Only standalone pages have one: inside a page (a record's too, as sub-pages) or a folder. */
 		parentId: v.optional(v.id("pages")),
-		/** Standalone pages only: a record's body shows the record's name. */
+		/** Standalone pages only: a record's body shows the record's name. A folder's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
@@ -1350,6 +1368,29 @@ export default defineSchema({
 	// Pictures in a page: uploaded (pages.addImage), or pasted from another page in the workspace
 	// (pageOps.adoptImages). Kept while the page is, even once out of its content, so restoring an
 	// older version brings them back. The file goes with the last page that has it.
+	// A file in Drive (driveFiles.ts): uploaded like a chat file (files.upload), then put in a folder or at the
+	// top level. Its type is what its bytes said. Who can access follows its folder unless it sets its own.
+	driveFiles: defineTable({
+		/** Sources retained across edits and later audience changes. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		/** The folder it's in; unset at Drive's top level. Never a page. */
+		parentId: v.optional(v.id("pages")),
+		...fileInfo.fields,
+		storageId: v.id("_storage"),
+		/** In Archive (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Who can see and change it. Unset follows its folder; a top-level file's is Everyone at Edit. */
+		access,
+	})
+		.index("by_workspace", ["workspaceId", "archived", "name"])
+		.index("by_parent", ["workspaceId", "parentId", "archived", "name"])
+		.index("by_storage", ["storageId"])
+		.searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId", "archived"] }),
+
 	pageImages: defineTable({ workspaceId: v.id("workspaces"), pageId: v.id("pages"), storageId: v.id("_storage"), url: v.string() })
 		.index("by_page", ["pageId", "url"])
 		.index("by_url", ["workspaceId", "url"])
@@ -1482,11 +1523,11 @@ export default defineSchema({
 	trash: defineTable({
 		workspaceId: v.id("workspaces"),
 		kind: trashKind,
-		/** The item's row id: record, database, field, page, chat, agent, or skill or automation install. */
+		/** The item's row id: record, database, field, page or folder, file, chat, agent, or skill or automation install. */
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
-		/** Page deletion included live children, captured when it entered Trash. */
+		/** Page or folder deletion included live children (sub-pages, or a folder's contents), captured when it entered Trash. */
 		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),

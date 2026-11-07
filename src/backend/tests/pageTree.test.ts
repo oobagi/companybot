@@ -5,7 +5,7 @@ import { PAGE_DEPTH_MAX } from "../convex/pageTree";
 import { IDLE_MS, readDoc, writeBlocks } from "../convex/pageOps";
 import { memberOf } from "../convex/lib";
 
-import { agentTurn, agentsOf, generalOf, settle, ownerAndMember, signIn, identityOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, settle, ownerAndMember, oldChild, signIn, identityOf } from "./helpers";
 
 beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
@@ -60,7 +60,7 @@ describe("nested pages", () => {
 	it("lets slash creation place the block at the cursor instead of appending a second copy", async () => {
 		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
-		const child = await owner.mutation(api.pages.create, { title: "Untitled", parentId: root, insertInParent: false });
+		const child = await oldChild(t, owner, "Untitled", root);
 		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("");
 		expect((await owner.query(api.pages.children, { parentId: root, ...opts })).page.map((p) => p._id)).toEqual([child]);
 		await t.run(async (ctx) => {
@@ -385,7 +385,7 @@ describe("pages inside a record's page", () => {
 		expect(made).not.toHaveProperty("error");
 		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: recordId } })).rows).toEqual([expect.objectContaining({ id: made.id, title: "Agent plan" })]);
 		const read = (await t.mutation(internal.pageTools.readFor, { turnId, record: recordId })) as { subpages: unknown[] };
-		expect(read.subpages).toEqual([{ id: made.id, title: "Agent plan" }]);
+		expect(read.subpages).toEqual([{ id: made.id, kind: "page", title: "Agent plan" }]);
 		expect(await t.mutation(internal.pageTools.readFor, { turnId, page: made.id })).toMatchObject({ ancestors: [expect.objectContaining({ title: "Quartz", record: recordId })] });
 		// A record nobody has opened gets its page when an agent puts one inside it.
 		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: other } })).rows).toEqual([]);

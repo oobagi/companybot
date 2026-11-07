@@ -1,4 +1,4 @@
-import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
+import { type BlockKeyboardOption, BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
 import { pageBlockConfig } from "@companybot/backend/page-blocks";
 import { pageHref } from "@companybot/core/page-links";
@@ -17,7 +17,8 @@ export const PageReferences = createContext<Map<string, PageReference> | null>(n
 
 /**
  * A page is an atomic block. Its title comes from the page, never from editable link text, and the block stores
- * only the id (backend pageBlocks.ts): one you can't open shows as "Page".
+ * only the id (backend pageBlocks.ts): one you can't open shows as "Page". The editor's + and ⋮⋮ sit on the
+ * title's line, as on any block's first line (PageEditor.tsx).
  */
 export function PageBlockRow({ pageId, editable = false }: { pageId: string; editable?: boolean }) {
 	const page = useQuery(api.pages.get, { pageId });
@@ -29,10 +30,10 @@ export function PageBlockRow({ pageId, editable = false }: { pageId: string; edi
 	const [renaming, setRenaming] = useState(false);
 	const name = page ? page.title : "Page";
 	return (
-		<div className="group/page flex w-full min-w-0 items-center rounded-md hover:bg-neutral-100/70" contentEditable={false}>
-			<a href={pageHref(pageId)} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
+		<div className="group/page flex w-full min-w-0 cursor-pointer items-center rounded-md select-none hover:bg-neutral-100/70" contentEditable={false}>
+			<a href={pageHref(pageId)} draggable={false} onClick={(e) => { e.preventDefault(); navigate("pages", pageId); }} className="page-block-link flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pr-2 pl-0.5 text-inherit focus-visible:outline-2 focus-visible:outline-neutral-400">
 				<PageIcon className="shrink-0 text-neutral-400" />
-				<span className="truncate font-medium underline decoration-neutral-300 underline-offset-4">{name}</span>
+				<span className="truncate underline decoration-neutral-300 underline-offset-2">{name}</span>
 				{page?.archived && <span className="text-xs text-neutral-400">Archived</span>}
 				{page === null && <span className="text-xs text-neutral-400">Unavailable</span>}
 			</a>
@@ -56,5 +57,15 @@ const pageBlock = createReactBlockSpec(pageBlockConfig, {
 	toExternalHTML: ({ block }) => <a href={pageHref(block.props.pageId)}>Page</a>,
 })();
 
-export const pageEditorSchema = BlockNoteSchema.create({ blockSpecs: { ...defaultBlockSpecs, page: pageBlock } });
+// Enter on an empty line inside an open toggle leaves the toggle, as in Notion and as in any other nested block.
+// BlockNote's own setting for open toggles ("stay") adds empty lines forever; only Shift+Tab got you out.
+const leaves = <B, S extends { implementation: { experimental_keyboard?: BlockKeyboardOption<B> } }>(spec: S): S => {
+	const base = spec.implementation.experimental_keyboard;
+	const experimental_keyboard: BlockKeyboardOption<B> = (block) => ({ ...(typeof base === "function" ? base(block) : base), emptyChildEnter: "outdent" });
+	return { ...spec, implementation: { ...spec.implementation, experimental_keyboard } };
+};
+
+export const pageEditorSchema = BlockNoteSchema.create({
+	blockSpecs: { ...defaultBlockSpecs, heading: leaves(defaultBlockSpecs.heading), toggleListItem: leaves(defaultBlockSpecs.toggleListItem), page: pageBlock },
+});
 export type PageBlockEditor = typeof pageEditorSchema.BlockNoteEditor;

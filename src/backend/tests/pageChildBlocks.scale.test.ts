@@ -6,7 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { readDoc } from "../convex/pageOps";
 import schema from "../convex/schema";
-import { addMember, modules, signIn, workspaceOf } from "./helpers";
+import { addMember, modules, oldChild, signIn, workspaceOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -20,7 +20,7 @@ it("backfills old sub-page blocks in a workspace of 7,000 whose only owner didn'
 	const workspaceId = await workspaceOf(owner);
 	const root = await owner.mutation(api.pages.create, { title: "Wiki" });
 	const children: Id<"pages">[] = [];
-	for (let i = 0; i < 12; i++) children.push(await owner.mutation(api.pages.create, { title: `Old ${i}`, parentId: root, insertInParent: false }));
+	for (let i = 0; i < 12; i++) children.push(await oldChild(t, owner, `Old ${i}`, root));
 	for (let start = 0; start < 7_000; start += 500)
 		await t.run(async (ctx) => {
 			for (let i = start; i < start + 500; i++) {
