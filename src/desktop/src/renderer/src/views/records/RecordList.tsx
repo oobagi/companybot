@@ -30,7 +30,8 @@ import {
 	recordPath,
 	sortable,
 	toCondition,
-	filterFits,
+	filterProblem,
+	sortProblem,
 	valueText,
 } from "./logic";
 
@@ -93,6 +94,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const groupFields = fields.filter(groupable);
 	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
 	const change = (next: Partial<Settings>) => {
+		setTidied(undefined);
 		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
 		draft.set(value);
 		if (!selected && writable && next.columns) {
@@ -134,24 +136,26 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	// A filter or sort made before a field's kind changed may not fit it now: it's dropped, and the bar says so.
-	const fitting = filters.filter((f) => {
+	// A filter or sort made before a field changed may not fit it now: it's dropped, and the bar says why.
+	const problems = filters.map((f) => {
 		const field = fields.find((x) => x.key === f.field);
-		return !field || filterFits(f, field);
+		const problem = field && filterProblem(f, field);
+		return problem && `Removed the filter on “${field.label}”: ${problem}.`;
 	});
-	const sortFits = !sort || !fields.some((f) => f.key === sort.field && (!sortable(f) || f.changing));
+	const fitting = filters.filter((_, i) => !problems[i]);
+	const sortField = sort && fields.find((f) => f.key === sort.field);
+	const sortIssue = sortField && sortProblem(sortField);
 	const [tidied, setTidied] = useState<string>();
 	useEffect(() => {
-		if (fitting.length === filters.length && sortFits) return;
-		const names = [...new Set([...filters.filter((f) => !fitting.includes(f)).map((f) => f.field), ...(sortFits ? [] : [sort!.field])])].map((k) => fields.find((f) => f.key === k)?.label ?? k);
-		setTidied(`${names.map((n) => `“${n}”`).join(", ")} changed kind, so ${names.length > 1 ? "their filters and sorts were" : "its filter or sort was"} removed.`);
-		change({ filters: fitting, sort: sortFits ? sort : undefined });
-	}, [fitting.length, filters.length, sortFits]);
+		if (fitting.length === filters.length && !sortIssue) return;
+		change({ filters: fitting, sort: sortIssue ? undefined : sort });
+		setTidied([...problems.filter(Boolean), ...(sortIssue ? [`Removed the sort by “${sortField.label}”: ${sortIssue}.`] : [])].join(" "));
+	}, [fitting.length, filters.length, sortIssue]);
 	const conditions = fitting.map(toCondition).filter((c) => c !== null);
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;
-	const sortField = sort && fields.find((f) => f.key === sort.field);
-	const args = { typeId: type._id, filters: conditions, sort: sortFits ? sort : undefined };
+	// While its field converts, the sort waits rather than going away.
+	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
 
