@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -159,16 +159,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		<Page
 			wide
 			title={type.plural}
-			actions={
-				<>
-					{type.canManage && (
-						<button type="button" className={barButton} onClick={() => setEditingDatabase(true)}>
-							<EditIcon /> Edit database
-						</button>
-					)}
-					{canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
-				</>
-			}
+			// Its settings open from its title, as a page's actions do.
+			menu={type.canManage ? (close) => <MenuItem onClick={() => (close(), setEditingDatabase(true))}><EditIcon /> Edit database</MenuItem> : undefined}
+			actions={canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
 		>
 			<Tabs
 				// The view's controls share the tabs' row, like Notion's, so the records start right under it.
