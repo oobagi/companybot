@@ -456,7 +456,7 @@ const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-v
 /** The old big input for stacked forms: `ui/no-stacked-form` reports every use. Use `wideControlClass`/`compactControlClass`. */
 export const compactControlClass = `rounded-lg px-2.5 py-1 text-sm ${controlClass}`;
 /** A toolbar button beside compact controls (Filter, Properties): the same box, no fill. */
-export const compactButton = `inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
+export const compactButton = `inline-flex min-h-7.5 items-center justify-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1 text-sm text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 /** `compactButton` inside a line of small text (a message's notes, a paused-agents line): the same box, smaller. */
 export const smallButton = `inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 ${disabledButtonClass}`;
 /** `compactButton` for a destructive action (Leave channel): the same box, red text. */
