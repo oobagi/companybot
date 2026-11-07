@@ -311,6 +311,31 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 	const from = point?.status === "active" ? (channel === "sms" ? formatPhone(point.address) : point.address) : null;
 	const row = "flex items-center gap-3 border-b border-neutral-100 px-4";
 	const rowLabel = "w-14 shrink-0 text-sm text-neutral-500";
+	const agentPicker = (className: string) => <Select label="From" value={chosen} options={live.map((a) => ({ value: a._id as string, label: a.name }))} onChange={setAgentId} className={className} />;
+	// Nothing to send from: say so and where to fix it, instead of a form that can't send.
+	if (points && !has.email && !has.sms) {
+		const name = live.find((a) => a._id === chosen)?.name ?? "This agent";
+		return (
+			<Modal title="New message" onClose={onClose}>
+				<div className="flex flex-col items-center gap-2 py-8 text-center text-balance">
+					<span aria-hidden="true" className="mb-2 text-3xl text-neutral-400">
+						<InboxIcon />
+					</span>
+					<p className="font-medium">{name} has no email address or phone number yet</p>
+					<p className={descriptionClass}>Give it one under Contact on its page, then message customers from it here.</p>
+					{live.length > 1 && <div className="pt-2">{agentPicker(wideControlClass)}</div>}
+				</div>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="button" onClick={() => (onClose(), navigate("settings", "agents", chosen!))} className={primaryButton}>
+						Open {name}
+					</button>
+				</DialogButtons>
+			</Modal>
+		);
+	}
 	return (
 		<Modal title="New message" onClose={onClose}>
 			<Form
@@ -339,7 +364,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 				<div className="flex flex-col overflow-hidden rounded-xl border border-neutral-200 focus-within:border-neutral-300">
 					<div className={`${row} py-1`}>
 						<span className={rowLabel}>From</span>
-						<Select label="From" value={chosen} options={live.map((a) => ({ value: a._id as string, label: a.name }))} onChange={setAgentId} className={bareSelectClass} />
+						{agentPicker(bareSelectClass)}
 						<span className="min-w-0 truncate text-sm text-neutral-400">{from ?? (points ? `No ${channel === "email" ? "address" : "number"} yet: add one on its page` : "")}</span>
 					</div>
 					<label className={row}>
