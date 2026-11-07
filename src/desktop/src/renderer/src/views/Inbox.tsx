@@ -312,30 +312,6 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 	const row = "flex items-center gap-3 border-b border-neutral-100 px-4";
 	const rowLabel = "w-14 shrink-0 text-sm text-neutral-500";
 	const agentPicker = (className: string) => <Select label="From" value={chosen} options={live.map((a) => ({ value: a._id as string, label: a.name }))} onChange={setAgentId} className={className} />;
-	// Nothing to send from: say so and where to fix it, instead of a form that can't send.
-	if (points && !has.email && !has.sms) {
-		const name = live.find((a) => a._id === chosen)?.name ?? "This agent";
-		return (
-			<Modal title="New message" onClose={onClose}>
-				<div className="flex flex-col items-center gap-2 py-8 text-center text-balance">
-					<span aria-hidden="true" className="mb-2 text-3xl text-neutral-400">
-						<InboxIcon />
-					</span>
-					<p className="font-medium">{name} has no email address or phone number yet</p>
-					<p className={descriptionClass}>Give it one under Contact on its page, then message customers from it here.</p>
-					{live.length > 1 && <div className="pt-2">{agentPicker(wideControlClass)}</div>}
-				</div>
-				<DialogButtons>
-					<button type="button" onClick={onClose} className={secondaryButton}>
-						Cancel
-					</button>
-					<button type="button" onClick={() => (onClose(), navigate("settings", "agents", chosen!))} className={primaryButton}>
-						Open {name}
-					</button>
-				</DialogButtons>
-			</Modal>
-		);
-	}
 	return (
 		<Modal title="New message" onClose={onClose}>
 			<Form
@@ -351,11 +327,19 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 						const p = kind === "email" ? points?.email : points?.phone;
 						const address = p?.status === "active" ? (kind === "sms" ? formatPhone(p.address) : p.address) : null;
 						return (
-							<button key={kind} type="button" aria-pressed={channel === kind && has[kind]} disabled={!has[kind]} onClick={() => setPicked(kind)} className={choiceCardButton}>
-								<span className="text-xl text-neutral-700">{kind === "email" ? <MailIcon /> : <TextMessageIcon />}</span>
+							<button
+								key={kind}
+								type="button"
+								aria-pressed={channel === kind && has[kind]}
+								disabled={!points}
+								// One it can't send by yet opens the agent's page, where it gets one.
+								onClick={() => (has[kind] ? setPicked(kind) : (onClose(), navigate("settings", "agents", chosen!)))}
+								className={choiceCardButton}
+							>
+								<span className={`text-xl ${address ? "text-neutral-700" : "text-neutral-400"}`}>{kind === "email" ? <MailIcon /> : <TextMessageIcon />}</span>
 								<span className="flex min-w-0 flex-col">
-									<span className="font-medium">{kind === "email" ? "Email" : "Text message"}</span>
-									<span className="truncate text-xs text-neutral-500">{address ?? (points ? `No ${kind === "email" ? "address" : "number"} yet` : "")}</span>
+									<span className={`font-medium ${address ? "" : "text-neutral-500"}`}>{kind === "email" ? "Email" : "Text message"}</span>
+									<span className={`truncate text-xs ${address ? "text-neutral-500" : "text-link"}`}>{address ?? (points ? `Add ${kind === "email" ? "an address" : "a number"} →` : "")}</span>
 								</span>
 							</button>
 						);
@@ -365,7 +349,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 					<div className={`${row} py-1`}>
 						<span className={rowLabel}>From</span>
 						{agentPicker(bareSelectClass)}
-						<span className="min-w-0 truncate text-sm text-neutral-400">{from ?? (points ? `No ${channel === "email" ? "address" : "number"} yet: add one on its page` : "")}</span>
+						<span className="min-w-0 truncate text-sm text-neutral-400">{from ?? ""}</span>
 					</div>
 					<label className={row}>
 						<span className={rowLabel}>To</span>
