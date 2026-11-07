@@ -303,7 +303,7 @@ function OptionsEditor({
 						className={`${compactControlClass} flex-1`}
 					/>
 					<button type="button" onClick={() => onChange(options.filter((_, j) => j !== i))} aria-label="Remove" title="Remove option" className={iconDangerButton}>
-						<TrashIcon size={16} />
+						<TrashIcon />
 					</button>
 				</span>
 			))}

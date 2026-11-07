@@ -230,7 +230,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 									title="Remove from channel"
 									className={iconDangerButton}
 								>
-									<UserMinusIcon size={16} />
+									<UserMinusIcon />
 								</button>
 							)}
 						</li>

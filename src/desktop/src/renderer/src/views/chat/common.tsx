@@ -1,7 +1,7 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
-import { Notice, Scroll, ScrollUnder, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
+import { Notice, Scroll, ScrollUnder, dangerButton, iconButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
@@ -246,13 +246,11 @@ export function DialogButtons({ children }: { children: React.ReactNode }) {
 /** ⋯ opening a menu of `MenuItem`s: a row's or a dialog's other actions. */
 export function MoreMenu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
 	return (
-		<Popover label={label} trigger={<MoreIcon />} className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100" panelClassName="w-56 p-1">
+		<Popover label={label} trigger={<MoreIcon />} className={iconButton} panelClassName="w-56 p-1">
 			{children}
 		</Popover>
 	);
 }
-
-export const iconButton = "no-drag flex size-7 items-center justify-center rounded-md text-base text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900";
 
 /** A square button holding only an icon; `label` is its tooltip and accessible name. */
 export function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {

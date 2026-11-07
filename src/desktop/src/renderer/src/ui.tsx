@@ -470,12 +470,12 @@ export function CountBadge({ count, dark, ring, className = "" }: { count: numbe
 export const disabledButtonClass = "disabled:opacity-50";
 const controlClass = "border border-neutral-200 focus:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:bg-neutral-50 disabled:text-neutral-500";
 /** An input, select or textarea: the same box as `buttonBox`, so a row of fields and buttons lines up. */
-export const compactControlClass = `rounded-xl px-3 py-2 text-sm ${controlClass}`;
+export const compactControlClass = `rounded-lg px-3 py-[5px] text-sm ${controlClass}`;
 /**
  * Every text button's box: one height, padding and corner. The looks below only add color, so
  * buttons can't drift apart. Their names say where they go (the lint rules check that).
  */
-const buttonBox = `inline-flex min-h-9.5 shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm ${disabledButtonClass}`;
+const buttonBox = `inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-1 text-sm ${disabledButtonClass}`;
 const outlined = `${buttonBox} border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`;
 const filled = `${buttonBox} border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700`;
 const quiet = `${buttonBox} border-transparent text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900`;
@@ -507,11 +507,12 @@ export const toolControlClass = `h-7 rounded-md px-2 text-sm ${controlClass}`;
 /** An action at the end of a list of field labels, in their look and size (Add field). */
 export const labelButton = `-mx-1.5 flex w-fit items-center gap-2 rounded-md px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
 /** A row's trailing action as an icon (Remove, Delete): visible at rest; give it an aria-label and a title. */
-export const iconButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 ${disabledButtonClass}`;
-export const iconDangerButton = `inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
+/** A square button holding only an icon, everywhere (dialog headers, rows, toolbars): big enough to see at a glance. */
+export const iconButton = `no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100 ${disabledButtonClass}`;
+export const iconDangerButton = `inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-lg text-neutral-600 hover:bg-red-50 hover:text-red-600 ${disabledButtonClass}`;
 /** A row's or section header's trailing control: same size and right edge everywhere; a pill on hover and while its menu is open. */
 export const trailingAction =
-	"flex size-5 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
+	"flex size-6 shrink-0 items-center justify-center rounded-md text-base text-neutral-600 hover:bg-neutral-200/80 hover:text-neutral-900 aria-expanded:bg-neutral-200/80 aria-expanded:text-neutral-900";
 /** The composer's round tools beside the text: attach, emoji, dictation. */
 export const composerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50";
 /** The composer's Send: a round dark button with an arrow, grey until there's something to send. */
@@ -522,7 +523,7 @@ export const heroButton = "rounded-xl bg-neutral-900 px-6 py-2.5 text-base text-
 export const updateButton = "rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white";
 /** The title bar's 24px icons (sidebar, back, forward, help): greyed out while disabled. */
 export const titleBarButton =
-	"no-drag flex size-6 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
+	"no-drag flex size-7 items-center justify-center rounded-md text-lg text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
 /** A small round × in a card's corner (a pending file, a link preview). */
 export const cornerCloseButton = "flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
 /** A 24px icon beside a title (a DM's New chat). */
@@ -614,7 +615,7 @@ export const toolbarClass = "flex flex-wrap items-center gap-2 text-sm";
 /** A compact control in a screen's toolbar or a settings row: search boxes, pickers. */
 export const wideControlClass = `${compactControlClass} w-64`;
 /** A `Question`'s control: full width and a size up, so it reads at a glance. */
-export const questionControlClass = `min-h-10 w-full rounded-xl px-3 py-2 text-body ${controlClass}`;
+export const questionControlClass = `${compactControlClass} w-full`;
 
 /** A line between groups in a menu. */
 export function MenuDivider() {
