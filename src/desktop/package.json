@@ -12,7 +12,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --config electron-builder.yml --publish never",
-    "preview:web": "vite --config vite.web.config.ts",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts",
+    "preview:web": "vite preview --config vite.web.config.ts",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc -p .",
     "lint": "oxlint --report-unused-disable-directives src"

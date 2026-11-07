@@ -23,6 +23,7 @@ export {
 	ClockCounterClockwiseIcon as HistoryIcon,
 	CoinsIcon as UsageIcon,
 	DotsThreeIcon as MoreIcon,
+	DownloadSimpleIcon as DownloadIcon,
 	FileCsvIcon,
 	FileDocIcon,
 	FileIcon,

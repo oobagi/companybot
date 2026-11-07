@@ -31,7 +31,8 @@
     "./widgets": "./src/widgets.ts",
     "./safe-fetch": "./src/safe-fetch.ts",
     "./connectors": "./src/connectors.ts",
-    "./link-preview": "./src/link-preview.ts"
+    "./link-preview": "./src/link-preview.ts",
+    "./invite-email": "./src/invite-email.ts"
   },
   "scripts": {
     "test": "vitest run",

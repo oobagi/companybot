@@ -271,7 +271,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										<GettingStarted agent={chats?.agents[0]?.name ?? "an agent"} />
 										{update?.state === "ready" && (
 											<div className="flex flex-col px-3 pt-4 pb-3">
-												<button type="button" onClick={() => void desktop?.updates.install()} className={updateButton}>
+												<button type="button" onClick={() => void desktop()?.updates.install()} className={updateButton}>
 													Update ready · Restart
 												</button>
 											</div>

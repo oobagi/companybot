@@ -41,7 +41,8 @@ export async function sendInviteEmail(ctx: MutationCtx, invite: Doc<"invites">, 
 	await ctx.db.insert("inviteEmails", { workspaceId: invite.workspaceId, email: invite.email });
 
 	const workspace = await ctx.db.get(invite.workspaceId);
-	const content = inviteEmail({ inviter: await nameOf(ctx, inviter), workspace: workspace?.name ?? "a workspace", email: invite.email });
+	// With the web app's address set, the invite opens it in a browser; otherwise it's the download.
+	const content = inviteEmail({ inviter: await nameOf(ctx, inviter), workspace: workspace?.name ?? "a workspace", email: invite.email }, process.env.WEB_APP_URL);
 	await ctx.scheduler.runAfter(0, internal.invites.deliver, { inviteId: invite._id, to: invite.email, ...content });
 	return true;
 }

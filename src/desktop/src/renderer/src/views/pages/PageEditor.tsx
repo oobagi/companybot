@@ -9,6 +9,7 @@ import { linkedPageId, validPageHref } from "@companybot/core/page-links";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
+import { openLink } from "../../desktop";
 import { PageIcon } from "../../icons";
 import { navigate } from "../../router";
 import { useUpload } from "../../upload";
@@ -32,7 +33,7 @@ const links = {
 	// BlockNote's default opens every link with window.open, page links too; those navigate in openPageLink instead.
 	onClick: (event: globalThis.MouseEvent) => {
 		const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
-		if (anchor && !linkedPageId(anchor.getAttribute("href") ?? "")) window.open(anchor.href, anchor.target);
+		if (anchor && !linkedPageId(anchor.getAttribute("href") ?? "")) openLink(anchor.href);
 		return true;
 	},
 };

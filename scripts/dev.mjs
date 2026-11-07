@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Runs this checkout against its own local Convex backend, with its own data, then
-// starts the desktop app. Safe to run from several worktrees at once: each gets its
+// starts the desktop app (or, with --web, the same app in your browser). Safe to run from several worktrees at once: each gets its
 // own backend, database, and ports, and none touch the shared cloud dev deployment.
 //
 //   pnpm dev            set up (first run only), then start backend + app
+//   pnpm dev --web      the same, with the app in a browser (http://localhost:5173) instead of Electron
 //   pnpm dev --setup    set up only
 //   pnpm dev --reset    wipe this checkout's local data first
 //
@@ -49,11 +50,13 @@ if (!existsSync("node_modules")) {
 	execFileSync("pnpm", ["install"], { stdio: "inherit" });
 }
 
-// pnpm sometimes skips Electron's download (e.g. a fast install from its store).
+const web = args.includes("--web");
+
+// pnpm sometimes skips Electron's download (e.g. a fast install from its store). The browser needs none.
 const electron = execFileSync("node", ["-p", "require.resolve('electron/package.json')"], { cwd: "src/desktop", encoding: "utf8" })
 	.trim()
 	.replace(/package\.json$/, "");
-if (!existsSync(`${electron}path.txt`)) {
+if (!web && !existsSync(`${electron}path.txt`)) {
 	log("Downloading Electron");
 	execFileSync("node", ["install.js"], { cwd: electron, stdio: "inherit" });
 }
@@ -123,10 +126,10 @@ if (args.includes("--setup")) {
 }
 
 // 3. Backend + app together; Ctrl-C stops both.
-log(`Starting backend (http://127.0.0.1:${ports.cloud}) and the desktop app. Sign in with any email; no code needed.`);
+log(`Starting backend (http://127.0.0.1:${ports.cloud}) and ${web ? "the app in your browser (vite prints its address)" : "the desktop app"}. Sign in with any email; no code needed.`);
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE; // Set in some terminals (T3 Code); makes Electron run as plain Node.
-const dev = spawn("npx", ["convex", "dev", "--start", "pnpm dev:desktop"], { stdio: "inherit", env });
+const dev = spawn("npx", ["convex", "dev", "--start", web ? "pnpm dev:web" : "pnpm dev:desktop"], { stdio: "inherit", env });
 dev.on("exit", (code) => process.exit(code ?? 0));
 process.on("SIGINT", () => dev.kill("SIGINT"));
 
