@@ -194,8 +194,9 @@ function FormTextInput({ className, name, label, icon, rightSection, autoFocus, 
 
 // ---- Side menu
 
+/** The + and ⋮⋮ beside a block, a little off its text: BlockNote puts the menu's right edge at the block's left. */
 function SideMenuRoot({ className, children }: P<"SideMenu", "Root">) {
-	return <div className={cx("flex items-center", className)}>{children}</div>;
+	return <div className={cx("flex items-center pr-2", className)}>{children}</div>;
 }
 
 // ---- Slash menu
