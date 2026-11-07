@@ -100,7 +100,8 @@ function DriveNavTree({ openId, openFileId, openView, canEdit }: { openId?: stri
 								<MenuItem onClick={() => { close(); setMoving({ ...p, kind: p.kind ?? "page", parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
 								<MenuItem onClick={() => { close(); setSharing({ pageId: p._id }); }}><PrivateIcon /> Who can access</MenuItem>
 								<MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: p.kind ?? "page", id: p._id }), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>
-							</> : undefined}>
+							</> : undefined}
+							actions={folder && p.canEdit ? <button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add("page", p._id)} className={trailingAction}><PlusIcon /></button> : undefined}>
 							<span className="truncate">{p.title}</span>
 							<AccessLock lock={p.lock ?? null} />
 						</Item>
@@ -204,7 +205,7 @@ function DriveSection({ section, at, moves, renderPage, renderFile, keep, add, c
 				data: item,
 				// Only top-level rows come in (a nested one goes to Home first); it leaves its old section with the move.
 				accepts: (from) => { const item = asItem(from); return !!item && !item.parentId; },
-				holds: (id, from) => { const p = pages.get(id); const dragged = asItem(from); return !!p?.canEdit && !!dragged && dragged.canEdit && dragged.id !== p._id && dragged.parentId !== p._id && (p.kind === "folder" || dragged.kind === "page"); },
+				holds: (id, from) => { const p = pages.get(id); const dragged = asItem(from); return !!p?.canEdit && !!dragged && dragged.canEdit && dragged.id !== p._id && dragged.parentId !== p._id && p.kind === "folder"; },
 				onDropOn: (from, id) => moves.into(asItem(from)!, id as PageId),
 			}}
 			render={(id, drag) => { const page = pages.get(id); return page ? renderPage(page, drag, false) : renderFile(files.get(id)!, drag, false); }}>
@@ -294,8 +295,8 @@ export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder",
 	}, [pages.results, files.results, withFiles, hide]);
 	const find = (id: string) => rows.find((r) => r._id === id);
 	const arrange = useFoldersFirst() ? foldersOnTop : undefined;
-	// From another level: one that can move, into a level that's open to it (a page's level holds pages only).
-	const comesIn = (item: DriveItem) => !!drag?.open && item.canEdit && (parentKind !== "page" || item.kind === "page");
+	// From another level: one that can move, into a folder's level or the top. A page's sub-pages come from its body (/page), never a drag.
+	const comesIn = (item: DriveItem) => !!drag?.open && item.canEdit && parentKind !== "page";
 	const list = useSortable("pages", rows, rowId, "y", parentId, {
 		arrange,
 		...(drag && {
@@ -306,7 +307,7 @@ export function useDriveLevel(parentId?: PageId, parentKind?: "page" | "folder",
 		// Its own rows reorder (that needs only `sidebar.arrange`), and at the top a section's come back.
 		accepts: (from) => { const item = asItem(from); return !!item && (item.parentId === parentId || comesIn(item)); },
 		// A folder takes anything, a page only pages; not what's already in it.
-		holds: (id, from) => { const p = find(id); const item = asItem(from); return !!p && !isFile(p) && !!p.canEdit && !!item && item.canEdit && item.id !== p._id && item.parentId !== p._id && (p.kind === "folder" || item.kind === "page"); },
+		holds: (id, from) => { const p = find(id); const item = asItem(from); return !!p && !isFile(p) && !!p.canEdit && !!item && item.canEdit && item.id !== p._id && item.parentId !== p._id && p.kind === "folder"; },
 		onReceive: (from, index, shown) => { const item = asItem(from)!; if (item.parentId === parentId) top?.onReceive(from, index, shown); else drag.moves.to(item, parentId, shown, index); },
 		onDropOn: (from, id) => drag.moves.into(asItem(from)!, id as PageId),
 		}),
@@ -379,7 +380,8 @@ export function MoveItem({ item, onClose }: { item: Movable; onClose: () => void
 	const moveFile = useMutation(api.driveFiles.move);
 	const { error, busy, run } = useRun();
 	const here = item.parentId ?? null;
-	const takes = (p: Row) => p._id !== item._id && (item.kind === "page" || p.kind === "folder");
+	// Only folders: a page's sub-pages come from its body (/page), so nothing moves into a page.
+	const takes = (p: Row) => p._id !== item._id && p.kind === "folder";
 	const moveTo = (parentId: PageId | null) =>
 		!busy && parentId !== here && run(item.kind === "file" ? moveFile({ fileId: item._id as FileId, parentId: parentId ?? undefined }) : movePage({ pageId: item._id as PageId, parentId: parentId ?? undefined }), onClose);
 	const destination = (p: Row & { path?: string[] }) => (
@@ -394,13 +396,13 @@ export function MoveItem({ item, onClose }: { item: Movable; onClose: () => void
 	const matches = found?.filter(takes);
 	return (
 		<Modal title={`Move ${item.title}`} onClose={onClose}>
-			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={item.kind === "page" ? "Search pages and folders…" : "Search folders…"} aria-label="Search" className={`${compactControlClass} w-full`} />
+			<input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search folders…" aria-label="Search" className={`${compactControlClass} w-full`} />
 			<Notice>{error}</Notice>
 			<div className="flex max-h-72 flex-col overflow-y-auto">
 				{text ? (
 					<>
 						{matches?.map(destination)}
-						{matches && !matches.length && <p className="px-2 py-1 text-sm text-neutral-400">No {item.kind === "page" ? "pages or folders" : "folders"} match.</p>}
+						{matches && !matches.length && <p className="px-2 py-1 text-sm text-neutral-400">No folders match.</p>}
 					</>
 				) : (
 					<>
