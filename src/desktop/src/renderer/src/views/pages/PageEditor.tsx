@@ -229,10 +229,16 @@ function useSideMenuFloating(editor: PageBlockEditor | null) {
 	}), [editor]);
 }
 
-/** A block's first line: the box of its first text or line break, else a line's height under its top padding. */
+/**
+ * A block's first line: the box of its first text or line break, else a line's height under its top padding. A
+ * file's caption sits under the file, so it isn't the block's first line; the menu goes at the top of the picture.
+ */
 function firstLine(content: HTMLElement) {
 	const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
-		acceptNode: (node) => ((node instanceof Text ? node.data.trim() !== "" : node instanceof HTMLBRElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+		acceptNode: (node) => {
+			if (node instanceof Element && node.classList.contains("bn-file-caption")) return NodeFilter.FILTER_REJECT;
+			return (node instanceof Text ? node.data.trim() !== "" : node instanceof HTMLBRElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+		},
 	});
 	const first = walker.nextNode();
 	if (first) {
