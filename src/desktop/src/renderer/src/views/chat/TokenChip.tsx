@@ -1,6 +1,6 @@
 import { api } from "../../api";
 import { useQuery } from "../../convex";
-import { DatabaseIcon, PrivateIcon, SkillIcon } from "../../icons";
+import { PrivateIcon, RecordIcon, SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
 import { actionButton, linkButton, recordTagButton, recordTagMutedClass } from "../../ui";
@@ -44,21 +44,21 @@ function RecordChip({ tag }: { tag: RecordTag }) {
 	if (tag.state === "locked")
 		return (
 			<span className={recordTagMutedClass} title="Only some roles can see this record">
-				<PrivateIcon className="shrink-0" />
+				<PrivateIcon />
 				{name}
 			</span>
 		);
 	if (tag.state !== "live" || !tag.id || !tag.typeKey)
 		return (
 			<span className={recordTagMutedClass} title={tag.state === "archived" ? "In Archive" : undefined}>
-				<DatabaseIcon className="shrink-0" />
+				<RecordIcon />
 				{name}
 			</span>
 		);
 	const { id, typeKey } = tag;
 	return (
 		<button type="button" onClick={() => navigate(...recordPath(typeKey, id))} className={recordTagButton}>
-			<DatabaseIcon className="shrink-0 text-neutral-500" />
+			<RecordIcon className="text-neutral-500" />
 			{name}
 		</button>
 	);
