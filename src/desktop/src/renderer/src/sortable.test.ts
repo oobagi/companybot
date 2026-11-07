@@ -195,3 +195,15 @@ it("drops into an empty list just after the divider that starts it", () => {
 	const recentsOnly = [{ key: "top", start: 0, size: 1, gap: 7, pitch: 8, startOf: "p" }, { key: "div", start: 8, size: 1, gap: 7, pitch: 8, endOf: "p", startOf: "r" }, row("r", "x", 16)];
 	expect(place(recentsOnly, 2, -20, p(-5), any)!.target).toMatchObject({ list: "p", index: 0 });
 });
+
+it("nests a row under the one above it when dragged right of it, into a level of its own that was empty", () => {
+	// Blocks a, b, c at the top; each starts its own (empty) child level, 24px in. c dragged up to just under a.
+	const block = (id: string, start: number) => ({ ...row("t", id, start), left: 0, inset: 0, startOf: `k:${id}`, startInset: 24 });
+	const slots = arrange([block("a", 0), block("b", 32), block("c", 64)], "t:c");
+	// Pointer right of a's text: under a, as its first child; left of it: between a and b, where b was.
+	expect(place(slots, 2, 20, p(35, 30), any).target).toMatchObject({ list: "k:a", index: 0, at: 1, inset: 24 });
+	expect(place(slots, 2, 20, p(35, 5), any).target).toMatchObject({ list: "t", index: 1, at: 1, inset: 0 });
+	// Its own place: stays at the top unless dragged right, which puts it under b.
+	expect(place(slots, 2, 64, p(79, 5), any).target).toMatchObject({ list: "t", index: 2, inset: 0 });
+	expect(place(slots, 2, 64, p(79, 30), any).target).toMatchObject({ list: "k:b", index: 0, inset: 24 });
+});

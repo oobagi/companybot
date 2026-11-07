@@ -12,7 +12,7 @@ import { api } from "../../api";
 import { useHeldQuery, useMutation } from "../../convex";
 import { BulletListIcon, CaretDownIcon, CheckListIcon, CodeIcon, DividerIcon, DragHandleIcon, ImageIcon, NumberedListIcon, PageIcon, ParagraphIcon, PlusIcon, QuoteIcon, ReactIcon, TableIcon, TextHFiveIcon, TextHFourIcon, TextHOneIcon, TextHSixIcon, TextHThreeIcon, TextHTwoIcon, ToggleListIcon } from "../../icons";
 import { navigate } from "../../router";
-import { type Worn, pickUp } from "../../sortable";
+import { type Level, type Worn, pickUp } from "../../sortable";
 import { useUpload } from "../../upload";
 import { EmptyState, Loading, Notice, useRun } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
@@ -51,6 +51,8 @@ const links = {
  * transform), as decorations. Set on a block's element directly, ProseMirror reads the change back and draws
  * the block again, bare; BlockNote's drop cursor marks its block the same way.
  */
+/** How far in a block's children start (BlockNote's `.bn-block-group .bn-block-group` margin). */
+const INDENT = 24;
 const wornKey = new PluginKey<Map<string, Worn>>("blockDrag");
 const blockDrag = createExtension({
 	key: "blockDrag",
@@ -269,11 +271,11 @@ function AddBlock() {
 }
 
 /**
- * Drags the block up and down among its siblings with the app's drag (sortable.ts `pickUp`), as a sidebar row:
- * it follows the pointer while the others slide out of its way, and glides into the gap when let go; then the
- * block moves there (one step, so one undo). Not the browser's drag-and-drop, which BlockNote uses: that drags a
- * picture of the block glued to the pointer and drops only on an exact line. A click opens its menu, which holds
- * the side menu in place while open.
+ * Drags the block with the app's drag (sortable.ts `pickUp`), as a sidebar row: it follows the pointer up and down
+ * while the others slide out of its way, steps right to go in under the block above it and left to come out (as in
+ * Notion), and glides into its gap when let go; then the block moves there (one step, so one undo). Not the browser's
+ * drag-and-drop, which BlockNote uses: that drags a picture of the block glued to the pointer and drops only on an
+ * exact line. A click opens its menu, which holds the side menu in place while open.
  */
 function DragHandle() {
 	const editor = useBlockNoteEditor(pageEditorSchema);
@@ -282,22 +284,33 @@ function DragHandle() {
 	const portalElement = usePortalElement();
 	if (!block) return null;
 	const pick = (e: React.PointerEvent) => {
-		const group = editor.domElement?.querySelector(`.bn-block-outer[data-id="${block.id}"]`)?.parentElement;
-		if (!group) return;
-		const rows = new Map<string, HTMLElement>();
-		for (const el of group.children) if (el instanceof HTMLElement && el.dataset.id) rows.set(el.dataset.id, el);
-		const ids = [...rows.keys()];
+		const root = editor.domElement;
+		if (!root) return;
+		// Every visible level: the top, and each block's children (none yet for most); a closed toggle keeps its hidden ones.
+		const levels: Level[] = [];
+		const outers = [...root.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]")].filter((el) => el.getClientRects().length);
+		const rowsOf = (group: Element | null | undefined) => new Map([...(group?.children ?? [])].flatMap((el) => (el instanceof HTMLElement && el.dataset.id && el.getClientRects().length ? [[el.dataset.id, el] as const] : [])));
+		levels.push({ rows: rowsOf(root.querySelector(":scope > .bn-block-group")) });
+		for (const outer of outers) {
+			if (outer.querySelector(".bn-toggle-button[aria-expanded='false']")?.closest(".bn-block-outer") === outer) continue;
+			const group = [...outer.querySelectorAll(".bn-block-group")].find((g) => g.parentElement?.closest(".bn-block-outer") === outer);
+			levels.push({ parent: outer.dataset.id, rows: rowsOf(group) });
+		}
 		const paint = (worn: Map<string, Worn>) => editor.transact((tr) => { tr.setMeta(wornKey, worn); });
-		pickUp(e, block.id, rows, (index) => {
-			const rest = ids.filter((id) => id !== block.id);
+		pickUp(e, block.id, levels, (parent, index) => {
+			const level = levels.find((l) => l.parent === parent);
 			const moved = editor.getBlock(block.id);
-			if (!rest.length || ids.indexOf(block.id) === index || !moved) return;
+			if (!level || !moved) return;
+			const ids = [...level.rows.keys()];
+			const rest = ids.filter((id) => id !== block.id);
+			if (ids.indexOf(block.id) === index) return;
 			editor.transact(() => {
 				editor.removeBlocks([block.id]);
 				if (index < rest.length) editor.insertBlocks([moved], rest[index]!, "before");
-				else editor.insertBlocks([moved], rest[rest.length - 1]!, "after");
+				else if (rest.length) editor.insertBlocks([moved], rest[rest.length - 1]!, "after");
+				else if (parent) editor.updateBlock(parent, { children: [moved] });
 			});
-		}, paint);
+		}, paint, INDENT);
 	};
 	return (
 		<MenuRoot onOpenChange={(open) => (open ? sideMenu.freezeMenu() : sideMenu.unfreezeMenu())} position="left" portalElement={portalElement}>

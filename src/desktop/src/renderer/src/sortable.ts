@@ -69,6 +69,8 @@ type ListEntry = {
 	onDropOn: (from: Dragged, id: string) => void;
 	/** Moves a row instead of setting its element's transform (`pickUp`'s rows, which something else draws). */
 	move?: (id: string, transform: string) => void;
+	/** The list a row's own rows form (a block's children), which may be empty, and how far in from the row they start. */
+	into?: (id: string) => { list: string; inset: number } | undefined;
 };
 type StaticEntry = { group: string; el: HTMLElement; endOf?: string; startOf?: string };
 const lists = new Map<string, ListEntry>();
@@ -77,10 +79,12 @@ const statics = new Map<string, StaticEntry>();
 /**
  * One thing in the group, in order along the axis: a row, or a divider between lists. `parent`: the
  * row whose box it sits in (an open folder's). `holds`: it takes the dragged row into it. `left` is its
- * edge across the axis, `inset` how far in from `left` its list's rows start (a tree level's depth).
+ * edge across the axis, `inset` how far in from `left` its list's rows start (a tree level's depth). A
+ * row that `startOf` a list of its own (a block's children, maybe none yet) has them start `startInset`
+ * in from its `left`; a divider's `inset` is already the list it starts or ends.
  * `gap`: its list's, between its rows; `pitch`: the room it takes, its size and that gap (`arrange`).
  */
-export type Slot = { key: string; list?: string; id?: string; start: number; size: number; gap: number; pitch: number; endOf?: string; startOf?: string; parent?: string; holds?: boolean; left?: number; inset?: number };
+export type Slot = { key: string; list?: string; id?: string; start: number; size: number; gap: number; pitch: number; endOf?: string; startOf?: string; startInset?: number; parent?: string; holds?: boolean; left?: number; inset?: number };
 /** A slot as measured, before `arrange` gives it its pitch. */
 export type Measured = Omit<Slot, "pitch">;
 /**
@@ -138,7 +142,8 @@ function measure(group: string, axis: Axis, from: Dragged): Slot[] {
 		for (const [id, el] of l.els) {
 			if (!el.isConnected) continue;
 			const r = el.getBoundingClientRect();
-			raw.push({ el, slot: { key: slotKey(list, id), list, id, start: start(r, axis), size: extent(r, axis), gap: gap(el, true), holds: (list !== from.list || id !== from.id) && l.holds(id, from), left: left(r), inset: l.inset } });
+			const into = l.into?.(id);
+			raw.push({ el, slot: { key: slotKey(list, id), list, id, start: start(r, axis), size: extent(r, axis), gap: gap(el, true), holds: (list !== from.list || id !== from.id) && l.holds(id, from), left: left(r), inset: l.inset, ...(into && { startOf: into.list, startInset: into.inset }) } });
 		}
 	}
 	for (const [key, s] of statics) {
@@ -232,7 +237,7 @@ export function place(slots: readonly Slot[], source: number, edge: number, poin
 	const onto = over?.holds && point.along > over.start + quarter(over) && point.along < over.start + over.size - quarter(over) ? over : undefined;
 	// A list, by one of its rows, else by the divider that starts or ends it: where its rows start, and its gap.
 	const of = (list: string) => slots.find((o) => o.list === list) ?? others.find((o) => o.startOf === list || o.endOf === list);
-	const insetOf = (list: string) => { const s = of(list); return (s?.left ?? dragged.left ?? 0) + (s?.inset ?? 0); };
+	const insetOf = (list: string) => { const s = of(list); return (s?.left ?? dragged.left ?? 0) + ((s?.list === list ? s.inset : (s?.startInset ?? s?.inset)) ?? 0); };
 	// Gaps a row can't go into (a list it can't join) fall back to the nearest one it can. Where it was is
 	// always open, so a row whose list keeps no order of its own (Drive's files) can go back. Of the levels
 	// that meet at a gap (an open folder's rows and the rows around it), the deepest whose rows start left
@@ -454,37 +459,49 @@ let picks = 0;
 /** What a row of a `pickUp` list wears during the drag: its lift or slide (`class`) and how far it's moved (`style`). */
 export type Worn = { class: string; style: string };
 
+/** A level of a `pickUp` tree: the rows under `parent` (none: the top level), in order, by id. */
+export type Level = { parent?: string; rows: Map<string, HTMLElement> };
+
 /**
- * A drag in a list whose rows aren't React's (the page editor's blocks, which ProseMirror draws): `rows` are
- * its elements in order, by id. Picks `id` up with the pointer from `e` and gives `paint` what each row wears
- * (what `useDragList` would render: the drag's classes, the slide, the lifted row's transform) as it changes,
- * then nothing once it's over; `onDrop` gets the index it landed at, counted without it.
+ * A drag in a tree whose rows aren't React's (the page editor's blocks, which ProseMirror draws): `levels` are
+ * its lists, each a row's own rows (every row has one, maybe empty) or the top. Picks `id` up with the pointer
+ * from `e` and gives `paint` what each row wears (what `useDragList` would render: the drag's classes, the
+ * slide, the lifted row's transform) as it changes, then nothing once it's over; `onDrop` gets the level it
+ * landed in and the index there, counted without it. A row dragged `indent` right of the row above it goes in
+ * under it, as a sidebar row goes into a folder's level; dragged left, it comes out.
  */
-export function pickUp(e: React.PointerEvent | PointerEvent, id: string, rows: Map<string, HTMLElement>, onDrop: (index: number) => void, paint: (worn: Map<string, Worn>) => void, axis: Axis = "y") {
+export function pickUp(e: React.PointerEvent | PointerEvent, id: string, levels: readonly Level[], onDrop: (parent: string | undefined, index: number) => void, paint: (worn: Map<string, Worn>) => void, indent = 0, axis: Axis = "y") {
 	const key = `pick:${++picks}`;
+	const listOf = (parent?: string) => `${key}:${parent ?? ""}`;
 	let transform = "";
 	const repaint = () => {
 		const s = session?.group === key ? session : undefined;
 		const worn = new Map<string, Worn>();
 		if (s) {
-			for (const rowId of rows.keys()) {
-				if (rowId === s.from.id) worn.set(rowId, { class: s.dropping ? "sortable-landing" : "sortable-lifted", style: transform ? `transform: ${transform}` : "" });
-				else worn.set(rowId, { class: `sortable-shift sortable-${axis}`, style: `--sort-shift: ${s.shifts.get(slotKey(key, rowId)) ?? 0}px` });
+			for (const level of levels) {
+				for (const rowId of level.rows.keys()) {
+					if (rowId === s.from.id) worn.set(rowId, { class: s.dropping ? "sortable-landing" : "sortable-lifted", style: transform ? `transform: ${transform}` : "" });
+					else worn.set(rowId, { class: `sortable-shift sortable-${axis}`, style: `--sort-shift: ${s.shifts.get(slotKey(listOf(level.parent), rowId)) ?? 0}px` });
+				}
 			}
 		}
 		paint(worn);
 	};
-	lists.set(key, {
-		group: key, axis, els: rows, enabled: true, inset: 0, accepts: () => true, holds: () => false, data: () => undefined, onDrop: (_, index) => onDrop(index), onDropOn: () => {},
-		move: (_, to) => { transform = to; repaint(); },
-	});
+	for (const level of levels) {
+		lists.set(listOf(level.parent), {
+			group: key, axis, els: level.rows, enabled: true, inset: 0, accepts: () => true, holds: () => false, data: () => undefined, onDrop: (_, index) => onDrop(level.parent, index), onDropOn: () => {},
+			move: (_, to) => { transform = to; repaint(); },
+			into: (rowId) => (levels.some((l) => l.parent === rowId) ? { list: listOf(rowId), inset: indent } : undefined),
+		});
+	}
 	const unsubscribe = subscribe(repaint);
 	const end = () => {
 		unsubscribe();
-		lists.delete(key);
+		for (const level of levels) lists.delete(listOf(level.parent));
 		repaint();
 	};
-	if (!begin(key, id, e.currentTarget as HTMLElement, e, end)) end();
+	const own = levels.find((l) => l.rows.has(id));
+	if (!own || !begin(listOf(own.parent), id, e.currentTarget as HTMLElement, e, end)) end();
 }
 
 /** How far a row slides while another is dragged past it; `.sortable-shift` in styles.css moves it. */
