@@ -33,7 +33,7 @@ import {
 	wideControlClass,
 } from "../ui";
 import { recordPath } from "./records/logic";
-import { DialogButtons, Modal } from "./chat/common";
+import { Avatar, DialogButtons, Modal } from "./chat/common";
 import { Item } from "./chat/Sidebar";
 
 // Inbox: conversations with people outside the workspace, by email and text (backend inbox.ts). The
@@ -104,11 +104,13 @@ function ConversationScreen({ id, actions }: { id: Id<"inboxConversations">; act
 			</Scroll>
 		);
 	const who = c.mode === "agent" ? `${c.agentName} answers` : c.takenByName ? `${c.takenByName} took it over` : "Staff answer";
+	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
+	const them = { name: contactLabel(c), image: null, agent: false };
 	return (
 		<Scroll
 			overlayScrollbar
 			header={
-				<TopBar title={<span className="truncate">{contactLabel(c)}</span>} description={`${c.channel === "email" ? "Email" : "Text"} · ${who}`}>
+				<TopBar title={<span className="truncate">{contactLabel(c)}</span>} description={`${c.contactName ? `${address} · ` : ""}${c.channel === "email" ? "Email" : "Text"} · ${who}`}>
 					{c.mode === "agent" ? (
 						<button type="button" className={barButton} onClick={() => run(takeOver({ id }))}>
 							<TakeOverIcon /> Take over
@@ -123,19 +125,28 @@ function ConversationScreen({ id, actions }: { id: Id<"inboxConversations">; act
 			}
 			footer={<ReplyBox conversation={c} />}
 		>
-			<div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-6 pt-4 pb-6">
+			<div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 pt-6 pb-6">
 				<Notice>{error}</Notice>
-				<div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${descriptionClass}`}>
-					<span className="flex items-center gap-1.5"><ChannelIcon channel={c.channel} /> {c.channel === "sms" ? formatPhone(c.contact) : c.contact}</span>
-					{c.subject && <span className="truncate">{c.subject}</span>}
-					{c.record && (
-						<button type="button" className={`flex items-center gap-1.5 ${linkButton}`} onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))}>
-							<RecordIcon /> {c.record.title}
-						</button>
-					)}
-				</div>
+				{(c.subject || c.record) && (
+					<div className="flex flex-col gap-1.5 border-b border-neutral-100 pb-4">
+						{c.subject && <h2 className="text-lg font-semibold text-neutral-900">{c.subject}</h2>}
+						{c.record && (
+							<div>
+								<button type="button" className={`inline-flex items-center gap-1.5 text-sm ${linkButton}`} onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))}>
+									<RecordIcon /> {c.record.title}
+								</button>
+							</div>
+						)}
+					</div>
+				)}
 				{c.needsStaff === "handoff" && <Notice>{c.agentName} handed this to staff. Take it over to answer, or hand it back.</Notice>}
-				{c.messages.map((m) => (m.status === "draft" ? <Draft key={m.id} message={m} channel={c.channel} agent={c.agentName} /> : <Bubble key={m.id} message={m} />))}
+				{c.messages.map((m) =>
+					m.status === "draft" ? (
+						<Draft key={m.id} message={m} channel={c.channel} agent={{ name: c.agentName, image: c.agentImage, agent: true }} />
+					) : (
+						<MessageItem key={m.id} message={m} them={them} />
+					),
+				)}
 				{c.replying && <p className={metadataClass}>{c.agentName} is writing a reply…</p>}
 			</div>
 		</Scroll>
@@ -144,45 +155,52 @@ function ConversationScreen({ id, actions }: { id: Id<"inboxConversations">; act
 
 type Message = Opened["messages"][number];
 
-function Bubble({ message: m }: { message: Message }) {
-	if (m.direction === "note")
-		return (
-			<div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm">
-				<p className={metadataClass}>{m.by ?? "Agent"} · for staff only · {timeAgo(m.at)}</p>
-				<p className="whitespace-pre-wrap">{m.text}</p>
-			</div>
-		);
-	const mine = m.direction === "out";
+type Author = { name: string; image: string | null; agent: boolean };
+
+/** One message, as in chat: their picture, then their name and when above what they wrote. */
+function MessageItem({ message: m, them }: { message: Message; them: Author }) {
+	const author = m.author ?? them;
 	const state = m.status === "sending" ? "Sending…" : m.status === "failed" ? `Didn't send: ${m.error ?? "unknown error"}` : timeAgo(m.at);
+	const note = m.direction === "note";
 	return (
-		<div className={`flex flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
-			<div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap select-text ${mine ? "bg-neutral-900 text-white" : "bg-neutral-100"}`}>{m.text}</div>
-			<p className={`${metadataClass} ${m.status === "failed" ? "text-red-600" : ""}`}>
-				{mine ? `${m.by ?? "Agent"} · ` : ""}
-				{state}
-			</p>
+		<div className={`flex gap-3 ${note ? "-mx-3 rounded-xl bg-amber-50 p-3" : ""}`}>
+			<Avatar name={author.name} image={author.image} agent={author.agent} size="md" />
+			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+				<p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+					<span className="font-semibold text-neutral-900">{author.name}</span>
+					{m.for && <span className="text-neutral-500">for {m.for}</span>}
+					{note && <span className="text-amber-700">Only staff see this</span>}
+					<span className={`text-xs ${m.status === "failed" ? "text-red-600" : "text-neutral-400"}`}>{state}</span>
+				</p>
+				<div className="text-sm whitespace-pre-wrap text-neutral-800 select-text">{m.text}</div>
+			</div>
 		</div>
 	);
 }
 
 /** The agent's reply, waiting because Public can't reply on its own: staff edit it, send it, or discard it. */
-function Draft({ message: m, channel, agent }: { message: Message; channel: "email" | "sms"; agent: string }) {
+function Draft({ message: m, channel, agent }: { message: Message; channel: "email" | "sms"; agent: Author }) {
 	const send = useMutation(api.inbox.sendDraft);
 	const discard = useMutation(api.inbox.discardDraft);
 	const [text, setText] = useState(m.text);
 	const { error, busy, run } = useRun();
 	return (
-		<div className="flex flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3">
-			<p className={metadataClass}>{agent} wrote a reply. Check it, then send it.</p>
-			<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className={`${compactControlClass} w-full`} />
-			<Notice>{error}</Notice>
-			<div className="flex justify-end gap-2">
-				<button type="button" disabled={busy} className={compactButton} onClick={() => run(discard({ messageId: m.id }))}>
-					<TrashIcon /> Discard
-				</button>
-				<button type="button" disabled={busy || !text.trim()} className={compactPrimaryButton} onClick={() => run(send({ messageId: m.id, text }))}>
-					Send
-				</button>
+		<div className="flex gap-3">
+			<Avatar name={agent.name} image={agent.image} agent size="md" />
+			<div className="flex min-w-0 flex-1 flex-col gap-2 rounded-xl border border-neutral-200 px-4 py-3">
+				<p className="text-sm">
+					<span className="font-semibold text-neutral-900">{agent.name}</span> <span className="text-neutral-500">wrote a reply. Check it, then send it.</span>
+				</p>
+				<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className={`${compactControlClass} w-full`} />
+				<Notice>{error}</Notice>
+				<div className="flex justify-end gap-2">
+					<button type="button" disabled={busy} className={compactButton} onClick={() => run(discard({ messageId: m.id }))}>
+						<TrashIcon /> Discard
+					</button>
+					<button type="button" disabled={busy || !text.trim()} className={compactPrimaryButton} onClick={() => run(send({ messageId: m.id, text }))}>
+						Send
+					</button>
+				</div>
 			</div>
 		</div>
 	);

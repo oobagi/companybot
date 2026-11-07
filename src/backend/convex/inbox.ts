@@ -24,7 +24,8 @@ import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, smsProvider } from "./channelProviders";
 import { insertMessage } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, type Who, checkPermission, getMember, liveWorkspace, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
+import { type Member, type Who, checkPermission, getMember, liveWorkspace, memo, nameOf, personOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
+import { imageUrls } from "./images";
 import { typeVisible } from "./recordOps";
 
 // Inbox: conversations with people outside the workspace, by email and text. Each agent's address and
@@ -118,13 +119,22 @@ export const get = query({
 		const c = await ctx.db.get(id);
 		if (!c || c.workspaceId !== member.workspaceId || !can(member, "inbox.use")) return null;
 		const messages = (await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", id)).order("desc").take(READ_MAX)).reverse();
-		const people = new Map<Id<"users">, string>();
-		const agents = new Map<Id<"agents">, string>();
+		// Who wrote each one on our side, with their picture: looked up once each.
+		const urls = imageUrls(ctx);
+		const person = memo(async (userId: Id<"users">) => {
+			const p = await personOf(ctx, userId);
+			return { name: p.name, image: await urls(p.image), agent: false };
+		});
+		const agentOf = memo(async (agentId: Id<"agents">) => {
+			const a = await ctx.db.get(agentId);
+			return { name: a?.name ?? "Agent", image: await urls(a?.image), agent: true };
+		});
 		const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", kindOf(c.channel))).first();
 		return {
 			id: c._id,
 			agentId: c.agentId,
 			agentName: await agentName(ctx, c.agentId),
+			agentImage: (await agentOf(c.agentId)).image,
 			channel: c.channel,
 			contact: c.contact,
 			contactName: c.contactName ?? null,
@@ -138,8 +148,7 @@ export const get = query({
 			record: await recordShown(ctx, member, c.recordId),
 			messages: await Promise.all(
 				messages.map(async (m) => {
-					if (m.authorUserId && !people.has(m.authorUserId)) people.set(m.authorUserId, await nameOf(ctx, m.authorUserId));
-					if (m.authorAgentId && !agents.has(m.authorAgentId)) agents.set(m.authorAgentId, await agentName(ctx, m.authorAgentId));
+					const author = m.authorAgentId ? await agentOf(m.authorAgentId) : m.authorUserId ? await person(m.authorUserId) : null;
 					return {
 						id: m._id,
 						at: m._creationTime,
@@ -147,8 +156,10 @@ export const get = query({
 						status: m.status,
 						text: m.text,
 						error: m.error ?? null,
-						by: m.authorUserId ? people.get(m.authorUserId)! : m.authorAgentId ? agents.get(m.authorAgentId)! : null,
-						byAgent: !!m.authorAgentId && !m.authorUserId,
+						/** Who wrote it on our side (the agent, or someone on staff); null for theirs. */
+						author,
+						/** The person an agent wrote it for (working Inbox for them), if any. */
+						for: m.authorUserId && m.authorAgentId ? (await person(m.authorUserId)).name : null,
 					};
 				}),
 			),

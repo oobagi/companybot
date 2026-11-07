@@ -143,7 +143,7 @@ export function Segmented<T extends string>({
 	label?: string;
 }) {
 	return (
-		<div role="group" aria-label={label} className="inline-flex max-w-full shrink-0 flex-wrap rounded-lg border border-neutral-200 p-0.5 text-sm">
+		<div role="group" aria-label={label} className="inline-flex max-w-full shrink-0 gap-0.5 overflow-x-auto rounded-lg bg-neutral-100 p-0.5 text-sm">
 			{options.map((o) => (
 				<button
 					key={o.value}
@@ -152,7 +152,7 @@ export function Segmented<T extends string>({
 					disabled={o.disabled}
 					title={o.title}
 					onClick={() => onChange(o.value)}
-					className={`rounded-md px-2.5 py-0.5 ${o.value === value ? "bg-neutral-100 font-medium text-neutral-900" : "text-neutral-500 hover:text-neutral-900"} disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-neutral-500`}
+					className={`shrink-0 rounded-md px-2.5 py-0.5 whitespace-nowrap ${o.value === value ? "bg-white font-medium text-neutral-900 shadow-xs ring-1 ring-black/5" : "text-neutral-500 hover:text-neutral-900"} disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-neutral-500`}
 				>
 					{o.label}
 				</button>

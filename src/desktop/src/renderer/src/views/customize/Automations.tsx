@@ -124,8 +124,8 @@ function AutomationFields({
 	const inbox = !!me?.access && can(me.access, "inbox.use");
 	const triggers: { label: string; value: CustomAutomationConfig["trigger"] }[] = [
 		{ label: "On a schedule", value: defaultSchedule },
-		{ label: "When something happens here", value: firstChannel ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: "member.joined" } },
-		{ label: "When another app sends a webhook", value: { type: "webhook" } },
+		{ label: "When something happens", value: firstChannel ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: "member.joined" } },
+		{ label: "From another app (webhook)", value: { type: "webhook" } },
 	];
 	return (
 		<Settings title={title}>
