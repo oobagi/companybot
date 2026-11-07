@@ -67,9 +67,15 @@ body {
 	--bn-border-radius: 8px;
 }
 .page-editor .bn-editor { font-family: inherit; }
-.page-editor .bn-editor h1 { font-size: 1.5rem; }
-.page-editor .bn-editor h2 { font-size: 1.25rem; }
-.page-editor .bn-editor h3 { font-size: 1.125rem; }
+/* Headings at the app's sizes through BlockNote's own `--level`, which sizes the block (its placeholder, its
+   line and where the + and ⋮⋮ sit), not the tag inside it, which would leave the rest at BlockNote's 3em. */
+.page-editor [data-content-type="heading"] { --level: 1.5rem; }
+.page-editor [data-content-type="heading"][data-level="2"] { --level: 1.25rem; }
+.page-editor [data-content-type="heading"][data-level="3"] { --level: 1.125rem; }
+/* A block that changes type takes its new size at once: no BlockNote slide from the old one (`data-prev-type`). */
+.page-editor .bn-block-content { transition: none; }
+.page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content { font-size: inherit; font-weight: inherit; }
+.page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content[data-content-type="heading"] { font-size: var(--level); font-weight: 700; }
 .page-editor .bn-block-content[data-content-type="page"] { width: 100%; }
 /* What only BlockNote's class names tell apart: the slash and emoji menus fill the room BlockNote
    measures for them and scroll inside it, the colors menu scrolls, a table's + bars run its right

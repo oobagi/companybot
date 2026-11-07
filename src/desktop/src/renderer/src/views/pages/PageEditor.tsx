@@ -86,6 +86,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 		editor.setTextCursorPosition(body, "start");
 		editor.focus();
 	}, [sync.editor, editable, focusKey]);
+	const sideMenuFloating = useSideMenuFloating(sync.editor);
 	if (sync.isLoading) return <Loading />;
 	if (!sync.editor || gone) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
 	return (
@@ -128,7 +129,28 @@ function slashItems(editor: PageBlockEditor): DefaultReactSuggestionItem[] {
 	});
 }
 
-const sideMenuFloating = { elementProps: { style: { zIndex: 40 } } };
+/**
+ * The + and ⋮⋮ on the block's first line: its top padding, then half a line. BlockNote's own offsets assume
+ * its heading sizes (3em, 2em…), not the app's. The menu floats over the sticky top bar (z-30), so the drag
+ * handle's menu isn't drawn under it.
+ */
+function useSideMenuFloating(editor: PageBlockEditor | null) {
+	return useMemo(() => ({
+		elementProps: { style: { zIndex: 40 } },
+		useFloatingOptions: {
+			middleware: [{
+				name: "first-line",
+				fn: ({ x, y, rects }: { x: number; y: number; rects: { floating: { height: number } } }) => {
+					const id = editor?.getExtension(SideMenuExtension)?.store?.state?.block?.id;
+					const content = id ? editor?.domElement?.querySelector<HTMLElement>(`[data-id="${id}"] .bn-block-content`) : undefined;
+					const line = content && parseFloat(getComputedStyle(content.firstElementChild ?? content).lineHeight);
+					if (!content || !line) return { x, y };
+					return { x, y: y + parseFloat(getComputedStyle(content).paddingTop) + line / 2 - rects.floating.height / 2 };
+				},
+			}],
+		},
+	}), [editor]);
+}
 
 /** The + and ⋮⋮ beside the hovered block, with the app's icons (BlockNote's own buttons carry fixed ones). */
 function PageSideMenu() {
