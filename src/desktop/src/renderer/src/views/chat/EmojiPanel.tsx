@@ -8,9 +8,10 @@ const tones = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
 /**
  * The emoji picker, the one everywhere: search, categories, recents and a skin tone, all on this computer.
  * It fills whatever panel holds it (a `Popover`); `onPick` gets the emoji to put in. With `search`, it's
- * driven by text typed elsewhere (`:smi` in a message or a page, `topEmoji` for Enter), so it has no box.
+ * driven by text typed elsewhere (`:smi` in a message or a page; `menuEmoji` lists what it shows), so it has
+ * no box, and `selected` is the emoji the arrow keys are on, lit and named in the footer, which Enter takes.
  */
-export function EmojiPanel({ onPick, search }: { onPick: (emoji: string) => void; search?: string }) {
+export function EmojiPanel({ onPick, search, selected }: { onPick: (emoji: string) => void; search?: string; selected?: string }) {
 	const [index, setIndex] = useState<EmojiIndex | undefined>(loadedEmoji);
 	const [failed, setFailed] = useState(false);
 	const [typed, setTyped] = useState("");
@@ -30,11 +31,16 @@ export function EmojiPanel({ onPick, search }: { onPick: (emoji: string) => void
 	};
 	const results = index ? searchEmoji(index, query) : [];
 	const jump = (id: string) => scroller.current?.querySelector(`[data-section="${id}"]`)?.scrollIntoView({ block: "start" });
-	const button = (e: Emoji) => (
-		<button type="button" key={e.char} title={e.name} onClick={() => pick(withTone(e, tone))} onMouseEnter={() => setHover(e)} className={`${tileButton} text-xl`}>
-			{withTone(e, tone)}
+	useEffect(() => {
+		scroller.current?.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
+	}, [selected]);
+	const lit = selected ? index?.emoji.find((e) => e.char === selected || e.tones.includes(selected)) : undefined;
+	const tile = (char: string, e: Emoji | undefined, onPickChar: () => void) => (
+		<button type="button" key={char} title={e?.name} aria-selected={char === selected || undefined} onClick={onPickChar} onMouseEnter={() => setHover(e)} className={`${tileButton} text-xl aria-selected:bg-neutral-100`}>
+			{char}
 		</button>
 	);
+	const button = (e: Emoji) => tile(withTone(e, tone), e, () => pick(withTone(e, tone)));
 
 	return (
 		<div className="flex w-80 flex-col gap-2 p-2">
@@ -65,12 +71,12 @@ export function EmojiPanel({ onPick, search }: { onPick: (emoji: string) => void
 					))}
 				</div>
 			)}
-			<div ref={scroller} className="h-64 overflow-y-auto">
+			<div ref={scroller} className="max-h-64 overflow-y-auto">
 				{failed ? (
 					<p className={`p-2 ${hintClass}`}>Couldn't load emoji.</p>
 				) : !index ? null : query ? (
 					results.length > 0 ? (
-						<div className="flex flex-wrap">{results.map(button)}</div>
+						<div className="grid grid-cols-9">{results.map(button)}</div>
 					) : (
 						<p className={`p-2 ${hintClass}`}>No emoji found.</p>
 					)
@@ -79,26 +85,20 @@ export function EmojiPanel({ onPick, search }: { onPick: (emoji: string) => void
 						{recent.length > 0 && (
 							<section data-section="recent">
 								<p className={`px-1 py-1 ${metadataClass}`}>Recent</p>
-								<div className="flex flex-wrap">
-									{recent.map((char) => (
-										<button type="button" key={char} onClick={() => pick(char)} onMouseEnter={() => setHover(index.emoji.find((e) => e.char === char || e.tones.includes(char)))} className={`${tileButton} text-xl`}>
-											{char}
-										</button>
-									))}
-								</div>
+								<div className="grid grid-cols-9">{recent.map((char) => tile(char, index.emoji.find((e) => e.char === char || e.tones.includes(char)), () => pick(char)))}</div>
 							</section>
 						)}
 						{groups.map((name, i) => (
 							<section key={name} data-section={i}>
 								<p className={`px-1 py-1 ${metadataClass}`}>{name}</p>
-								<div className="flex flex-wrap">{index.emoji.filter((e) => e.group === i).map(button)}</div>
+								<div className="grid grid-cols-9">{index.emoji.filter((e) => e.group === i).map(button)}</div>
 							</section>
 						))}
 					</>
 				)}
 			</div>
 			<div className="flex h-8 items-center justify-between gap-2 border-t border-neutral-100 pt-2">
-				<span className={`min-w-0 truncate ${metadataClass}`}>{hover ? `${hover.char} ${hover.shortcodes[0] ? `:${hover.shortcodes[0]}:` : hover.name}` : "Skin tone"}</span>
+				<span className={`min-w-0 truncate ${metadataClass}`}>{(() => { const e = hover ?? lit; return e ? `${e.char} ${e.shortcodes[0] ? `:${e.shortcodes[0]}:` : e.name}` : "Skin tone"; })()}</span>
 				<span className="flex shrink-0">
 					{tones.map((char, i) => (
 						<button

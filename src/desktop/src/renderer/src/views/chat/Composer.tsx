@@ -150,7 +150,7 @@ function Picker({ menu, onHighlight, onPick, onPickEmoji }: { menu: Menu; onHigh
 		// mousedown is swallowed: the editor must keep focus, or the pick lands nowhere.
 		<div onMouseDown={(e) => e.preventDefault()} className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg">
 			{menu.trigger === ":" ? (
-				<EmojiPanel search={menu.items[0]?.id ?? ""} onPick={onPickEmoji} />
+				<EmojiPanel search={menu.query} selected={menu.items[menu.index]?.label} onPick={onPickEmoji} />
 			) : (
 				<>
 					<p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>

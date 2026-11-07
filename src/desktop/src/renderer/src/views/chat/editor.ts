@@ -7,7 +7,7 @@ import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import type { SuggestionKeyDownProps, SuggestionOptions, SuggestionProps } from "@tiptap/suggestion";
 import type { ChannelRef, Participant, SkillRef } from "./data";
-import { COMPLETED_SHORTCODE, type EmojiIndex, type Store, emojiForShortcode, loadEmoji, loadedEmoji, rememberEmoji, topEmoji } from "./emoji";
+import { COMPLETED_SHORTCODE, EMOJI_COLUMNS, type EmojiIndex, type Store, emojiForShortcode, loadEmoji, loadedEmoji, menuEmoji, rememberEmoji, savedTone, withTone } from "./emoji";
 
 // The composer is a one-block Tiptap editor (the same ProseMirror BlockNote uses for pages).
 // Mentions are atomic `token` nodes, so a chip is picked, deleted and sent as one thing:
@@ -37,9 +37,10 @@ export interface Sources {
 	skills: SkillRef[];
 }
 
-/** The open menu: what's offered, which row is lit, and how to pick one. */
+/** The open menu: what's offered for the `query` typed after the trigger, which row is lit, and how to pick one. */
 export interface Menu {
 	trigger: Trigger;
+	query: string;
 	items: Candidate[];
 	index: number;
 }
@@ -53,13 +54,10 @@ export const matches = (name: string, query: string) => {
 	return n.startsWith(q) || n.split(/[\s-]+/).some((w) => w.startsWith(q));
 };
 
-/**
- * The `:query` menu is the emoji panel (EmojiPanel, driven by the query), so its one candidate is what Enter
- * takes: the best match (`topEmoji`); none, and the menu closes.
- */
+/** The `:query` menu is the emoji panel (EmojiPanel, driven by the query): what it shows (`menuEmoji`), in the saved skin tone; none, and the menu closes. */
 export function emojiCandidates(index: EmojiIndex, query: string, store: Store): Candidate[] {
-	const top = topEmoji(index, query, store);
-	return top ? [{ kind: "emoji", id: query, label: top }] : [];
+	const tone = savedTone(store);
+	return menuEmoji(index, query, store).map((e) => ({ kind: "emoji", id: e.char, label: withTone(e, tone) }));
 }
 
 export function candidatesFor(sources: Sources, trigger: Exclude<Trigger, ":">, query: string): Candidate[] {
@@ -134,7 +132,7 @@ export class SuggestionMenu {
 		const show = (props: SuggestionProps<Candidate>) => {
 			this.hidden = false;
 			this.command = props.command;
-			this.set({ trigger, items: props.items, index: Math.min(this.menu?.trigger === trigger ? this.menu.index : 0, Math.max(props.items.length - 1, 0)) });
+			this.set({ trigger, query: props.query, items: props.items, index: Math.min(this.menu?.trigger === trigger && this.menu.query === props.query ? this.menu.index : 0, Math.max(props.items.length - 1, 0)) });
 		};
 		return {
 			char: trigger,
@@ -155,8 +153,10 @@ export class SuggestionMenu {
 				onKeyDown: ({ event }: SuggestionKeyDownProps) => {
 					if (!this.open || !this.menu) return false;
 					const { items, index } = this.menu;
-					if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-						this.highlight((index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length);
+					// The emoji panel is a grid: left and right step, up and down move a row.
+					const step = trigger === ":" ? { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -EMOJI_COLUMNS, ArrowDown: EMOJI_COLUMNS }[event.key] : { ArrowUp: -1, ArrowDown: 1 }[event.key];
+					if (step) {
+						this.highlight(trigger === ":" ? Math.min(Math.max(index + step, 0), items.length - 1) : (index + step + items.length) % items.length);
 						return true;
 					}
 					if (event.key === "Enter" || event.key === "Tab") {

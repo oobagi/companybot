@@ -77,17 +77,17 @@ export const loadedEmoji = () => loaded;
 /** The emoji in skin tone `tone` (1 light … 5 dark; 0 is the default yellow). */
 export const withTone = (e: Emoji, tone: number) => (tone > 0 && e.tones[tone - 1]) || e.char;
 
+/** The panel's tiles per row (`grid-cols-9` in EmojiPanel), for arrow keys to move by a row. */
+export const EMOJI_COLUMNS = 9;
+
 /**
- * What Enter takes in a `:query` menu: the best match for what's typed, or with nothing typed the latest
- * recent, else the first emoji; in the saved skin tone.
+ * What a `:query` menu lists, first one lit: the matches for what's typed (none, and the menu closes), or
+ * with nothing typed the recents, then every emoji, as the panel shows them.
  */
-export function topEmoji(index: EmojiIndex, query: string, store: Store): string | undefined {
-	const tone = savedTone(store);
-	if (query) {
-		const best = searchEmoji(index, query, 1)[0];
-		return best && withTone(best, tone);
-	}
-	return recentEmoji(store)[0] ?? (index.emoji[0] && withTone(index.emoji[0], tone));
+export function menuEmoji(index: EmojiIndex, query: string, store: Store): Emoji[] {
+	if (query) return searchEmoji(index, query);
+	const recent = recentEmoji(store).flatMap((c) => index.emoji.find((e) => e.char === c || e.tones.includes(c)) ?? []);
+	return [...new Set([...recent, ...index.emoji])];
 }
 
 const words = (s: string) => s.toLowerCase().split(/[\s_:,-]+/).filter(Boolean);

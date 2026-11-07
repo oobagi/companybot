@@ -1,4 +1,4 @@
-import { BlockNoteViewRaw, type ComponentProps, type Components, elementOverflow, preventFocusOnTap, useAutoFocus, useDictionary, useMergeRefs , type SuggestionMenuProps } from "@blocknote/react";
+import { BlockNoteViewRaw, type ComponentProps, type Components, elementOverflow, preventFocusOnTap, useAutoFocus, useDictionary, useMergeRefs , type GridSuggestionMenuProps } from "@blocknote/react";
 import { EmojiPanel } from "../chat/EmojiPanel";
 import { Menu as MantineMenu, Popover as MantinePopover } from "@mantine/core";
 import { type Ref, useEffect, useRef } from "react";
@@ -266,15 +266,15 @@ function SuggestionMenuLabel({ className, children }: P<"SuggestionMenu", "Label
 
 // ---- Emoji (":" in the text)
 
-/** What the `:` menu's one item carries: the typed query, and the emoji once one is clicked in the panel. */
-export type EmojiPick = { query: string; char?: string };
+/** A tile of the `:` menu: the typed query and the emoji, in the saved skin tone. */
+export type EmojiPick = { query: string; char: string };
 
-/** The emoji panel as the `:` menu, driven by the typed query; mousedown is swallowed so the editor keeps focus for the pick. */
-export function EmojiMenu({ items, onItemClick }: SuggestionMenuProps<EmojiPick>) {
+/** The emoji panel as the `:` menu, driven by the typed query, the arrow keys' tile lit; mousedown is swallowed so the editor keeps focus for the pick. */
+export function EmojiMenu({ items, selectedIndex, onItemClick }: GridSuggestionMenuProps<EmojiPick>) {
 	const query = items[0]?.query ?? "";
 	return (
 		<div onMouseDown={(e) => e.preventDefault()} className={cx(panel, "w-80")}>
-			<EmojiPanel search={query} onPick={(char) => onItemClick?.({ query, char })} />
+			<EmojiPanel search={query} selected={selectedIndex === undefined ? undefined : items[selectedIndex]?.char} onPick={(char) => onItemClick?.({ query, char })} />
 		</div>
 	);
 }

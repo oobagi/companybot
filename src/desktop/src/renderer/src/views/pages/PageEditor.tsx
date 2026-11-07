@@ -5,7 +5,7 @@ import "@blocknote/react/style.css";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
+import { BlockColorsItem, BlockNoteViewRaw, type BlockTypeSelectItem, ComponentsContext, type DefaultReactSuggestionItem, DragHandleMenu, ExtendButton, type ExtendButtonProps, FilePanelController, FormattingToolbar, FormattingToolbarController, GridSuggestionMenuController, LinkToolbarController, RemoveBlockItem, SideMenu, SideMenuController, SuggestionMenuController, TableCellButton, type TableCellButtonProps, TableColumnHeaderItem, TableHandle, type TableHandleProps, TableHandlesController, TableRowHeaderItem, blockTypeSelectItems, useBlockNoteEditor, useExtension, useExtensionState, usePortalElement } from "@blocknote/react";
 import { linkedPageId, linkedRecordId, recordHref, validPageHref } from "@companybot/core/page-links";
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
@@ -21,7 +21,7 @@ import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor,
 import { Avatar } from "../chat/common";
 import { type TokenNames, useDirectory } from "../chat/data";
 import { matches } from "../chat/editor";
-import { loadEmoji, rememberEmoji, topEmoji } from "../chat/emoji";
+import { EMOJI_COLUMNS, loadEmoji, menuEmoji, rememberEmoji, savedTone, withTone } from "../chat/emoji";
 import { splitTokens } from "../chat/tokens";
 import { EmojiMenu, type EmojiPick, HandleButton, components } from "./editorComponents";
 import { promotePageLinks } from "./pageBlockUpgrades";
@@ -221,7 +221,7 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 				], query)} />
 				<SuggestionMenuController triggerCharacter="@" shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={(query) => mentionItems(sync.editor, directory, query, fetch)} />
 				<SuggestionMenuController triggerCharacter="#" shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={async (query) => channelItems(sync.editor, directory, query)} />
-				<SuggestionMenuController<typeof emojiQuery> triggerCharacter=":" minQueryLength={0} shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={emojiQuery} suggestionMenuComponent={EmojiMenu} onItemClick={(item) => void pickEmoji(sync.editor, item)} />
+				<GridSuggestionMenuController<typeof emojiQuery> triggerCharacter=":" columns={EMOJI_COLUMNS} minQueryLength={0} shouldOpen={atWordStart} floatingUIOptions={floating(layer.menus)} getItems={emojiQuery} gridSuggestionMenuComponent={EmojiMenu} onItemClick={(item) => pickEmoji(sync.editor, item)} />
 				<FilePanelController floatingUIOptions={floating(layer.menus)} />
 				<TableHandlesController tableHandle={PageTableHandle} extendButton={PageExtendButton} tableCellHandle={PageTableCellButton} />
 			</View>
@@ -256,13 +256,15 @@ function PageFormattingToolbar() {
 	const items = useMemo(() => blockTypeSelectItems(editor).map((item) => ({ ...item, icon: typeIcon(item) })), [editor]);
 	return <FormattingToolbar blockTypeSelectItems={items} />;
 }
-/** The `:` menu is the emoji panel (EmojiMenu), driven by the typed query, its one item; a pick, or Enter, is the emoji in the text. */
-const emojiQuery = async (query: string): Promise<EmojiPick[]> => [{ query }];
-async function pickEmoji(editor: PageBlockEditor, { query, char }: EmojiPick) {
-	const emoji = char ?? topEmoji(await loadEmoji(), query, localStorage);
-	if (!emoji) return;
-	rememberEmoji(localStorage, emoji);
-	editor.insertInlineContent(`${emoji} `);
+/** The `:` menu is the emoji panel (EmojiMenu), driven by the typed query: its items are the panel's tiles (`menuEmoji`); a click, or Enter on the lit one, is the emoji in the text. */
+async function emojiQuery(query: string): Promise<EmojiPick[]> {
+	const index = await loadEmoji();
+	const tone = savedTone(localStorage);
+	return menuEmoji(index, query, localStorage).map((e) => ({ query, char: withTone(e, tone) }));
+}
+function pickEmoji(editor: PageBlockEditor, { char }: EmojiPick) {
+	rememberEmoji(localStorage, char);
+	editor.insertInlineContent(`${char} `);
 }
 
 /** A menu's trigger counts at the start of a word only: "ada@x.co" and "10:30" open nothing. */

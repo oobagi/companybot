@@ -52,11 +52,11 @@ describe("composer triggers", () => {
 		expect(findTrigger("note:smi", ":")).toBeNull();
 	});
 
-	it("offers what Enter takes for the typed emoji query: the best match, the first emoji with nothing typed, nothing for no match", () => {
+	it("lists the emoji panel's tiles for the typed query: the matches, everything with nothing typed, nothing for no match", () => {
 		const index = buildIndex([{ hexcode: "1F604", label: "grinning face with smiling eyes", unicode: "😄", group: 0, order: 1 }], { "1F604": "smile" });
 		const store = { getItem: () => null, setItem: () => {} };
-		expect(emojiCandidates(index, "sm", store)).toEqual([{ kind: "emoji", id: "sm", label: "😄" }]);
-		expect(emojiCandidates(index, "", store)).toEqual([{ kind: "emoji", id: "", label: "😄" }]);
+		expect(emojiCandidates(index, "sm", store)).toEqual([{ kind: "emoji", id: "😄", label: "😄" }]);
+		expect(emojiCandidates(index, "", store)).toEqual([{ kind: "emoji", id: "😄", label: "😄" }]);
 		expect(emojiCandidates(index, "zzz", store)).toEqual([]);
 	});
 });
