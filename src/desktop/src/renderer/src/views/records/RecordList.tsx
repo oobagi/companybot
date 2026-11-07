@@ -9,7 +9,7 @@ import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, useConfirm } from "../chat/common";
 import { Board } from "./Board";
@@ -115,6 +115,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const [savingView, setSavingView] = useState(false);
 	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
+	const [searching, setSearching] = useState(false);
 	const query = useDebounced(search);
 	const [creating, setCreating] = useState(false);
 	// The field kind a new-field dialog starts on, while it's open.
@@ -148,6 +149,60 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			}
 		>
 			<Tabs
+				// The view's controls share the tabs' row, like Notion's, so the records start right under it.
+				end={
+					<>
+						{canEdit && selected && draft.dirty && (
+							<button type="button" disabled={draft.stale} className={compactButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
+								Save for everyone
+							</button>
+						)}
+						{/* Search is an icon until you use it, like Notion's, so the row fits a narrow window. */}
+						{searching || search ? (
+							<input
+								type="search"
+								autoFocus
+								value={search}
+								onChange={(e) => setSearch(e.target.value)}
+								onBlur={() => !search && setSearching(false)}
+								onKeyDown={(e) => e.key === "Escape" && (setSearch(""), setSearching(false))}
+								placeholder={`Search ${noun}`}
+								className={`${compactControlClass} w-40`}
+							/>
+						) : (
+							<button type="button" aria-label={`Search ${noun}`} title="Search" onClick={() => setSearching(true)} className={compactButton}>
+								<SearchIcon className="text-neutral-400" />
+							</button>
+						)}
+						<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} aria-label="Filter" title="Filter" className={compactButton}>
+							<FilterIcon className="text-neutral-400" /> <span className="@max-xl:hidden">Filter</span>
+						</button>
+						{(selected || writable) && <ColumnsPicker
+							label={layout === "board" ? "Properties" : "Columns"}
+							fields={fields}
+							columns={columns}
+							onChange={setColumns}
+							onNewField={type.canManage ? () => setAddingField("text") : undefined}
+						/>}
+						{(selected || type.canSetDisplay) && layout === "board" && group && (
+							<label className="flex items-center gap-2 text-neutral-600">
+								<span className="@max-xl:hidden">Group by</span>
+								<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
+							</label>
+						)}
+						{(selected || type.canSetDisplay) && (
+							<LayoutPicker
+								value={preview ?? layout}
+								// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
+								// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
+								onChange={(l) => {
+									if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
+									setPreview(l);
+								}}
+							/>
+						)}
+					</>
+				}
 				tabs={[{ id: "all", label: "All" }, ...tabs.sorted.map((v) => ({ id: v._id as string, label: v.name }))]}
 				drag={(id) => (id === "all" ? undefined : tabs.drag(id))}
 				value={selected ? viewId : "all"}
@@ -189,48 +244,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						<PlusIcon />
 					</button>
 				)}
-				{/* The view's controls share the tabs' row, like Notion's, so the records start right under it. */}
-				<div className="ml-auto flex flex-wrap items-center gap-2 self-center pb-1 text-sm">
-					{canEdit && selected && draft.dirty && (
-						<button type="button" disabled={draft.stale} className={compactButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
-							Save for everyone
-						</button>
-					)}
-					<input
-						type="search"
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						placeholder={`Search ${noun}`}
-						className={`${compactControlClass} w-44`}
-					/>
-					<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
-						<FilterIcon className="text-neutral-400" /> Filter
-					</button>
-					{(selected || writable) && <ColumnsPicker
-						label={layout === "board" ? "Properties" : "Columns"}
-						fields={fields}
-						columns={columns}
-						onChange={setColumns}
-						onNewField={type.canManage ? () => setAddingField("text") : undefined}
-					/>}
-					{(selected || type.canSetDisplay) && layout === "board" && group && (
-						<label className="flex items-center gap-2 text-neutral-600">
-							Group by
-							<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
-						</label>
-					)}
-					{(selected || type.canSetDisplay) && (
-						<LayoutPicker
-							value={preview ?? layout}
-							// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
-							// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
-							onChange={(l) => {
-								if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
-								setPreview(l);
-							}}
-						/>
-					)}
-				</div>
 			</Tabs>
 			<Notice>{error}</Notice>
 			{dialog}
@@ -510,7 +523,7 @@ function LayoutPicker({ value, onChange }: { value: Layout | Preview; onChange: 
 			label="Layout"
 			trigger={
 				<>
-					<span className="text-neutral-400">{current.icon}</span> {current.label} <CaretDownIcon className="text-neutral-400" />
+					<span className="text-neutral-400">{current.icon}</span> <span className="@max-xl:hidden">{current.label}</span> <CaretDownIcon className="text-neutral-400" />
 				</>
 			}
 			className={compactButton}
@@ -547,7 +560,7 @@ function ColumnsPicker({
 		<Popover
 			trigger={
 				<>
-					<PropertiesIcon className="text-neutral-400" /> {label}
+					<PropertiesIcon className="text-neutral-400" /> <span className="@max-xl:hidden">{label}</span>
 				</>
 			}
 			className={compactButton}
