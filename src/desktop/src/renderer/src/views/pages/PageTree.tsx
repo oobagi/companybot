@@ -100,8 +100,7 @@ function DriveNavTree({ openId, openFileId, openView, canEdit }: { openId?: stri
 								<MenuItem onClick={() => { close(); setMoving({ ...p, kind: p.kind ?? "page", parentId }); }}><ArrowRightIcon /> Move to…</MenuItem>
 								<MenuItem onClick={() => { close(); setSharing({ pageId: p._id }); }}><PrivateIcon /> Who can access</MenuItem>
 								<MenuItem onClick={() => { close(); confirm(archiveQuestion(p.title, () => remove({ kind: p.kind ?? "page", id: p._id }), folder ? "Everything in it will be archived with it." : "Its sub-pages will be archived with it.")); }}><ArchiveIcon /> Archive</MenuItem>
-							</> : undefined}
-							actions={p.canEdit ? <button type="button" title="Add a page inside" aria-label={`Add a page inside ${p.title}`} onClick={() => add("page", p._id)} className={trailingAction}><PlusIcon /></button> : undefined}>
+							</> : undefined}>
 							<span className="truncate">{p.title}</span>
 							<AccessLock lock={p.lock ?? null} />
 						</Item>
