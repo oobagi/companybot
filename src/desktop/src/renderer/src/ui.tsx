@@ -610,6 +610,8 @@ export const bareFieldClass = "min-w-0 flex-1 bg-transparent py-2 text-sm outlin
 export const bareSelectClass = "-ml-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-medium hover:bg-neutral-100";
 /** A card you click to open what it shows (a role, an agent, a message): the card, lit on hover. */
 export const cardButton = `${cardClass} flex text-left hover:bg-neutral-50 ${disabledButtonClass}`;
+/** One of a few big choices side by side (email or text): a card that's outlined dark while picked (`aria-pressed`). */
+export const choiceCardButton = `${cardButton} items-start gap-3 aria-pressed:border-neutral-900 aria-pressed:bg-white aria-pressed:ring-1 aria-pressed:ring-neutral-900`;
 /** Lines text outside a card (a heading, an empty note) up with the text inside it: its padding plus its 1px border. */
 export const insetClass = "px-[17px]";
 /** Rows in one bordered box, split by lines. In a dialog the dialog is the box: no border, rows flush (styles.css). */

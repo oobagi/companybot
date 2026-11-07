@@ -50,6 +50,7 @@ const buttonClasses = new Set([
 	"boardCardButton",
 	"versionRowButton",
 	"cardButton",
+	"choiceCardButton",
 	"linkButton",
 	"recordTagButton",
 	"titleButton",
