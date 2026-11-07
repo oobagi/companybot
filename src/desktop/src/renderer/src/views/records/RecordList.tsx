@@ -66,6 +66,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// View tabs follow the workspace order. "All" stays first.
 	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
 	const saveView = useMutation(api.databaseViews.save);
+	const dismissNotice = useMutation(api.databaseViews.dismissNotice);
 	const removeView = useMutation(api.databaseViews.remove);
 	const [viewId, setViewId] = useState("all");
 	const [preview, setPreview] = useState<Preview>();
@@ -88,8 +89,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		selected?.version ?? 0,
 	);
 	const { filters, sort } = draft.value;
-	// The view as saved, under `name`: renaming it, or saving it unchanged to clear its notice.
-	const resave = (name: string) => {
+	// Renames the view, keeping it as saved.
+	const rename = (name: string) => {
 		if (!selected || !saved) return;
 		const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
 		const filters = saved.filters.map(toCondition).filter((c) => c !== null);
@@ -241,7 +242,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 										onSubmit={(form) => {
 											const name = String(new FormData(form).get("name")).trim();
 											close();
-											if (name && name !== selected.name) resave(name);
+											if (name && name !== selected.name) rename(name);
 										}}
 									>
 										<input name="name" aria-label="View name" autoFocus required maxLength={120} defaultValue={selected.name} className={`${compactControlClass} w-full`} />
@@ -271,9 +272,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			{(selected?.notice || tidied) && (
 				<p className={`${hintClass} flex items-center gap-1.5`}>
 					{tidied ?? selected?.notice}
-					{/* A saved view's notice is everyone's: dismissing it saves the view as it is, which clears it. */}
+					{/* Yours (this list's) closes here; a saved view's is everyone's, so closing it takes Edit and clears it for all. */}
 					{(tidied || canEdit) && (
-						<button type="button" aria-label="Dismiss" title="Dismiss" onClick={() => (tidied ? setTidied(undefined) : selected && resave(selected.name))} className={trailingAction}>
+						<button type="button" aria-label="Dismiss" title="Dismiss" onClick={() => (tidied ? setTidied(undefined) : selected && run(dismissNotice({ viewId: selected._id })))} className={trailingAction}>
 							<CloseIcon />
 						</button>
 					)}
