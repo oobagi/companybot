@@ -18,8 +18,9 @@ import { EmptyState, Loading, Notice, useRun } from "../../ui";
 import { useLinkedPages } from "./useLinkedPages";
 import { PageLevel } from "./PageTree";
 import { PageBlockRow, PageReferences, type PageReference, type PageBlockEditor, pageEditorSchema } from "./PageBlock";
-import { Avatar } from "../chat/common";
-import { type TokenNames, useDirectory } from "../chat/data";
+import { Avatar, PopoverPanel } from "../chat/common";
+import { type Participant, type TokenNames, useDirectory } from "../chat/data";
+import { ProfileCards } from "../chat/Profile";
 import { matches } from "../chat/editor";
 import { EMOJI_COLUMNS, loadEmoji, menuEmoji, rememberEmoji, savedTone, withTone } from "../chat/emoji";
 import { splitTokens } from "../chat/tokens";
@@ -82,19 +83,20 @@ const blockDrag = createExtension({
 /**
  * @people, @agents and #channels in a page, as chips (`.token`, as in chat): plain text, as chat stores them, so
  * an agent reads a page as it reads a message and nothing is kept per mention; a name that matches the directory
- * (`mentionsKey`, set from `useDirectory`) is decorated where it stands (`splitTokens`). A click on a channel opens
- * it. Records are links (`recordHref`), opened like page links.
+ * (`mentionsKey`, set from `useDirectory`) is decorated where it stands (`splitTokens`). A click on a chip does what
+ * it does in chat (`onChip`: a person's card, a channel opens). Records are links (`recordHref`), opened like page links.
  */
-const mentionsKey = new PluginKey<TokenNames>("mentions");
-const noNames: TokenNames = { people: [], channels: [], skills: [] };
+type Mentions = { tokens: TokenNames; onChip: (kind: string, id: string, chip: HTMLElement) => void };
+const mentionsKey = new PluginKey<Mentions>("mentions");
+const noMentions: Mentions = { tokens: { people: [], channels: [], skills: [] }, onChip: () => {} };
 const mentions = createExtension({
 	key: "mentions",
 	prosemirrorPlugins: [new Plugin({
 		key: mentionsKey,
-		state: { init: () => noNames, apply: (tr, prev) => tr.getMeta(mentionsKey) ?? prev },
+		state: { init: () => noMentions, apply: (tr, prev) => tr.getMeta(mentionsKey) ?? prev },
 		props: {
 			decorations(state) {
-				const tokens = mentionsKey.getState(state) ?? noNames;
+				const { tokens } = mentionsKey.getState(state) ?? noMentions;
 				const found: Decoration[] = [];
 				state.doc.descendants((node, pos) => {
 					if (!node.isText || !node.text) return;
@@ -107,10 +109,10 @@ const mentions = createExtension({
 				});
 				return DecorationSet.create(state.doc, found);
 			},
-			handleClick(_view, _pos, event) {
-				const chip = event.target instanceof Element ? event.target.closest<HTMLElement>(".token[data-kind=channel]") : null;
-				if (!chip?.dataset.id) return false;
-				navigate("chat", chip.dataset.id);
+			handleClick(view, _pos, event) {
+				const chip = event.target instanceof Element ? event.target.closest<HTMLElement>(".token[data-kind]") : null;
+				if (!chip?.dataset.kind || !chip.dataset.id) return false;
+				(mentionsKey.getState(view.state) ?? noMentions).onChip(chip.dataset.kind, chip.dataset.id, chip);
 				return true;
 			},
 		},
@@ -195,9 +197,17 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 	const names = JSON.stringify([directory.tokens.people, directory.tokens.channels]);
 	const latest = useRef(directory.tokens);
 	latest.current = directory.tokens;
+	// A person's chip opens their card under it, as in chat.
+	const [card, setCard] = useState<{ who: Participant; at: { x: number; y: number } }>();
 	useEffect(() => {
+		const onChip: Mentions["onChip"] = (kind, id, chip) => {
+			if (kind === "channel") navigate("chat", id);
+			const who = latest.current.people.find((p) => String(p.id) === id);
+			const box = chip.getBoundingClientRect();
+			if (kind === "person" && who) setCard({ who, at: { x: box.left, y: box.bottom } });
+		};
 		const tokens: TokenNames = { people: latest.current.people, channels: latest.current.channels, skills: [] };
-		sync.editor?.transact((tr) => { tr.setMeta(mentionsKey, tokens); });
+		sync.editor?.transact((tr) => { tr.setMeta(mentionsKey, { tokens, onChip } satisfies Mentions); });
 	}, [sync.editor, names]);
 	if (sync.isLoading) return <Loading />;
 	if (!sync.editor || gone) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
@@ -225,6 +235,11 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 				<FilePanelController floatingUIOptions={floating(layer.menus)} />
 				<TableHandlesController tableHandle={PageTableHandle} extendButton={PageExtendButton} tableCellHandle={PageTableCellButton} />
 			</View>
+			{card && (
+				<PopoverPanel opened at={card.at} onClose={() => setCard(undefined)}>
+					<ProfileCards who={card.who} onClose={() => setCard(undefined)} />
+				</PopoverPanel>
+			)}
 			<UpgradePageLinks editor={sync.editor} editable={editable} />
 			<PageBlockRemoval editor={sync.editor} pageId={pageId} editable={editable} />
 			{standalone && <ChildPages editor={sync.editor} pageId={pageId} />}

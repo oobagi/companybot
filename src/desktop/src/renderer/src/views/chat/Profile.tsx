@@ -20,7 +20,8 @@ export function ProfileLink({ who, children, className = "" }: { who: Participan
 	);
 }
 
-function ProfileCards({ who, onClose }: { who: Participant; onClose: () => void }) {
+/** The card itself, for one opened some other way (a chip in a page). */
+export function ProfileCards({ who, onClose }: { who: Participant; onClose: () => void }) {
 	const [shown, setShown] = useState(who);
 	return <ProfileCard key={`${shown.type}:${shown.id}`} who={shown} onClose={onClose} onFor={shown.for && (() => setShown(shown.for!))} />;
 }
