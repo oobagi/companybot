@@ -256,7 +256,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			<ConflictNotice draft={draft} />
 			{(filters.length > 0 || sort) && (
 				<div className="-mt-2 flex flex-wrap items-center gap-1.5">
-					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} kind={sortField?.kind} onChange={setSort} />}
+					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} onChange={setSort} />}
 					{filters.map((f) => (
 						<FilterChip
 							key={f.id}
@@ -454,17 +454,15 @@ function SearchResults({ type, query, columns }: { type: RecordType; query: stri
 }
 
 /** The sort, as a chip before the filters: its direction, or remove it. */
-function SortChip({ sort, label, kind, onChange }: { sort: Sort; label: string; kind?: FieldKind; onChange: (sort: Sort | undefined) => void }) {
+function SortChip({ sort, label, onChange }: { sort: Sort; label: string; onChange: (sort: Sort | undefined) => void }) {
 	const Arrow = sort.order === "asc" ? ArrowUpIcon : ArrowDownIcon;
 	return (
 		<Popover
 			label={`Sorted by ${label}`}
 			trigger={
 				<>
-					{kind ? <FieldIcon kind={kind} /> : <Arrow />}
-					<span className="max-w-48 truncate">{label}</span>
 					<Arrow />
-					<CaretDownIcon />
+					<span className="max-w-48 truncate">{label}</span>
 				</>
 			}
 			className={filterChip}
@@ -475,7 +473,6 @@ function SortChip({ sort, label, kind, onChange }: { sort: Sort; label: string; 
 				<>
 					{(["asc", "desc"] as const).map((order) => (
 						<MenuItem key={order} onClick={() => (close(), onChange({ ...sort, order }))}>
-							{order === "asc" ? <ArrowUpIcon className="text-neutral-400" /> : <ArrowDownIcon className="text-neutral-400" />}
 							<span className="flex-1">{order === "asc" ? "Ascending" : "Descending"}</span>
 							{sort.order === order && <CheckIcon className="text-neutral-500" />}
 						</MenuItem>
