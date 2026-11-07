@@ -76,12 +76,15 @@ export function PageEditor({ pageId, editable, standalone = false, focusKey = 0 
 	// too, the snapshot stays live a minute after leaving (main.tsx), so coming back to a page doesn't load again.
 	useHeldQuery(api.pageSync.getSnapshot, { id: pageId });
 	const sync = useBlockNoteSync<PageBlockEditor>(api.pageSync, pageId, { editorOptions: { schema: pageEditorSchema, links, uploadFile: (file) => uploadImage.current!(file) }, onSyncError: syncFailed });
+	// Enter in the title puts the cursor on the first line of text; with none (a body of pages, tables or
+	// pictures only) it makes a line at the top to type on, rather than selecting a block.
 	useEffect(() => {
-		if (focusKey && editable && sync.editor) {
-			const body = sync.editor.document.find((block) => Array.isArray(block.content)) ?? sync.editor.document.at(-1)!;
-			sync.editor.setTextCursorPosition(body, "start");
-			sync.editor.focus();
-		}
+		const editor = sync.editor;
+		if (!focusKey || !editable || !editor) return;
+		const text = editor.document.find((block) => Array.isArray(block.content));
+		const body = text ?? editor.insertBlocks([{ type: "paragraph" }], editor.document[0]!, "before")[0]!;
+		editor.setTextCursorPosition(body, "start");
+		editor.focus();
 	}, [sync.editor, editable, focusKey]);
 	if (sync.isLoading) return <Loading />;
 	if (!sync.editor || gone) return <EmptyState icon={<PageIcon />} title="Page unavailable">Try opening this page again.</EmptyState>;
