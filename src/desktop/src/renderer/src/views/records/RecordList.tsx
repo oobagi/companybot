@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass, hintClass, metadataClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -159,16 +159,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		<Page
 			wide
 			title={type.plural}
-			actions={
-				<>
-					{type.canManage && (
-						<button type="button" className={barButton} onClick={() => setEditingDatabase(true)}>
-							<EditIcon /> Edit database
-						</button>
-					)}
-					{canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
-				</>
-			}
+			// Its settings open from its title, as a page's actions do.
+			menu={type.canManage ? (close) => <MenuItem onClick={() => (close(), setEditingDatabase(true))}><EditIcon /> Edit database</MenuItem> : undefined}
+			actions={canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
 		>
 			<Tabs
 				// The view's controls share the tabs' row, like Notion's, so the records start right under it.
@@ -330,7 +323,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			)}
 			{editingDatabase && <DatabaseDialog type={type} onClose={() => setEditingDatabase(false)} />}
 			{savingView && (
-				<Modal title="Save view" onClose={() => setSavingView(false)}>
+				<Modal title="Save view" size="md" onClose={() => setSavingView(false)}>
 					<Form
 						onSubmit={(form) => {
 							const name = String(new FormData(form).get("name"));
@@ -338,11 +331,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						}}
 					>
 						<Notice>{naming.error}</Notice>
-						<Settings>
-							<Setting label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
-								<input name="name" aria-label="View name" autoFocus required maxLength={120} className={wideControlClass} />
-							</Setting>
-						</Settings>
+						<input name="name" aria-label="View name" autoFocus required maxLength={120} placeholder="View name" className={fullControlClass} />
+						<p className={hintClass}>Saves these filters, sort, columns and layout, shared with everyone in the workspace.</p>
 						<DialogButtons>
 							<button type="button" onClick={() => setSavingView(false)} className={secondaryButton}>Cancel</button>
 							<button type="submit" className={primaryButton}>Save for everyone</button>
@@ -817,14 +807,10 @@ function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void })
 	const { error, run } = useRun();
 	const label = type.fields.find((f) => f.key === "name")?.label ?? "Name";
 	return (
-		<Modal title={`New ${type.name.toLowerCase()}`} onClose={onClose}>
+		<Modal title={`New ${type.name.toLowerCase()}`} size="md" onClose={onClose}>
 			<Form onSubmit={() => run(create({ typeId: type._id, values: { name } }).then((id) => navigate(...recordPath(type.key, id))))}>
 				<Notice>{error}</Notice>
-				<Settings>
-					<Setting label={label}>
-						<input autoFocus aria-label={label} value={name} onChange={(e) => setName(e.target.value)} className={wideControlClass} />
-					</Setting>
-				</Settings>
+				<input autoFocus aria-label={label} value={name} onChange={(e) => setName(e.target.value)} placeholder={label} className={fullControlClass} />
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
 					<button type="submit" className={primaryButton}>Create</button>

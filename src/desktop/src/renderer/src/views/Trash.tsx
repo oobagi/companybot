@@ -96,7 +96,7 @@ export function TrashView({ access }: { access: Access }) {
 										title="Delete forever"
 										className={iconDangerButton}
 									>
-										<TrashIcon size={16} />
+										<TrashIcon />
 									</button>
 								)}
 							</div>
