@@ -20,10 +20,12 @@ Each database has its own entry in Databases' sidebar (Databases in the rail); i
 - **Board**: cards grouped by a choice field. A database without one can't be shown as a board; add a choice field first.
 - **Record page**: edit fields in place. Below: pending follow-ups agents set about it (see **help: automations**), linked records, chat messages that mention it, and the record's page for longer notes (see **help: pages**).
 - **History**: every change with who and when (an agent shows as "Companybot, for Jaden"). Undo reverses one change.
+- **Changing a field**: click a field (in Columns, a header's menu, or on a record) to change any of its settings: name, kind, options, whether it holds several, and the database it links to. A new kind converts the values already there: anything becomes text the way it reads; text becomes numbers, amounts, dates, checkboxes, emails, phones or websites when it parses ("$1,234.56" → 1234.56), choices with one option per different value (up to 100), people by name or email, and links by a record's exact name. Several → one keeps each record's first value. If a change would clear values (or drop a view's filter), Edit field says so, with a few examples, before you save. Values convert in the background; the field reads "Converting…" and can't be edited until it's done. Saved views lose filters, sorts or grouping on it that no longer fit, and say so.
+- **Undoing a field change**: Edit field and [Activity](#/settings/activity) show the last change with Undo. It brings back the old kind and every record's old value, cleared ones too, unless a record changed since (then its newer value converts back). Old values are kept for 30 days.
 - **Money**: each amount keeps its own currency. The workspace currency in [General](#/settings/general) only sets the default for new ones.
 
 ## With agents
-Ask Companybot to find, add, change or delete records, or add fields ("start tracking roof type on clients"). It acts as you, and its changes appear in history and [Activity](#/settings/activity).
+Ask Companybot to find, add, change or delete records, add fields ("start tracking roof type on clients") or change one ("make Budget a number"). It shows what a field change would do and asks before running it. It acts as you, and its changes appear in history and [Activity](#/settings/activity).
 
 ## Deleting
 Deleted records, databases and fields go to [Archive](#/settings/archive).

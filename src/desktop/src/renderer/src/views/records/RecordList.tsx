@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Setting, Settings, Tabs, barButton, filterChip, iconButton, toolButton, toolControlClass, bareIconButton, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, wideControlClass, hintClass, metadataClass } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -30,6 +30,7 @@ import {
 	recordPath,
 	sortable,
 	toCondition,
+	filterFits,
 	valueText,
 } from "./logic";
 
@@ -133,11 +134,24 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	const conditions = filters.map(toCondition).filter((c) => c !== null);
+	// A filter or sort made before a field's kind changed may not fit it now: it's dropped, and the bar says so.
+	const fitting = filters.filter((f) => {
+		const field = fields.find((x) => x.key === f.field);
+		return !field || filterFits(f, field);
+	});
+	const sortFits = !sort || !fields.some((f) => f.key === sort.field && (!sortable(f) || f.changing));
+	const [tidied, setTidied] = useState<string>();
+	useEffect(() => {
+		if (fitting.length === filters.length && sortFits) return;
+		const names = [...new Set([...filters.filter((f) => !fitting.includes(f)).map((f) => f.field), ...(sortFits ? [] : [sort!.field])])].map((k) => fields.find((f) => f.key === k)?.label ?? k);
+		setTidied(`${names.map((n) => `“${n}”`).join(", ")} changed kind, so ${names.length > 1 ? "their filters and sorts were" : "its filter or sort was"} removed.`);
+		change({ filters: fitting, sort: sortFits ? sort : undefined });
+	}, [fitting.length, filters.length, sortFits]);
+	const conditions = fitting.map(toCondition).filter((c) => c !== null);
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;
 	const sortField = sort && fields.find((f) => f.key === sort.field);
-	const args = { typeId: type._id, filters: conditions, sort };
+	const args = { typeId: type._id, filters: conditions, sort: sortFits ? sort : undefined };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
 
@@ -254,6 +268,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			<Notice>{error}</Notice>
 			{dialog}
 			<ConflictNotice draft={draft} />
+			{/* Why the view's filters or sort changed without anyone saving it: a field's kind changed. */}
+			{(selected?.notice || tidied) && <p className={hintClass}>{tidied ?? selected?.notice}</p>}
 			{(filters.length > 0 || sort) && (
 				<div className="-mt-2 flex flex-wrap items-center gap-1.5">
 					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} onChange={setSort} />}
@@ -363,7 +379,7 @@ function RecordResults({
 }) {
 	const { rows, refs, status, stale, loadMore, setEnd } = usePagedRows(args);
 
-	const header = (key: string, label: string, canSort: boolean, kind?: FieldKind) => {
+	const header = (key: string, label: string, canSort: boolean, kind?: FieldKind, changing?: boolean) => {
 		const on = sort?.field === key;
 		const next = (): Sort | undefined => {
 			const first = key === "updatedAt" ? "desc" : "asc";
@@ -377,9 +393,10 @@ function RecordResults({
 						{kind && <FieldIcon kind={kind} />}
 						{label}
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
+						{changing && <span className={metadataClass}>Converting…</span>}
 					</button>
 				) : (
-					<span className="flex items-center gap-1.5">{kind && <FieldIcon kind={kind} />}{label}</span>
+					<span className="flex items-center gap-1.5">{kind && <FieldIcon kind={kind} />}{label}{changing && <span className={metadataClass}>Converting…</span>}</span>
 				)}
 			</th>
 		);
@@ -398,7 +415,7 @@ function RecordResults({
 				columns={columns}
 				stale={stale}
 				head={[
-					...columns.map((f) => header(f.key, f.label, sortable(f), f.kind)),
+					...columns.map((f) => header(f.key, f.label, sortable(f) && !f.changing, f.kind, f.changing)),
 					header("updatedAt", "Updated", true),
 				]}
 			/>}
@@ -432,7 +449,7 @@ function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordTyp
 										</td>
 									) : (
 										<td key={f.key} className="max-w-72 min-w-32 px-1 py-0.5 align-middle text-neutral-700">
-											<Cell row={r} field={f} refs={refs} editable={type.canEdit} />
+											<Cell row={r} field={f} refs={refs} editable={type.canEdit && !f.changing} />
 										</td>
 									),
 								)}
