@@ -106,7 +106,8 @@ function Lane({
 			}}
 			className={`flex w-64 shrink-0 flex-col gap-2 rounded-xl p-2 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}
 		>
-			<div className="flex items-center gap-2 px-1 text-sm font-medium text-neutral-700">
+			{/* Sticks as the board scrolls, like a table's header; opaque in the column's own color, so cards pass under it. */}
+			<div className={`sticky top-0 z-10 -mx-2 -mt-2 flex items-center gap-2 rounded-t-xl bg-white px-3 pt-2 pb-1 text-sm font-medium text-neutral-700 before:absolute before:inset-0 before:-z-10 before:rounded-t-xl ${over ? "before:bg-neutral-200/70" : "before:bg-neutral-100/70"}`}>
 				{id ? (
 					<Chip color={color}>
 						<span className="truncate">{retired ? `${label} (removed)` : label}</span>
