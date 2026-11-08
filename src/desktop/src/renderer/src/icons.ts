@@ -153,6 +153,7 @@ export {
 	MagnifyingGlassIcon as SearchIcon,
 	PushPinIcon as PinIcon,
 	PushPinSlashIcon as UnpinIcon,
+	NoteIcon as SavedReplyIcon,
 	QuestionIcon as HelpIcon,
 	QuotesIcon as QuoteIcon,
 	RobotIcon as AgentIcon,

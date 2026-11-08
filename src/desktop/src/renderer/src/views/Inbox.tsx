@@ -6,7 +6,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Segmented, Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { ArrowUpIcon, CaretUpDownIcon, CheckIcon, InboxIcon, MailIcon, MembersIcon, PaperPlaneTiltIcon, ReactIcon, RecordIcon, SidebarIcon, TextMessageIcon, TrashIcon } from "../icons";
+import { AttachIcon, CaretUpDownIcon, CheckIcon, InboxIcon, MailIcon, MembersIcon, PaperPlaneTiltIcon, RecordIcon, SavedReplyIcon, SidebarIcon, SparkleIcon, TextMessageIcon, TrashIcon } from "../icons";
 import { navigate } from "../router";
 import {
 	EmptyState,
@@ -29,9 +29,9 @@ import {
 	iconButton,
 	inboxPill,
 	linkButton,
+	metadataClass,
 	primaryButton,
 	secondaryButton,
-	sendButton,
 	sentBubbleClass,
 	shortAgo,
 	useRun,
@@ -40,7 +40,7 @@ import {
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
 import { AddButton, Item } from "./chat/Sidebar";
-import { EmojiPanel } from "./chat/EmojiPanel";
+import { Composer } from "./chat/Composer";
 import { Thread } from "./InboxComments";
 import { ProfileLink } from "./chat/Profile";
 import type { Participant } from "./chat/data";
@@ -542,50 +542,55 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 /** Answer as the business, from the agent's address or number. Enter sends; Shift+Enter starts a new line. */
 function ReplyBox({ conversation: c }: { conversation: Opened }) {
 	const reply = useMutation(api.inbox.reply);
-	const [text, setText] = useState("");
-	const field = useRef<HTMLTextAreaElement>(null);
-	// An emoji goes in where the caret was.
-	const insert = (emoji: string) => {
-		const el = field.current;
-		const at = el?.selectionStart ?? text.length;
-		setText(text.slice(0, at) + emoji + text.slice(el?.selectionEnd ?? at));
-		requestAnimationFrame(() => (el?.focus(), el?.setSelectionRange(at + emoji.length, at + emoji.length)));
-	};
-	const { error, busy, run } = useRun();
-	const blocked = !c.from;
-	const submit = () => text.trim() && !busy && !blocked && run(reply({ id: c.id, text }).then(() => setText("")));
+	const sendWith = useQuery(api.preferences.get)?.sendWith ?? "enter";
+	const { error, fail } = useRun();
 	const who = contactLabel(c);
+	// A send that fails puts the text back in the box (Composer), with why above it.
+	const send = (text: string) => {
+		fail();
+		const sending = reply({ id: c.id, text });
+		sending.catch(fail);
+		return sending;
+	};
 	return (
 		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-2 pb-5">
 			<Notice>{error}</Notice>
-			{/* One 8px inset all round, and a corner that follows the round buttons' (16px radius + 8px = 24px). */}
-			<Form className="flex w-full flex-col gap-1 rounded-3xl border border-neutral-200 bg-white p-2 focus-within:border-neutral-300" onSubmit={submit}>
-				<textarea
-					ref={field}
-					aria-label="Reply"
-					rows={1}
-					disabled={blocked}
-					value={text}
-					onChange={(e) => setText(e.target.value)}
-					onKeyDown={(e) => {
-						if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-							e.preventDefault();
-							submit();
-						}
-					}}
-					placeholder={blocked ? `${c.agentName} no longer has ${c.channel === "email" ? "an email address" : "a phone number"}.` : c.channel === "email" ? `Email ${who}` : `Send a text to ${who}`}
-					className="field-sizing-content max-h-48 min-w-0 resize-none bg-transparent px-2 pt-1.5 text-sm outline-none"
+			{c.from ? (
+				<Composer
+					key={c.id}
+					sendWith={sendWith}
+					placeholder={c.channel === "email" ? `Email ${who}` : `Text ${who}`}
+					sources={noSources}
+					draftKey={`inbox:${c.id}`}
+					onSend={send}
+					start={<Soon icon={<AttachIcon />} label="Attach files" text="Send photos and files by email and text." />}
+					tools={
+						<>
+							<Soon icon={<SparkleIcon />} label="Write a reply" text={`${c.agentName} will draft a reply from the conversation and ${who}'s record, for you to edit.`} />
+							<Soon icon={<SavedReplyIcon />} label="Saved replies" text="Answers your team sends often, a click away." />
+						</>
+					}
 				/>
-				<div className="flex items-center justify-between">
-					<Popover trigger={<ReactIcon />} label="Add emoji" className={`${composerButton} bg-neutral-100`} panelClassName="w-auto">
-						{(close) => <EmojiPanel onPick={(emoji) => (close(), insert(emoji))} />}
-					</Popover>
-					<button type="submit" disabled={busy || blocked || !text.trim()} className={`${sendButton} enabled:bg-sent`} aria-label="Send">
-						<ArrowUpIcon weight="bold" />
-					</button>
-				</div>
-			</Form>
+			) : (
+				<p className={`rounded-2xl border border-neutral-200 px-4 py-3 ${descriptionClass}`}>
+					{c.agentName} no longer has {c.channel === "email" ? "an email address" : "a phone number"}, so replies can't be sent.
+				</p>
+			)}
 		</div>
+	);
+}
+
+/** Inbox replies go to someone outside: nobody to @mention, no channels or skills. Emoji (:) still work. */
+const noSources = { people: [], agents: [], channels: [], skills: [] };
+
+/** A composer tool that's planned: what it will do, in a popover. */
+function Soon({ icon, label, text }: { icon: React.ReactNode; label: string; text: string }) {
+	return (
+		<Popover trigger={icon} label={`${label} (coming soon)`} className={composerButton} panelClassName="w-64 p-3">
+			<p className="text-sm font-medium text-neutral-900">{label}</p>
+			<p className={descriptionClass}>{text}</p>
+			<p className={`pt-2 ${metadataClass}`}>Coming soon</p>
+		</Popover>
 	);
 }
 
