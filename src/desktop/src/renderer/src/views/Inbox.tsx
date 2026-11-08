@@ -232,7 +232,7 @@ function Messages({ c, them, bar }: { c: Opened; them: string; bar: React.ReactN
 					return (
 						<Fragment key={first.id}>
 							{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(first.at)}, {clock(first.at)}</p>}
-							<div className={`group/msg ${stamp ? "" : "pt-5"}`}>
+							<div className={`group/msg ${stamp ? "" : "pt-3"}`}>
 								{first.assignedTo ? (
 									<Line who={first.author} name="Someone on staff">
 										assigned this to <PersonPill who={first.assignedTo} />
@@ -249,12 +249,14 @@ function Messages({ c, them, bar }: { c: Opened; them: string; bar: React.ReactN
 										side={first.direction === "in" ? "them" : "us"}
 									/>
 								)}
+								{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
+								{first.direction === "event" && <div aria-hidden className="h-8.5" />}
 							</div>
 						</Fragment>
 					);
 				})}
 				{c.needsStaff === "handoff" && (
-					<div className="pt-6">
+					<div className="pt-3">
 						<Line who={c.agent} name={c.agentName}>
 							handed this to
 							<span className={`${pillClass} bg-amber-50 text-amber-800`}>
@@ -264,7 +266,7 @@ function Messages({ c, them, bar }: { c: Opened; them: string; bar: React.ReactN
 					</div>
 				)}
 				{c.replying && (
-					<div className="pt-6">
+					<div className="pt-3">
 						<Line who={c.agent} name={c.agentName}>
 							is writing a reply…
 						</Line>
