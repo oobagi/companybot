@@ -324,7 +324,8 @@ function Assignee({ conversation: c }: { conversation: Opened }) {
 
 type Message = Opened["messages"][number];
 
-const pillClass = "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium";
+/** Every pill in a line: one height, padding, font and icon size, whether it holds a picture or an icon. */
+const pillClass = "inline-flex h-6 items-center gap-1.5 rounded-md pr-2 pl-1 text-xs leading-none font-medium [&>svg]:size-4";
 
 /**
  * A centered line in the conversation, as in "Changed status to [Contacted]": who, as a pill with
@@ -343,7 +344,7 @@ function Line({ who, name, children }: { who: Participant | null; name: string; 
 function PersonPill({ who, name = "Someone" }: { who: Participant | null; name?: string }) {
 	const inside = (
 		<>
-			<Avatar name={who?.name ?? name} image={who?.image} agent={who?.type === "agent"} size="xs" />
+			<Avatar name={who?.name ?? name} image={who?.image} agent={who?.type === "agent"} size="line" />
 			{who?.name ?? name}
 		</>
 	);
