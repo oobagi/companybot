@@ -310,6 +310,8 @@ body {
 .board-lane.sortable-landing {
 	scale: 1;
 	background: color-mix(in srgb, var(--color-neutral-100) 70%, var(--color-white));
+	/* Tighter than a row's, so it fits the room above the columns (Board.tsx) instead of being cut off. */
+	filter: drop-shadow(0 4px 6px rgb(0 0 0 / 0.12));
 }
 /* A page's block picked up by its ⋮⋮ (PageEditor.tsx) moves as it is: no card, no shadow, its own size and place
    (BlockNote animates a block's margin, so no inset either); the + and ⋮⋮ stay out of the way until it's let go. */

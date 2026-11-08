@@ -86,14 +86,15 @@ export function Board({
 		...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired })),
 	];
 	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
-	// Cards are scrolled under the column headers: their fade shows.
+	// Cards are scrolled under the column headers (past the room above them): their fade shows.
 	const [under, setUnder] = useState(false);
 	return (
 		// Fills the rest of the screen and scrolls itself, like a table (`Page`'s `fill`): the tabs stay put and the scrollbar sits at the bottom.
 		<div className="flex min-h-0 flex-1 flex-col gap-2">
 			<Notice>{error}</Notice>
 			{/* Lanes start at the column and scroll out to the screen's edges; all as tall as the longest, so each is a full-height drop target. */}
-			<div className="bleed min-h-0 flex-1 overflow-y-auto pb-2" onScroll={(e) => setUnder(e.currentTarget.scrollTop > 0)}>
+			{/* Room above the columns (`-mt-2 pt-2`), so a lifted column's shadow isn't cut off by the scroll area; their headers stick past it (`-top-2`), at its very top, so no card shows above them. */}
+			<div className="bleed -mt-2 min-h-0 flex-1 overflow-y-auto pt-2 pb-2" onScroll={(e) => setUnder(e.currentTarget.scrollTop > 8)}>
 			<div ref={board} className="flex min-h-full w-max gap-3">
 				{lanes.map((lane) => (
 					<Lane
@@ -225,7 +226,7 @@ function Lane({
 			{/* Sticks as the board scrolls, like a table's header. The outer square is the page's own white, so
 			    cards passing under don't show through the rounded corners; the column's color is on the inside.
 			    Below it, cards fade out into the column (styles.css's scrim) instead of cutting off. */}
-			<div className="sticky top-0 z-10 -mx-2 -mt-2 bg-white">
+			<div className="sticky -top-2 z-10 -mx-2 -mt-2 bg-white">
 				<div
 					aria-hidden
 					className={`scrim-top pointer-events-none absolute inset-x-0 top-full h-4 ${over ? "[--scrim:color-mix(in_srgb,var(--color-neutral-200)_70%,white)]" : "[--scrim:color-mix(in_srgb,var(--color-neutral-100)_70%,white)]"}`}
