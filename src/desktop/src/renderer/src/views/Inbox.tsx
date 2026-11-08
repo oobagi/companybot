@@ -179,29 +179,32 @@ function Conversation({ c }: { c: Opened }) {
 	const shown = wide ? !hidden : opened;
 	const toggle = () => (wide ? (setHidden(!hidden), localStorage.setItem("inbox.details.hidden", String(!hidden))) : setOpened(!opened));
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-			<TopBar title={<span className="truncate">{them}</span>} description={c.channel === "email" ? "Email" : "Text"}>
-				<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
-					<SidebarIcon className="-scale-x-100" />
-				</button>
-			</TopBar>
-			<div ref={row} className="relative flex min-h-0 flex-1">
-				<Messages c={c} them={them} />
-				{shown && (
-					<aside className={wide ? "w-72 shrink-0 overflow-y-auto pr-3 pb-3" : "absolute top-0 right-3 z-40 w-72 rounded-xl shadow-lg"}>
-						<Details conversation={c} />
-					</aside>
-				)}
-			</div>
+		<div ref={row} className="relative flex min-h-0 min-w-0 flex-1">
+			<Messages
+				c={c}
+				them={them}
+				bar={
+					<TopBar title={<span className="truncate">{them}</span>} description={c.channel === "email" ? "Email" : "Text"}>
+						<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
+							<SidebarIcon className="-scale-x-100" />
+						</button>
+					</TopBar>
+				}
+			/>
+			{shown && (
+				<aside className={wide ? "w-72 shrink-0 overflow-y-auto pt-12 pr-3 pb-3" : "absolute top-12 right-3 z-40 w-72 rounded-xl shadow-lg"}>
+					<Details conversation={c} />
+				</aside>
+			)}
 		</div>
 	);
 }
 
-function Messages({ c, them }: { c: Opened; them: string }) {
+function Messages({ c, them, bar }: { c: Opened; them: string; bar: React.ReactNode }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const nearBottom = useRef(true);
-	const shown = c.messages;
+	const items = itemsOf(c.messages);
 	// Opens at the latest message, and follows new ones while you're at the bottom (as chat does).
 	useLayoutEffect(() => {
 		const el = scroller.current;
@@ -216,32 +219,36 @@ function Messages({ c, them }: { c: Opened; them: string }) {
 		<Scroll
 			ref={scroller}
 			overlayScrollbar
+			header={bar}
 			footer={<ReplyBox conversation={c} />}
 			onScroll={(e) => (nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 120)}
 		>
 			<div ref={content} className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 pt-4 pb-5">
-				{shown.map((m, i) => {
-					const prev = shown[i - 1];
-					// A new group: the first, after a quiet stretch, or someone else talking.
-					const stamp = !prev || m.at - prev.at > GROUP_GAP_MS;
-					const named = stamp || sideOf(prev!) !== sideOf(m) || prev!.author?.name !== m.author?.name;
-					const last = i === shown.length - 1 || sideOf(shown[i + 1]!) !== sideOf(m) || shown[i + 1]!.at - m.at > GROUP_GAP_MS;
-					// Room between groups; a run from one sender sits close together.
-					const gap = stamp ? "" : named ? "pt-6" : "pt-1";
+				{items.map((item, i) => {
+					const first = item.messages[0]!;
+					const prev = items[i - 1]?.messages.at(-1);
+					// A time over the first, and after a quiet stretch; room between groups.
+					const stamp = !prev || first.at - prev.at > GROUP_GAP_MS;
 					return (
-						<Fragment key={m.id}>
-							{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(m.at)}, {clock(m.at)}</p>}
-							<div className={`group/msg ${gap}`}>
-								{m.assignedTo ? (
-									<Line who={m.author} name="Someone on staff">
-										assigned this to <PersonPill who={m.assignedTo} />
+						<Fragment key={first.id}>
+							{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(first.at)}, {clock(first.at)}</p>}
+							<div className={`group/msg ${stamp ? "" : "pt-5"}`}>
+								{first.assignedTo ? (
+									<Line who={first.author} name="Someone on staff">
+										assigned this to <PersonPill who={first.assignedTo} />
 									</Line>
-								) : m.status === "draft" ? (
-									<Draft message={m} channel={c.channel} agent={c.agent} />
+								) : first.status === "draft" ? (
+									<Draft message={first} channel={c.channel} agent={c.agent} />
 								) : (
-									<MessageItem message={m} them={them} channel={c.channel} subject={c.subject} named={named} last={last} />
+									<Group messages={item.messages} them={them} channel={c.channel} subject={c.subject} />
 								)}
-								{m.direction !== "event" && <Thread messageId={m.id} comments={m.comments} side={m.direction === "in" ? "them" : "us"} />}
+								{first.direction !== "event" && (
+									<Thread
+										messageId={item.messages.at(-1)!.id}
+										comments={item.messages.flatMap((m) => m.comments).sort((a, b) => a.at - b.at)}
+										side={first.direction === "in" ? "them" : "us"}
+									/>
+								)}
 							</div>
 						</Fragment>
 					);
@@ -395,6 +402,43 @@ const GROUP_GAP_MS = 15 * 60_000;
 const sideOf = (m: Message) => (m.direction === "in" ? "them" : m.direction === "event" ? "event" : "us");
 
 /**
+ * The conversation as groups: a run of messages from one sender, close in time, is one group (one name
+ * over it, connected bubbles, one comment thread under it). Lines and drafts stand alone.
+ */
+function itemsOf(messages: Message[]) {
+	const items: { messages: Message[] }[] = [];
+	const alone = (m: Message) => m.direction === "event" || m.status === "draft";
+	for (const m of messages) {
+		const run = items.at(-1)?.messages;
+		const prev = run?.at(-1);
+		if (run && prev && !alone(m) && !alone(prev) && sideOf(prev) === sideOf(m) && prev.author?.name === m.author?.name && m.at - prev.at <= GROUP_GAP_MS) run.push(m);
+		else items.push({ messages: [m] });
+	}
+	return items;
+}
+
+/** A run from one sender: their name and picture, then the messages, connected on the sender's side. */
+function Group({ messages, them, channel, subject }: { messages: Message[]; them: string; channel: "email" | "sms"; subject: string | null }) {
+	const mine = messages[0]!.direction !== "in";
+	return (
+		<div className={`flex flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
+			<Sender author={messages[0]!.author} them={them} mine={mine} />
+			{messages.map((m, i) => (
+				<MessageItem key={m.id} message={m} channel={channel} subject={subject} corners={cornersOf(mine, i, messages.length)} last={i === messages.length - 1} />
+			))}
+		</div>
+	);
+}
+
+/** Where a bubble sits in its run: its corners on the sender's side tighten where it meets the next. */
+function cornersOf(mine: boolean, i: number, count: number) {
+	const above = i > 0;
+	const below = i < count - 1;
+	if (mine) return `${above ? "rounded-tr-md" : ""} ${below ? "rounded-br-md" : ""}`;
+	return `${above ? "rounded-tl-md" : ""} ${below ? "rounded-bl-md" : ""}`;
+}
+
+/**
  * Who wrote it, with their picture: on our side, the name then the picture; on theirs, the other way
  * round. Our people and agents open their card; `them` is the customer, by name only.
  */
@@ -421,12 +465,12 @@ function Sender({ author, them, mine }: { author: Participant | null; them?: str
  * One message, as a text app shows it: ours on the right, theirs on the left, the sender's name and
  * picture over the first of a run. Texts are bubbles (ours blue); emails are cards with their subject.
  */
-function MessageItem({ message: m, them, channel, subject, named, last }: { message: Message; them: string; channel: "email" | "sms"; subject: string | null; named: boolean; last: boolean }) {
+function MessageItem({ message: m, channel, subject, corners, last }: { message: Message; channel: "email" | "sms"; subject: string | null; corners: string; last: boolean }) {
 	const mine = m.direction !== "in";
 	const failed = m.status === "failed";
 	const body =
 		channel === "email" ? (
-			<div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-800 select-text">
+			<div className={`max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-800 select-text ${corners}`}>
 				{subject && (
 					<p className="flex items-center gap-2 pb-1 font-semibold text-neutral-900">
 						<MailIcon /> {subject}
@@ -435,12 +479,11 @@ function MessageItem({ message: m, them, channel, subject, named, last }: { mess
 				<p className="whitespace-pre-wrap">{m.text}</p>
 			</div>
 		) : (
-			<div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap select-text ${mine ? sentBubbleClass : "bg-neutral-100 text-neutral-900"}`}>{m.text}</div>
+			<div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap select-text ${corners} ${mine ? sentBubbleClass : "bg-neutral-100 text-neutral-900"}`}>{m.text}</div>
 		);
 	const forWho = m.author?.for;
 	return (
-		<div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-			{named && <Sender author={m.author} them={them} mine={mine} />}
+		<div className={`flex w-full flex-col ${mine ? "items-end" : "items-start"}`}>
 			{body}
 			{(failed || m.status === "sending") && <p className={`pt-1 text-xs ${failed ? "text-red-600" : "text-neutral-400"}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 			{!failed && m.status !== "sending" && last && forWho && (
