@@ -64,12 +64,13 @@ function ThreadCard({ messageId, comments, onClose }: { messageId: Id<"inboxMess
 			onKeyDown={(e) => e.key === "Escape" && !e.defaultPrevented && onClose()}
 			className="flex w-full max-w-[75%] flex-col rounded-2xl border border-neutral-200 bg-white text-sm shadow-sm"
 		>
-			{/* A long thread scrolls between the title and the reply bar, fading under each (ui.tsx Scroll). */}
-			<div className="flex max-h-96 min-h-0 flex-col">
+			{/* A long thread scrolls between the title and the reply bar, fading under each (ui.tsx Scroll).
+			    Clipped to the card's corners, or the title's fade paints square over its rounded border. */}
+			<div className="flex max-h-96 min-h-0 flex-col overflow-hidden rounded-t-2xl">
 				<Scroll
 					ref={list}
 					header={
-						<div className="flex items-center gap-2 rounded-t-2xl px-3 pt-3 pb-4 text-neutral-600">
+						<div className="flex items-center gap-2 px-3 pt-3 pb-4 text-neutral-600">
 							<ChatIcon />
 							<span className="flex-1 font-medium">{comments.length ? (comments.length === 1 ? "1 comment" : `${comments.length} comments`) : "Comment for staff"}</span>
 							<button type="button" aria-label="Close comments" title="Close" className={smallIconButton} onClick={onClose}>
