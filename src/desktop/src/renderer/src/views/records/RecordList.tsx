@@ -9,7 +9,7 @@ import { Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, compactPrimaryButton, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
@@ -854,14 +854,20 @@ function ColumnsPicker({
 							</>
 						);
 						return (
-							// Notion's Properties menu: the name opens the field's settings, the eye shows or hides it here.
+							// Notion's Properties menu: the name opens the field's settings (the › says so), the eye shows or hides it here.
 							<div key={f.key} className="flex items-center gap-1">
 								{f.canEdit ? (
-									<MenuItem title="Edit field" onClick={() => (close(), onEditField(f))}>{name}</MenuItem>
+									<MenuItem title="Edit field" onClick={() => (close(), onEditField(f))}>
+										{name}
+										<CaretRightIcon className="text-neutral-400" />
+									</MenuItem>
 								) : (
 									<span className="flex flex-1 items-center gap-2 px-2 py-1.5">{name}</span>
 								)}
-								{f.key !== NAME_KEY && (
+								{f.key === NAME_KEY ? (
+									// Always shown, so no eye; the room keeps its › in line with the rest.
+									<span aria-hidden className="size-8 shrink-0" />
+								) : (
 									<button
 										type="button"
 										onClick={() => onChange(shown ? columns.filter((k) => k !== f.key) : fields.map((g) => g.key).filter((k) => k === f.key || columns.includes(k)))}

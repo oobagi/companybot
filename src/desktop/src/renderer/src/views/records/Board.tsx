@@ -11,11 +11,12 @@ import { type DragProps, useDragList } from "../../sortable";
 import { LoadMore, Loading, Notice, boardCardButton, compactControlClass, laneAddButton, trailingAction, useRun } from "../../ui";
 import { type ListArgs, type RecordType, type Row, usePagedRows } from "./data";
 import { ChoiceChips, Chip } from "./fields";
+import { OptionMenu } from "./fieldDialogs";
 import { type Refs, type TypeField, recordPath, valueText } from "./logic";
 
 // A database view as a board: cards in a column per option of a choice field. See wiki/data.md.
 
-/** A field's options in a new order, at once: the columns move as they're dropped. Only a reorder (every option has an id). */
+/** A field's options changed, at once: the columns move as they're dropped, and a rename or color shows as it's picked. Not a new option (no id yet). */
 const optimisticOptions: OptimisticUpdate<FunctionArgs<typeof api.fields.update>> = (store, args) => {
 	const next = args.options;
 	if (!next || next.some((o) => !o.id)) return;
@@ -26,8 +27,9 @@ const optimisticOptions: OptimisticUpdate<FunctionArgs<typeof api.fields.update>
 			fields: type.fields.map((f) => {
 				if (f._id !== args.fieldId || !f.options) return f;
 				const all = f.options;
-				const active = next.map((o) => all.find((e) => e.id === o.id)).filter((o) => o !== undefined);
-				return { ...f, options: [...active, ...all.filter((e) => !active.includes(e)).map((e) => ({ ...e, retired: true }))] };
+				const kept = next.map((o) => all.find((e) => e.id === o.id)).filter((o) => o !== undefined);
+				const active = next.map((o, i) => ({ ...kept[i]!, label: o.label, color: o.color ?? kept[i]!.color }));
+				return { ...f, options: [...active, ...all.filter((e) => !kept.includes(e)).map((e) => ({ ...e, retired: true }))] };
 			}),
 		})));
 	}
@@ -70,9 +72,11 @@ const optimisticMove: OptimisticUpdate<FunctionArgs<typeof api.records.move>> = 
 const moveUpdate = () => optimisticMove;
 
 /** A card in flight: where it came from, where it would land (`to`: a column, null over none that takes it; `index` among that column's other cards), and what it shows. */
-type CardDrag = { id: string; from: string; fromIndex: number; to: string | null; index: number; size: number; width: number; row: Row; refs: Refs };
+type CardDrag = { id: string; from: string; fromIndex: number; to: string | null; index: number; size: number; width: number; row: Row; refs: Refs; landing?: "slot" | "away" };
 /** Between cards, as `gap-2`. */
 const GAP = 8;
+/** How long a let-go card takes to settle into its place (styles.css `.board-card-landing`). */
+const LAND = 160;
 /** Near this close to the board's edge, a dragged card scrolls it, faster the closer. */
 const EDGE = 40;
 
@@ -107,6 +111,7 @@ export function Board({
 	const active = (group.options ?? []).filter((o) => !o.retired);
 	const saveOptions = (options: { id?: string; label: string; color?: string }[]) =>
 		run(updateField({ fieldId: group._id as Id<"recordFields">, options: options.map(({ id, label, color }) => ({ ...(id && { id }), label, ...(color && { color }) })) }));
+	const editOption = (id: string, change: { label?: string; color?: string }) => saveOptions(active.map((o) => (o.id === id ? { ...o, ...change } : o)));
 	// Drag a column by its header to reorder the options, like Notion. "No <field>" stays first; removed ones stay last.
 	const board = useRef<HTMLDivElement>(null);
 	const scroller = useRef<HTMLDivElement>(null);
@@ -139,11 +144,12 @@ export function Board({
 	const [drag, setDrag] = useState<CardDrag>();
 	const ghost = useRef<HTMLDivElement>(null);
 	const ghostAt = useRef({ x: 0, y: 0 });
+	const landing = useRef(false);
 	useEffect(() => {
 		if (drag && ghost.current) ghost.current.style.transform = `translate3d(${ghostAt.current.x}px, ${ghostAt.current.y}px, 0)`;
 	}, [drag]);
 	const pick = (e: React.PointerEvent<HTMLElement>, row: Row, refs: Refs, lane: string, fromIndex: number) => {
-		if (!canEdit || e.button !== 0 || e.ctrlKey || e.metaKey) return;
+		if (!canEdit || landing.current || e.button !== 0 || e.ctrlKey || e.metaKey) return;
 		const el = e.currentTarget;
 		const x0 = e.clientX;
 		const y0 = e.clientY;
@@ -165,7 +171,8 @@ export function Board({
 			const column = columns.sort((a, b) => distance(a) - distance(b))[0];
 			if (!column || column.dataset.retired) return { to: null, index: 0 };
 			const to = column.dataset.column!;
-			if (sorted) return { to, index: 0 };
+			// Sorted, the sort places it: back in its own spot, or anywhere in another column.
+			if (sorted) return { to, index: to === d.from ? d.fromIndex : 0 };
 			const top = column.getBoundingClientRect().top;
 			let index = 0;
 			for (const card of column.querySelectorAll<HTMLElement>("[data-card]")) {
@@ -219,20 +226,19 @@ export function Board({
 			window.removeEventListener("keydown", key, true);
 			if (frame) cancelAnimationFrame(frame);
 			document.documentElement.classList.remove("sorting");
-			setDrag(undefined);
 		};
 		const up = () => {
-			const done = live;
 			end();
-			if (!done) return;
+			if (!live) return;
 			// The click that ends a drag doesn't open the card.
 			const swallow = (ev: MouseEvent) => (ev.stopPropagation(), ev.preventDefault());
 			window.addEventListener("click", swallow, { capture: true, once: true });
 			setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
-			drop(done);
+			land(live);
 		};
-		const cancel = () => end();
-		const key = (ev: KeyboardEvent) => ev.key === "Escape" && (ev.stopPropagation(), end());
+		// Let go some other way, or Escape: it goes back where it was.
+		const cancel = () => (end(), live && land({ ...live, to: null }));
+		const key = (ev: KeyboardEvent) => ev.key === "Escape" && (ev.stopPropagation(), cancel());
 		window.addEventListener("pointermove", moveTo, { passive: false });
 		window.addEventListener("pointerup", up);
 		window.addEventListener("pointercancel", cancel);
@@ -246,15 +252,41 @@ export function Board({
 		run(move({ recordId: id as Id<"records">, after: near(others[index - 1]), before: near(others[index]), ...(to !== from && { values: { [group.key]: to || null } }) }));
 	};
 	/** How far a column's card (`index`, or its foot: `Infinity`) slides to make room for the dragged one, or close up behind it. */
-	const shiftOf = (lane: string, index: number) => {
-		if (!drag) return undefined;
-		const room = drag.size + GAP;
+	const shiftFor = (d: CardDrag | undefined, lane: string, index: number) => {
+		if (!d) return undefined;
+		const room = d.size + GAP;
 		let px = 0;
-		const own = lane === drag.from;
-		if (own && index > drag.fromIndex) px -= room;
-		const without = own && index > drag.fromIndex ? index - 1 : index;
-		if (lane === drag.to && !sorted && without >= drag.index) px += room;
+		const own = lane === d.from;
+		if (own && index > d.fromIndex) px -= room;
+		const without = own && index > d.fromIndex ? index - 1 : index;
+		if (lane === d.to && (!sorted || own) && without >= d.index) px += room;
 		return px;
+	};
+	/** Where the room made for a card is on screen: above the card (or column foot) after it, as they'll sit. */
+	const slotOf = (d: CardDrag) => {
+		const column = board.current?.querySelector<HTMLElement>(`section[data-column="${CSS.escape(d.to ?? "")}"]`);
+		const others = [...(column?.querySelectorAll<HTMLElement>("[data-card]") ?? [])].filter((c) => c.dataset.card !== d.id);
+		const next = others[d.index] ?? column?.querySelector<HTMLElement>("[data-foot]");
+		if (!column || !next) return undefined;
+		const r = column.getBoundingClientRect();
+		const shift = shiftFor(d, d.to!, next.dataset.card ? Number(next.dataset.index) : Number.POSITIVE_INFINITY) ?? 0;
+		return { x: r.left + next.offsetLeft, y: r.top + next.offsetTop + shift - (d.size + GAP) };
+	};
+	// Let go, the copy settles into the room made for it (or back where it came from) and only then is the card moved,
+	// like a dragged row (sortable.ts). Into a sorted column, where the sort places it, it shrinks away instead.
+	const land = (d: CardDrag) => {
+		const home = d.to === null || (d.to === d.from && (sorted || d.index === d.fromIndex));
+		const settled: CardDrag = home ? { ...d, to: d.from, index: d.fromIndex } : d;
+		const away = !home && sorted;
+		const spot = away ? undefined : slotOf(settled);
+		if (spot) ghostAt.current = spot;
+		landing.current = true;
+		setDrag({ ...settled, landing: away ? "away" : "slot" });
+		setTimeout(() => {
+			landing.current = false;
+			if (!home) drop(d);
+			setDrag(undefined);
+		}, LAND);
 	};
 	return (
 		// Fills the rest of the screen and scrolls itself, like a table (`Page`'s `fill`): the tabs stay put and the scrollbar sits at the bottom.
@@ -281,8 +313,10 @@ export function Board({
 						addLabel={`New ${type.name.toLowerCase()}`}
 						onPick={canEdit ? (e, row, refs, index) => pick(e, row, refs, lane.id, index) : undefined}
 						dragging={drag?.id}
-						target={!!drag && drag.to === lane.id && (sorted || drag.to !== drag.from)}
-						shift={(index) => shiftOf(lane.id, index)}
+						target={!!drag && !drag.landing && drag.to === lane.id && drag.to !== drag.from}
+						onEdit={canManage && lane.id && !lane.retired ? (change) => editOption(lane.id, change) : undefined}
+						onRemove={() => saveOptions(active.filter((o) => o.id !== lane.id))}
+						shift={(index) => shiftFor(drag, lane.id, index)}
 					/>
 				))}
 				{canManage && <NewColumn onSave={(label) => saveOptions([...active, { label }])} />}
@@ -290,7 +324,7 @@ export function Board({
 			</div>
 			{drag &&
 				createPortal(
-					<div ref={ghost} className="pointer-events-none fixed top-0 left-0 z-50" style={{ width: drag.width }}>
+					<div ref={ghost} className={`pointer-events-none fixed top-0 left-0 z-50 ${drag.landing ? "board-card-landing" : ""} ${drag.landing === "away" ? "sortable-into" : ""}`} style={{ width: drag.width }}>
 						<div className={`${boardCardButton} board-card-lifted w-full`}>
 							<CardBody row={drag.row} refs={drag.refs} name={name} props={props} />
 						</div>
@@ -382,6 +416,8 @@ function Lane({
 	dragging,
 	target,
 	shift,
+	onEdit,
+	onRemove,
 }: {
 	id: string;
 	type: RecordType;
@@ -404,6 +440,9 @@ function Lane({
 	/** A dragged card would land here, by the sort: the column lights up. */
 	target: boolean;
 	shift: (index: number) => number | undefined;
+	/** Renames or recolors its option, from its chip, for whoever may change the field. */
+	onEdit?: (change: { label?: string; color?: string }) => void;
+	onRemove: () => void;
 }) {
 	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
 	if (retired && rows.length === 0 && status === "Exhausted") return null;
@@ -427,7 +466,13 @@ function Lane({
 					data-under={under || undefined}
 				/>
 				<div onPointerDown={drag?.onPointerDown} className={`flex items-center gap-2 rounded-t-xl px-3 pt-2 pb-1 text-sm font-medium text-neutral-700 ${drag?.onPointerDown ? "cursor-grab" : ""} ${target ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}>
-					{id ? (
+					{id && onEdit ? (
+						<OptionMenu option={{ label, color }} onSave={onEdit} onRemove={onRemove}>
+							<Chip color={color}>
+								<span className="truncate">{label}</span>
+							</Chip>
+						</OptionMenu>
+					) : id ? (
 						<Chip color={color}>
 							<span className="truncate">{retired ? `${label} (removed)` : label}</span>
 						</Chip>
@@ -459,7 +504,7 @@ function Lane({
 					</button>
 				);
 			})}
-			<div ref={setEnd} style={{ "--sort-shift": `${foot ?? 0}px` } as React.CSSProperties} className={`flex flex-col items-center ${sliding(foot)}`}>
+			<div ref={setEnd} data-foot style={{ "--sort-shift": `${foot ?? 0}px` } as React.CSSProperties} className={`flex flex-col items-center ${sliding(foot)}`}>
 				{status === "LoadingFirstPage" ? <Loading /> : <LoadMore status={status} onMore={() => loadMore(25)} />}
 			</div>
 			{onAdd && status !== "LoadingFirstPage" && (
