@@ -3,9 +3,9 @@ import type { FunctionReturnType } from "convex/server";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { ArrowUpIcon, CaretRightIcon, ChatIcon, CloseIcon, EditIcon, TrashIcon } from "../icons";
+import { ArrowUpIcon, ChatIcon, CloseIcon, EditIcon, TrashIcon } from "../icons";
 import { Notice, compactButton, compactPrimaryButton, commentPillButton, rowButton, sendButton, smallIconButton, useRun } from "../ui";
-import { Avatar, AvatarStack, clock, dayLabel } from "./chat/common";
+import { Avatar, clock, dayLabel } from "./chat/common";
 import { ProfileLink } from "./chat/Profile";
 
 // Comments on an Inbox message (backend inboxComments.ts): staff only, never sent to the customer.
@@ -22,30 +22,25 @@ const COMMENT_MAX = 5_000;
 export function Thread({ messageId, comments, side }: { messageId: Id<"inboxMessages">; comments: Comments; side: "them" | "us" }) {
 	const [open, setOpen] = useState(false);
 	const left = side === "them";
-	// A line from the message's bottom edge (clear of its rounded corner) curving into the pill's middle.
-	const elbow = <span aria-hidden className={`h-[18px] w-2.5 shrink-0 border-b border-neutral-300 ${left ? "rounded-bl-lg border-l" : "rounded-br-lg border-r"}`} />;
 	if (open)
 		return (
-			<div className={`flex w-full pt-1.5 ${left ? "justify-start pl-3" : "justify-end pr-3"}`}>
+			<div className={`flex w-full pt-1.5 ${left ? "justify-start" : "justify-end"}`}>
 				<ThreadCard messageId={messageId} comments={comments} onClose={() => setOpen(false)} />
 			</div>
 		);
 	if (!comments.length)
 		return (
-			<div className={`flex pt-1 opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 ${left ? "justify-start pl-3" : "justify-end pr-3"}`}>
+			<div className={`flex pt-1.5 opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 ${left ? "justify-start" : "justify-end"}`}>
 				<button type="button" className={commentPillButton} onClick={() => setOpen(true)}>
 					<ChatIcon /> Comment
 				</button>
 			</div>
 		);
-	const authors = [...new Map(comments.map((k) => [`${k.author.type}:${k.author.id}`, k.author])).values()];
 	return (
-		<div className={`flex items-start ${left ? "pl-5" : "flex-row-reverse pr-5"}`}>
-			{elbow}
-			<button type="button" className={`mt-1.5 ${commentPillButton}`} onClick={() => setOpen(true)}>
-				<AvatarStack people={authors} size="line" />
+		<div className={`flex pt-1.5 ${left ? "justify-start" : "justify-end"}`}>
+			<button type="button" className={commentPillButton} onClick={() => setOpen(true)}>
+				<ChatIcon />
 				{comments.length === 1 ? "1 comment" : `${comments.length} comments`}
-				<CaretRightIcon className="text-neutral-400" />
 			</button>
 		</div>
 	);
@@ -63,7 +58,7 @@ function ThreadCard({ messageId, comments, onClose }: { messageId: Id<"inboxMess
 			ref={card}
 			aria-label="Comments"
 			onKeyDown={(e) => e.key === "Escape" && !e.defaultPrevented && onClose()}
-			className="flex w-full max-w-[75%] flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-sm shadow-sm"
+			className="flex w-full max-w-[75%] flex-col gap-3 overflow-hidden rounded-2xl border border-neutral-200 bg-white pt-3 text-sm shadow-sm [&>*]:px-3"
 		>
 			<div className="flex items-center gap-2 text-neutral-600">
 				<ChatIcon />
@@ -75,7 +70,7 @@ function ThreadCard({ messageId, comments, onClose }: { messageId: Id<"inboxMess
 			{comments.map((k) => (
 				<CommentRow key={k.id} comment={k} />
 			))}
-			<CommentBox placeholder={comments.length ? "Reply for staff…" : "Only staff see comments…"} autoFocus onSave={(text, mentions) => add({ messageId, text, mentions })} />
+			<CommentBox footer placeholder={comments.length ? "Reply for staff…" : "Only staff see comments…"} autoFocus onSave={(text, mentions) => add({ messageId, text, mentions })} />
 		</section>
 	);
 }
@@ -144,6 +139,7 @@ type Person = { userId: Id<"users">; name: string; image: string | null };
 function CommentBox({
 	initial = "",
 	initialMentions = [],
+	footer,
 	placeholder,
 	autoFocus,
 	onSave,
@@ -151,6 +147,8 @@ function CommentBox({
 }: {
 	initial?: string;
 	initialMentions?: { id: string; name: string }[];
+	/** The thread's reply box: the card's bottom strip, with a send button. Otherwise (editing) a plain field. */
+	footer?: boolean;
 	placeholder?: string;
 	autoFocus?: boolean;
 	onSave: (text: string, mentions: Id<"users">[]) => Promise<unknown>;
@@ -195,7 +193,7 @@ function CommentBox({
 		);
 	};
 	return (
-		<div className="relative flex flex-col gap-1.5">
+		<div className={`relative flex flex-col gap-1.5 ${footer ? "border-t border-neutral-200" : ""}`}>
 			{matches.length > 0 && (
 				<ul role="listbox" aria-label="Mention someone" className="absolute bottom-full left-0 z-10 mb-1 flex w-56 flex-col rounded-xl border border-neutral-200 bg-white p-1 shadow-lg">
 					{matches.map((p, i) => (
@@ -212,7 +210,7 @@ function CommentBox({
 					))}
 				</ul>
 			)}
-			<div className="flex items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1 focus-within:border-neutral-300">
+			<div className={footer ? "flex items-end gap-2 py-2" : "flex rounded-lg border border-neutral-200 bg-white px-2.5 py-1 focus-within:border-neutral-300"}>
 				<textarea
 					ref={field}
 					aria-label="Comment"
@@ -237,10 +235,10 @@ function CommentBox({
 							save();
 						}
 					}}
-					className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1 pl-2.5 text-sm outline-none"
+					className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1 text-sm leading-5 outline-none"
 				/>
-				{!onCancel && (
-					<button type="button" aria-label="Comment" disabled={busy || !text.trim()} className={`${sendButton} size-7`} onClick={save}>
+				{footer && (
+					<button type="button" aria-label="Comment" disabled={busy || !text.trim()} className={`${sendButton} -mr-1 size-7`} onClick={save}>
 						<ArrowUpIcon weight="bold" />
 					</button>
 				)}
