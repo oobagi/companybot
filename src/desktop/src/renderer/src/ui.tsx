@@ -948,6 +948,16 @@ export function timeAgo(ms: number) {
 	return "just now";
 }
 
+/** For tight rows: "now", "8m", "5h", "3d", then the date. */
+export function shortAgo(ms: number) {
+	const minutes = Math.floor((Date.now() - ms) / 60_000);
+	if (minutes < 1) return "now";
+	if (minutes < 60) return `${minutes}m`;
+	if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}h`;
+	if (minutes < 60 * 24 * 7) return `${Math.floor(minutes / 1440)}d`;
+	return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function LoadMore({ status, onMore }: { status: string; onMore: () => void }) {
 	if (status === "LoadingMore") return <p className={`text-center ${metadataClass}`}>Loading…</p>;
 	if (status !== "CanLoadMore") return null;

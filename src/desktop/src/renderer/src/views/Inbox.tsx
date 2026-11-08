@@ -31,7 +31,7 @@ import {
 	secondaryButton,
 	sendButton,
 	sentBubbleClass,
-	timeAgo,
+	shortAgo,
 	useRun,
 	wideControlClass,
 } from "../ui";
@@ -64,7 +64,7 @@ export function InboxNav({ openId }: { openId: string | undefined }) {
 					<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
 						<span className="flex items-baseline gap-2">
 							<span className="min-w-0 flex-1 truncate">{contactLabel(c)}</span>
-							<span className="shrink-0 text-xs font-normal text-neutral-400">{timeAgo(c.lastAt)}</span>
+							<span className="shrink-0 text-xs font-normal text-neutral-400">{shortAgo(c.lastAt)}</span>
 						</span>
 						<span className="flex items-center gap-1.5">
 							<span className="min-w-0 flex-1 truncate text-xs font-normal text-neutral-500">{c.preview || "No messages yet"}</span>
