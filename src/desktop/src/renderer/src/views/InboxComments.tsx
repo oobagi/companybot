@@ -22,8 +22,8 @@ const COMMENT_MAX = 5_000;
 export function Thread({ messageId, comments, side }: { messageId: Id<"inboxMessages">; comments: Comments; side: "them" | "us" }) {
 	const [open, setOpen] = useState(false);
 	const left = side === "them";
-	// The short line from the message down to its pill, curving toward it.
-	const elbow = <span aria-hidden className={`-mt-2 h-4 w-3 shrink-0 border-b border-neutral-300 ${left ? "rounded-bl-md border-l" : "rounded-br-md border-r"}`} />;
+	// A line from the message's bottom edge (clear of its rounded corner) curving into the pill's middle.
+	const elbow = <span aria-hidden className={`h-[18px] w-2.5 shrink-0 border-b border-neutral-300 ${left ? "rounded-bl-lg border-l" : "rounded-br-lg border-r"}`} />;
 	if (open)
 		return (
 			<div className={`flex w-full pt-1.5 ${left ? "justify-start pl-3" : "justify-end pr-3"}`}>
@@ -40,7 +40,7 @@ export function Thread({ messageId, comments, side }: { messageId: Id<"inboxMess
 		);
 	const authors = [...new Map(comments.map((k) => [`${k.author.type}:${k.author.id}`, k.author])).values()];
 	return (
-		<div className={`flex items-start gap-1 pt-0.5 ${left ? "pl-3" : "flex-row-reverse pr-3"}`}>
+		<div className={`flex items-start ${left ? "pl-5" : "flex-row-reverse pr-5"}`}>
 			{elbow}
 			<button type="button" className={`mt-1.5 ${commentPillButton}`} onClick={() => setOpen(true)}>
 				<AvatarStack people={authors} size="line" />
@@ -212,7 +212,7 @@ function CommentBox({
 					))}
 				</ul>
 			)}
-			<div className="flex items-end gap-2 rounded-xl border border-neutral-200 bg-white py-1 pr-1 pl-3 focus-within:border-neutral-300">
+			<div className="flex items-end gap-2 rounded-[18px] border border-neutral-200 bg-white p-1 focus-within:border-neutral-300">
 				<textarea
 					ref={field}
 					aria-label="Comment"
@@ -237,7 +237,7 @@ function CommentBox({
 							save();
 						}
 					}}
-					className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1 text-sm outline-none"
+					className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1 pl-2.5 text-sm outline-none"
 				/>
 				{!onCancel && (
 					<button type="button" aria-label="Comment" disabled={busy || !text.trim()} className={`${sendButton} size-7`} onClick={save}>
