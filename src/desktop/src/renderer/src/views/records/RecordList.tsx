@@ -490,8 +490,9 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
 		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-6">
-			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick. */}
-			<div className={`w-max min-w-full overflow-clip rounded-xl border border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
+			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick;
+			    the header draws the top line itself, so it doesn't jump when it sticks. */}
+			<div className={`w-max min-w-full overflow-clip rounded-xl border-x border-b border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
 				<table className="min-w-full table-fixed border-separate border-spacing-0 text-sm" style={{ width: columns.reduce((n, f) => n + width(f), UPDATED_WIDTH) }}>
 					<colgroup>
 						{columns.map((f) => <col key={f.key} style={{ width: width(f) }} />)}
@@ -502,7 +503,7 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 							{head.map((content, i) => {
 								const f = columns[i];
 								return (
-									<th key={f?.key ?? "updatedAt"} className="relative border-b border-neutral-200 px-3 py-2 text-left font-medium whitespace-nowrap">
+									<th key={f?.key ?? "updatedAt"} className="relative border-y border-neutral-200 px-3 py-2 text-left font-medium whitespace-nowrap">
 										<div className="overflow-hidden">{content}</div>
 										{f && onResize && (
 											<ResizeHandle
