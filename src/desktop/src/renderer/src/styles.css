@@ -304,6 +304,13 @@ body {
 	border-radius: var(--radius-lg);
 	background: var(--color-white);
 }
+/* A board column dragged by its header (Board.tsx) lifts without growing, which would push its top out of the
+   board's scroll area, and goes opaque so the columns sliding under it don't show through. */
+.board-lane.sortable-lifted,
+.board-lane.sortable-landing {
+	scale: 1;
+	background: color-mix(in srgb, var(--color-neutral-100) 70%, var(--color-white));
+}
 /* A page's block picked up by its ⋮⋮ (PageEditor.tsx) moves as it is: no card, no shadow, its own size and place
    (BlockNote animates a block's margin, so no inset either); the + and ⋮⋮ stay out of the way until it's let go. */
 .page-editor .sortable-lifted,

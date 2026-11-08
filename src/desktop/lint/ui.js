@@ -38,6 +38,7 @@ const buttonClasses = new Set([
 	"timeRemoveButton",
 	"tabCloseButton",
 	"tabAddButton",
+	"laneAddButton",
 	"suggestionButton",
 	"membersButton",
 	"repliesButton",

@@ -153,7 +153,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const [search, setSearch] = useState("");
 	const [searching, setSearching] = useState(false);
 	const query = useDebounced(search);
-	const [creating, setCreating] = useState(false);
+	// The New dialog, open: with values to start from when a board column opened it (its option).
+	const [creating, setCreating] = useState<Record<string, string | null>>();
 	// The field kind a new-field dialog starts on, while it's open.
 	const [addingField, setAddingField] = useState<FieldKind>();
 	const [editingField, setEditingField] = useState<TypeField>();
@@ -197,7 +198,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			title={type.plural}
 			// Its settings open from its title, as a page's actions do.
 			menu={type.canManage ? (close) => <MenuItem onClick={() => (close(), setEditingDatabase(true))}><EditIcon /> Edit database</MenuItem> : undefined}
-			actions={canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
+			actions={canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating({})} />}
 		>
 			<Tabs
 				// The view's controls share the tabs' row, like Notion's, so the records start right under it.
@@ -333,7 +334,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					<ErrorBoundary resetKey={JSON.stringify([args, layout, group?.key])}>
 						<RecordResults
 							type={type} args={args} columns={shown} widths={widths} onResize={resize} sort={sort} onSort={setSort}
-							layout={layout} group={group} canEdit={canEdit}
+							layout={layout} group={group} canEdit={canEdit} canManage={type.canManage}
+							onAdd={canEdit && group ? (option) => setCreating({ [group.key]: option }) : undefined}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
 							empty={conditions.length || args.search ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
@@ -359,7 +361,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					</Form>
 				</Modal>
 			)}
-			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
+			{creating && <NewRecord type={type} values={creating} onClose={() => setCreating(undefined)} />}
 			{editingField && <EditField field={editingField} onClose={() => setEditingField(undefined)} />}
 			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => (setColumns([...columns, key]), preview === "board" && (setPreview(undefined), change({ layout: "board", groupBy: key })))} onClose={() => setAddingField(undefined)} />}
 		</Page>
@@ -374,7 +376,7 @@ function RecordResults({
 	onResize,
 	sort,
 	onSort,
-	layout, group, canEdit, noGroup,
+	layout, group, canEdit, canManage, onAdd, noGroup,
 	empty,
 }: {
 	type: RecordType;
@@ -388,6 +390,8 @@ function RecordResults({
 	layout: Layout;
 	group?: TypeField;
 	canEdit: boolean;
+	canManage: boolean;
+	onAdd?: (option: string | null) => void;
 	noGroup: React.ReactNode;
 }) {
 	const { rows, refs, status, stale, loadMore, setEnd } = usePagedRows(args);
@@ -413,7 +417,7 @@ function RecordResults({
 
 	if (status === "LoadingFirstPage") return <Loading />;
 	if (rows.length === 0 && status === "Exhausted") return empty;
-	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} /> : noGroup;
+	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} canManage={canManage} onAdd={onAdd} /> : noGroup;
 	const more = (
 		<div ref={setEnd} className="flex flex-col items-center py-2">
 			<LoadMore status={status} onMore={() => loadMore(25)} />
@@ -885,15 +889,15 @@ function ColumnsPicker({
 	);
 }
 
-/** A new record starts with a name; the rest is filled in on its page. */
-function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void }) {
+/** A new record starts with a name, plus `values` when a board column opened it; the rest is filled in on its page. */
+function NewRecord({ type, values, onClose }: { type: RecordType; values: Record<string, string | null>; onClose: () => void }) {
 	const create = useMutation(api.records.create);
 	const [name, setName] = useState("");
 	const { error, run } = useRun();
 	const label = type.fields.find((f) => f.key === "name")?.label ?? "Name";
 	return (
 		<Modal title={`New ${type.name.toLowerCase()}`} size="md" onClose={onClose}>
-			<Form onSubmit={() => run(create({ typeId: type._id, values: { name } }).then((id) => navigate(...recordPath(type.key, id))))}>
+			<Form onSubmit={() => run(create({ typeId: type._id, values: { ...values, name } }).then((id) => navigate(...recordPath(type.key, id))))}>
 				<Notice>{error}</Notice>
 				<input autoFocus aria-label={label} value={name} onChange={(e) => setName(e.target.value)} placeholder={label} className={fullControlClass} />
 				<DialogButtons>

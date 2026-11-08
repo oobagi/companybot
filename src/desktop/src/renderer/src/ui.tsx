@@ -569,6 +569,8 @@ export const emojiTabButton = "flex size-7 items-center justify-center rounded-l
 export const skinToneButton = "flex size-6 items-center justify-center rounded-md text-sm hover:bg-neutral-100 aria-pressed:bg-neutral-200";
 /** A card on a board lane. */
 export const boardCardButton = "flex flex-col gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-sm shadow-xs hover:bg-neutral-50";
+/** A board column's last row, or the board's last column: adds one there ("+ New client", "+ New column"). Card-shaped but faint, solid white on hover. */
+export const laneAddButton = `flex w-full items-center gap-1.5 rounded-lg border border-neutral-200 bg-white/60 px-3 py-2 text-left text-sm text-neutral-500 hover:bg-white hover:text-neutral-900 ${disabledButtonClass}`;
 /** One version in a page's history: lit while shown (`data-active`). */
 export const versionRowButton = "flex flex-col rounded-lg px-3 py-2 text-left text-sm hover:bg-neutral-50 data-active:bg-neutral-100";
 /** A rail button (a tab or a pin): a 40px square, filled while it's the open one. */
