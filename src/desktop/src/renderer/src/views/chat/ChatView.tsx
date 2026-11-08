@@ -103,7 +103,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		/>
 	);
 	const footer = (
-		<div className="flex flex-col gap-2 px-5 pt-4 pb-7">
+		<div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pt-4 pb-7">
 			<Notice>{error}</Notice>
 			{agent && messages?.length === 0 && !chat.trash && (
 				<div className="flex flex-col items-start gap-2 pb-2" aria-label="Suggested messages">

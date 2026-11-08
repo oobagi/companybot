@@ -108,7 +108,8 @@ export function MessageList({
 				if (el.scrollTop < NEAR_TOP) loadOlder();
 			}}
 		>
-			<div ref={content} className="flex flex-1 flex-col justify-end py-4">
+			{/* A column of at most 768px, centered, as in Inbox: long lines stay readable on a wide screen. */}
+			<div ref={content} className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-end py-4">
 				{intro}
 				{messages.map((m, i) => {
 					// A reply still being written draws nothing yet, so the next message groups with the one above it.
