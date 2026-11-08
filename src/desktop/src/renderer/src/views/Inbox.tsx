@@ -467,7 +467,8 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 	return (
 		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-2 pb-5">
 			<Notice>{error}</Notice>
-			<Form className="flex w-full flex-col gap-2 rounded-2xl border border-neutral-200 bg-white px-3 pt-3 pb-2 focus-within:border-neutral-300" onSubmit={submit}>
+			{/* One 8px inset all round, and a corner that follows the round buttons' (16px radius + 8px = 24px). */}
+			<Form className="flex w-full flex-col gap-1 rounded-3xl border border-neutral-200 bg-white p-2 focus-within:border-neutral-300" onSubmit={submit}>
 				<textarea
 					ref={field}
 					aria-label="Reply"
@@ -482,7 +483,7 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 						}
 					}}
 					placeholder={blocked ? `${c.agentName} no longer has ${c.channel === "email" ? "an email address" : "a phone number"}.` : c.channel === "email" ? `Email ${who}` : `Send a text to ${who}`}
-					className="field-sizing-content max-h-48 min-w-0 resize-none bg-transparent px-1 text-sm outline-none"
+					className="field-sizing-content max-h-48 min-w-0 resize-none bg-transparent px-2 pt-1.5 text-sm outline-none"
 				/>
 				<div className="flex items-center justify-between">
 					<Popover trigger={<ReactIcon />} label="Add emoji" className={`${composerButton} bg-neutral-100`} panelClassName="w-auto">
