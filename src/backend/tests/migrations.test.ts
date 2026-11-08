@@ -282,6 +282,51 @@ describe("migrations", () => {
 	});
 });
 
+// COMPAT(0.1.0-alpha.10): delete with migrations.recordRanks.
+it("gives records from before boards' manual order a place in it, newest first", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Deals" });
+	for (const name of ["Old", "New"]) await owner.mutation(api.records.create, { typeId, values: { name } });
+	await t.run(async (ctx) => {
+		for (const r of await ctx.db.query("records").collect()) await ctx.db.patch(r._id, { rank: undefined });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const listed = await owner.query(api.records.list, { typeId, sort: { field: "manualOrder", order: "asc" }, paginationOpts: { numItems: 10, cursor: null } });
+	expect(listed.page.map((r) => r.title)).toEqual(["New", "Old"]);
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.dropViewNotice.
+it("clears views' old notes about removed filters", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Deals" });
+	const id = await t.run(async (ctx) => {
+		const type = (await ctx.db.get(typeId))!;
+		return ctx.db.insert("databaseViews", { workspaceId: type.workspaceId, typeId: type._id, name: "Open", filters: [], columns: [], version: 1, notice: "“Stage” changed, so its filter was removed." });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const view = (await t.run((ctx) => ctx.db.get(id)))!;
+	expect(view.notice).toBeUndefined();
+	expect(view.name).toBe("Open");
+});
+
 // COMPAT(0.1.0-alpha.10): delete with migrations.channelTopics.
 it("cuts channel topics from before the 250-character cap", async () => {
 	const t = convexTest({ schema, modules, transactionLimits: true });

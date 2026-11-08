@@ -5,7 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { accessInfo, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
-import { NO_BOARD, createType, fieldsOf, fieldsShown, groupsCards, requireType, typesOf, updateType } from "./recordOps";
+import { NO_BOARD, checkWidths, createType, withWidth, fieldsOf, fieldsShown, groupsCards, requireType, typesOf, updateType } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { changeAccessSources } from "./replySources";
 import { accessArg, databaseDisplay } from "./schema";
@@ -89,23 +89,32 @@ export const setAccess = mutation({
 	},
 });
 
-type Display = { layout?: "table" | "board"; groupBy?: string };
+/** `width`: one column's new width in pixels, or `px` left out to go back to its default. */
+type Display = { layout?: "table" | "board"; groupBy?: string; width?: { field: string; px?: number } };
 
-/** Each change names only what it sets, so two people changing layout and grouping at once don't undo each other. */
+/** Each change names only what it sets, so two people changing layout, grouping or different columns' widths at once don't undo each other. */
 async function saveDisplay(ctx: MutationCtx, member: Member, typeId: Id<"recordTypes">, change: Display) {
 	// Everyone's All tab shows it, so changing it takes Edit in the database, not just View.
 	const type = await requireType(ctx, member, typeId, "edit");
 	if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	if (change.groupBy && !(await groupable(ctx, typeId, change.groupBy))) throw new ConvexError("Group a board by a live choice field that holds one option.");
 	if (change.layout === "board" && !(await fieldsOf(ctx, typeId)).some(groupsCards)) throw new ConvexError(NO_BOARD);
-	const display = { layout: change.layout ?? type.display?.layout ?? "table", groupBy: change.groupBy ?? type.display?.groupBy };
+	let widths = type.display?.widths;
+	if (change.width) {
+		const { field, px } = change.width;
+		const live = (await fieldsOf(ctx, typeId)).filter((f) => !f.archived).map((f) => f.key);
+		if (!live.includes(field)) throw new ConvexError("Resize a column this database still has.");
+		// Widths of fields deleted since go too.
+		widths = checkWidths(withWidth(widths, field, px), live);
+	}
+	const display = { layout: change.layout ?? type.display?.layout ?? "table", groupBy: change.groupBy ?? type.display?.groupBy, widths };
 	await ctx.db.patch(typeId, { display });
 }
 
 const groupable = async (ctx: MutationCtx, typeId: Id<"recordTypes">, key: string) => (await fieldsOf(ctx, typeId)).some((f) => f.key === key && groupsCards(f));
 
 export const setDisplay = mutation({
-	args: { typeId: v.id("recordTypes"), display: v.object({ layout: v.optional(databaseDisplay.fields.layout), groupBy: v.optional(v.string()) }) },
+	args: { typeId: v.id("recordTypes"), display: v.object({ layout: v.optional(databaseDisplay.fields.layout), groupBy: v.optional(v.string()), width: v.optional(v.object({ field: v.string(), px: v.optional(v.number()) })) }) },
 	handler: async (ctx, { typeId, display }) => saveDisplay(ctx, await requirePermission(ctx, "sidebar.arrange"), typeId, display),
 });
 

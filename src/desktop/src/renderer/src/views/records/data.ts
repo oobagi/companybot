@@ -9,8 +9,8 @@ export type RecordType = FunctionReturnType<typeof api.recordTypes.list>[number]
 export type Row = FunctionReturnType<typeof api.records.search>[number];
 
 export type Sort = { field: string; order: "asc" | "desc" };
-/** What `records.list` takes; `group` is one board column. */
-export type ListArgs = { typeId: Id<"recordTypes">; filters: Record<string, unknown>[]; sort?: Sort; group?: { field: string; option: string | null } };
+/** What `records.list` takes; `group` is one board column, `search` the search box's words. */
+export type ListArgs = { typeId: Id<"recordTypes">; filters: Record<string, unknown>[]; sort?: Sort; group?: { field: string; option: string | null }; search?: string };
 
 /** Every live database with its fields (ones in Trash last, marked `archived`). */
 export const useTypes = () => useQuery(api.recordTypes.list);

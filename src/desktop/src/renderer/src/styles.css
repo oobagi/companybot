@@ -304,6 +304,33 @@ body {
 	border-radius: var(--radius-lg);
 	background: var(--color-white);
 }
+/* A board column dragged by its header (Board.tsx) lifts without growing, which would push its top out of the
+   board's scroll area, and goes opaque so the columns sliding under it don't show through. */
+.board-lane.sortable-lifted,
+.board-lane.sortable-landing {
+	scale: 1;
+	background: color-mix(in srgb, var(--color-neutral-100) 70%, var(--color-white));
+	/* Tighter than a row's, so it fits the room above the columns (Board.tsx) instead of being cut off. */
+	filter: drop-shadow(0 4px 6px rgb(0 0 0 / 0.12));
+}
+/* A board card's copy under the pointer while it's dragged (Board.tsx): lifted like a dragged row. Let go, it
+   settles into its place as a row does (`.sortable-landing`), or shrinks away into a sorted column. */
+.board-card-lifted {
+	scale: 1.03;
+	box-shadow: 0 8px 20px rgb(0 0 0 / 0.14);
+	transition: scale 160ms, box-shadow 160ms, opacity 160ms;
+}
+.board-card-landing {
+	transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.board-card-landing .board-card-lifted {
+	scale: 1;
+	box-shadow: var(--shadow-xs);
+}
+.board-card-landing.sortable-into .board-card-lifted {
+	scale: 0.92;
+	opacity: 0;
+}
 /* A page's block picked up by its ⋮⋮ (PageEditor.tsx) moves as it is: no card, no shadow, its own size and place
    (BlockNote animates a block's margin, so no inset either); the + and ⋮⋮ stay out of the way until it's let go. */
 .page-editor .sortable-lifted,

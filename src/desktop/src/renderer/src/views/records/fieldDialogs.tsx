@@ -2,10 +2,10 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { Checkbox, Select } from "../../controls";
 import { type FieldKind, NAME_KEY, autoColor, fieldIcons, fieldKinds, optionColors } from "@companybot/core/records";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Form, MenuDivider, Notice, Setting, Settings, compactControlClass, hintClass, iconDangerButton, metadataClass, notePanelClass, pickedTileButton, primaryButton, secondaryButton, smallButton, swatchButton, timeAgo, useDebounced, useRun, wideControlClass } from "../../ui";
+import { Form, MenuDivider, Notice, Setting, Settings, compactControlClass, hintClass, iconDangerButton, metadataClass, notePanelClass, pickedTileButton, primaryButton, secondaryButton, smallButton, surfaceButton, swatchButton, timeAgo, useDebounced, useRun, wideControlClass } from "../../ui";
 import { ArchiveIcon, CheckIcon, RestoreIcon, TrashIcon, fieldIconSet } from "../../icons";
 import { DialogButtons, MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { FieldIcon, tintOf } from "./fields";
@@ -386,5 +386,88 @@ function IconPicker({ kind, icon, onChange }: { kind: FieldKind; icon?: string; 
 				</>
 			)}
 		</Popover>
+	);
+}
+
+/**
+ * A board column's option, from its header chip, like Notion's: rename it (saved as the menu closes), pick
+ * its color, or remove it. Cards that have a removed option keep it, in a "(removed)" column, until they're changed.
+ */
+export function OptionMenu({
+	option,
+	onSave,
+	onRemove,
+	children,
+}: {
+	option: { label: string; color?: string };
+	onSave: (change: { label?: string; color?: string }) => void;
+	onRemove: () => void;
+	/** The chip, as the button. */
+	children: React.ReactNode;
+}) {
+	const { confirm, dialog } = useConfirm();
+	return (
+		<>
+			{dialog}
+			<Popover label={`Edit “${option.label}”`} trigger={children} className={`${surfaceButton} flex min-w-0 rounded-md hover:brightness-95`} panelClassName="flex w-56 flex-col gap-px p-1">
+				{(close) => (
+					<OptionPanel
+						option={option}
+						onSave={onSave}
+						onClose={close}
+						onRemove={() =>
+							(close(),
+							confirm({
+								title: `Remove “${option.label}”?`,
+								action: "Remove",
+								danger: false,
+								body: "Cards that have it keep it, in a removed column at the end, until you change them.",
+								onConfirm: onRemove,
+							}))
+						}
+					/>
+				)}
+			</Popover>
+		</>
+	);
+}
+
+function OptionPanel({ option, onSave, onClose, onRemove }: { option: { label: string; color?: string }; onSave: (change: { label?: string; color?: string }) => void; onClose: () => void; onRemove: () => void }) {
+	const [label, setLabel] = useState(option.label);
+	// A new name saves when the menu closes, however it closes (Enter, Escape, a click elsewhere).
+	const typed = useRef({ label, option, onSave });
+	typed.current = { label, option, onSave };
+	useEffect(
+		() => () => {
+			const { label, option, onSave } = typed.current;
+			if (label.trim() && label.trim() !== option.label) onSave({ label: label.trim() });
+		},
+		[],
+	);
+	const color = option.color ?? "default";
+	return (
+		<>
+			<input
+				autoFocus
+				aria-label="Option name"
+				value={label}
+				maxLength={100}
+				onChange={(e) => setLabel(e.target.value)}
+				onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onClose())}
+				className={`${compactControlClass} m-1`}
+			/>
+			<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Color</p>
+			{optionColors.map((c) => (
+				<MenuItem key={c} onClick={() => c !== color && onSave({ color: c })}>
+					<span className={`size-4 shrink-0 rounded ring-1 ring-black/5 ${tintOf(c)}`} />
+					<span className="flex-1">{colorNames[c]}</span>
+					{c === color && <CheckIcon className="text-neutral-500" />}
+				</MenuItem>
+			))}
+			<MenuDivider />
+			<MenuItem onClick={onRemove}>
+				<TrashIcon className="text-neutral-400" /> Remove option
+			</MenuItem>
+		</>
 	);
 }

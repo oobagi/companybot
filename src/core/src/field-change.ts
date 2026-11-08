@@ -320,6 +320,26 @@ export function conditionFits(from: FieldShape, to: FieldShape, c: Condition) {
 	return !(range && to.multiple);
 }
 
+/**
+ * A saved filter on the field once it changes: as it was if it still fits; text "is X" becomes the
+ * option labeled X when text turns into a choice, and one option becomes its label going back, as
+ * values convert. Otherwise null: it's dropped.
+ */
+export function convertCondition(from: FieldShape, to: FieldShape, c: Condition): Condition | null {
+	if (conditionFits(from, to, c)) return c;
+	const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+	if (to.kind === "choice" && from.kind !== "choice" && typeof c.eq === "string") {
+		const option = to.options?.find((o) => !o.retired && same(o.label, c.eq as string));
+		return option ? { field: c.field, eq: option.id } : null;
+	}
+	const picked = c.eq !== undefined ? [c.eq] : c.in;
+	if (from.kind === "choice" && to.kind === "text" && picked?.length === 1) {
+		const option = from.options?.find((o) => o.id === picked[0]);
+		return option ? { field: c.field, eq: option.label } : null;
+	}
+	return null;
+}
+
 /** Lists sort by single-valued fields other than links and checkboxes. */
 export const sortsBy = (shape: FieldShape) => !shape.multiple && shape.kind !== "link" && shape.kind !== "checkbox";
 

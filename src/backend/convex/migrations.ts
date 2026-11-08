@@ -1,3 +1,4 @@
+import { rankAt } from "@companybot/core/rank";
 import { setActivity } from "./chatOps";
 import { publicSearchChat, ensureSeatActivity } from "./chatDiscovery";
 import { fromLegacy } from "./wakeups";
@@ -492,6 +493,24 @@ export const railDropCustomize = migrations.define({
 	},
 });
 
+// Boards keep a manual order (records.rank): records start in it by creation time, newest first, as they listed.
+export const recordRanks = migrations.define({
+	table: "records",
+	batchSize: 100,
+	migrateOne: async (ctx, record) => {
+		if (record.rank === undefined) await ctx.db.patch(record._id, { rank: rankAt(record._creationTime, record._id) });
+	},
+});
+
+// Views no longer carry a note about filters a field change removed: clear the old ones.
+export const dropViewNotice = migrations.define({
+	table: "databaseViews",
+	batchSize: 100,
+	migrateOne: async (ctx, view) => {
+		if (view.notice !== undefined) await ctx.db.patch(view._id, { notice: undefined });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -528,6 +547,8 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
 	internal.migrations.railDropCustomize,
+	internal.migrations.dropViewNotice,
+	internal.migrations.recordRanks,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

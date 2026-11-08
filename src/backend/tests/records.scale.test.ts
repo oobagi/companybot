@@ -141,7 +141,15 @@ describe("records: combined filters at scale", () => {
 		);
 		expect(got.titles).toEqual(byDue(seeds, (s) => s.owner === "c" && s.due! >= "2026-01-05"));
 		const desc = await all(owner, { typeId: task._id, filters: [{ field: "assignee", eq: users.c }], sort: { field: "due", order: "desc" } }, 2);
-		expect(desc.titles).toEqual(byDue(seeds, (s) => s.owner === "c").reverse());
+		expect(desc.titles).toEqual([...byDue(seeds, (s) => s.owner === "c").reverse(), ...newest(seeds, (s) => s.owner === "c" && !s.due)]);
+	});
+
+	it("sorts every record by a field, the ones without a value last, newest first", { timeout: 600_000 }, async () => {
+		const { owner, task, seeds } = await seeded();
+		const got = await all(owner, { typeId: task._id, sort: { field: "due", order: "asc" } }, 50);
+		expect(got.titles).toEqual([...byDue(seeds, () => true), ...newest(seeds, (s) => !s.due)]);
+		const onlyEmpty = await all(owner, { typeId: task._id, filters: [{ field: "due", empty: true }], sort: { field: "due", order: "desc" } }, 50);
+		expect(onlyEmpty.titles).toEqual(newest(seeds, (s) => !s.due));
 	});
 
 	it("matches any of several values, and multi-value fields, without repeats", { timeout: 600_000 }, async () => {

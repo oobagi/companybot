@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type ConvertContext,
 	conditionFits,
+	convertCondition,
 	convertValue,
 	countChange,
 	emptyCounts,
@@ -136,5 +137,15 @@ describe("changing a field's kind", () => {
 		expect(conditionFits(f("text"), f("number"), { field: "x", eq: "a" })).toBe(false);
 		expect(conditionFits(f("choice"), f("choice", { multiple: true }), { field: "x", in: ["a"] })).toBe(true);
 		expect(conditionFits(f("number"), f("number"), { field: "x", gte: 1 })).toBe(true);
+	});
+
+	it("converts a filter as its values convert: text to the option with that label, and back", () => {
+		const choice = f("choice", { options: [{ id: "o1", label: "Test" }, { id: "o2", label: "Old", retired: true }] });
+		expect(convertCondition(f("text"), choice, { field: "x", eq: " test " })).toEqual({ field: "x", eq: "o1" });
+		expect(convertCondition(f("text"), choice, { field: "x", eq: "Old" })).toBeNull();
+		expect(convertCondition(f("text"), choice, { field: "x", empty: false })).toEqual({ field: "x", empty: false });
+		expect(convertCondition(choice, f("text"), { field: "x", in: ["o1"] })).toEqual({ field: "x", eq: "Test" });
+		expect(convertCondition(choice, f("text"), { field: "x", in: ["o1", "o2"] })).toBeNull();
+		expect(convertCondition(f("text"), f("number"), { field: "x", eq: "a" })).toBeNull();
 	});
 });

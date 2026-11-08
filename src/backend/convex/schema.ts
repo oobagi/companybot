@@ -3,7 +3,7 @@ import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } 
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
-import { viewConfig } from "./recordValidators";
+import { columnWidths, viewConfig } from "./recordValidators";
 
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
@@ -11,7 +11,7 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
-export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
+export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()), widths: v.optional(columnWidths) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
@@ -1249,8 +1249,10 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		typeId: v.id("recordTypes"),
 		...viewConfig,
+		/** Saved as they're dropped (databaseViews.setWidth), not with the rest: no version change, no history. */
+		widths: v.optional(columnWidths),
 		version: v.number(),
-		/** Why its filters, sort or grouping changed without anyone saving it (a field's kind changed). Cleared by the next save. */
+		// COMPAT(0.1.0-alpha.10): drop once migrations.dropViewNotice has run on prod. Views no longer carry a note.
 		notice: v.optional(v.string()),
 	}).index("by_type", ["typeId"]),
 
@@ -1297,8 +1299,14 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Set when an agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.id("agents")),
+		/**
+		 * Its place in the database's manual order (core `rank`): boards without a sort list by it, and dragging a
+		 * card sets it. Starts by creation time, newest first. COMPAT(0.1.0-alpha.10): required once migrations.recordRanks has run on prod.
+		 */
+		rank: v.optional(v.string()),
 	})
 		.index("by_type", ["typeId", "archived"])
+		.index("by_type_rank", ["typeId", "archived", "rank"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
 		// Every record of a database by creation time, in Archive or not: a field change converts them in this order.

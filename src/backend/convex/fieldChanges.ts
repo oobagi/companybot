@@ -9,7 +9,7 @@ import {
 	type FieldValue,
 	NAME_KEY,
 	addCounts,
-	conditionFits,
+	convertCondition,
 	convertValue,
 	countChange,
 	describeChange,
@@ -211,12 +211,14 @@ async function sample(ctx: QueryCtx, member: Member, field: Doc<"recordFields">,
 /** Saved views of a database whose filters, sort or grouping on this field stop fitting, and what they'd become. */
 async function viewsAffected(ctx: QueryCtx, field: Doc<"recordFields">, from: Shape, to: Shape) {
 	const views = await ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", field.typeId)).take(50);
-	const out: { view: Doc<"databaseViews">; filters: Condition[]; sort: boolean; group: boolean }[] = [];
+	const out: { view: Doc<"databaseViews">; filters: Condition[]; sort: boolean; group: boolean; dropped: boolean }[] = [];
 	for (const view of views) {
-		const filters = view.filters.filter((c) => c.field !== field.key || conditionFits(coreShape(from), coreShape(to), c));
+		const converted = view.filters.map((c) => (c.field === field.key ? convertCondition(coreShape(from), coreShape(to), c) : c));
+		const filters = converted.filter((c) => c !== null);
 		const sort = view.sort?.field === field.key && !sortsBy(coreShape(to));
 		const group = view.groupBy === field.key && !groupsBy(coreShape(to));
-		if (filters.length !== view.filters.length || sort || group) out.push({ view, filters, sort, group });
+		const changed = converted.some((c, i) => c !== view.filters[i]);
+		if (changed || sort || group) out.push({ view, filters, sort, group, dropped: filters.length !== view.filters.length });
 	}
 	return out;
 }
@@ -232,8 +234,9 @@ export async function previewChange(ctx: QueryCtx, member: Member, fieldId: Id<"
 	const field = await requireChangeable(ctx, member, fieldId);
 	const to = await targetShape(ctx, member, field, input);
 	if (!shapeChanged(coreShape(shapeOf(field)), coreShape(to))) return null;
-	const { counts, more, made } = await sample(ctx, member, field, to);
-	const views = await viewsAffected(ctx, field, shapeOf(field), to);
+	const { counts, more, made, options } = await sample(ctx, member, field, to);
+	// Views that lose something; a filter that converts to an option it makes doesn't count.
+	const views = (await viewsAffected(ctx, field, shapeOf(field), to.kind === "choice" ? { ...to, options } : to)).filter((v) => v.dropped || v.sort || v.group);
 	return { ...counts, more, options: made, views: views.map((v) => v.view.name), change: await describe(ctx, shapeOf(field), to) };
 }
 
@@ -322,18 +325,10 @@ async function startChange(ctx: MutationCtx, who: Who, field: Doc<"recordFields"
 	return { changeId: id, historyId, change: await describe(ctx, from, to), preview };
 }
 
-/** Drops what stops fitting from saved views and the All tab's grouping, and has each view say why. */
+/** Converts or drops what stops fitting in saved views and the All tab's grouping, quietly, like Notion. */
 async function tidyViews(ctx: MutationCtx, field: Doc<"recordFields">, from: Shape, to: Shape) {
-	const what = await describe(ctx, from, to);
 	for (const { view, filters, sort, group } of await viewsAffected(ctx, field, from, to)) {
-		const dropped = [filters.length !== view.filters.length && "filter", sort && "sort", group && "grouping"].filter(Boolean).join(" and ");
-		await ctx.db.patch(view._id, {
-			filters,
-			...(sort && { sort: undefined }),
-			...(group && { groupBy: undefined }),
-			version: view.version + 1,
-			notice: `“${field.label}” changed (${what}), so its ${dropped} ${dropped.includes(" and ") ? "were" : "was"} removed.`,
-		});
+		await ctx.db.patch(view._id, { filters, ...(sort && { sort: undefined }), ...(group && { groupBy: undefined }), version: view.version + 1 });
 	}
 	const type = await ctx.db.get(field.typeId);
 	if (type?.display?.groupBy === field.key && !groupsBy(coreShape(to))) await ctx.db.patch(type._id, { display: { ...type.display, groupBy: undefined } });
