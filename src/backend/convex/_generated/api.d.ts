@@ -47,6 +47,7 @@ import type * as imageGen from "../imageGen.js";
 import type * as images from "../images.js";
 import type * as inbox from "../inbox.js";
 import type * as inboxAgent from "../inboxAgent.js";
+import type * as inboxComments from "../inboxComments.js";
 import type * as invites from "../invites.js";
 import type * as lib from "../lib.js";
 import type * as lifecycle from "../lifecycle.js";
@@ -143,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   images: typeof images;
   inbox: typeof inbox;
   inboxAgent: typeof inboxAgent;
+  inboxComments: typeof inboxComments;
   invites: typeof invites;
   lib: typeof lib;
   lifecycle: typeof lifecycle;

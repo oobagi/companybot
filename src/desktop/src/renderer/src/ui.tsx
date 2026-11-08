@@ -528,6 +528,8 @@ export const titleBarButton =
 /** A small round × in a card's corner (a pending file, a link preview). */
 export const cornerCloseButton = "flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
 /** A 24px icon beside a title (a DM's New chat). */
+/** A small round pill under a message: "Comment", "2 comments" (Inbox). */
+export const commentPillButton = "inline-flex h-6 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-2 text-xs font-medium text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900";
 export const smallIconButton = "flex size-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
 /** An icon with no box of its own (remove a filter, remove a chip): grey, darker on hover. */
 export const bareIconButton = "text-neutral-400 hover:text-neutral-700";

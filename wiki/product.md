@@ -31,7 +31,8 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - **Owners compose the rest from building blocks, not built-in workflows.** "When someone new texts, add a lead to Clients and post in #sales" is an ordinary automation on the Inbox events (`inbox.started`, `inbox.received`), run as its person; there's no hardcoded "create a lead" step.
 - **Staff watch, jump in or take over.** Anyone with `inbox.use` replies from the agent's address or number, assigns a conversation to a teammate (the agent stops answering it) or back to its agent, or starts a new one. The rail's Inbox button counts conversations waiting for someone.
 - **Linked to the record.** A sender whose email or phone matches a record's email or phone field links the conversation to that record.
-- **Chat gets one line.** An agent can post "New conversation from … [Open in Inbox]" to a channel picked on its page; the conversation itself never goes to chat.
+- **Chat gets nothing by itself.** Posting about a new conversation is an automation an owner sets up; the conversation itself never goes to chat.
+- **Staff comment on messages.** Each message can have a thread of comments, never sent: @mentions tell teammates, and the agent's notes for staff (a message it took, a hand-off) are its comments on the customer's message.
 - **Not yet:** calls (Retell, #118), website chat, and US texting registration (A2P 10DLC) for production numbers.
 
 ## Calls (not built yet)

@@ -12,6 +12,7 @@ const buttonClasses = new Set([
 	"compactButton",
 	"compactPrimaryButton",
 	"compactDangerButton",
+	"commentPillButton",
 	"smallButton",
 	"labelButton",
 	"toolButton",

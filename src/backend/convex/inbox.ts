@@ -22,6 +22,7 @@ import { type MutationCtx, type QueryCtx, internalAction, internalMutation, inte
 import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, smsProvider } from "./channelProviders";
 import { namer } from "./chatOps";
+import { commentsOf } from "./inboxComments";
 import { notify } from "./notifications";
 import { mutation, query } from "./functions";
 import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
@@ -118,6 +119,7 @@ export const get = query({
 		const messages = (await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", id)).order("desc").take(READ_MAX)).reverse();
 		// People and agents as chat shows them (picture, and "for" when an agent acted for someone), so names open their card.
 		const names = namer(ctx, { images: true });
+		const comments = await commentsOf(ctx, { member }, id, names);
 		const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", kindOf(c.channel))).first();
 		return {
 			id: c._id,
@@ -148,6 +150,8 @@ export const get = query({
 						error: m.error ?? null,
 						/** Who wrote it on our side (someone on staff, or the agent, `for` the person it acted for); null for theirs. */
 						author,
+						/** What staff said about it, oldest first: never sent. */
+						comments: comments.get(m._id) ?? [],
 						/** An assignment line: who it went to. */
 						assignedTo: m.assignedTo === undefined ? null : m.assignedTo === "agent" ? await names.agent(c.agentId) : await names.user(m.assignedTo),
 					};
@@ -203,6 +207,7 @@ export const discardDraft = mutation({
 		if (draft.status !== "draft") return;
 		const c = await requireConversation(ctx, member, draft.conversationId);
 		await ctx.db.delete(draft._id);
+		for (const k of await ctx.db.query("inboxComments").withIndex("by_message", (q) => q.eq("messageId", draft._id)).take(500)) await ctx.db.delete(k._id);
 		await afterDraft(ctx, c, draft._id);
 	},
 });
@@ -292,7 +297,7 @@ export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversa
 		const by = agentId ? ((await ctx.db.get(agentId))?.name ?? "An agent") : await nameOf(ctx, member.userId);
 		await notify(ctx, c, [to], { kind: "assigned", text: `${by} assigned it to you`, actorUserId: member.userId, ...(agentId && { actorAgentId: agentId }), except: agentId ? undefined : member.userId });
 	}
-	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "note", text: "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: to });
+	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "event", text: "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: to });
 }
 
 const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>

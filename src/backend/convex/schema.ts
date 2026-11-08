@@ -422,8 +422,8 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
 		conversationId: v.id("inboxConversations"),
-		/** assigned: to you. message: the customer wrote, on one that's yours. handoff, note, draft: the agent needs staff. */
-		kind: v.union(v.literal("assigned"), v.literal("message"), v.literal("handoff"), v.literal("note"), v.literal("draft")),
+		/** assigned: to you. message: the customer wrote, on one that's yours. comment: you're mentioned, or one that's yours got one. handoff, draft: the agent needs staff. */
+		kind: v.union(v.literal("assigned"), v.literal("message"), v.literal("handoff"), v.literal("comment"), v.literal("draft")),
 		text: v.string(),
 		/** Who did it: someone on staff, or the agent. Neither for the customer. */
 		actorUserId: v.optional(v.id("users")),
@@ -435,11 +435,28 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_conversation", ["conversationId", "userId"]),
 
+	// Comments on Inbox messages (inboxComments.ts): staff only, never sent. One thread per message.
+	inboxComments: defineTable({
+		workspaceId: v.id("workspaces"),
+		conversationId: v.id("inboxConversations"),
+		messageId: v.id("inboxMessages"),
+		text: v.string(),
+		/** Who wrote it: a person; or an agent, for that person (both), or on its own (agent only). */
+		authorUserId: v.optional(v.id("users")),
+		authorAgentId: v.optional(v.id("agents")),
+		/** Teammates it @mentions: they're told. */
+		mentions: v.optional(v.array(v.id("users"))),
+		editedAt: v.optional(v.number()),
+	})
+		.index("by_conversation", ["conversationId"])
+		.index("by_message", ["messageId"])
+		.index("by_workspace", ["workspaceId"]),
+
 	inboxMessages: defineTable({
 		workspaceId: v.id("workspaces"),
 		conversationId: v.id("inboxConversations"),
-		/** `in` from the customer; `out` to them; `note` for staff only, never sent. */
-		direction: v.union(v.literal("in"), v.literal("out"), v.literal("note")),
+		/** `in` from the customer; `out` to them; `event` a line staff see (an assignment), never sent. */
+		direction: v.union(v.literal("in"), v.literal("out"), v.literal("event")),
 		text: v.string(),
 		/** `draft`: the agent's reply waiting for staff (Public can't reply on its own); `sending` until the provider takes it. */
 		status: v.union(v.literal("received"), v.literal("draft"), v.literal("sending"), v.literal("sent"), v.literal("failed")),
@@ -450,7 +467,7 @@ export default defineSchema({
 		providerId: v.optional(v.string()),
 		/** Email Message-ID, for threading replies (In-Reply-To, References). */
 		messageId: v.optional(v.string()),
-		/** A `note` that says who it was assigned to (inbox.assign): its agent, or someone on staff. */
+		/** An `event` that says who it was assigned to (inbox.assign): its agent, or someone on staff. */
 		assignedTo: v.optional(v.union(v.literal("agent"), v.id("users"))),
 		/** An `in` email that failed its sender check (core `senderVerified`): its From may be forged, so it changes none of their records. */
 		unverified: v.optional(v.literal(true)),

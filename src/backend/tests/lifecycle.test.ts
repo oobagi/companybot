@@ -149,7 +149,9 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		// An agent's address, a conversation with a customer and its message: the workspace's, not the member's.
 		await ctx.db.insert("contactPoints", { workspaceId, agentId, kind: "email", address: `helper@${workspaceId}.test`, status: "active", createdBy: memberId });
 		const conversationId = await ctx.db.insert("inboxConversations", { workspaceId, agentId, channel: "email", contact: "dana@acme.com", mode: "staff", takenBy: memberId, lastAt: now, preview: "Hi" });
-		await ctx.db.insert("inboxMessages", { workspaceId, conversationId, direction: "in", text: "Hi", status: "received", providerId: `p-${workspaceId}` });
+		const messageId = await ctx.db.insert("inboxMessages", { workspaceId, conversationId, direction: "in", text: "Hi", status: "received", providerId: `p-${workspaceId}` });
+		// A comment the member wrote: the conversation's, so it stays when they go.
+		await ctx.db.insert("inboxComments", { workspaceId, conversationId, messageId, text: "Call her back", authorUserId: memberId });
 		// Theirs alone: goes with them, the conversation or the workspace.
 		mine.push(await ctx.db.insert("notifications", { workspaceId, userId: memberId, conversationId, kind: "message", text: "Hi" }));
 

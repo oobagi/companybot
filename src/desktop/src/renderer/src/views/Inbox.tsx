@@ -40,6 +40,7 @@ import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
 import { AddButton, Item } from "./chat/Sidebar";
 import { EmojiPanel } from "./chat/EmojiPanel";
+import { Thread } from "./InboxComments";
 import { ProfileLink } from "./chat/Profile";
 import type { Participant } from "./chat/data";
 
@@ -197,34 +198,50 @@ function Conversation({ c }: { c: Opened }) {
 }
 
 function Messages({ c, them }: { c: Opened; them: string }) {
+	const scroller = useRef<HTMLDivElement>(null);
+	const content = useRef<HTMLDivElement>(null);
+	const nearBottom = useRef(true);
+	const shown = c.messages;
+	// Opens at the latest message, and follows new ones while you're at the bottom (as chat does).
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		if (!el || !content.current) return;
+		const follow = () => nearBottom.current && (el.scrollTop = el.scrollHeight);
+		follow();
+		const observer = new ResizeObserver(follow);
+		observer.observe(content.current);
+		return () => observer.disconnect();
+	}, []);
 	return (
-		<Scroll overlayScrollbar footer={<ReplyBox conversation={c} />}>
-			<div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 pt-4 pb-5">
-				{c.messages.map((m, i) => {
-					const prev = c.messages[i - 1];
+		<Scroll
+			ref={scroller}
+			overlayScrollbar
+			footer={<ReplyBox conversation={c} />}
+			onScroll={(e) => (nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 120)}
+		>
+			<div ref={content} className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 pt-4 pb-5">
+				{shown.map((m, i) => {
+					const prev = shown[i - 1];
 					// A new group: the first, after a quiet stretch, or someone else talking.
 					const stamp = !prev || m.at - prev.at > GROUP_GAP_MS;
 					const named = stamp || sideOf(prev!) !== sideOf(m) || prev!.author?.name !== m.author?.name;
-					const last = i === c.messages.length - 1 || sideOf(c.messages[i + 1]!) !== sideOf(m) || c.messages[i + 1]!.at - m.at > GROUP_GAP_MS;
+					const last = i === shown.length - 1 || sideOf(shown[i + 1]!) !== sideOf(m) || shown[i + 1]!.at - m.at > GROUP_GAP_MS;
 					// Room between groups; a run from one sender sits close together.
 					const gap = stamp ? "" : named ? "pt-6" : "pt-1";
 					return (
 						<Fragment key={m.id}>
 							{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(m.at)}, {clock(m.at)}</p>}
-							<div className={gap}>
+							<div className={`group/msg ${gap}`}>
 								{m.assignedTo ? (
 									<Line who={m.author} name="Someone on staff">
 										assigned this to <PersonPill who={m.assignedTo} />
-									</Line>
-								) : m.direction === "note" ? (
-									<Line who={m.author} name="Someone on staff">
-										<span className="whitespace-pre-wrap text-neutral-700 select-text">{m.text}</span>
 									</Line>
 								) : m.status === "draft" ? (
 									<Draft message={m} channel={c.channel} agent={c.agent} />
 								) : (
 									<MessageItem message={m} them={them} channel={c.channel} subject={c.subject} named={named} last={last} />
 								)}
+								{m.direction !== "event" && <Thread messageId={m.id} comments={m.comments} side={m.direction === "in" ? "them" : "us"} />}
 							</div>
 						</Fragment>
 					);
@@ -345,7 +362,7 @@ const pillClass = "inline-flex h-6 items-center gap-1.5 rounded-md pr-2 pl-1 tex
 
 /**
  * A centered line in the conversation, as in "Changed status to [Contacted]": who, as a pill with
- * their picture (their card on click), then what. Notes (only staff see them) and hand-offs use it.
+ * their picture (their card on click), then what: assignments, hand-offs, an agent writing.
  */
 function Line({ who, name, children }: { who: Participant | null; name: string; children: React.ReactNode }) {
 	return (
@@ -375,7 +392,7 @@ function PersonPill({ who, name = "Someone" }: { who: Participant | null; name?:
 
 /** Messages this close together sit in one group under one time. */
 const GROUP_GAP_MS = 15 * 60_000;
-const sideOf = (m: Message) => (m.direction === "in" ? "them" : m.direction === "note" ? "note" : "us");
+const sideOf = (m: Message) => (m.direction === "in" ? "them" : m.direction === "event" ? "event" : "us");
 
 /**
  * Who wrote it, with their picture: on our side, the name then the picture; on theirs, the other way

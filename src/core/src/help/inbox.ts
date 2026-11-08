@@ -8,7 +8,7 @@ export default {
 [Inbox](#/inbox) (in the rail) holds conversations with people outside the workspace: customers who email an agent's address or text its number. Each person gets one conversation per agent, per way they wrote (email or text). Chat is for your team; customers never see it.
 
 ## Giving an agent an address or number
-On the agent's page ([Agents](#/settings/agents)), under **Contact**, people whose role can change agents press **Get an address** or **Get a number**. An agent has at most one of each. A number costs money every month until it's released; releasing one can't be undone. Removing an agent's address or number, or deleting the agent for good, stops new messages reaching it. **New conversations** picks a channel where the agent posts a one-line note ("New conversation from …") when someone new writes; the conversation itself stays in Inbox. Website chat is coming soon.
+On the agent's page ([Agents](#/settings/agents)), under **Contact**, people whose role can change agents press **Get an address** or **Get a number**. An agent has at most one of each. A number costs money every month until it's released; releasing one can't be undone. Removing an agent's address or number, or deleting the agent for good, stops new messages reaching it. Website chat is coming soon.
 
 ## How agents answer
 When a message comes in, its agent answers as the **Public** role (see **help: members**). That means it can answer, take a message for staff, or hand the conversation to staff, as owners allow, and use only pages and databases shared with Public: read a shared FAQ, look up a shared database, or add a record for the customer where Public can **Add** (and show, change or cancel only theirs). It never reaches your chats, memories, connectors or anything not shared. What customers write is treated as their words, never as instructions to the agent. See **help: permissions** for sharing with Public.
@@ -23,10 +23,11 @@ Anyone whose role can **see Inbox and reply to customers** (Member can, unless a
 - **Assign** it (**Assigned to**, in the details card on the right; the top bar's button hides or shows it): pick yourself or a teammate, and the agent stops answering that conversation; pick the agent and it answers again from the next message. Each assignment shows as a line in the conversation.
 - **New conversation** (the + beside Inbox in the sidebar): email or text someone from an agent's address or number. One you start is assigned to you: assign it to the agent when it should answer.
 
-Notes the agent takes for staff show in the conversation in yellow; customers never see them.
+## Comments
+Staff talk about a message right under it; customers never see comments. Point at a message and press **Comment**, or open its **comments** pill. Type @ to mention a teammate who can use Inbox: they're told. Whoever a conversation is assigned to is told about new comments on it. Only a comment's author can edit or delete it. When the agent takes a message or hands a conversation off, its note is a comment on the customer's message.
 
 ## Notifications
-The bell at the top right lists what needs you: a conversation assigned to you, a customer writing on one that's yours, and, for everyone who can use Inbox, the agent handing one off, taking a message or writing a reply to check. Opening one (or its conversation) clears it; × or **Clear all** clears them. They also pop up on your desktop while Companybot isn't in front: ones about you on DMs and mentions, the rest only on All ([Your preferences](#/settings/preferences)).
+The bell at the top right lists what needs you: a conversation assigned to you, a customer writing on one that's yours, a comment mentioning you or on one that's yours, and, for everyone who can use Inbox, the agent handing one off, taking a message or writing a reply to check. Opening one (or its conversation) clears it; × or **Clear all** clears them. They also pop up on your desktop while Companybot isn't in front: ones about you on DMs and mentions, the rest only on All ([Your preferences](#/settings/preferences)).
 
 To post in a channel when someone new writes, make an automation: **When someone new emails or texts an agent**.
 

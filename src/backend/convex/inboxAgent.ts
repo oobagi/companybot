@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation } from "./_generated/server";
 import { queueReply } from "./inbox";
+import { COMMENT_MAX, commentByAgent } from "./inboxComments";
 import { notify } from "./notifications";
 import { liveWorkspace } from "./lib";
 import { sharedSummary } from "./publicPlaces";
@@ -45,7 +46,7 @@ export const begin = internalMutation({
 		await ctx.db.patch(c._id, { replyingSince: Date.now(), replyAgain: false });
 		const history = recent
 			.reverse()
-			.flatMap((m) => (m.direction === "note" || m.status === "failed" ? [] : [{ direction: m.status === "draft" ? ("draft" as const) : m.direction === "in" ? ("in" as const) : ("out" as const), text: m.text, by: m.authorUserId ? "Someone on staff" : undefined }]));
+			.flatMap((m) => (m.direction === "event" || m.status === "failed" ? [] : [{ direction: m.status === "draft" ? ("draft" as const) : m.direction === "in" ? ("in" as const) : ("out" as const), text: m.text, by: m.authorUserId ? "Someone on staff" : undefined }]));
 		return {
 			model: agent.model,
 			abilities: publicSwitches(workspace.publicAbilities),
@@ -114,7 +115,7 @@ export const act = internalMutation({
 		if (name === "reply") return replyFor(ctx, c, agent, body, abilities.includes("public.reply"));
 		if (name === "take_message") {
 			await note(ctx, c, agent._id, `Message for staff: ${body}`);
-			await notify(ctx, c, "inbox", { kind: "note", text: `${agent.name} took a message: ${body}`, actorAgentId: agent._id });
+			await notify(ctx, c, "inbox", { kind: "comment", text: `${agent.name} took a message: ${body}`, actorAgentId: agent._id });
 			return "Noted for staff.";
 		}
 		await note(ctx, c, agent._id, `Handed off: ${body}`);
@@ -124,8 +125,11 @@ export const act = internalMutation({
 	},
 });
 
+/** A note for staff: the agent's comment on the customer's latest message (else the latest one). */
 async function note(ctx: MutationCtx, c: Doc<"inboxConversations">, agentId: Id<"agents">, text: string) {
-	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "note", text: text.slice(0, 2_500), status: "sent", authorAgentId: agentId });
+	const recent = await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").take(20);
+	const on = recent.find((m) => m.direction === "in") ?? recent.find((m) => m.direction !== "event");
+	if (on) await commentByAgent(ctx, on, agentId, text.slice(0, COMMENT_MAX));
 }
 
 async function replyFor(ctx: MutationCtx, c: Doc<"inboxConversations">, agent: Doc<"agents">, text: string, onItsOwn: boolean) {

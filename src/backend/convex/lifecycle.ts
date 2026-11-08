@@ -252,6 +252,8 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		keep: "Conversations with customers are the workspace's. Whoever took one over shows as a former member once they go.",
 	},
 	inboxMessages: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" } },
+	// With their conversation; a discarded draft takes its own (inbox.discardDraft).
+	inboxComments: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" } },
 	// Yours alone: they go with you, and with their conversation.
 	notifications: {
 		childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" },

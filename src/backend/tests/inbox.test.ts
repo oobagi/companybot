@@ -112,7 +112,8 @@ describe("the Public role", () => {
 		await owner.mutation(api.inbox.assign, { id: c!._id, to: (await owner.query(api.workspace.team))!.members[0]!.userId });
 		expect(await act("take_message", "Call me back")).toMatch(/taken/);
 		// The assignment shows as a line; the agent, stopped, took no message.
-		expect((await inboxMessages(t)).filter((m) => m.direction === "note").map((m) => m.assignedTo ?? m.text)).toEqual([(await owner.query(api.workspace.team))!.members[0]!.userId]);
+		expect((await inboxMessages(t)).filter((m) => m.direction === "event").map((m) => m.assignedTo)).toEqual([(await owner.query(api.workspace.team))!.members[0]!.userId]);
+		expect(await t.run((ctx) => ctx.db.query("inboxComments").collect())).toEqual([]);
 	});
 
 	it("sends at once only when owners let agents reply on their own", async () => {
@@ -195,6 +196,57 @@ describe("notifications", () => {
 		await owner.mutation(api.roles.setPublicAbility, { ability: "public.handoff", on: true });
 		await t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name: "hand_off", text: "Wants a site visit" });
 		for (const as of [owner, member]) expect((await as.query(api.notifications.list))!.map((n) => [n.kind, n.text])).toEqual([["handoff", "Companybot handed it to staff: Wants a site visit"]]);
+	});
+});
+
+describe("comments", () => {
+	it("are staff's, on a message: authors alone change them, mentions and the assignee are told, and they go with their conversation", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		stubProviders();
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "Dana <dana@acme.com>", to: [address], subject: "Roof" });
+		const [c] = await conversations(t);
+		const [message] = await inboxMessages(t);
+		await owner.mutation(api.inbox.assign, { id: c!._id, to: owner.userId });
+
+		// The member mentions the owner, who's also the assignee: told once, as mentioned.
+		const id = await member.mutation(api.inboxComments.add, { messageId: message!._id, text: "  Wants it by Friday  ", mentions: [owner.userId] });
+		const [told] = (await owner.query(api.notifications.list))!;
+		expect(told).toMatchObject({ kind: "comment", text: "member@co.com mentioned you: Wants it by Friday", popUp: true });
+		expect(await member.query(api.notifications.list)).toEqual([]);
+
+		const shown = (await owner.query(api.inbox.get, { id: c!._id }))!.messages[0]!.comments;
+		expect(shown).toEqual([expect.objectContaining({ text: "Wants it by Friday", edited: false, mine: false, author: expect.objectContaining({ name: "member@co.com" }), mentions: [expect.objectContaining({ id: owner.userId })] })]);
+		expect((await member.query(api.inbox.get, { id: c!._id }))!.messages[0]!.comments[0]!.mine).toBe(true);
+
+		// Only its author edits or deletes it, whatever their role.
+		await expect(owner.mutation(api.inboxComments.edit, { id, text: "Mine now" })).rejects.toThrow("Only whoever wrote a comment");
+		await expect(owner.mutation(api.inboxComments.remove, { id })).rejects.toThrow("Only whoever wrote a comment");
+		await member.mutation(api.inboxComments.edit, { id, text: "By Thursday" });
+		expect((await owner.query(api.inbox.get, { id: c!._id }))!.messages[0]!.comments[0]).toMatchObject({ text: "By Thursday", edited: true });
+		await expect(member.mutation(api.inboxComments.add, { messageId: message!._id, text: "   " })).rejects.toThrow("Write something");
+
+		// The owner comments on their own conversation: nobody's told.
+		await owner.mutation(api.notifications.clearAll, {});
+		await owner.mutation(api.inboxComments.add, { messageId: message!._id, text: "On it" });
+		expect(await owner.query(api.notifications.list)).toEqual([]);
+		expect(await member.query(api.notifications.list)).toEqual([]);
+
+		await member.mutation(api.inboxComments.remove, { id });
+		expect((await owner.query(api.inbox.get, { id: c!._id }))!.messages[0]!.comments.map((k) => k.text)).toEqual(["On it"]);
+	});
+
+	it("are where the agent notes a message for staff, on the customer's latest message", async () => {
+		const { t, owner } = await ownerAndMember();
+		stubProviders();
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Roof" });
+		const [c] = await conversations(t);
+		await owner.mutation(api.roles.setPublicAbility, { ability: "public.handoff", on: true });
+		await t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name: "hand_off", text: "Wants a site visit" });
+		const [message] = (await owner.query(api.inbox.get, { id: c!._id }))!.messages;
+		expect(message!.direction).toBe("in");
+		expect(message!.comments).toEqual([expect.objectContaining({ text: "Handed off: Wants a site visit", mine: false, author: expect.objectContaining({ type: "agent", name: "Companybot" }) })]);
 	});
 });
 
