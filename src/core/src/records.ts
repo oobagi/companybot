@@ -110,6 +110,8 @@ export interface Field extends FieldConfig {
 
 /** Every type has it. Its value is the record's title. */
 export const NAME_KEY = "name";
+/** A table column dragged wider or narrower stays within these, in pixels. */
+export const COLUMN_WIDTH = { min: 64, max: 800 };
 
 export const FIELD_LABEL_MAX = 60;
 export const FIELDS_PER_TYPE_MAX = 100;

@@ -4,6 +4,7 @@ import {
 	type Field,
 	type FieldConfig,
 	type FieldValue,
+	COLUMN_WIDTH,
 	NAME_KEY,
 	RECORD_MAX_BYTES,
 	type ValueMode,
@@ -100,6 +101,13 @@ export const groupsCards = (f: Doc<"recordFields">) => !f.archived && f.kind ===
 
 /** Why a database with no such field can't show as a board: it would show no cards to anyone. */
 export const NO_BOARD = "Add a choice field first: a board groups cards by one.";
+
+/** Keeps a table's column widths for the `keys` it still shows; none left reads as undefined, so every column takes its default. */
+export function checkWidths(widths: Record<string, number> | undefined, keys: string[]) {
+	const kept = Object.entries(widths ?? {}).filter(([key]) => keys.includes(key));
+	if (kept.some(([, px]) => !Number.isInteger(px) || px < COLUMN_WIDTH.min || px > COLUMN_WIDTH.max)) throw new ConvexError(`Make each column ${COLUMN_WIDTH.min} to ${COLUMN_WIDTH.max} pixels wide.`);
+	return kept.length ? Object.fromEntries(kept) : undefined;
+}
 
 export async function fieldsOf(ctx: QueryCtx, typeId: Id<"recordTypes">) {
 	const rows = await ctx.db

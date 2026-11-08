@@ -3,7 +3,7 @@ import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } 
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
-import { viewConfig } from "./recordValidators";
+import { columnWidths, viewConfig } from "./recordValidators";
 
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
@@ -11,7 +11,7 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
 export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
-export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
+export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()), widths: v.optional(columnWidths) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 

@@ -1,5 +1,5 @@
 import { useStoredIds } from "../../arrangements";
-import { type FieldKind, type FieldValue, NAME_KEY } from "@companybot/core/records";
+import { COLUMN_WIDTH, type FieldKind, type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { Access } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -49,13 +49,22 @@ const soonLayouts = {
 };
 
 /** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
-type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
+type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string; widths?: Widths };
+/** Columns someone resized, in pixels by field key. */
+type Widths = Record<string, number>;
 
 const optimisticDisplay: OptimisticUpdate<FunctionArgs<typeof api.recordTypes.setDisplay>> = (store, args) => {
 	const queryArgs = { workspaceId: args.workspaceId };
 	const types = store.getQuery(api.recordTypes.list, queryArgs);
-	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: { layout: args.display.layout ?? type.display?.layout ?? "table", groupBy: args.display.groupBy ?? type.display?.groupBy } } : type));
+	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: { layout: args.display.layout ?? type.display?.layout ?? "table", groupBy: args.display.groupBy ?? type.display?.groupBy, widths: args.display.width ? withWidth(type.display?.widths, args.display.width.field, args.display.width.px) : type.display?.widths } } : type));
 };
+/** `widths` with one column set to `px`, or back to its default without one. */
+function withWidth(widths: Widths | undefined, field: string, px: number | undefined): Widths {
+	const next = { ...widths };
+	delete next[field];
+	if (px !== undefined) next[field] = px;
+	return next;
+}
 /** Module-level, so `useMutation` stays stable between renders. */
 const displayUpdate = () => optimisticDisplay;
 const noViews: never[] = [];
@@ -83,6 +92,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		columns: selected.columns,
 		layout: selected.layout ?? "table",
 		groupBy: selected.groupBy,
+		widths: selected.widths,
 	};
 	const draft = useDraft<Settings>(`view:${type._id}:${viewId}`,
 		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
@@ -94,10 +104,15 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		if (!selected || !saved) return;
 		const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
 		const filters = saved.filters.map(toCondition).filter((c) => c !== null);
-		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy }));
+		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy, widths: saved.widths }));
 	};
 	const layout = selected ? draft.value.layout : display.layout;
 	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
+	const widths = selected ? draft.value.widths : display.widths;
+	// A saved view's widths wait for Save for everyone, like its other settings; All's save as you drop them.
+	const resize = type.canSetDisplay || selected
+		? (field: string, px: number | undefined) => selected ? change({ widths: withWidth(widths, field, px) }) : run(setDisplay({ typeId: type._id, display: { width: { field, px } } }))
+		: undefined;
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
 	const groupFields = fields.filter(groupable);
 	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
@@ -164,7 +179,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const canEdit = type.canEdit;
 	// While its field converts, the sort waits rather than going away.
 	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort };
-	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
+	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key, widths };
 	const noun = type.plural.toLowerCase();
 
 	return (
@@ -315,14 +330,14 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			) : query.trim() ? (
 				<>
 					<p className="-mt-2 text-xs text-neutral-500">Top 20 live {noun} matching the name or text. Filters and sort don't apply to search.</p>
-					<SearchResults type={type} query={query} columns={shown} />
+					<SearchResults type={type} query={query} columns={shown} widths={widths} />
 				</>
 			) : (
 				<>
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
 					<ErrorBoundary resetKey={JSON.stringify([args, layout, group?.key])}>
 						<RecordResults
-							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
+							type={type} args={args} columns={shown} widths={widths} onResize={resize} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
 							empty={conditions.length ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
@@ -360,6 +375,8 @@ function RecordResults({
 	type,
 	args,
 	columns,
+	widths,
+	onResize,
 	sort,
 	onSort,
 	layout, group, canEdit, noGroup,
@@ -368,6 +385,8 @@ function RecordResults({
 	type: RecordType;
 	args: ListArgs;
 	columns: TypeField[];
+	widths?: Widths;
+	onResize?: (field: string, px: number | undefined) => void;
 	sort?: Sort;
 	onSort: (sort: Sort | undefined) => void;
 	empty: React.ReactNode;
@@ -385,20 +404,16 @@ function RecordResults({
 			if (!on) return { field: key, order: first };
 			return sort.order === first ? { field: key, order: first === "asc" ? "desc" : "asc" } : undefined;
 		};
-		return (
-			<th key={key} className="overflow-hidden px-3 py-2 text-left font-medium whitespace-nowrap">
-				{canSort ? (
+		return canSort ? (
 					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex max-w-full items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
 						{field && <FieldIcon field={field} />}
 						<span className="truncate">{label}</span>
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
 						{field?.changing && <span className={metadataClass}>Converting…</span>}
 					</button>
-				) : (
-					<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}<span className="truncate">{label}</span>{field?.changing && <span className={metadataClass}>Converting…</span>}</span>
-				)}
-			</th>
-		);
+			) : (
+				<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}<span className="truncate">{label}</span>{field?.changing && <span className={metadataClass}>Converting…</span>}</span>
+			);
 	};
 
 	if (status === "LoadingFirstPage") return <Loading />;
@@ -412,6 +427,8 @@ function RecordResults({
 				rows={rows}
 				refs={refs}
 				columns={columns}
+				widths={widths}
+				onResize={onResize}
 				stale={stale}
 				head={[
 					...columns.map((f) => header(f.key, f.label, sortable(f) && !f.changing, f)),
@@ -426,8 +443,9 @@ function RecordResults({
 }
 
 /**
- * Each column's width in pixels, set by its kind so it holds still as values change (`table-fixed`):
- * long values truncate. Updated, last, takes what's left of the screen, at least UPDATED_WIDTH.
+ * Each column's default width in pixels, set by its kind so it holds still as values change
+ * (`table-fixed`): long values truncate. Dragging a header's edge overrides it (`widths`). Updated,
+ * last, takes what's left of the screen, at least UPDATED_WIDTH.
  */
 const columnWidth = (f: TypeField) =>
 	f.key === NAME_KEY ? 240
@@ -438,19 +456,56 @@ const columnWidth = (f: TypeField) =>
 	: 192;
 const UPDATED_WIDTH = 128;
 
-function RowsTable({ type, rows, refs, columns, head, stale }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[]; stale?: boolean }) {
+/** `head`: each column's header, then Updated's. `onResize`: when they may drag a column's edge. */
+function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale }: {
+	type: RecordType;
+	rows: Row[];
+	refs: Refs;
+	columns: TypeField[];
+	widths?: Widths;
+	onResize?: (field: string, px: number | undefined) => void;
+	head: React.ReactNode[];
+	stale?: boolean;
+}) {
+	// The column being dragged, until it's dropped.
+	const [dragging, setDragging] = useState<{ key: string; px: number }>();
+	const clamp = (px: number) => Math.round(Math.min(COLUMN_WIDTH.max, Math.max(COLUMN_WIDTH.min, px)));
+	const width = (f: TypeField) => (dragging?.key === f.key ? dragging.px : widths?.[f.key] ?? columnWidth(f));
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
 		<div className="bleed">
 			{/* Dimmed while a new sort or filter loads, instead of flashing empty. */}
 			<div className={`w-max min-w-full overflow-hidden rounded-xl border border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
-				<table className="min-w-full table-fixed text-sm" style={{ width: columns.reduce((n, f) => n + columnWidth(f), UPDATED_WIDTH) }}>
+				<table className="min-w-full table-fixed text-sm" style={{ width: columns.reduce((n, f) => n + width(f), UPDATED_WIDTH) }}>
 					<colgroup>
-						{columns.map((f) => <col key={f.key} style={{ width: columnWidth(f) }} />)}
+						{columns.map((f) => <col key={f.key} style={{ width: width(f) }} />)}
 						<col />
 					</colgroup>
 					<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
-						<tr>{head}</tr>
+						<tr>
+							{head.map((content, i) => {
+								const f = columns[i];
+								return (
+									<th key={f?.key ?? "updatedAt"} className="relative px-3 py-2 text-left font-medium whitespace-nowrap">
+										<div className="overflow-hidden">{content}</div>
+										{f && onResize && (
+											<ResizeHandle
+												side="right"
+												label={`Resize ${f.label}`}
+												size={{
+													width: width(f),
+													...COLUMN_WIDTH,
+													fallback: columnWidth(f),
+													preview: (px) => setDragging({ key: f.key, px: clamp(px) }),
+													// The default isn't stored, so a new default for its kind still reaches it.
+													save: (px) => (setDragging(undefined), onResize(f.key, clamp(px) === columnWidth(f) ? undefined : clamp(px))),
+												}}
+											/>
+										)}
+									</th>
+								);
+							})}
+						</tr>
 					</thead>
 					<tbody>
 						{rows.map((r) => (
@@ -493,13 +548,13 @@ function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs
 	);
 }
 
-function SearchResults({ type, query, columns }: { type: RecordType; query: string; columns: TypeField[] }) {
+function SearchResults({ type, query, columns, widths }: { type: RecordType; query: string; columns: TypeField[]; widths?: Widths }) {
 	const rows = useQuery(api.records.search, { query, typeId: type._id });
 	const refs = useRefs(rows ?? []);
 	if (!rows) return <Loading />;
 	if (rows.length === 0) return <NoMatches />;
-	const head = [...columns.map((f) => <th key={f.key} className="overflow-hidden px-3 py-2 text-left font-medium whitespace-nowrap"><span className="flex items-center gap-1.5"><FieldIcon field={f} /><span className="truncate">{f.label}</span></span></th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
-	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
+	const head = [...columns.map((f) => <span className="flex items-center gap-1.5"><FieldIcon field={f} /><span className="truncate">{f.label}</span></span>), "Updated"];
+	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} widths={widths} head={head} />;
 }
 
 /** The sort, as a chip before the filters: its direction, or remove it. */

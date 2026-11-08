@@ -557,6 +557,8 @@ export const saveViewFor = internalMutation({
 				columns: parsed.columns ?? old?.columns.filter(live) ?? ["name"],
 				layout: parsed.layout ?? old?.layout,
 				groupBy: parsed.groupBy === null ? undefined : parsed.groupBy ? fieldNamed(fields, parsed.groupBy, type, false, false).key : old?.groupBy && live(old.groupBy) ? old.groupBy : undefined,
+				// Agents don't set widths: a view keeps the ones people dragged.
+				widths: old?.widths,
 			}, viewId || undefined, parsed.version);
 			return ctx.db.get(id);
 		});

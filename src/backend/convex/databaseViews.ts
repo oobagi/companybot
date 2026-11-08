@@ -4,7 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, type Who, checkPermission, checkVersion, getMember, requireInWorkspace, requireMember } from "./lib";
-import { NO_BOARD, currencyOf, fieldsOf, groupsCards, logChange, requireType, toField } from "./recordOps";
+import { NO_BOARD, checkWidths, currencyOf, fieldsOf, groupsCards, logChange, requireType, toField } from "./recordOps";
 import { validateView } from "./recordQuery";
 import { reach } from "./placeAccess";
 import { viewConfig } from "./recordValidators";
@@ -12,7 +12,7 @@ import { writeSources } from "./replySources";
 
 // Shared database views. App and agent writes use the same validation and history.
 const VIEWS_MAX = 50;
-type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns" | "layout" | "groupBy">;
+type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns" | "layout" | "groupBy" | "widths">;
 
 /** A database's saved views. Seeing them takes View in the database; changing them, Edit (`need`). */
 export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: "view" | "edit" = "view") {
@@ -38,6 +38,7 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 	if (!config.columns.includes("name") || new Set(config.columns).size !== config.columns.length || config.columns.some((k) => !live.includes(k)))
 		throw new ConvexError("Pick live columns from this database, including Name, without duplicates.");
 	if (config.layout === "board" && !fields.some(groupsCards)) throw new ConvexError(NO_BOARD);
+	config.widths = checkWidths(config.widths, config.columns);
 	const group = config.groupBy === undefined ? undefined : fields.find((f) => f.key === config.groupBy && !f.archived);
 	if (config.groupBy !== undefined && (group?.kind !== "choice" || group.multiple)) throw new ConvexError("Group a board by a live choice field that holds one option.");
 	const currency = await currencyOf(ctx, who.member.workspaceId);
@@ -54,7 +55,7 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 	});
 	if (JSON.stringify(config).length > 16_000) throw new ConvexError("Keep a saved view under 16,000 characters.");
 	const text = (value: unknown) => (value === undefined || typeof value === "string" ? value : JSON.stringify(value));
-	const changes = (["name", "filters", "sort", "columns", "layout", "groupBy"] as const)
+	const changes = (["name", "filters", "sort", "columns", "layout", "groupBy", "widths"] as const)
 		.filter((key) => text(old?.[key]) !== text(config[key]))
 		.map((key) => ({ key, old: text(old?.[key]), new: text(config[key]) }));
 	if (old && !changes.length) {

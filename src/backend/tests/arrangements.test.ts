@@ -146,6 +146,14 @@ it("merges display changes so layout and grouping don't overwrite each other; im
 	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { groupBy: choice.key } });
 	await member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } });
 	expect(await displayOf()).toEqual({ layout: "board", groupBy: choice.key });
+	// Each drag names one column, so two people resizing different ones keep both.
+	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "name", px: 300 } } });
+	await member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: choice.key, px: 200 } } });
+	expect(await displayOf()).toEqual({ layout: "board", groupBy: choice.key, widths: { name: 300, [choice.key]: 200 } });
+	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "name" } } });
+	expect((await displayOf())?.widths).toEqual({ [choice.key]: 200 });
+	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "name", px: 10 } } })).rejects.toThrow("64 to 800 pixels");
+	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "gone", px: 200 } } })).rejects.toThrow("still has");
 	await setMemberSwitch(owner, "sidebar.arrange", false);
 	const fresh = (await owner.query(api.recordTypes.list))[1]!;
 	await member.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board" } });
