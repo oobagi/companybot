@@ -28,9 +28,16 @@ export function useRefs(rows: Pick<Row, "refs" | "unresolved">[]): Refs {
 /** The workspace's currency: what new amounts default to. */
 export const useCurrency = () => useQuery(api.workspace.settings)?.currency ?? "USD";
 
-/** Rows of a list, loading more as `setEnd`'s element scrolls into view. Short pages with more to come keep loading. */
-export function usePagedRows(args: ListArgs) {
-	const { results, status: live, loadMore } = usePaginatedQuery(api.records.list, args as never, { initialNumItems: 25 });
+/** A table's search: matches best first, filters and sort aside (`records.searchList`). */
+export type SearchArgs = { typeId: Id<"recordTypes">; query: string };
+
+/**
+ * Rows of a list, or of a table's search (`SearchArgs`), loading more as `setEnd`'s element scrolls
+ * into view. Short pages with more to come keep loading.
+ */
+export function usePagedRows(args: ListArgs | SearchArgs) {
+	const fn = "query" in args ? api.records.searchList : api.records.list;
+	const { results, status: live, loadMore } = usePaginatedQuery(fn as typeof api.records.list, args as never, { initialNumItems: 25 });
 	// A new sort or filter loads a new first page: keep showing the last list meanwhile, so it doesn't flash.
 	const last = useRef<{ rows: Row[]; status: typeof live }>(undefined);
 	if (live !== "LoadingFirstPage") last.current = { rows: results as Row[], status: live };

@@ -340,8 +340,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				<EmptyState icon={soonLayouts[preview].icon} title={soonLayouts[preview].title}>{soonLayouts[preview].text}</EmptyState>
 			) : query.trim() ? (
 				<>
-					<p className="-mt-2 text-xs text-neutral-500">Top 20 live {noun} matching the name or text. Filters and sort don't apply to search.</p>
-					<SearchResults type={type} query={query} columns={shown} widths={widths} />
+					<p className="-mt-2 text-xs text-neutral-500">Live {noun} matching the name or text, best match first. Filters and sort don't apply to search.</p>
+					<SearchResults type={type} query={query} columns={shown} widths={widths} onResize={resize} />
 				</>
 			) : (
 				<>
@@ -577,13 +577,22 @@ function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs
 	);
 }
 
-function SearchResults({ type, query, columns, widths }: { type: RecordType; query: string; columns: TypeField[]; widths?: Widths }) {
-	const rows = useQuery(api.records.search, { query, typeId: type._id });
-	const refs = useRefs(rows ?? []);
-	if (!rows) return <Loading />;
-	if (rows.length === 0) return <NoMatches />;
+/** A search's matches, best first, in the view's columns, loading more as you scroll like the list. */
+function SearchResults({ type, query, columns, widths, onResize }: { type: RecordType; query: string; columns: TypeField[]; widths?: Widths; onResize?: (field: string, px: number | undefined) => void }) {
+	const { rows, refs, status, stale, loadMore, setEnd } = usePagedRows({ typeId: type._id, query });
+	if (status === "LoadingFirstPage") return <Loading />;
+	if (rows.length === 0 && status === "Exhausted") return <NoMatches />;
 	const head = [...columns.map((f) => <span className="flex items-center gap-1.5"><FieldIcon field={f} /><span className="truncate">{f.label}</span></span>), "Updated"];
-	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} widths={widths} head={head} />;
+	return (
+		<RowsTable
+			type={type} rows={rows} refs={refs} columns={columns} widths={widths} onResize={onResize} stale={stale} head={head}
+			footer={
+				<div ref={setEnd} className="flex flex-col items-center py-2">
+					<LoadMore status={status} onMore={() => loadMore(25)} />
+				</div>
+			}
+		/>
+	);
 }
 
 /** The sort, as a chip before the filters: its direction, or remove it. */

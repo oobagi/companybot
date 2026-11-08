@@ -290,6 +290,18 @@ describe("records", () => {
 		expect((await owner.query(api.records.search, { query: "roofing" }))[0]).toMatchObject({ values: { name: "Acme Roofing" }, refs: {} });
 	});
 
+	it("pages a table's search like its list", async () => {
+		const { owner, client } = await setup();
+		for (let i = 0; i < 5; i++) await owner.mutation(api.records.create, { typeId: client._id, values: { name: `Acme ${i}` } });
+		await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Bolt Electric" } });
+		const first = await owner.query(api.records.searchList, { query: "acme", typeId: client._id, paginationOpts: { numItems: 3, cursor: null } });
+		expect(first).toMatchObject({ isDone: false });
+		expect(first.page).toHaveLength(3);
+		const rest = await owner.query(api.records.searchList, { query: "acme", typeId: client._id, paginationOpts: { numItems: 3, cursor: first.continueCursor } });
+		expect(new Set([...first.page, ...rest.page].map((r) => r.title))).toEqual(new Set(["Acme 0", "Acme 1", "Acme 2", "Acme 3", "Acme 4"]));
+		expect((await owner.query(api.records.searchList, { query: " ", typeId: client._id, paginationOpts: { numItems: 3, cursor: null } })).page).toEqual([]);
+	});
+
 	it("lists the chat messages that reference a record, only where you can see them", async () => {
 		const { t, owner, member, client } = await setup();
 		const outsider = await signIn(t, "outsider@else.com");
