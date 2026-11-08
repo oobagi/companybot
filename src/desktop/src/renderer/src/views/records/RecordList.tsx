@@ -184,7 +184,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;
 	// While its field converts, the sort waits rather than going away.
-	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort };
+	// Search narrows the view, like Notion's: one more filter, so the filters and sort still apply.
+	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort, search: query.trim() || undefined };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
 	const canSave = canEdit && selected && draft.dirty;
@@ -213,6 +214,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 								onBlur={() => !search && setSearching(false)}
 								onKeyDown={(e) => e.key === "Escape" && (setSearch(""), setSearching(false))}
 								placeholder={`Search ${noun}`}
+								maxLength={200}
 								className={`${toolControlClass} w-40`}
 							/>
 						) : (
@@ -338,11 +340,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				</EmptyState>
 			) : preview ? (
 				<EmptyState icon={soonLayouts[preview].icon} title={soonLayouts[preview].title}>{soonLayouts[preview].text}</EmptyState>
-			) : query.trim() ? (
-				<>
-					<p className="-mt-2 text-xs text-neutral-500">Live {noun} matching the name or text, best match first. Filters and sort don't apply to search.</p>
-					<SearchResults type={type} query={query} columns={shown} widths={widths} onResize={resize} />
-				</>
 			) : (
 				<>
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
@@ -351,7 +348,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							type={type} args={args} columns={shown} widths={widths} onResize={resize} sort={sort} onSort={setSort}
 							layout={layout} group={group} canEdit={canEdit}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
-							empty={conditions.length ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
+							empty={conditions.length || args.search ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
 					</ErrorBoundary>
 				</>
@@ -574,24 +571,6 @@ function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs
 			<ValueEditor field={field} value={value} refs={refs} oneLine onSave={(next) => run(update({ recordId: row._id, values: { [field.key]: next } }))} />
 			{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
 		</span>
-	);
-}
-
-/** A search's matches, best first, in the view's columns, loading more as you scroll like the list. */
-function SearchResults({ type, query, columns, widths, onResize }: { type: RecordType; query: string; columns: TypeField[]; widths?: Widths; onResize?: (field: string, px: number | undefined) => void }) {
-	const { rows, refs, status, stale, loadMore, setEnd } = usePagedRows({ typeId: type._id, query });
-	if (status === "LoadingFirstPage") return <Loading />;
-	if (rows.length === 0 && status === "Exhausted") return <NoMatches />;
-	const head = [...columns.map((f) => <span className="flex items-center gap-1.5"><FieldIcon field={f} /><span className="truncate">{f.label}</span></span>), "Updated"];
-	return (
-		<RowsTable
-			type={type} rows={rows} refs={refs} columns={columns} widths={widths} onResize={onResize} stale={stale} head={head}
-			footer={
-				<div ref={setEnd} className="flex flex-col items-center py-2">
-					<LoadMore status={status} onMore={() => loadMore(25)} />
-				</div>
-			}
-		/>
 	);
 }
 

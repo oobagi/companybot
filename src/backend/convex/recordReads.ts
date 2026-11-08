@@ -26,7 +26,7 @@ export async function listRecords(
 	ctx: QueryCtx,
 	workspaceId: Id<"workspaces">,
 	type: { typeId: Id<"recordTypes">; fields: Doc<"recordFields">[] },
-	opts: { archived: boolean; conditions: Condition[]; group?: Group; sort?: Sort; paginationOpts: PaginationOptions },
+	opts: { archived: boolean; conditions: Condition[]; group?: Group; search?: string; sort?: Sort; paginationOpts: PaginationOptions },
 ) {
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }

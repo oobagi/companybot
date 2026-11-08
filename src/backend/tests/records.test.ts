@@ -290,16 +290,22 @@ describe("records", () => {
 		expect((await owner.query(api.records.search, { query: "roofing" }))[0]).toMatchObject({ values: { name: "Acme Roofing" }, refs: {} });
 	});
 
-	it("pages a table's search like its list", async () => {
+	it("searches a list like one more filter: every word, any case, with the view's filters, sort and pages", async () => {
 		const { owner, client } = await setup();
-		for (let i = 0; i < 5; i++) await owner.mutation(api.records.create, { typeId: client._id, values: { name: `Acme ${i}` } });
-		await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Bolt Electric" } });
-		const first = await owner.query(api.records.searchList, { query: "acme", typeId: client._id, paginationOpts: { numItems: 3, cursor: null } });
-		expect(first).toMatchObject({ isDone: false });
-		expect(first.page).toHaveLength(3);
-		const rest = await owner.query(api.records.searchList, { query: "acme", typeId: client._id, paginationOpts: { numItems: 3, cursor: first.continueCursor } });
-		expect(new Set([...first.page, ...rest.page].map((r) => r.title))).toEqual(new Set(["Acme 0", "Acme 1", "Acme 2", "Acme 3", "Acme 4"]));
-		expect((await owner.query(api.records.searchList, { query: " ", typeId: client._id, paginationOpts: { numItems: 3, cursor: null } })).page).toEqual([]);
+		for (const [name, address] of [["Acme Roofing", "12 Main St"], ["Acme Paint", "4 Oak Ave"], ["Bolt Electric", "9 Main St"], ["acme main", undefined]] as const)
+			await owner.mutation(api.records.create, { typeId: client._id, values: { name, ...(address && { address }) } });
+		const list = async (search: string, more: Record<string, unknown> = {}) =>
+			(await owner.query(api.records.list, { typeId: client._id, search, paginationOpts: page, ...more })).page.map((r) => r.title);
+		expect(await list("ACME", { sort: { field: "name", order: "asc" } })).toEqual(["acme main", "Acme Paint", "Acme Roofing"]);
+		expect(await list("acme main", { sort: { field: "name", order: "asc" } })).toEqual(["acme main", "Acme Roofing"]);
+		expect(await list("main", { filters: [{ field: "address", empty: false }], sort: { field: "name", order: "asc" } })).toEqual(["Acme Roofing", "Bolt Electric"]);
+		expect(await list("  ")).toHaveLength(4);
+		const first = await owner.query(api.records.list, { typeId: client._id, search: "acme", sort: { field: "name", order: "asc" }, paginationOpts: { numItems: 2, cursor: null } });
+		expect(first.page.map((r) => r.title)).toEqual(["acme main", "Acme Paint"]);
+		const rest = await owner.query(api.records.list, { typeId: client._id, search: "acme", sort: { field: "name", order: "asc" }, paginationOpts: { numItems: 2, cursor: first.continueCursor } });
+		expect(rest.page.map((r) => r.title)).toEqual(["Acme Roofing"]);
+		// A cursor belongs to its search.
+		await expect(owner.query(api.records.list, { typeId: client._id, search: "bolt", sort: { field: "name", order: "asc" }, paginationOpts: { numItems: 2, cursor: first.continueCursor } })).rejects.toThrow("out of date");
 	});
 
 	it("lists the chat messages that reference a record, only where you can see them", async () => {

@@ -36,6 +36,8 @@ export type Sort = { field: string; order: "asc" | "desc" };
 export type Group = { field: string; option: string | null };
 
 export const CONDITIONS_MAX = 10;
+/** Most characters of a list's search text. */
+export const SEARCH_MAX = 200;
 export const ANY_OF_MAX = 50;
 /** Index rows a request reads, probes and link checks included. */
 const SCAN_ROWS = 1_000;
@@ -458,7 +460,7 @@ function parseCursor(raw: string, fingerprint: string): Cursor {
  */
 export async function findRecords(
 	ctx: QueryCtx,
-	{ workspaceId, typeId, archived, fields, conditions: filters, group, sort, currency, pageMax, paginationOpts }: {
+	{ workspaceId, typeId, archived, fields, conditions: filters, group, search, sort, currency, pageMax, paginationOpts }: {
 		workspaceId: Id<"workspaces">;
 		typeId: Id<"recordTypes">;
 		archived: boolean;
@@ -466,6 +468,8 @@ export async function findRecords(
 		conditions: Condition[];
 		/** A board column, on top of the view's filters and outside their limit. */
 		group?: Group;
+		/** Text to find, like Notion's search in a view: each word in the record's title or text values, any case. One more filter, so the rest still apply. */
+		search?: string;
 		sort?: Sort;
 		currency: string;
 		pageMax: number;
@@ -478,8 +482,10 @@ export async function findRecords(
 	const live = new Liveness(ctx, budget);
 	const checks: Check[] = [];
 	for (const c of conditions) checks.push(await compile(fields, c, currency, live));
+	if (search && search.length > SEARCH_MAX) throw new ConvexError(`Search for up to ${SEARCH_MAX} characters.`);
+	const words = search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
 	// Conditions as resolved, so a cursor stops working if what they mean changes (say, the workspace's currency).
-	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, checks.map((c) => c.resolved), sort ?? null]));
+	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, checks.map((c) => c.resolved), sort ?? null, words]));
 	const start = paginationOpts.cursor ? parseCursor(paginationOpts.cursor, fingerprint) : undefined;
 	const endCursor = paginationOpts.endCursor ?? undefined;
 	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
@@ -586,8 +592,9 @@ export async function findRecords(
 		const record = fromIndex ? await ctx.db.get(row.recordId) : row;
 		if (fromIndex) budget.read(record ? [record] : []);
 		if (!record || record.archived !== archived) continue;
-		let match = true;
-		for (const c of checks) if (!(await c.test(record.values))) match = false;
+		const text = words.length ? record.searchText.toLowerCase() : "";
+		let match = words.every((w) => text.includes(w));
+		for (const c of checks) if (match && !(await c.test(record.values))) match = false;
 		if (match) page.push(record);
 		if (page.length >= limit) return end ? (compareKeys(after, end) === 0 ? { page, isDone: false, continueCursor: endCursor! } : stop()) : stop();
 	}

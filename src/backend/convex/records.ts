@@ -44,15 +44,17 @@ export const list = query({
 		filters: v.optional(v.array(condition)),
 		/** A board column: the view's filters stay within their limit. */
 		group: v.optional(recordGroup),
+		/** Words to find in the title or text values, on top of the filters (recordQuery.findRecords). */
+		search: v.optional(v.string()),
 		sort: v.optional(recordSort),
 		paginationOpts: paginationOptsValidator,
 	},
-	handler: async (ctx, { typeId, filters = [], group, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
+	handler: async (ctx, { typeId, filters = [], group, search, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
 		if (!member || type?.workspaceId !== member.workspaceId || type.archived || !reach(member, type.access)) return emptyPage();
 		const fields = await fieldsOf(ctx, typeId);
-		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, sort, paginationOpts });
+		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, search, sort, paginationOpts });
 		return { ...result, page: await toRows(ctx, member, result.page.map((record) => ({ record, fields }))) };
 	},
 });
@@ -118,27 +120,13 @@ export const linked = query({
 	},
 });
 
-/** Live records whose title or text matches, best first, as list rows: the top 20, for a picker. Optionally one type. A table pages through `searchList`. */
+/** Live records whose title or text matches, best first, as list rows: the top 20, for a picker. Optionally one type. A table's search is `list`'s `search`. */
 export const search = query({
 	args: { query: v.string(), typeId: v.optional(v.id("recordTypes")) },
 	handler: async (ctx, { query: text, typeId }): Promise<Row[]> => {
 		const member = await getMember(ctx);
 		if (!member || !text.trim()) return [];
 		return toRows(ctx, member, (await searchRecords(ctx, member, text, { typeId, limit: 20 })).items);
-	},
-});
-
-/**
- * A database's live records whose title or text matches, best first, a page at a time like `list`,
- * for its table. Filters and sort don't apply: the search index orders by match.
- */
-export const searchList = query({
-	args: { query: v.string(), typeId: v.id("recordTypes"), paginationOpts: paginationOptsValidator },
-	handler: async (ctx, { query: text, typeId, paginationOpts }): Promise<PaginationResult<Row>> => {
-		const member = await getMember(ctx);
-		if (!member || !text.trim()) return emptyPage();
-		const { items, cursor } = await searchRecords(ctx, member, text, { typeId, limit: paginationOpts.numItems, cursor: paginationOpts.cursor });
-		return { page: await toRows(ctx, member, items), isDone: cursor === null, continueCursor: cursor ?? "" };
 	},
 });
 
