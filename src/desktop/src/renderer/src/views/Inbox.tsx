@@ -4,7 +4,7 @@ import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Segmented, Select } from "../controls";
+import { Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { AttachIcon, CaretUpDownIcon, CheckIcon, InboxIcon, MailIcon, MembersIcon, PaperPlaneTiltIcon, RecordIcon, SavedReplyIcon, SidebarIcon, SparkleIcon, TextMessageIcon, TrashIcon } from "../icons";
 import { navigate } from "../router";
@@ -12,18 +12,15 @@ import {
 	EmptyState,
 	Form,
 	Loading,
-	NewButton,
+	NotFound,
 	Notice,
 	Scroll,
-	Setting,
-	Settings,
 	TopBar,
 	bareFieldClass,
 	bareSelectClass,
 	choiceCardButton,
-	compactButton,
-	compactControlClass,
-	compactPrimaryButton,
+	actionButton,
+	actionPrimaryButton,
 	composerButton,
 	descriptionClass,
 	iconButton,
@@ -35,7 +32,6 @@ import {
 	sentBubbleClass,
 	shortAgo,
 	useRun,
-	wideControlClass,
 } from "../ui";
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
@@ -52,7 +48,7 @@ import type { Participant } from "./chat/data";
 type Opened = NonNullable<FunctionReturnType<typeof api.inbox.get>>;
 
 const contactLabel = (c: { channel: "email" | "sms"; contact: string; contactName: string | null }) => c.contactName ?? (c.channel === "sms" ? formatPhone(c.contact) : c.contact);
-const ChannelIcon = ({ channel }: { channel: "email" | "sms" }) => (channel === "email" ? <MailIcon /> : <TextMessageIcon />);
+const ChannelIcon = ({ channel, className }: { channel: "email" | "sms"; className?: string }) => (channel === "email" ? <MailIcon className={className} /> : <TextMessageIcon className={className} />);
 
 /**
  * Inbox's sidebar: every conversation, the latest first: who, when, the last thing said, and who's
@@ -83,9 +79,9 @@ export function InboxNav({ openId }: { openId: string | undefined }) {
 					onClick={() => navigate("inbox", c.id)}
 				>
 					<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
-						<span className="flex items-center gap-2">
+						<span className="flex items-baseline gap-2">
 							<span className={`min-w-0 flex-1 truncate ${c.needsStaff ? "font-semibold text-neutral-900" : ""}`}>{contactLabel(c)}</span>
-							<span className="shrink-0 text-xs font-normal text-neutral-400">{shortAgo(c.lastAt)}</span>
+							<span className={`shrink-0 font-normal tabular-nums ${metadataClass}`}>{shortAgo(c.lastAt)}</span>
 						</span>
 						<span className="flex items-center gap-1.5">
 							<span className="min-w-0 flex-1 truncate text-xs font-normal text-neutral-500">{c.preview || "No messages yet"}</span>
@@ -139,12 +135,11 @@ export function InboxView({ access, conversationId }: { access: Access; conversa
 
 function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 	const c = useQuery(api.inbox.get, { id });
-	if (c === undefined) return <Scroll header={<TopBar title="" />}><Loading /></Scroll>;
-	if (c === null)
+	if (!c)
 		return (
-			<Scroll header={<TopBar title="Not found" />}>
-				<EmptyState icon={<InboxIcon />} title="Conversation not found">It may have been deleted with its agent.</EmptyState>
-			</Scroll>
+			<NotFound loaded={c === null} icon={<InboxIcon />} title="Conversation not found">
+				It may have been deleted with its agent.
+			</NotFound>
 		);
 	return <Conversation c={c} />;
 }
@@ -185,7 +180,7 @@ function Conversation({ c }: { c: Opened }) {
 				c={c}
 				them={them}
 				bar={
-					<TopBar title={<span className="truncate">{them}</span>} description={c.channel === "email" ? "Email" : "Text"}>
+					<TopBar title={<h1 className="min-w-0 truncate">{them}</h1>} description={c.channel === "email" ? "Email" : "Text"}>
 						<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
 							<SidebarIcon className="-scale-x-100" />
 						</button>
@@ -245,7 +240,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 						const stamp = !prev || first.at - prev.at > GROUP_GAP_MS;
 						return (
 							<Fragment key={first.id}>
-								{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(first.at)}, {clock(first.at)}</p>}
+								{stamp && <p className={`pt-8 pb-4 text-center tabular-nums ${metadataClass}`}>{dayLabel(first.at)}, {clock(first.at)}</p>}
 								<div className={`group/msg ${stamp ? "" : "pt-3"}`}>
 									{first.assignedTo ? (
 										<Line who={first.author} name="Someone on staff">
@@ -298,7 +293,7 @@ function Details({ conversation: c }: { conversation: Opened }) {
 	const them = contactLabel(c);
 	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
 	return (
-		<section aria-label="Details" className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-sm">
+		<section aria-label="Details" className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm">
 			<div className="flex flex-col gap-1.5 text-neutral-600">
 				<p className="flex min-w-0 items-center gap-2 pb-0.5 font-medium text-neutral-900">
 					<Avatar name={them} size="sm" />
@@ -310,7 +305,7 @@ function Details({ conversation: c }: { conversation: Opened }) {
 				</p>
 				{c.record && (
 					<button type="button" className={`flex min-w-0 items-center gap-2 ${linkButton}`} onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))}>
-						<RecordIcon /> <span className="truncate">{c.record.title}</span>
+						<RecordIcon className="shrink-0 text-neutral-400" /> <span className="truncate">{c.record.title}</span>
 					</button>
 				)}
 			</div>
@@ -347,7 +342,7 @@ function Assignee({ conversation: c }: { conversation: Opened }) {
 						<CaretUpDownIcon className="shrink-0 text-neutral-400" />
 					</>
 				}
-				className={`-mx-1.5 flex items-center gap-2 ${bareSelectClass}`}
+				className={`${bareSelectClass} -mr-1.5 gap-2`}
 				panelClassName="flex w-64 flex-col p-1"
 			>
 				{(close) => (
@@ -404,11 +399,11 @@ function PersonPill({ who, name = "Someone" }: { who: Participant | null; name?:
 		</>
 	);
 	return who ? (
-		<ProfileLink who={who} className={`${inboxPill} bg-neutral-100 pl-1 text-neutral-700 hover:bg-neutral-200`}>
+		<ProfileLink who={who} className={`${inboxPill} bg-neutral-100 pl-1 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-900`}>
 			{inside}
 		</ProfileLink>
 	) : (
-		<span className={`${inboxPill} bg-neutral-100 pl-1 text-neutral-700`}>{inside}</span>
+		<span className={`${inboxPill} bg-neutral-100 pl-1 text-neutral-600`}>{inside}</span>
 	);
 }
 
@@ -458,7 +453,7 @@ function cornersOf(mine: boolean, i: number, count: number) {
  * round. Our people and agents open their card; `them` is the customer, by name only.
  */
 function Sender({ author, them, mine }: { author: Participant | null; them?: string; mine: boolean }) {
-	const line = `flex items-center gap-2 text-sm text-neutral-600 ${mine ? "flex-row-reverse" : ""}`;
+	const line = `flex items-center gap-2 text-sm font-medium text-neutral-900 ${mine ? "flex-row-reverse" : ""}`;
 	if (!author)
 		return (
 			<p className={`${line} pb-1.5`}>
@@ -485,24 +480,24 @@ function MessageItem({ message: m, channel, subject, corners, last }: { message:
 	const failed = m.status === "failed";
 	const body =
 		channel === "email" ? (
-			<div className={`max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-800 select-text ${corners}`}>
+			<div className={`max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 select-text ${corners}`}>
 				{subject && (
 					<p className="flex items-center gap-2 pb-1 font-semibold text-neutral-900">
 						<MailIcon /> {subject}
 					</p>
 				)}
-				<p className="whitespace-pre-wrap">{m.text}</p>
+				<p className="break-words whitespace-pre-wrap">{m.text}</p>
 			</div>
 		) : (
-			<div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap select-text ${corners} ${mine ? sentBubbleClass : "bg-neutral-100 text-neutral-900"}`}>{m.text}</div>
+			<div className={`max-w-[75%] rounded-2xl px-4 py-2.5 break-words whitespace-pre-wrap select-text ${corners} ${mine ? sentBubbleClass : "bg-neutral-100 text-neutral-900"}`}>{m.text}</div>
 		);
 	const forWho = m.author?.for;
 	return (
 		<div className={`flex w-full flex-col ${mine ? "items-end" : "items-start"}`}>
 			{body}
-			{(failed || m.status === "sending") && <p className={`pt-1 text-xs ${failed ? "text-red-600" : "text-neutral-400"}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
+			{(failed || m.status === "sending") && <p className={`pt-1 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 			{!failed && m.status !== "sending" && last && forWho && (
-				<p className="pt-1 text-xs text-neutral-400">
+				<p className={`pt-1 ${metadataClass}`}>
 					For{" "}
 					<ProfileLink who={forWho} className="hover:underline">
 						{forWho.name}
@@ -524,13 +519,13 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 			<Sender author={agent} them="Agent" mine />
 			<div className="flex w-[85%] flex-col gap-2 rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-3">
 				<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
-				<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className="w-full resize-none bg-transparent text-sm outline-none" />
+				<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className="w-full resize-none bg-transparent outline-none" />
 				<Notice>{error}</Notice>
 				<div className="flex justify-end gap-2">
-					<button type="button" disabled={busy} className={compactButton} onClick={() => run(discard({ messageId: m.id }))}>
+					<button type="button" disabled={busy} className={actionButton} onClick={() => run(discard({ messageId: m.id }))}>
 						<TrashIcon /> Discard
 					</button>
-					<button type="button" disabled={busy || !text.trim()} className={compactPrimaryButton} onClick={() => run(send({ messageId: m.id, text }))}>
+					<button type="button" disabled={busy || !text.trim()} className={actionPrimaryButton} onClick={() => run(send({ messageId: m.id, text }))}>
 						Send
 					</button>
 				</div>
@@ -553,7 +548,7 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 		return sending;
 	};
 	return (
-		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-2 pb-5">
+		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-4 pb-7">
 			<Notice>{error}</Notice>
 			{c.from ? (
 				<Composer
@@ -572,7 +567,8 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 					}
 				/>
 			) : (
-				<p className={`rounded-2xl border border-neutral-200 px-4 py-3 ${descriptionClass}`}>
+				<p className="flex items-center gap-2 rounded-xl border border-neutral-200 px-4 py-3 text-sm text-neutral-500">
+					<ChannelIcon channel={c.channel} className="shrink-0 text-neutral-400" />
 					{c.agentName} no longer has {c.channel === "email" ? "an email address" : "a phone number"}, so replies can't be sent.
 				</p>
 			)}
@@ -616,7 +612,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 	const rowLabel = "w-14 shrink-0 text-sm text-neutral-500";
 	const agentPicker = (className: string) => <Select label="From" value={chosen} options={live.map((a) => ({ value: a._id as string, label: a.name }))} onChange={setAgentId} className={className} />;
 	return (
-		<Modal title="New message" onClose={onClose}>
+		<Modal title="New conversation" onClose={onClose}>
 			<Form
 				onSubmit={() =>
 					run(

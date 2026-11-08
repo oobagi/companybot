@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
 import { ArrowUpIcon, ChatIcon, CloseIcon, EditIcon, TrashIcon } from "../icons";
-import { Notice, Scroll, compactButton, compactPrimaryButton, commentPillButton, rowButton, sendButton, smallIconButton, useRun } from "../ui";
+import { Notice, Scroll, actionButton, actionPrimaryButton, commentPillButton, metadataClass, rowButton, sendButton, smallIconButton, useRun } from "../ui";
 import { Avatar, AvatarStack, clock, dayLabel } from "./chat/common";
 import { ProfileLink } from "./chat/Profile";
 
@@ -107,7 +107,7 @@ function CommentRow({ comment: k }: { comment: Comment }) {
 					<ProfileLink who={k.author} className="font-medium text-neutral-900 hover:underline">
 						{k.author.name}
 					</ProfileLink>
-					<span className="text-xs text-neutral-400">
+					<span className={`tabular-nums ${metadataClass}`}>
 						{dayLabel(k.at)}, {clock(k.at)}
 						{k.edited && " (edited)"}
 					</span>
@@ -131,7 +131,7 @@ function CommentRow({ comment: k }: { comment: Comment }) {
 						onCancel={() => setEditing(false)}
 					/>
 				) : (
-					<p className="whitespace-pre-wrap text-neutral-700 select-text">
+					<p className="break-words whitespace-pre-wrap select-text">
 						<Mentioned text={k.text} names={k.mentions.map((m) => m.name)} />
 					</p>
 				)}
@@ -146,7 +146,7 @@ function Mentioned({ text, names }: { text: string; names: string[] }) {
 	if (!names.length) return text;
 	const escaped = [...names].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 	const parts = text.split(new RegExp(`(@(?:${escaped.join("|")}))`, "g"));
-	return parts.map((part, i) => (i % 2 ? <span key={i} className="rounded bg-neutral-100 px-0.5 font-medium text-neutral-900">{part}</span> : <Fragment key={i}>{part}</Fragment>));
+	return parts.map((part, i) => (i % 2 ? <span key={i} className="token">{part}</span> : <Fragment key={i}>{part}</Fragment>));
 }
 
 type Person = { userId: Id<"users">; name: string; image: string | null };
@@ -216,23 +216,28 @@ function CommentBox({
 	return (
 		<div className="relative flex flex-col gap-1.5">
 			{matches.length > 0 && (
-				<ul role="listbox" aria-label="Mention someone" className="absolute bottom-full left-0 z-10 mb-1 flex w-56 flex-col rounded-xl border border-neutral-200 bg-white p-1 shadow-lg">
-					{matches.map((p, i) => (
-						<li key={p.userId} role="option" aria-selected={i === active}>
-							<button
-								type="button"
-								onMouseDown={(e) => (e.preventDefault(), choose(p))}
-								className={`${rowButton} items-center gap-2 ${i === active ? "bg-neutral-100" : ""}`}
-							>
-								<Avatar name={p.name} image={p.image} size="xs" />
-								<span className="truncate">{p.name}</span>
-							</button>
-						</li>
-					))}
-				</ul>
+				<div className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg">
+					<p className={`px-3 pt-2 pb-1 ${metadataClass}`}>People</p>
+					<ul role="listbox" aria-label="Mention someone" className="max-h-96 overflow-y-auto pb-1">
+						{matches.map((p, i) => (
+							<li key={p.userId} role="option" aria-selected={i === active}>
+								<button
+									type="button"
+									onMouseDown={(e) => (e.preventDefault(), choose(p))}
+									onMouseEnter={() => setActive(i)}
+									data-active={i === active || undefined}
+									className={`${rowButton} items-center gap-2`}
+								>
+									<Avatar name={p.name} image={p.image} size="sm" />
+									<span className="truncate">{p.name}</span>
+								</button>
+							</li>
+						))}
+					</ul>
+				</div>
 			)}
 			{/* The bar: a pill around one line (the 32px send button inset 4px, the field as tall as it), a rounded box once it wraps. */}
-			<div className={footer ? `flex items-end gap-2 bg-neutral-100 p-1 pl-3.5 ${multi ? "rounded-2xl" : "rounded-full"}` : "flex rounded-lg border border-neutral-200 bg-white px-2.5 py-1 focus-within:border-neutral-300"}>
+			<div className={footer ? `flex items-end gap-2 bg-neutral-100 p-1 pl-3.5 ${multi ? "rounded-2xl" : "rounded-full"}` : "flex rounded-lg border border-neutral-200 bg-white px-3 focus-within:border-neutral-400"}>
 				<textarea
 					ref={field}
 					aria-label="Comment"
@@ -267,10 +272,10 @@ function CommentBox({
 			</div>
 			{onCancel && (
 				<div className="flex justify-end gap-2">
-					<button type="button" className={compactButton} onClick={onCancel}>
+					<button type="button" className={actionButton} onClick={onCancel}>
 						Cancel
 					</button>
-					<button type="button" disabled={busy || !text.trim()} className={compactPrimaryButton} onClick={save}>
+					<button type="button" disabled={busy || !text.trim()} className={actionPrimaryButton} onClick={save}>
 						Save
 					</button>
 				</div>
