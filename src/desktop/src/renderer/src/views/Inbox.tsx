@@ -739,14 +739,14 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 			<div className={`flex ${email ? "w-full rounded-xl" : "w-[85%] rounded-2xl"} flex-col gap-2 border border-dashed border-neutral-300 bg-white px-4 py-3`}>
 				{email ? (
 					<p className="flex min-w-0 items-baseline gap-3">
-						<Avatar name={agent?.name ?? "Agent"} image={agent?.image} agent className="self-center" size="sm" />
+						<Avatar name={agent?.name ?? "Agent"} image={agent?.image} agent className="self-center" size="md" />
 						<span className="shrink-0 font-medium text-neutral-900">{agent?.name ?? "Agent"}</span>
 						<span className={`min-w-0 truncate ${metadataClass}`}>Draft reply. Check it, then send it.</span>
 					</p>
 				) : (
 					<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
 				)}
-				<textarea aria-label="Reply" rows={email ? 6 : 3} value={text} onChange={(e) => setText(e.target.value)} className={`w-full resize-none bg-transparent outline-none ${email ? "pl-9" : ""}`} />
+				<textarea aria-label="Reply" rows={email ? 6 : 3} value={text} onChange={(e) => setText(e.target.value)} className={`w-full resize-none bg-transparent outline-none ${email ? "pl-12" : ""}`} />
 				<Notice>{error}</Notice>
 				<div className="flex justify-end gap-2">
 					<button type="button" disabled={busy} className={actionButton} onClick={() => run(discard({ messageId: m.id }))}>
