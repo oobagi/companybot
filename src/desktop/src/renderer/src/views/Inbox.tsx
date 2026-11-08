@@ -6,7 +6,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Segmented, Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { ArrowUpIcon, CaretUpDownIcon, CheckIcon, MailIcon, SidebarIcon, InboxIcon, PaperPlaneTiltIcon, RecordIcon, TextMessageIcon, TrashIcon } from "../icons";
+import { ArrowUpIcon, CaretUpDownIcon, CheckIcon, InboxIcon, MailIcon, MembersIcon, PaperPlaneTiltIcon, ReactIcon, RecordIcon, SidebarIcon, TextMessageIcon, TrashIcon } from "../icons";
 import { navigate } from "../router";
 import {
 	EmptyState,
@@ -24,6 +24,7 @@ import {
 	compactButton,
 	compactControlClass,
 	compactPrimaryButton,
+	composerButton,
 	descriptionClass,
 	iconButton,
 	linkButton,
@@ -38,6 +39,7 @@ import {
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
 import { AddButton, Item } from "./chat/Sidebar";
+import { EmojiPanel } from "./chat/EmojiPanel";
 import { ProfileLink } from "./chat/Profile";
 import type { Participant } from "./chat/data";
 
@@ -52,7 +54,7 @@ const ChannelIcon = ({ channel }: { channel: "email" | "sms" }) => (channel === 
 
 /**
  * Inbox's sidebar: every conversation, the latest first: who, when, the last thing said, and who's
- * answering (their picture). One waiting for staff shows a dot.
+ * answering (their picture). One waiting for staff is bold, with a dot by its time.
  */
 export function InboxNav({ openId }: { openId: string | undefined }) {
 	const list = useQuery(api.inbox.list);
@@ -60,10 +62,11 @@ export function InboxNav({ openId }: { openId: string | undefined }) {
 	return (
 		<div className="flex flex-col gap-px">
 			{list.map((c) => (
-				<Item key={c.id} icon={<ChannelIcon channel={c.channel} />} label={contactLabel(c)} active={openId === c.id} unread={!!c.needsStaff} onClick={() => navigate("inbox", c.id)}>
+				<Item key={c.id} icon={<ChannelIcon channel={c.channel} />} label={contactLabel(c)} active={openId === c.id} onClick={() => navigate("inbox", c.id)}>
 					<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
-						<span className="flex items-baseline gap-2">
-							<span className="min-w-0 flex-1 truncate">{contactLabel(c)}</span>
+						<span className="flex items-center gap-2">
+							<span className={`min-w-0 flex-1 truncate ${c.needsStaff ? "font-semibold text-neutral-900" : ""}`}>{contactLabel(c)}</span>
+							{c.needsStaff && <span aria-label="Needs staff" className="size-2 shrink-0 rounded-full bg-sky-500" />}
 							<span className="shrink-0 text-xs font-normal text-neutral-400">{shortAgo(c.lastAt)}</span>
 						</span>
 						<span className="flex items-center gap-1.5">
@@ -180,28 +183,55 @@ function Conversation({ c }: { c: Opened }) {
 function Messages({ c, them }: { c: Opened; them: string }) {
 	return (
 		<Scroll overlayScrollbar footer={<ReplyBox conversation={c} />}>
-			<div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 py-4">
+			<div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 pt-4 pb-5">
 				{c.messages.map((m, i) => {
 					const prev = c.messages[i - 1];
 					// A new group: the first, after a quiet stretch, or someone else talking.
 					const stamp = !prev || m.at - prev.at > GROUP_GAP_MS;
 					const named = stamp || sideOf(prev!) !== sideOf(m) || prev!.author?.name !== m.author?.name;
 					const last = i === c.messages.length - 1 || sideOf(c.messages[i + 1]!) !== sideOf(m) || c.messages[i + 1]!.at - m.at > GROUP_GAP_MS;
+					// Room between groups; a run from one sender sits close together.
+					const gap = stamp ? "" : named ? "pt-6" : "pt-1";
 					return (
 						<Fragment key={m.id}>
-							{stamp && <p className="pt-6 pb-3 text-center text-xs text-neutral-400">{dayLabel(m.at)}, {clock(m.at)}</p>}
-							{m.status === "draft" ? <Draft message={m} channel={c.channel} agent={c.agent} /> : <MessageItem message={m} them={them} channel={c.channel} subject={c.subject} named={named} last={last} />}
+							{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(m.at)}, {clock(m.at)}</p>}
+							<div className={gap}>
+								{m.direction === "note" ? (
+									<Line who={m.author} name="Someone on staff">
+										<span className="whitespace-pre-wrap text-neutral-700 select-text">{m.text}</span>
+									</Line>
+								) : m.status === "draft" ? (
+									<Draft message={m} channel={c.channel} agent={c.agent} />
+								) : (
+									<MessageItem message={m} them={them} channel={c.channel} subject={c.subject} named={named} last={last} />
+								)}
+							</div>
 						</Fragment>
 					);
 				})}
-				{c.needsStaff === "handoff" && <p className="pt-3 text-center text-xs text-neutral-500">{c.agentName} handed this to staff. Assign it to someone to answer, or back to the agent.</p>}
-				{c.replying && <p className="pt-3 text-center text-xs text-neutral-400">{c.agentName} is writing a reply…</p>}
+				{c.needsStaff === "handoff" && (
+					<div className="pt-6">
+						<Line who={c.agent} name={c.agentName}>
+							handed this to
+							<span className={`${pillClass} bg-amber-50 text-amber-800`}>
+								<MembersIcon /> Staff
+							</span>
+						</Line>
+					</div>
+				)}
+				{c.replying && (
+					<div className="pt-6">
+						<Line who={c.agent} name={c.agentName}>
+							is writing a reply…
+						</Line>
+					</div>
+				)}
 			</div>
 		</Scroll>
 	);
 }
 
-/** Who this is with and who's handling it: the customer, their address and record; then who it's assigned to. */
+/** Who this is with and who's handling it: the customer, their address and record; who it's assigned to; and the address replies go from. */
 function Details({ conversation: c }: { conversation: Opened }) {
 	const them = contactLabel(c);
 	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
@@ -226,6 +256,12 @@ function Details({ conversation: c }: { conversation: Opened }) {
 				<p className="text-xs font-medium text-neutral-500">Assigned to</p>
 				<Assignee conversation={c} />
 			</div>
+			{c.from && (
+				<div className="flex flex-col gap-1 border-t border-neutral-100 pt-3">
+					<p className="text-xs font-medium text-neutral-500">Replies go from</p>
+					<p className="truncate text-neutral-600 select-text">{c.channel === "sms" ? formatPhone(c.from) : c.from}</p>
+				</div>
+			)}
 		</section>
 	);
 }
@@ -284,9 +320,36 @@ function Assignee({ conversation: c }: { conversation: Opened }) {
 
 type Message = Opened["messages"][number];
 
+const pillClass = "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium";
+
+/**
+ * A centered line in the conversation, as in "Changed status to [Contacted]": who, as a pill with
+ * their picture (their card on click), then what. Notes (only staff see them) and hand-offs use it.
+ */
+function Line({ who, name, children }: { who: Participant | null; name: string; children: React.ReactNode }) {
+	const pill = (
+		<>
+			<Avatar name={who?.name ?? name} image={who?.image} agent={who?.type === "agent"} size="xs" />
+			{who?.name ?? name}
+		</>
+	);
+	return (
+		<p className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center text-xs text-neutral-500">
+			{who ? (
+				<ProfileLink who={who} className={`${pillClass} bg-neutral-100 text-neutral-700 hover:bg-neutral-200`}>
+					{pill}
+				</ProfileLink>
+			) : (
+				<span className={`${pillClass} bg-neutral-100 text-neutral-700`}>{pill}</span>
+			)}
+			{children}
+		</p>
+	);
+}
+
 /** Messages this close together sit in one group under one time. */
 const GROUP_GAP_MS = 15 * 60_000;
-const sideOf = (m: Message) => (m.direction === "in" ? "them" : "us");
+const sideOf = (m: Message) => (m.direction === "in" ? "them" : m.direction === "note" ? "note" : "us");
 
 /**
  * Who wrote it, with their picture: on our side, the name then the picture; on theirs, the other way
@@ -316,16 +379,10 @@ function Sender({ author, them, mine }: { author: Participant | null; them?: str
  * picture over the first of a run. Texts are bubbles (ours blue); emails are cards with their subject.
  */
 function MessageItem({ message: m, them, channel, subject, named, last }: { message: Message; them: string; channel: "email" | "sms"; subject: string | null; named: boolean; last: boolean }) {
-	const note = m.direction === "note";
 	const mine = m.direction !== "in";
 	const failed = m.status === "failed";
 	const body =
-		note ? (
-			<div className="max-w-[80%] rounded-2xl bg-amber-50 px-4 py-2.5 text-sm whitespace-pre-wrap text-amber-950 select-text">
-				<p className="pb-0.5 text-xs font-medium text-amber-700">Only staff see this</p>
-				{m.text}
-			</div>
-		) : channel === "email" ? (
+		channel === "email" ? (
 			<div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-800 select-text">
 				{subject && (
 					<p className="flex items-center gap-2 pb-1 font-semibold text-neutral-900">
@@ -339,7 +396,7 @@ function MessageItem({ message: m, them, channel, subject, named, last }: { mess
 		);
 	const forWho = m.author?.for;
 	return (
-		<div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${named ? "" : "pt-1.5"}`}>
+		<div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
 			{named && <Sender author={m.author} them={them} mine={mine} />}
 			{body}
 			{(failed || m.status === "sending") && <p className={`pt-1 text-xs ${failed ? "text-red-600" : "text-neutral-400"}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
@@ -385,17 +442,26 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 function ReplyBox({ conversation: c }: { conversation: Opened }) {
 	const reply = useMutation(api.inbox.reply);
 	const [text, setText] = useState("");
+	const field = useRef<HTMLTextAreaElement>(null);
+	// An emoji goes in where the caret was.
+	const insert = (emoji: string) => {
+		const el = field.current;
+		const at = el?.selectionStart ?? text.length;
+		setText(text.slice(0, at) + emoji + text.slice(el?.selectionEnd ?? at));
+		requestAnimationFrame(() => (el?.focus(), el?.setSelectionRange(at + emoji.length, at + emoji.length)));
+	};
 	const { error, busy, run } = useRun();
 	const blocked = !c.from;
 	const submit = () => text.trim() && !busy && !blocked && run(reply({ id: c.id, text }).then(() => setText("")));
 	const who = contactLabel(c);
 	return (
-		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-2 pb-6">
+		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-2 pb-5">
 			<Notice>{error}</Notice>
-			<Form className="flex w-full flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm focus-within:border-neutral-300" onSubmit={submit}>
+			<Form className="flex w-full flex-col gap-2 rounded-2xl border border-neutral-200 bg-white px-3 pt-3 pb-2 focus-within:border-neutral-300" onSubmit={submit}>
 				<textarea
+					ref={field}
 					aria-label="Reply"
-					rows={2}
+					rows={1}
 					disabled={blocked}
 					value={text}
 					onChange={(e) => setText(e.target.value)}
@@ -406,11 +472,13 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 						}
 					}}
 					placeholder={blocked ? `${c.agentName} no longer has ${c.channel === "email" ? "an email address" : "a phone number"}.` : c.channel === "email" ? `Email ${who}` : `Send a text to ${who}`}
-					className="min-w-0 resize-none bg-transparent px-1 text-sm outline-none"
+					className="field-sizing-content max-h-48 min-w-0 resize-none bg-transparent px-1 text-sm outline-none"
 				/>
 				<div className="flex items-center justify-between">
-					<span className="px-1 text-xs text-neutral-400">{c.from ? `From ${c.channel === "sms" ? formatPhone(c.from) : c.from}` : ""}</span>
-					<button type="submit" disabled={busy || blocked || !text.trim()} className={sendButton} aria-label="Send">
+					<Popover trigger={<ReactIcon />} label="Add emoji" className={`${composerButton} bg-neutral-100`} panelClassName="w-auto">
+						{(close) => <EmojiPanel onPick={(emoji) => (close(), insert(emoji))} />}
+					</Popover>
+					<button type="submit" disabled={busy || blocked || !text.trim()} className={`${sendButton} enabled:bg-sent`} aria-label="Send">
 						<ArrowUpIcon weight="bold" />
 					</button>
 				</div>
