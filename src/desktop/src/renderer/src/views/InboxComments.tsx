@@ -51,8 +51,10 @@ export function Thread({ messageId, comments, side }: { messageId: Id<"inboxMess
 function ThreadCard({ messageId, comments, onClose }: { messageId: Id<"inboxMessages">; comments: Comments; onClose: () => void }) {
 	const add = useMutation(api.inboxComments.add);
 	const card = useRef<HTMLElement>(null);
-	// Opening it, or a new comment, keeps the whole card (and its reply box) in view.
+	const list = useRef<HTMLDivElement>(null);
+	// Opening it, or a new comment: the whole card (and its reply box) in view, its list at the latest.
 	useEffect(() => {
+		if (list.current) list.current.scrollTop = list.current.scrollHeight;
 		card.current?.scrollIntoView({ block: "nearest" });
 	}, [comments.length]);
 	return (
@@ -60,7 +62,7 @@ function ThreadCard({ messageId, comments, onClose }: { messageId: Id<"inboxMess
 			ref={card}
 			aria-label="Comments"
 			onKeyDown={(e) => e.key === "Escape" && !e.defaultPrevented && onClose()}
-			className="flex w-full max-w-[75%] flex-col gap-3 overflow-hidden rounded-2xl border border-neutral-200 bg-white pt-3 text-sm shadow-sm [&>*]:px-3"
+			className="flex w-full max-w-[75%] flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-sm shadow-sm"
 		>
 			<div className="flex items-center gap-2 text-neutral-600">
 				<ChatIcon />
@@ -69,9 +71,14 @@ function ThreadCard({ messageId, comments, onClose }: { messageId: Id<"inboxMess
 					<CloseIcon />
 				</button>
 			</div>
-			{comments.map((k) => (
-				<CommentRow key={k.id} comment={k} />
-			))}
+			{comments.length > 0 && (
+				// A long thread scrolls inside the card.
+				<div ref={list} className="-mr-3 flex max-h-80 flex-col gap-3 overflow-y-auto pr-3">
+					{comments.map((k) => (
+						<CommentRow key={k.id} comment={k} />
+					))}
+				</div>
+			)}
 			<CommentBox footer placeholder={comments.length ? "Reply for staff…" : "Only staff see comments…"} autoFocus onSave={(text, mentions) => add({ messageId, text, mentions })} />
 		</section>
 	);
@@ -149,7 +156,7 @@ function CommentBox({
 }: {
 	initial?: string;
 	initialMentions?: { id: string; name: string }[];
-	/** The thread's reply box: the card's bottom strip, with a send button. Otherwise (editing) a plain field. */
+	/** The thread's reply box: a grey bar with a send button in it. Otherwise (editing) a plain field. */
 	footer?: boolean;
 	placeholder?: string;
 	autoFocus?: boolean;
@@ -159,6 +166,7 @@ function CommentBox({
 	const team = useQuery(api.workspace.team);
 	const field = useRef<HTMLTextAreaElement>(null);
 	const [text, setText] = useState(initial);
+	const [multi, setMulti] = useState(false);
 	const [picked, setPicked] = useState(() => new Map(initialMentions.map((m) => [m.name, m.id as Id<"users">])));
 	const [query, setQuery] = useState<{ at: number; text: string } | null>(null);
 	const [active, setActive] = useState(0);
@@ -190,12 +198,13 @@ function CommentBox({
 		run(
 			onSave(text, mentions).then(() => {
 				setText("");
+				setMulti(false);
 				setPicked(new Map());
 			}),
 		);
 	};
 	return (
-		<div className={`relative flex flex-col gap-1.5 ${footer ? "border-t border-neutral-200" : ""}`}>
+		<div className="relative flex flex-col gap-1.5">
 			{matches.length > 0 && (
 				<ul role="listbox" aria-label="Mention someone" className="absolute bottom-full left-0 z-10 mb-1 flex w-56 flex-col rounded-xl border border-neutral-200 bg-white p-1 shadow-lg">
 					{matches.map((p, i) => (
@@ -212,7 +221,8 @@ function CommentBox({
 					))}
 				</ul>
 			)}
-			<div className={footer ? "flex items-end gap-2 py-2" : "flex rounded-lg border border-neutral-200 bg-white px-2.5 py-1 focus-within:border-neutral-300"}>
+			{/* The bar: a pill around one line (the send button's circle inset 4px), a rounded box once it wraps. */}
+			<div className={footer ? `flex items-end gap-2 bg-neutral-100 p-1 pl-3.5 ${multi ? "rounded-2xl" : "rounded-full"}` : "flex rounded-lg border border-neutral-200 bg-white px-2.5 py-1 focus-within:border-neutral-300"}>
 				<textarea
 					ref={field}
 					aria-label="Comment"
@@ -221,7 +231,7 @@ function CommentBox({
 					maxLength={COMMENT_MAX}
 					value={text}
 					placeholder={placeholder}
-					onChange={(e) => (setText(e.target.value), look(e.target.value, e.target.selectionStart))}
+					onChange={(e) => (setText(e.target.value), setMulti(e.target.scrollHeight > 32), look(e.target.value, e.target.selectionStart))}
 					onKeyDown={(e) => {
 						if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
 							e.preventDefault();
@@ -240,7 +250,7 @@ function CommentBox({
 					className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1 text-sm leading-5 outline-none"
 				/>
 				{footer && (
-					<button type="button" aria-label="Comment" disabled={busy || !text.trim()} className={`${sendButton} -mr-1 size-7`} onClick={save}>
+					<button type="button" aria-label="Comment" disabled={busy || !text.trim()} className={`${sendButton} size-7`} onClick={save}>
 						<ArrowUpIcon weight="bold" />
 					</button>
 				)}
