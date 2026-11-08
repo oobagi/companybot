@@ -27,6 +27,7 @@ import {
 	SparkleIcon,
 	TagIcon,
 	TextMessageIcon,
+	TrashIcon,
 	UserIcon,
 	WebChatIcon,
 	ChatIcon,
@@ -45,6 +46,8 @@ import {
 	bareFieldClass,
 	bareSelectClass,
 	choiceCardButton,
+	actionButton,
+	actionPrimaryButton,
 	composerButton,
 	descriptionClass,
 	iconButton,
@@ -350,9 +353,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 	const scroller = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const nearBottom = useRef(true);
-	// The agent's draft reply waits in the reply box, not in the thread.
-	const draft = c.messages.find((m) => m.status === "draft");
-	const items = itemsOf(c.messages.filter((m) => m.status !== "draft"), c.channel);
+	const items = itemsOf(c.messages, c.channel);
 	const email = c.channel === "email";
 	const sent = c.messages.filter((m) => m.direction !== "event" && m.status !== "draft");
 	// An email thread shows the latest email open and the rest folded to a line, as a mail app does; a click flips one.
@@ -381,7 +382,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 			footer={
 				<div className="flex">
 					<div className="min-w-0 flex-1">
-						<ReplyBox conversation={c} draft={draft} answering={answering} picked={!!picked && answering?.id === picked} onSent={() => setPicked(undefined)} />
+						<ReplyBox conversation={c} answering={answering} picked={!!picked && answering?.id === picked} onSent={() => setPicked(undefined)} />
 					</div>
 					{side && <div aria-hidden className="w-72 shrink-0" />}
 				</div>
@@ -399,12 +400,14 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 						return (
 							<Fragment key={first.id}>
 								{stamp && <p className={`pt-8 pb-4 text-center tabular-nums ${metadataClass}`}>{dayLabel(first.at)}, {clock(first.at)}</p>}
-								{/* Emails get a line between them; a line between emails (an assignment) separates them itself. */}
-								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : prev && prev.direction !== "event" ? "border-t border-neutral-100" : "") : stamp ? "" : "pt-3"}`}>
+								{/* Emails get a line between them; a line between emails (an assignment) separates them itself. A draft's box sits a little below its line. */}
+								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : `${prev && prev.direction !== "event" ? "border-t border-neutral-100" : ""} ${first.status === "draft" ? "pt-3" : ""}`) : stamp ? "" : "pt-3"}`}>
 									{first.assignedTo ? (
 										<Line who={first.author} name="Someone on staff">
 											assigned this to <PersonPill who={first.assignedTo} />
 										</Line>
+									) : first.status === "draft" ? (
+										<Draft message={first} channel={c.channel} agent={c.agent} />
 									) : email ? (
 										<EmailItem
 											message={first}
@@ -582,12 +585,12 @@ const sideOf = (m: Message) => (m.direction === "in" ? "them" : m.direction === 
 
 /**
  * The conversation as groups: a run of messages from one sender, close in time, is one group (one name
- * over it, connected bubbles, one comment thread under it). Lines stand alone.
+ * over it, connected bubbles, one comment thread under it). Lines and drafts stand alone.
  */
 function itemsOf(messages: Message[], channel: "email" | "sms") {
 	const items: { messages: Message[] }[] = [];
 	// An email is a row of its own; texts from one sender run together.
-	const alone = (m: Message) => channel === "email" || m.direction === "event";
+	const alone = (m: Message) => channel === "email" || m.direction === "event" || m.status === "draft";
 	for (const m of messages) {
 		const run = items.at(-1)?.messages;
 		const prev = run?.at(-1);
@@ -722,76 +725,83 @@ function MessageItem({ message: m, channel, subject, corners, last }: { message:
 	);
 }
 
-/**
- * Answer as the business, from the agent's address or number. Enter sends; Shift+Enter starts a new line.
- * A card tucked behind the box's top edge says what the box holds: for an email, what it answers (pick
- * another with an email's Reply); with an agent's draft, that it's theirs to check, send or discard.
- */
-function ReplyBox({ conversation: c, draft, answering, picked, onSent }: { conversation: Opened; draft: Message | undefined; answering: Message | undefined; picked: boolean; onSent: () => void }) {
-	const reply = useMutation(api.inbox.reply);
-	const sendDraft = useMutation(api.inbox.sendDraft);
+/** The agent's reply, waiting because Public can't reply on its own: staff edit it, send it, or discard it. */
+function Draft({ message: m, channel, agent }: { message: Message; channel: "email" | "sms"; agent: Participant | null }) {
+	const send = useMutation(api.inbox.sendDraft);
 	const discard = useMutation(api.inbox.discardDraft);
+	const [text, setText] = useState(m.text);
+	const { error, busy, run } = useRun();
+	const email = channel === "email";
+	return (
+		<div className="flex flex-col items-end">
+			{email ? null : <Sender author={agent} them="Agent" mine />}
+			{/* In an email thread, headed like the emails around it: who, then the draft under their name. */}
+			<div className={`flex ${email ? "w-full rounded-xl" : "w-[85%] rounded-2xl"} flex-col gap-2 border border-dashed border-neutral-300 bg-white px-4 py-3`}>
+				{email ? (
+					<p className="flex min-w-0 items-baseline gap-3">
+						<Avatar name={agent?.name ?? "Agent"} image={agent?.image} agent className="self-center" size="md" />
+						<span className="shrink-0 font-medium text-neutral-900">{agent?.name ?? "Agent"}</span>
+						<span className={`min-w-0 truncate ${metadataClass}`}>Draft reply. Check it, then send it.</span>
+					</p>
+				) : (
+					<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
+				)}
+				<textarea aria-label="Reply" rows={email ? 6 : 3} value={text} onChange={(e) => setText(e.target.value)} className={`w-full resize-none bg-transparent outline-none ${email ? "pl-12" : ""}`} />
+				<Notice>{error}</Notice>
+				<div className="flex justify-end gap-2">
+					<button type="button" disabled={busy} className={actionButton} onClick={() => run(discard({ messageId: m.id }))}>
+						<TrashIcon /> Discard
+					</button>
+					<button type="button" disabled={busy || !text.trim()} className={actionPrimaryButton} onClick={() => run(send({ messageId: m.id, text }))}>
+						Send
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/** Answer as the business, from the agent's address or number. Enter sends; Shift+Enter starts a new line. */
+function ReplyBox({ conversation: c, answering, picked, onSent }: { conversation: Opened; answering: Message | undefined; picked: boolean; onSent: () => void }) {
+	const reply = useMutation(api.inbox.reply);
 	const sendWith = useQuery(api.preferences.get)?.sendWith ?? "enter";
-	const { error, fail, run } = useRun();
+	const { error, fail } = useRun();
 	const who = contactLabel(c);
 	const email = c.channel === "email";
 	// A send that fails puts the text back in the box (Composer), with why above it.
 	const send = (text: string) => {
 		fail();
-		const sending = draft ? sendDraft({ messageId: draft.id, text }) : reply({ id: c.id, text, ...(picked && answering && { answers: answering.id }) });
+		const sending = reply({ id: c.id, text, ...(picked && answering && { answers: answering.id }) });
 		sending.then(onSent, fail);
 		return sending;
 	};
-	const card = email || draft;
 	return (
 		<div className={`${conversationColumn} flex flex-col gap-2 px-5 pt-4 pb-7`}>
 			<Notice>{error}</Notice>
 			{c.from ? (
-				<div className={`relative ${card ? "pt-8" : ""}`}>
-					{card && (
-						<div aria-label={draft ? "Draft reply" : "Replying to"} className="absolute inset-x-3 top-0 flex h-14 min-w-0 items-start gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 pt-1 text-sm">
+				// An email's reply: what it answers on a card tucked behind the box's top edge (pick another with an email's Reply).
+				<div className={`relative ${email ? "pt-8" : ""}`}>
+					{email && (
+						<div aria-label="Replying to" className="absolute inset-x-3 top-0 flex h-14 min-w-0 items-start gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 pt-1 text-sm">
 							<span className="flex h-6 min-w-0 flex-1 items-center gap-2">
-								{draft ? (
-									<>
-										<SparkleIcon className="shrink-0 text-neutral-500" />
-										<span className="shrink-0 font-medium text-neutral-900">Draft by {c.agentName}</span>
-										<span className="min-w-0 flex-1 truncate text-neutral-500">Check it, then send it.</span>
-									</>
-								) : (
-									<>
-										<ReplyIcon className="shrink-0 text-neutral-500" />
-										<span className="max-w-1/2 shrink-0 truncate font-medium text-neutral-900">{c.subject || "(no subject)"}</span>
-										{answering && <span className="min-w-0 flex-1 truncate text-neutral-500">{answering.text.replace(/\s+/g, " ")}</span>}
-									</>
-								)}
+								<ReplyIcon className="shrink-0 text-neutral-500" />
+								<span className="max-w-1/2 shrink-0 truncate font-medium text-neutral-900">{c.subject || "(no subject)"}</span>
+								{answering && <span className="min-w-0 flex-1 truncate text-neutral-500">{answering.text.replace(/\s+/g, " ")}</span>}
 							</span>
 							<span className="flex shrink-0 items-center gap-1">
-								{email && (
-									<>
-										<Soon trigger="From" label="From" text={`Pick which of your addresses a reply goes from. For now it's ${c.from}.`} className={labelButton} />
-										<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={labelButton} />
-										<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={labelButton} />
-									</>
-								)}
-								{draft ? (
-									<button type="button" className={labelButton} onClick={() => run(discard({ messageId: draft.id }))}>
-										Discard
-									</button>
-								) : (
-									<Soon trigger={<CloseIcon />} label="New email" text="Start a new email to them, with its own subject, instead of replying." className={smallIconButton} />
-								)}
+								<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={labelButton} />
+								<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={labelButton} />
+								<Soon trigger={<CloseIcon />} label="New email" text="Start a new email to them, with its own subject, instead of replying." className={smallIconButton} />
 							</span>
 						</div>
 					)}
 					<div className="relative">
 						<Composer
-							// A draft gets a box of its own, so edits to it are kept apart from what you'd typed.
-							key={draft?.id ?? c.id}
+							key={c.id}
 							sendWith={sendWith}
 							placeholder={email ? `Reply to ${who}` : `Text ${who}`}
 							sources={noSources}
-							draftKey={draft ? `inbox:${c.id}:${draft.id}` : `inbox:${c.id}`}
-							initialText={draft?.text}
+							draftKey={`inbox:${c.id}`}
 							onSend={send}
 							start={<Soon trigger={<AttachIcon />} label="Attach files" text="Send photos and files by email and text." />}
 							tools={
