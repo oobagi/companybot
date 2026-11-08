@@ -45,12 +45,13 @@ export function Avatar({
 	);
 }
 
-export function AvatarStack({ people, size = "sm" }: { people: { name: string; type: string; image?: string | null }[]; size?: keyof typeof sizes }) {
+/** `ring`: the color between the pictures, the background they sit on (white unless said). */
+export function AvatarStack({ people, size = "sm", ring = "ring-white" }: { people: { name: string; type: string; image?: string | null }[]; size?: keyof typeof sizes; ring?: string }) {
 	return (
 		<span className="flex -space-x-1">
 			{/* The ring is on the avatar itself, so it follows its shape: round for people, square for agents. */}
 			{people.slice(0, 3).map((p, i) => (
-				<Avatar key={i} name={p.name} image={p.image} agent={p.type === "agent"} size={size} className="ring-2 ring-white" />
+				<Avatar key={i} name={p.name} image={p.image} agent={p.type === "agent"} size={size} className={`ring-2 ${ring}`} />
 			))}
 		</span>
 	);
