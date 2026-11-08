@@ -123,7 +123,8 @@ export function Composer({
 		<div className="relative flex w-full flex-col">
 			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} onPickEmoji={(char) => suggestions.pickEmoji(char)} />}
 			<div className="flex flex-col">
-				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300 ${attachments || start ? "" : "pl-4"}`} onSubmit={submit}>
+				{/* One 8px inset all round, and a corner that follows the round buttons' (16px radius + 8px = 24px). */}
+				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-3xl border border-neutral-200 bg-white p-2 shadow-xs focus-within:border-neutral-300 ${attachments || start ? "" : "pl-4"}`} onSubmit={submit}>
 					{attachments && <PendingFiles attachments={attachments} />}
 					{attachments ? <AttachButton attachments={attachments} /> : start}
 					<EditorContent editor={editor} className="composer min-w-0 flex-1" />

@@ -594,7 +594,7 @@ function cornersOf(mine: boolean, i: number, count: number) {
  * round. Our people and agents open their card; `them` is the customer, by name only.
  */
 function Sender({ author, them, mine }: { author: Participant | null; them?: string; mine: boolean }) {
-	const line = `flex items-center gap-2 text-sm font-medium text-neutral-900 ${mine ? "flex-row-reverse" : ""}`;
+	const line = `flex items-center gap-2 text-sm text-neutral-600 ${mine ? "flex-row-reverse" : ""}`;
 	if (!author)
 		return (
 			<p className={`${line} pb-1.5`}>
