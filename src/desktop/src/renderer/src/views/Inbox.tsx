@@ -638,7 +638,8 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 					{dayLabel(m.at)}, {clock(m.at)}
 				</span>
 			</span>
-			{open && <p className="pl-12 break-words whitespace-pre-wrap select-text">{m.text}</p>}
+			{/* Pulled up under the name, not under the picture. */}
+			{open && <p className="-mt-5 pl-12 break-words whitespace-pre-wrap select-text">{m.text}</p>}
 			{(failed || m.status === "sending") && <p className={`pt-1 pl-12 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 		</article>
 	);
@@ -749,7 +750,7 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 				) : (
 					<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
 				)}
-				<textarea aria-label="Reply" rows={email ? 2 : 3} value={text} onChange={(e) => setText(e.target.value)} className={`w-full resize-none bg-transparent outline-none ${email ? "field-sizing-content pl-12" : ""}`} />
+				<textarea aria-label="Reply" rows={email ? 2 : 3} value={text} onChange={(e) => setText(e.target.value)} className={`w-full resize-none bg-transparent outline-none ${email ? "-mt-5 field-sizing-content pl-12" : ""}`} />
 				<Notice>{error}</Notice>
 				<div className="flex justify-end gap-2">
 					<button type="button" disabled={busy} className={actionButton} onClick={() => run(discard({ messageId: m.id }))}>
