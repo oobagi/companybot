@@ -212,7 +212,7 @@ function CommentBox({
 					))}
 				</ul>
 			)}
-			<div className="flex items-end gap-2 rounded-[18px] border border-neutral-200 bg-white p-1 focus-within:border-neutral-300">
+			<div className="flex items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1 focus-within:border-neutral-300">
 				<textarea
 					ref={field}
 					aria-label="Comment"
