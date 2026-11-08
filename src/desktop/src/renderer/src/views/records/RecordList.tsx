@@ -191,8 +191,8 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	return (
 		<Page
 			wide
-			// A table scrolls itself: its header row sticks, and its sideways scrollbar sits at the screen's bottom.
-			fill={!preview && (layout === "table" || !!query.trim())}
+			// A table or board scrolls itself: the tabs and a table's header row stay put, and the sideways scrollbar sits at the bottom.
+			fill
 			title={type.plural}
 			// Its settings open from its title, as a page's actions do.
 			menu={type.canManage ? (close) => <MenuItem onClick={() => (close(), setEditingDatabase(true))}><EditIcon /> Edit database</MenuItem> : undefined}
@@ -494,7 +494,7 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 	const width = (f: TypeField) => (dragging?.key === f.key ? dragging.px : widths?.[f.key] ?? columnWidth(f));
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
-		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-6">
+		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-2">
 			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick.
 			    The cells draw the table's outline (`edge`), so the stuck header keeps its line and rounded corners. */}
 			<div className={`w-max min-w-full overflow-clip rounded-xl transition-opacity ${stale ? "opacity-60" : ""}`}>
@@ -503,14 +503,15 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 						{columns.map((f) => <col key={f.key} style={{ width: width(f) }} />)}
 						<col />
 					</colgroup>
-					{/* The page's color shows in the header's rounded corners, hiding rows that scroll under them. */}
-					<thead className="sticky top-0 z-10 bg-white text-neutral-500">
+					<thead className="sticky top-0 z-10 text-neutral-500">
 						<tr>
 							{head.map((content, i) => {
 								const f = columns[i];
+								const corner = i === 0 ? "rounded-tl-xl border-l" : i === head.length - 1 ? "rounded-tr-xl border-r" : "";
 								return (
-									<th key={f?.key ?? "updatedAt"} className={`${edge} relative border-y bg-neutral-50 px-3 py-2 text-left font-medium whitespace-nowrap first:rounded-tl-xl last:rounded-tr-xl`}>
-										<div className="overflow-hidden">{content}</div>
+									// Opaque and square, page-colored, so rows scrolling under the stuck header don't show past its rounded corners.
+									<th key={f?.key ?? "updatedAt"} className="relative bg-white p-0 text-left font-medium whitespace-nowrap">
+										<div className={`overflow-hidden border-y border-neutral-200 bg-neutral-50 px-3 py-2 ${corner}`}>{content}</div>
 										{f && onResize && (
 											<ResizeHandle
 												side="right"

@@ -25,11 +25,12 @@ export function Board({ type, args, group, cards, canEdit }: { type: RecordType;
 	];
 	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
 	return (
-		// Fills the rest of the screen, so lanes are full-height drop targets and the scrollbar sits at the bottom.
-		<div className="flex flex-1 flex-col gap-2">
+		// Fills the rest of the screen and scrolls itself, like a table (`Page`'s `fill`): the tabs stay put and the scrollbar sits at the bottom.
+		<div className="flex min-h-0 flex-1 flex-col gap-2">
 			<Notice>{error}</Notice>
-			{/* Lanes start at the column and scroll out to the screen's edges. */}
-			<div className="bleed flex flex-1 gap-3 pb-2">
+			{/* Lanes start at the column and scroll out to the screen's edges; all as tall as the longest, so each is a full-height drop target. */}
+			<div className="bleed min-h-0 flex-1 overflow-y-auto pb-2">
+			<div className="flex min-h-full w-max gap-3">
 				{lanes.map((lane) => (
 					<Lane
 						key={lane.id}
@@ -46,6 +47,7 @@ export function Board({ type, args, group, cards, canEdit }: { type: RecordType;
 						onMove={(recordId) => run(update({ recordId: recordId as Id<"records">, values: { [group.key]: lane.id || null } }))}
 					/>
 				))}
+			</div>
 			</div>
 		</div>
 	);
