@@ -45,7 +45,6 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"databaseViews.save": { agent: ["records.save_view"] },
 	"databaseViews.remove": { agent: ["records.save_view"] },
 	"databaseViews.setWidth": { humanOnly: "People size a view's columns by dragging them in the app." },
-	"databaseViews.dismissNotice": { humanOnly: "People dismiss a view's note in the app; an agent's save clears it." },
 	"files.discard": { humanOnly: "Clears the person's own composer before sending. An agent's copies of chat files are claimed by the call that made them, or dropped." },
 	"images.set": { agent: ["workspace.settings:set_image", "agents.manage:set_image"] },
 	"fields.create": { agent: ["records.save_field"] },

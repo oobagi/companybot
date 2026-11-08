@@ -57,13 +57,10 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 	const changes = (["name", "filters", "sort", "columns", "layout", "groupBy"] as const)
 		.filter((key) => text(old?.[key]) !== text(config[key]))
 		.map((key) => ({ key, old: text(old?.[key]), new: text(config[key]) }));
-	if (old && !changes.length) {
-		if (old.notice) await ctx.db.patch(old._id, { notice: undefined });
-		return old._id;
-	}
+	if (old && !changes.length) return old._id;
 	const id = old ? old._id : await ctx.db.insert("databaseViews", { workspaceId: who.member.workspaceId, typeId, ...config, version: 1 });
-	// Saving clears a note about filters a field's kind change removed (fieldChanges.ts). Hidden columns' widths go.
-	if (old) await ctx.db.patch(id, { ...config, widths: checkWidths(old.widths, config.columns), notice: undefined, version: old.version + 1 });
+	// Hidden columns' widths go.
+	if (old) await ctx.db.patch(id, { ...config, widths: checkWidths(old.widths, config.columns), version: old.version + 1 });
 	await logChange(ctx, who, { typeId, subject: config.name, action: old ? "view.updated" : "view.created", changes });
 	return id;
 }
@@ -89,18 +86,6 @@ export const list = query({
 export const save = mutation({
 	args: { typeId: v.id("recordTypes"), viewId: v.optional(v.id("databaseViews")), version: v.optional(v.number()), ...viewConfig },
 	handler: async (ctx, { typeId, viewId, version, ...config }) => saveView(ctx, { member: await requireMember(ctx) }, typeId, config, viewId, version),
-});
-
-/** Clears the note saying a field change removed some of a view's filters, sort or grouping, for everyone. Takes Edit in the database, like saving. */
-export const dismissNotice = mutation({
-	args: { viewId: v.id("databaseViews") },
-	handler: async (ctx, { viewId }) => {
-		const member = await requireMember(ctx);
-		checkPermission(member, "records.edit");
-		const view = requireInWorkspace(member, await ctx.db.get(viewId), "View");
-		await viewsOf(ctx, member, view.typeId, "edit");
-		if (view.notice) await ctx.db.patch(view._id, { notice: undefined });
-	},
 });
 
 /** One column's width in a view, for everyone, as it's dropped (`px` left out: its default). Takes Edit in the database, like saving. */

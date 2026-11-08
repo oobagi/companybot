@@ -30,8 +30,7 @@ import {
 	recordPath,
 	sortable,
 	toCondition,
-	filterProblem, refitFilter,
-	sortProblem,
+	filterFits, refitFilter,
 	valueText,
 } from "./logic";
 
@@ -81,7 +80,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// View tabs follow the workspace order. "All" stays first.
 	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
 	const saveView = useMutation(api.databaseViews.save);
-	const dismissNotice = useMutation(api.databaseViews.dismissNotice);
 	const setWidth = useMutation(api.databaseViews.setWidth, widthUpdate);
 	const removeView = useMutation(api.databaseViews.remove);
 	const [viewId, setViewId] = useState("all");
@@ -109,7 +107,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const rename = (name: string) => {
 		if (!selected || !saved) return;
 		const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
-		const filters = saved.filters.map(toCondition).filter((c) => c !== null);
+		const filters = saved.filters.map((f) => toCondition(f)).filter((c) => c !== null);
 		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy }));
 	};
 	const layout = selected ? draft.value.layout : display.layout;
@@ -123,7 +121,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const groupFields = fields.filter(groupable);
 	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
 	const change = (next: Partial<Settings>) => {
-		setTidied(undefined);
 		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
 		draft.set(value);
 		if (!selected && writable && next.columns) {
@@ -141,7 +138,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const [openFilter, setOpenFilter] = useState<string>();
 	const addFilter = (field: TypeField) => {
 		const id = crypto.randomUUID();
-		setFilters([...filters, { id, field: field.key, op: opsFor(field)[0]!, value: "" }]);
+		setFilters([...filters, { id, field: field.key, op: opsFor(field)[0]!, value: opsFor(field)[0] === "anyOf" ? [] : "" }]);
 		setOpenFilter(id);
 	};
 	const setSort = (sort: Sort | undefined) => change({ sort });
@@ -165,30 +162,24 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	// A filter or sort made before a field changed may not fit it now. A filter converts when it can
-	// ("is Test" → the option Test, as the values did); otherwise it's dropped, and the bar says why.
+	// A filter or sort made before a field changed may not fit it now. Like Notion, a filter converts
+	// when it can ("is Test" → the option Test, as the values did), and otherwise goes, quietly.
+	const fieldOf = (key: string) => fields.find((x) => x.key === key);
 	const refits = filters.map((f) => {
-		const field = fields.find((x) => x.key === f.field);
+		const field = fieldOf(f.field);
 		return field && refitFilter(f, field);
 	});
 	const refitted = refits.some(Boolean);
-	const current = filters.map((f, i) => refits[i] ?? f);
-	const problems = current.map((f) => {
-		const field = fields.find((x) => x.key === f.field);
-		const problem = field && filterProblem(f, field);
-		return problem && `Removed the filter on “${field.label}”: ${problem}.`;
+	const fitting = filters.map((f, i) => refits[i] ?? f).filter((f) => {
+		const field = fieldOf(f.field);
+		return !field || filterFits(f, field);
 	});
-	const fitting = current.filter((_, i) => !problems[i]);
-	const sortField = sort && fields.find((f) => f.key === sort.field);
-	const sortIssue = sortField && sortProblem(sortField);
-	const [tidied, setTidied] = useState<string>();
+	const sortField = sort && fieldOf(sort.field);
+	const sortIssue = !!sortField && !sortable(sortField);
 	useEffect(() => {
-		if (!refitted && fitting.length === filters.length && !sortIssue) return;
-		change({ filters: fitting, sort: sortIssue ? undefined : sort });
-		const notes = [...problems.filter(Boolean), ...(sortIssue ? [`Removed the sort by “${sortField.label}”: ${sortIssue}.`] : [])];
-		if (notes.length) setTidied(notes.join(" "));
+		if (refitted || fitting.length !== filters.length || sortIssue) change({ filters: fitting, sort: sortIssue ? undefined : sort });
 	}, [refitted, fitting.length, filters.length, sortIssue]);
-	const conditions = fitting.map(toCondition).filter((c) => c !== null);
+	const conditions = fitting.map((f) => toCondition(f, fieldOf(f.field)?.kind)).filter((c) => c !== null);
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;
 	// While its field converts, the sort waits rather than going away.
@@ -297,18 +288,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 			<Notice>{error}</Notice>
 			{dialog}
 			<ConflictNotice draft={draft} />
-			{/* Why the view's filters or sort changed without anyone saving it: a field's kind changed. */}
-			{(selected?.notice || tidied) && (
-				<p className={`${hintClass} flex items-center gap-1.5`}>
-					{tidied ?? selected?.notice}
-					{/* Yours (this list's) closes here; a saved view's is everyone's, so closing it takes Edit and clears it for all. */}
-					{(tidied || canEdit) && (
-						<button type="button" aria-label="Dismiss" title="Dismiss" onClick={() => (tidied ? setTidied(undefined) : selected && run(dismissNotice({ viewId: selected._id })))} className={trailingAction}>
-							<CloseIcon />
-						</button>
-					)}
-				</p>
-			)}
 			{(filters.length > 0 || sort || canSave) && (
 				// As tall as Save for everyone, so the row doesn't grow when it shows.
 				<div className="-mt-2 flex min-h-8 flex-wrap items-center gap-1.5">

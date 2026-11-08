@@ -67,41 +67,26 @@ export function opsFor(field: Field): Op[] {
 
 export const needsValue = (op: Op) => !["empty", "notEmpty", "checked", "unchecked"].includes(op);
 
-/** The list condition for a filter, or null while it's missing a value. */
-export function toCondition({ field, op, value }: Filter): Record<string, unknown> & { field: string } | null {
+/** The list condition for a filter, or null while it's missing a value or its value isn't one yet ("1e" on a number). */
+export function toCondition({ field, op, value }: Filter, kind?: Field["kind"]): Record<string, unknown> & { field: string } | null {
 	if (op === "empty" || op === "unchecked") return { field, empty: true };
 	if (op === "notEmpty" || op === "checked") return { field, empty: false };
 	if (op === "anyOf") return Array.isArray(value) && value.length ? { field, in: value } : null;
 	const text = Array.isArray(value) ? "" : value.trim();
 	if (!text) return null;
+	if (kind === "number" ? parseNumber(text) === null : kind === "currency" ? moneyOf(text, "USD") === null : kind === "date" && parseDay(text) === null) return null;
 	return { field, [op === "is" ? "eq" : op]: text };
 }
 
-/** "a date field", "an amount field": the field's kind as people say it. */
-function aKind(field: Field) {
-	const kind = kindLabels[field.kind].toLowerCase();
-	return `${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`;
-}
-
 /**
- * Why a filter no longer fits its field, or undefined if it does. One made before the field
- * changed may not ("is abc" on what's now a number); lists drop it and say why.
+ * Whether a filter still fits its field: one made before the field changed may not (a range on
+ * what's now text, an option since removed). Lists drop it quietly, like Notion.
  */
-export function filterProblem(filter: Filter, field: Field): string | undefined {
-	// Text "is X" on what's now a choice, with no option X to become (refitFilter).
-	if (field.kind === "choice" && filter.op === "is" && !Array.isArray(filter.value)) return `it's a choice field now, and there's no “${filter.value.trim()}” option`;
-	if (!opsFor(field).includes(filter.op)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
-	if (filter.op === "anyOf") {
-		if (!Array.isArray(filter.value)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
-		if (field.kind === "choice" && !filter.value.every((v) => field.options?.some((o) => o.id === v))) return "an option it picked was removed";
-		return undefined;
-	}
-	if (!needsValue(filter.op)) return undefined;
-	if (Array.isArray(filter.value)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
-	const text = filter.value.trim();
-	if (!text) return undefined;
-	const valid = field.kind === "number" ? parseNumber(text) !== null : field.kind === "currency" ? moneyOf(text, "USD") !== null : field.kind === "date" ? parseDay(text) !== null : true;
-	return valid ? undefined : `“${text}” isn't ${field.kind === "currency" ? "an amount" : `a ${field.kind}`}`;
+export function filterFits(filter: Filter, field: Field) {
+	if (!opsFor(field).includes(filter.op)) return false;
+	// A new one has no value yet.
+	if (filter.op === "anyOf") return filter.value === "" || (Array.isArray(filter.value) && (field.kind !== "choice" || filter.value.every((v) => field.options?.some((o) => o.id === v))));
+	return !needsValue(filter.op) || !Array.isArray(filter.value);
 }
 
 /**
@@ -113,12 +98,6 @@ export function refitFilter<F extends Filter>(filter: F, field: Field): F | unde
 	const text = filter.value.trim().toLowerCase();
 	const option = field.options?.find((o) => !o.retired && o.label.trim().toLowerCase() === text);
 	return option && { ...filter, op: "anyOf", value: [option.id] };
-}
-
-/** Why a list can't be sorted by the field now, or undefined if it can. */
-export function sortProblem(field: Field): string | undefined {
-	if (sortable(field)) return undefined;
-	return field.multiple ? "it holds several values now, and those can't be sorted" : `it's ${aKind(field)} field now, and those can't be sorted`;
 }
 
 /** Saved conditions back into the existing filter controls; ranges may have two bounds. */

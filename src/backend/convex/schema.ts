@@ -1252,7 +1252,7 @@ export default defineSchema({
 		/** Saved as they're dropped (databaseViews.setWidth), not with the rest: no version change, no history. */
 		widths: v.optional(columnWidths),
 		version: v.number(),
-		/** Why its filters, sort or grouping changed without anyone saving it (a field's kind changed). Cleared by the next save. */
+		// COMPAT(0.1.0-alpha.10): drop once migrations.dropViewNotice has run on prod. Views no longer carry a note.
 		notice: v.optional(v.string()),
 	}).index("by_type", ["typeId"]),
 

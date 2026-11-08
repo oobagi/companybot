@@ -325,19 +325,10 @@ async function startChange(ctx: MutationCtx, who: Who, field: Doc<"recordFields"
 	return { changeId: id, historyId, change: await describe(ctx, from, to), preview };
 }
 
-/** Drops what stops fitting from saved views and the All tab's grouping, and has each view say why. */
+/** Converts or drops what stops fitting in saved views and the All tab's grouping, quietly, like Notion. */
 async function tidyViews(ctx: MutationCtx, field: Doc<"recordFields">, from: Shape, to: Shape) {
-	const what = await describe(ctx, from, to);
-	for (const { view, filters, sort, group, dropped: droppedFilter } of await viewsAffected(ctx, field, from, to)) {
-		const dropped = [droppedFilter && "filter", sort && "sort", group && "grouping"].filter(Boolean).join(" and ");
-		// A filter that converted (text "is X" → the option X) needs no note.
-		await ctx.db.patch(view._id, {
-			filters,
-			...(sort && { sort: undefined }),
-			...(group && { groupBy: undefined }),
-			version: view.version + 1,
-			...(dropped && { notice: `“${field.label}” changed (${what}), so its ${dropped} ${dropped.includes(" and ") ? "were" : "was"} removed.` }),
-		});
+	for (const { view, filters, sort, group } of await viewsAffected(ctx, field, from, to)) {
+		await ctx.db.patch(view._id, { filters, ...(sort && { sort: undefined }), ...(group && { groupBy: undefined }), version: view.version + 1 });
 	}
 	const type = await ctx.db.get(field.typeId);
 	if (type?.display?.groupBy === field.key && !groupsBy(coreShape(to))) await ctx.db.patch(type._id, { display: { ...type.display, groupBy: undefined } });

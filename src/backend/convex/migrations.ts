@@ -492,6 +492,15 @@ export const railDropCustomize = migrations.define({
 	},
 });
 
+// Views no longer carry a note about filters a field change removed: clear the old ones.
+export const dropViewNotice = migrations.define({
+	table: "databaseViews",
+	batchSize: 100,
+	migrateOne: async (ctx, view) => {
+		if (view.notice !== undefined) await ctx.db.patch(view._id, { notice: undefined });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -528,6 +537,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
 	internal.migrations.railDropCustomize,
+	internal.migrations.dropViewNotice,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

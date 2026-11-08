@@ -1,6 +1,6 @@
 import type { Field } from "@companybot/core/records";
 import { describe, expect, it } from "vitest";
-import { defaultColumns, filterProblem, fromConditions, refitFilter, moneyInput, opsFor, recordPath, sortProblem, sortable, toCondition, valueText, whoLabel } from "./logic";
+import { defaultColumns, filterFits, fromConditions, refitFilter, moneyInput, opsFor, recordPath, sortable, toCondition, valueText, whoLabel } from "./logic";
 
 const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: kind, label: kind, kind, ...extra });
 const stage = field("choice", {
@@ -22,15 +22,19 @@ describe("record screens", () => {
 		expect(defaultColumns(fields)).toEqual(["name", "a", "c", "d", "e"]);
 	});
 
-	it("says why a filter or sort no longer fits a field that changed", () => {
-		expect(filterProblem({ field: "x", op: "gte", value: "5" }, field("text"))).toBe("it's a text field now, and that filter doesn't work on those");
-		expect(filterProblem({ field: "x", op: "gte", value: "abc" }, field("number"))).toBe("“abc” isn't a number");
-		expect(filterProblem({ field: "x", op: "gte", value: "soon" }, field("currency"))).toBe("“soon” isn't an amount");
-		expect(filterProblem({ field: "x", op: "anyOf", value: ["gone"] }, stage)).toBe("an option it picked was removed");
-		expect(filterProblem({ field: "x", op: "gte", value: "5" }, field("number"))).toBeUndefined();
-		expect(sortProblem(field("checkbox"))).toBe("it's a checkbox field now, and those can't be sorted");
-		expect(sortProblem(field("choice", { multiple: true }))).toBe("it holds several values now, and those can't be sorted");
-		expect(sortProblem(field("currency"))).toBeUndefined();
+	it("drops a filter that no longer fits a field that changed, and keeps new ones still empty", () => {
+		expect(filterFits({ field: "x", op: "gte", value: "5" }, field("text"))).toBe(false);
+		expect(filterFits({ field: "x", op: "anyOf", value: ["gone"] }, stage)).toBe(false);
+		expect(filterFits({ field: "x", op: "is", value: "nope" }, field("choice", { options: [] }))).toBe(false);
+		expect(filterFits({ field: "x", op: "gte", value: "5" }, field("number"))).toBe(true);
+		expect(filterFits({ field: "x", op: "anyOf", value: [] }, stage)).toBe(true);
+		expect(filterFits({ field: "x", op: "anyOf", value: "" }, stage)).toBe(true);
+	});
+
+	it("waits to filter until a typed value is one", () => {
+		expect(toCondition({ field: "x", op: "gte", value: "-" }, "number")).toBeNull();
+		expect(toCondition({ field: "x", op: "gte", value: "soon" }, "currency")).toBeNull();
+		expect(toCondition({ field: "x", op: "gte", value: "-5" }, "number")).toEqual({ field: "x", gte: "-5" });
 	});
 
 	it("turns a text filter into the choice option with its label", () => {
@@ -38,7 +42,6 @@ describe("record screens", () => {
 		expect(refitFilter({ field: "x", op: "is", value: "test" }, choice)).toEqual({ field: "x", op: "anyOf", value: ["o1"] });
 		expect(refitFilter({ field: "x", op: "is", value: "nope" }, choice)).toBeUndefined();
 		expect(refitFilter({ field: "x", op: "is", value: "test" }, field("text"))).toBeUndefined();
-		expect(filterProblem({ field: "x", op: "is", value: "nope" }, choice)).toBe("it's a choice field now, and there's no “nope” option");
 	});
 
 	it("offers the operators records.list takes for each kind", () => {
@@ -63,7 +66,7 @@ describe("record screens", () => {
 		const conditions = [{ field: "number", gte: 0, lt: 10 }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }];
 		const filters = fromConditions(conditions);
 		expect(filters).toHaveLength(4);
-		expect(filters.map(toCondition)).toEqual([{ field: "number", gte: "0" }, { field: "number", lt: "10" }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }]);
+		expect(filters.map((f) => toCondition(f))).toEqual([{ field: "number", gte: "0" }, { field: "number", lt: "10" }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }]);
 		const fields = [{ ...stage, _id: "stage" }];
 		expect(fromConditions([{ field: "choice", eq: "won" }], fields)).toEqual([{ field: "choice", op: "anyOf", value: ["won"] }]);
 		expect(fromConditions([{ field: "checkbox", empty: false }], [{ ...field("checkbox"), _id: "c" }])).toEqual([{ field: "checkbox", op: "checked", value: "" }]);

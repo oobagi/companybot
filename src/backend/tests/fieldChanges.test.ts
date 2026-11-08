@@ -176,15 +176,9 @@ describe("changing a field's kind", () => {
 		expect(view).toMatchObject({ filters: [{ field: "price", empty: false }], columns: ["name", "price"], layout: "board" });
 		expect(view!.sort).toBeUndefined();
 		expect(view!.groupBy).toBeUndefined();
-		expect(view!.notice).toContain("“Stage” changed");
-		// Dismissing the note clears it for everyone and leaves the view as saved.
-		await owner.mutation(api.databaseViews.dismissNotice, { viewId: view!._id });
-		const [after] = await owner.query(api.databaseViews.list, { typeId });
-		expect(after!.notice).toBeUndefined();
-		expect(after!.version).toBe(view!.version);
 	});
 
-	it("turns a text filter into the option it becomes, with no note", async () => {
+	it("turns a text filter into the option it becomes", async () => {
 		const { owner, typeId, fieldId, seed, finish } = await setup();
 		await seed([{ name: "A", price: "Test" }, { name: "B", price: "Other" }]);
 		await owner.mutation(api.databaseViews.save, { typeId, name: "Tests", filters: [{ field: "price", eq: "test" }], columns: ["name", "price"] });
@@ -194,7 +188,6 @@ describe("changing a field's kind", () => {
 		const [view] = await owner.query(api.databaseViews.list, { typeId });
 		const option = (await owner.query(api.recordTypes.list)).find((x) => x._id === typeId)!.fields.find((f) => f.key === "price")!.options!.find((o) => o.label === "Test")!;
 		expect(view).toMatchObject({ filters: [{ field: "price", eq: option.id }] });
-		expect(view!.notice).toBeUndefined();
 		expect((await owner.query(api.records.list, { typeId, filters: view!.filters, paginationOpts: page })).page.map((r) => r.title)).toEqual(["A"]);
 	});
 
