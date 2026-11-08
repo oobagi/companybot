@@ -190,9 +190,10 @@ function Conversation({ c }: { c: Opened }) {
 						</button>
 					</TopBar>
 				}
+				side={shown && wide ? <Details conversation={c} /> : null}
 			/>
-			{shown && (
-				<aside className={wide ? "w-72 shrink-0 overflow-y-auto pt-12 pr-3 pb-3" : "absolute top-12 right-3 z-40 w-72 rounded-xl shadow-lg"}>
+			{shown && !wide && (
+				<aside className="absolute top-12 right-3 z-40 w-72 rounded-xl shadow-lg">
 					<Details conversation={c} />
 				</aside>
 			)}
@@ -200,7 +201,11 @@ function Conversation({ c }: { c: Opened }) {
 	);
 }
 
-function Messages({ c, them, bar }: { c: Opened; them: string; bar: React.ReactNode }) {
+/**
+ * The messages, with the details card (`side`) as a column beside them in the same scrolling area, so
+ * its scrollbar runs down the screen's edge rather than between the two.
+ */
+function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.ReactNode; side: React.ReactNode }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const nearBottom = useRef(true);
@@ -220,58 +225,68 @@ function Messages({ c, them, bar }: { c: Opened; them: string; bar: React.ReactN
 			ref={scroller}
 			overlayScrollbar
 			header={bar}
-			footer={<ReplyBox conversation={c} />}
+			footer={
+				<div className="flex">
+					<div className="min-w-0 flex-1">
+						<ReplyBox conversation={c} />
+					</div>
+					{side && <div aria-hidden className="w-72 shrink-0" />}
+				</div>
+			}
 			onScroll={(e) => (nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 120)}
 		>
-			<div ref={content} className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end px-5 pt-4 pb-5">
-				{items.map((item, i) => {
-					const first = item.messages[0]!;
-					const prev = items[i - 1]?.messages.at(-1);
-					// A time over the first, and after a quiet stretch; room between groups.
-					const stamp = !prev || first.at - prev.at > GROUP_GAP_MS;
-					return (
-						<Fragment key={first.id}>
-							{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(first.at)}, {clock(first.at)}</p>}
-							<div className={`group/msg ${stamp ? "" : "pt-3"}`}>
-								{first.assignedTo ? (
-									<Line who={first.author} name="Someone on staff">
-										assigned this to <PersonPill who={first.assignedTo} />
-									</Line>
-								) : first.status === "draft" ? (
-									<Draft message={first} channel={c.channel} agent={c.agent} />
-								) : (
-									<Group messages={item.messages} them={them} channel={c.channel} subject={c.subject} />
-								)}
-								{first.direction !== "event" && (
-									<Thread
-										messageId={item.messages.at(-1)!.id}
-										comments={item.messages.flatMap((m) => m.comments).sort((a, b) => a.at - b.at)}
-										side={first.direction === "in" ? "them" : "us"}
-									/>
-								)}
-								{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
-								{first.direction === "event" && <div aria-hidden className="h-8.5" />}
-							</div>
-						</Fragment>
-					);
-				})}
-				{c.needsStaff === "handoff" && (
-					<div className="pt-3">
-						<Line who={c.agent} name={c.agentName}>
-							handed this to
-							<span className={`${pillClass} bg-amber-50 text-amber-800`}>
-								<MembersIcon /> Staff
-							</span>
-						</Line>
-					</div>
-				)}
-				{c.replying && (
-					<div className="pt-3">
-						<Line who={c.agent} name={c.agentName}>
-							is writing a reply…
-						</Line>
-					</div>
-				)}
+			<div className="flex flex-1 items-start">
+				<div ref={content} className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end self-stretch px-5 pt-4 pb-5">
+					{items.map((item, i) => {
+						const first = item.messages[0]!;
+						const prev = items[i - 1]?.messages.at(-1);
+						// A time over the first, and after a quiet stretch; room between groups.
+						const stamp = !prev || first.at - prev.at > GROUP_GAP_MS;
+						return (
+							<Fragment key={first.id}>
+								{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(first.at)}, {clock(first.at)}</p>}
+								<div className={`group/msg ${stamp ? "" : "pt-3"}`}>
+									{first.assignedTo ? (
+										<Line who={first.author} name="Someone on staff">
+											assigned this to <PersonPill who={first.assignedTo} />
+										</Line>
+									) : first.status === "draft" ? (
+										<Draft message={first} channel={c.channel} agent={c.agent} />
+									) : (
+										<Group messages={item.messages} them={them} channel={c.channel} subject={c.subject} />
+									)}
+									{first.direction !== "event" && (
+										<Thread
+											messageId={item.messages.at(-1)!.id}
+											comments={item.messages.flatMap((m) => m.comments).sort((a, b) => a.at - b.at)}
+											side={first.direction === "in" ? "them" : "us"}
+										/>
+									)}
+									{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
+									{first.direction === "event" && <div aria-hidden className="h-8.5" />}
+								</div>
+							</Fragment>
+						);
+					})}
+					{c.needsStaff === "handoff" && (
+						<div className="pt-3">
+							<Line who={c.agent} name={c.agentName}>
+								handed this to
+								<span className={`${pillClass} bg-amber-50 text-amber-800`}>
+									<MembersIcon /> Staff
+								</span>
+							</Line>
+						</div>
+					)}
+					{c.replying && (
+						<div className="pt-3">
+							<Line who={c.agent} name={c.agentName}>
+								is writing a reply…
+							</Line>
+						</div>
+					)}
+				</div>
+				{side && <aside className="sticky top-12 w-72 shrink-0 pr-3 pb-3">{side}</aside>}
 			</div>
 		</Scroll>
 	);
