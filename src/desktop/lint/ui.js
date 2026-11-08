@@ -60,6 +60,7 @@ const buttonClasses = new Set([
 	"swatchButton",
 	"imageButton",
 	"chipButton",
+	"chipPrimaryButton",
 	"surfaceButton",
 ]);
 
