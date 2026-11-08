@@ -66,7 +66,8 @@ export function Composer({
 		}),
 		autofocus: "end",
 		editorProps: {
-			attributes: { class: "max-h-48 overflow-y-auto py-1.5 outline-none break-words", role: "textbox", "aria-multiline": "true" },
+			// One line is 32px (22px line, 5px above and below), as tall as the round buttons, so its text sits on their middle.
+			attributes: { class: "max-h-48 overflow-y-auto py-1.25 leading-5.5 outline-none break-words", role: "textbox", "aria-multiline": "true" },
 			handlePaste: (view, event) => {
 				const clipboard = event.clipboardData;
 				if (!clipboard?.files.length || !latest.current.attachments) return false;
