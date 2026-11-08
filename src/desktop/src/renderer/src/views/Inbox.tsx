@@ -54,7 +54,7 @@ const ChannelIcon = ({ channel }: { channel: "email" | "sms" }) => (channel === 
 
 /**
  * Inbox's sidebar: every conversation, the latest first: who, when, the last thing said, and who's
- * answering (their picture). One waiting for staff is bold, with a dot by its time.
+ * answering (their picture). One waiting for staff is bold, with a dot on its icon.
  */
 export function InboxNav({ openId }: { openId: string | undefined }) {
 	const list = useQuery(api.inbox.list);
@@ -62,11 +62,27 @@ export function InboxNav({ openId }: { openId: string | undefined }) {
 	return (
 		<div className="flex flex-col gap-px">
 			{list.map((c) => (
-				<Item key={c.id} icon={<ChannelIcon channel={c.channel} />} label={contactLabel(c)} active={openId === c.id} onClick={() => navigate("inbox", c.id)}>
+				<Item
+					key={c.id}
+					icon={
+						<span className="relative flex">
+							<ChannelIcon channel={c.channel} />
+							{/* Waiting for staff: a dot on the icon, the same spot on every row. Its ring matches the row behind it. */}
+							{c.needsStaff && (
+								<span
+									aria-label="Needs staff"
+									className={`absolute -top-0.5 -right-0.5 size-2 rounded-full bg-sky-500 ring-2 ${openId === c.id ? "ring-neutral-200" : "ring-neutral-50 group-hover/item:ring-neutral-100"}`}
+								/>
+							)}
+						</span>
+					}
+					label={contactLabel(c)}
+					active={openId === c.id}
+					onClick={() => navigate("inbox", c.id)}
+				>
 					<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
 						<span className="flex items-center gap-2">
 							<span className={`min-w-0 flex-1 truncate ${c.needsStaff ? "font-semibold text-neutral-900" : ""}`}>{contactLabel(c)}</span>
-							{c.needsStaff && <span aria-label="Needs staff" className="size-2 shrink-0 rounded-full bg-sky-500" />}
 							<span className="shrink-0 text-xs font-normal text-neutral-400">{shortAgo(c.lastAt)}</span>
 						</span>
 						<span className="flex items-center gap-1.5">
