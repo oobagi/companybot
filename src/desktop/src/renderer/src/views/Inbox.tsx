@@ -401,7 +401,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 							<Fragment key={first.id}>
 								{stamp && <p className={`pt-8 pb-4 text-center tabular-nums ${metadataClass}`}>{dayLabel(first.at)}, {clock(first.at)}</p>}
 								{/* Emails get a line between them; a line between emails (an assignment) separates them itself. A draft's box sits a little below its line. */}
-								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : `${prev && prev.direction !== "event" ? "border-t border-neutral-100" : ""} ${first.status === "draft" ? "pt-3" : ""}`) : stamp ? "" : "pt-3"}`}>
+								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : `${prev && prev.direction !== "event" ? "border-t border-neutral-100" : ""}`) : stamp ? "" : "pt-3"}`}>
 									{first.assignedTo ? (
 										<Line who={first.author} name="Someone on staff">
 											assigned this to <PersonPill who={first.assignedTo} />
@@ -735,13 +735,16 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 	return (
 		<div className="flex flex-col items-end">
 			{email ? null : <Sender author={agent} them="Agent" mine />}
-			{/* In an email thread, headed like the emails around it: the box reaches past the column by its own padding, so its picture and text line up with theirs. */}
-			<div className={`flex ${email ? "-mx-4 self-stretch rounded-xl" : "w-[85%] rounded-2xl"} flex-col gap-2 border border-dashed border-neutral-300 bg-white px-4 py-3`}>
+			{/* In an email thread, laid out like the emails around it (no box, so it lines up with them): who, then the draft under their name. */}
+			<div className={`flex flex-col gap-2.5 ${email ? "w-full py-2.5" : "w-[85%] rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-3"}`}>
 				{email ? (
-					<p className="flex min-w-0 items-baseline gap-3">
-						<Avatar name={agent?.name ?? "Agent"} image={agent?.image} agent className="self-center" size="md" />
-						<span className="shrink-0 font-medium text-neutral-900">{agent?.name ?? "Agent"}</span>
-						<span className={`min-w-0 truncate ${metadataClass}`}>Draft reply. Check it, then send it.</span>
+					<p className="flex min-w-0 items-start gap-3">
+						<Avatar name={agent?.name ?? "Agent"} image={agent?.image} agent size="md" />
+						<span className="flex min-w-0 items-center gap-2">
+							<span className="shrink-0 font-medium text-neutral-900">{agent?.name ?? "Agent"}</span>
+							<span className={`${inboxPill} bg-amber-50 pl-2.5 text-amber-800`}>Draft</span>
+							<span className={`min-w-0 truncate ${metadataClass}`}>Check it, then send it.</span>
+						</span>
 					</p>
 				) : (
 					<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
