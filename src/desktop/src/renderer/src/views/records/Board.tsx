@@ -24,12 +24,14 @@ export function Board({ type, args, group, cards, canEdit }: { type: RecordType;
 		...(group.options ?? []).map((o) => ({ ...o, retired: !!o.retired })),
 	];
 	const props = cards.filter((f) => f.key !== "name" && f.key !== group.key);
+	// Cards are scrolled under the column headers: their fade shows.
+	const [under, setUnder] = useState(false);
 	return (
 		// Fills the rest of the screen and scrolls itself, like a table (`Page`'s `fill`): the tabs stay put and the scrollbar sits at the bottom.
 		<div className="flex min-h-0 flex-1 flex-col gap-2">
 			<Notice>{error}</Notice>
 			{/* Lanes start at the column and scroll out to the screen's edges; all as tall as the longest, so each is a full-height drop target. */}
-			<div className="bleed min-h-0 flex-1 overflow-y-auto pb-2">
+			<div className="bleed min-h-0 flex-1 overflow-y-auto pb-2" onScroll={(e) => setUnder(e.currentTarget.scrollTop > 0)}>
 			<div className="flex min-h-full w-max gap-3">
 				{lanes.map((lane) => (
 					<Lane
@@ -44,6 +46,7 @@ export function Board({ type, args, group, cards, canEdit }: { type: RecordType;
 						name={type.fields.find((f) => f.key === "name") as TypeField}
 						props={props}
 						canEdit={canEdit}
+						under={under}
 						onMove={(recordId) => run(update({ recordId: recordId as Id<"records">, values: { [group.key]: lane.id || null } }))}
 					/>
 				))}
@@ -71,6 +74,7 @@ function Lane({
 	name,
 	props,
 	canEdit,
+	under,
 	onMove,
 }: {
 	id: string;
@@ -84,6 +88,7 @@ function Lane({
 	name: TypeField;
 	props: TypeField[];
 	canEdit: boolean;
+	under: boolean;
 	onMove: (recordId: string) => void;
 }) {
 	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
@@ -107,8 +112,14 @@ function Lane({
 			className={`flex w-64 shrink-0 flex-col gap-2 rounded-xl p-2 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}
 		>
 			{/* Sticks as the board scrolls, like a table's header. The outer square is the page's own white, so
-			    cards passing under don't show through the rounded corners; the column's color is on the inside. */}
+			    cards passing under don't show through the rounded corners; the column's color is on the inside.
+			    Below it, cards fade out into the column (styles.css's scrim) instead of cutting off. */}
 			<div className="sticky top-0 z-10 -mx-2 -mt-2 bg-white">
+				<div
+					aria-hidden
+					className={`scrim-top pointer-events-none absolute inset-x-0 top-full h-4 ${over ? "[--scrim:color-mix(in_srgb,var(--color-neutral-200)_70%,white)]" : "[--scrim:color-mix(in_srgb,var(--color-neutral-100)_70%,white)]"}`}
+					data-under={under || undefined}
+				/>
 				<div className={`flex items-center gap-2 rounded-t-xl px-3 pt-2 pb-1 text-sm font-medium text-neutral-700 ${over ? "bg-neutral-200/70" : "bg-neutral-100/70"}`}>
 					{id ? (
 						<Chip color={color}>
