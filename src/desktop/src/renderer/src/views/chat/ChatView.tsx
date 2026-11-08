@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
-import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
+import { Loading, NotFound, Notice, RenameInput, Scroll, TopBar, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, Avatar, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
@@ -157,7 +157,10 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					</>
 				) : messages.length === 0 ? (
 					<Scroll header={bar} footer={footer}>
-						<EmptyState icon={chat.kind === "channel" ? <ChannelIcon /> : <ChatIcon />} title="No messages yet">{chat.kind === "channel" ? `Start a conversation in ${title}.` : `Send your first message to ${title}.`}</EmptyState>
+						{/* No messages yet: the start of its history, just above the composer, as it shows once there are some. */}
+						<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-end py-4">
+							<Intro title={title} channel={chat.kind === "channel"} locked={!!chat.private} agent={agent} />
+						</div>
 					</Scroll>
 				) : (
 					<MessageList
