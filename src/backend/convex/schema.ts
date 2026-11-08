@@ -1249,6 +1249,8 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		typeId: v.id("recordTypes"),
 		...viewConfig,
+		/** Saved as they're dropped (databaseViews.setWidth), not with the rest: no version change, no history. */
+		widths: v.optional(columnWidths),
 		version: v.number(),
 		/** Why its filters, sort or grouping changed without anyone saving it (a field's kind changed). Cleared by the next save. */
 		notice: v.optional(v.string()),

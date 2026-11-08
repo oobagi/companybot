@@ -49,7 +49,7 @@ const soonLayouts = {
 };
 
 /** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
-type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string; widths?: Widths };
+type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
 /** Columns someone resized, in pixels by field key. */
 type Widths = Record<string, number>;
 
@@ -65,8 +65,14 @@ function withWidth(widths: Widths | undefined, field: string, px: number | undef
 	if (px !== undefined) next[field] = px;
 	return next;
 }
+const optimisticWidth: OptimisticUpdate<FunctionArgs<typeof api.databaseViews.setWidth>> = (store, args) => {
+	for (const { args: queryArgs, value } of store.getAllQueries(api.databaseViews.list))
+		if (value?.some((v) => v._id === args.viewId))
+			store.setQuery(api.databaseViews.list, queryArgs, value.map((v) => (v._id === args.viewId ? { ...v, widths: withWidth(v.widths, args.field, args.px) } : v)));
+};
 /** Module-level, so `useMutation` stays stable between renders. */
 const displayUpdate = () => optimisticDisplay;
+const widthUpdate = () => optimisticWidth;
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
@@ -76,6 +82,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
 	const saveView = useMutation(api.databaseViews.save);
 	const dismissNotice = useMutation(api.databaseViews.dismissNotice);
+	const setWidth = useMutation(api.databaseViews.setWidth, widthUpdate);
 	const removeView = useMutation(api.databaseViews.remove);
 	const [viewId, setViewId] = useState("all");
 	const [preview, setPreview] = useState<Preview>();
@@ -92,7 +99,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		columns: selected.columns,
 		layout: selected.layout ?? "table",
 		groupBy: selected.groupBy,
-		widths: selected.widths,
 	};
 	const draft = useDraft<Settings>(`view:${type._id}:${viewId}`,
 		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
@@ -104,15 +110,15 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 		if (!selected || !saved) return;
 		const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
 		const filters = saved.filters.map(toCondition).filter((c) => c !== null);
-		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy, widths: saved.widths }));
+		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy }));
 	};
 	const layout = selected ? draft.value.layout : display.layout;
 	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
-	const widths = selected ? draft.value.widths : display.widths;
-	// A saved view's widths wait for Save for everyone, like its other settings; All's save as you drop them.
-	const resize = type.canSetDisplay || selected
-		? (field: string, px: number | undefined) => selected ? change({ widths: withWidth(widths, field, px) }) : run(setDisplay({ typeId: type._id, display: { width: { field, px } } }))
-		: undefined;
+	// Like Notion's, a column's width saves for everyone as it's dropped, not with the view's other settings.
+	const widths = selected ? selected.widths : display.widths;
+	const resize = selected
+		? type.canEdit ? (field: string, px: number | undefined) => run(setWidth({ viewId: selected._id, field, px })) : undefined
+		: type.canSetDisplay ? (field: string, px: number | undefined) => run(setDisplay({ typeId: type._id, display: { width: { field, px } } })) : undefined;
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
 	const groupFields = fields.filter(groupable);
 	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
@@ -179,12 +185,14 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const canEdit = type.canEdit;
 	// While its field converts, the sort waits rather than going away.
 	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort };
-	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key, widths };
+	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
 
 	return (
 		<Page
 			wide
+			// A table scrolls itself: its header row sticks, and its sideways scrollbar sits at the screen's bottom.
+			fill={!preview && (layout === "table" || !!query.trim())}
 			title={type.plural}
 			// Its settings open from its title, as a page's actions do.
 			menu={type.canManage ? (close) => <MenuItem onClick={() => (close(), setEditingDatabase(true))}><EditIcon /> Edit database</MenuItem> : undefined}
@@ -419,26 +427,28 @@ function RecordResults({
 	if (status === "LoadingFirstPage") return <Loading />;
 	if (rows.length === 0 && status === "Exhausted") return empty;
 	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} /> : noGroup;
-	// A board still looking past empty pages shows only the loader, not a table.
-	return (
-		<div className="flex flex-col gap-2">
-			{layout === "table" && <RowsTable
-				type={type}
-				rows={rows}
-				refs={refs}
-				columns={columns}
-				widths={widths}
-				onResize={onResize}
-				stale={stale}
-				head={[
-					...columns.map((f) => header(f.key, f.label, sortable(f) && !f.changing, f)),
-					header("updatedAt", "Updated", true),
-				]}
-			/>}
-			<div ref={setEnd} className="flex flex-col items-center py-2">
-				<LoadMore status={status} onMore={() => loadMore(25)} />
-			</div>
+	const more = (
+		<div ref={setEnd} className="flex flex-col items-center py-2">
+			<LoadMore status={status} onMore={() => loadMore(25)} />
 		</div>
+	);
+	// A board still looking past empty pages shows only the loader, not a table.
+	if (layout !== "table") return more;
+	return (
+		<RowsTable
+			type={type}
+			rows={rows}
+			refs={refs}
+			columns={columns}
+			widths={widths}
+			onResize={onResize}
+			stale={stale}
+			head={[
+				...columns.map((f) => header(f.key, f.label, sortable(f) && !f.changing, f)),
+				header("updatedAt", "Updated", true),
+			]}
+			footer={more}
+		/>
 	);
 }
 
@@ -455,9 +465,14 @@ const columnWidth = (f: TypeField) =>
 	: f.kind === "choice" || f.kind === "user" || f.kind === "link" ? 160
 	: 192;
 const UPDATED_WIDTH = 128;
+/** Lines go on cells, not rows: the table's borders are separate so the sticky header keeps its own. */
+const rowLine = "border-b border-neutral-100 group-last:border-0";
 
-/** `head`: each column's header, then Updated's. `onResize`: when they may drag a column's edge. */
-function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale }: {
+/**
+ * `head`: each column's header, then Updated's. `onResize`: when they may drag a column's edge.
+ * It fills the rest of the screen and scrolls both ways (`Page`'s `fill`), `footer` last.
+ */
+function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, footer }: {
 	type: RecordType;
 	rows: Row[];
 	refs: Refs;
@@ -466,6 +481,7 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale }:
 	onResize?: (field: string, px: number | undefined) => void;
 	head: React.ReactNode[];
 	stale?: boolean;
+	footer?: React.ReactNode;
 }) {
 	// The column being dragged, until it's dropped.
 	const [dragging, setDragging] = useState<{ key: string; px: number }>();
@@ -473,24 +489,25 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale }:
 	const width = (f: TypeField) => (dragging?.key === f.key ? dragging.px : widths?.[f.key] ?? columnWidth(f));
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
-		<div className="bleed">
-			{/* Dimmed while a new sort or filter loads, instead of flashing empty. */}
-			<div className={`w-max min-w-full overflow-hidden rounded-xl border border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
-				<table className="min-w-full table-fixed text-sm" style={{ width: columns.reduce((n, f) => n + width(f), UPDATED_WIDTH) }}>
+		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-6">
+			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick. */}
+			<div className={`w-max min-w-full overflow-clip rounded-xl border border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
+				<table className="min-w-full table-fixed border-separate border-spacing-0 text-sm" style={{ width: columns.reduce((n, f) => n + width(f), UPDATED_WIDTH) }}>
 					<colgroup>
 						{columns.map((f) => <col key={f.key} style={{ width: width(f) }} />)}
 						<col />
 					</colgroup>
-					<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
+					<thead className="sticky top-0 z-10 bg-neutral-50 text-neutral-500">
 						<tr>
 							{head.map((content, i) => {
 								const f = columns[i];
 								return (
-									<th key={f?.key ?? "updatedAt"} className="relative px-3 py-2 text-left font-medium whitespace-nowrap">
+									<th key={f?.key ?? "updatedAt"} className="relative border-b border-neutral-200 px-3 py-2 text-left font-medium whitespace-nowrap">
 										<div className="overflow-hidden">{content}</div>
 										{f && onResize && (
 											<ResizeHandle
 												side="right"
+												guide
 												label={`Resize ${f.label}`}
 												size={{
 													width: width(f),
@@ -509,27 +526,28 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale }:
 					</thead>
 					<tbody>
 						{rows.map((r) => (
-							<tr key={r._id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50/60">
+							<tr key={r._id} className="group hover:bg-neutral-50/60">
 								{columns.map((f) =>
 									f.key === NAME_KEY ? (
 										// The name opens the record; every other cell edits in place, like Notion's.
-										<td key={f.key} className="truncate px-3 py-2 font-medium">
+										<td key={f.key} className={`${rowLine} truncate px-3 py-2 font-medium`}>
 											<button type="button" onClick={() => navigate(...recordPath(type.key, r._id))} className={`${titleButton} max-w-full truncate hover:underline`}>
 												{valueText(f, r.values[f.key], refs) || "Untitled"}
 											</button>
 										</td>
 									) : (
-										<td key={f.key} className="overflow-hidden px-1 py-0.5 align-middle text-neutral-700">
+										<td key={f.key} className={`${rowLine} overflow-hidden px-1 py-0.5 align-middle text-neutral-700`}>
 											<Cell row={r} field={f} refs={refs} editable={type.canEdit && !f.changing} />
 										</td>
 									),
 								)}
-								<td className="truncate px-3 py-2 text-neutral-400">{timeAgo(r.updatedAt)}</td>
+								<td className={`${rowLine} truncate px-3 py-2 text-neutral-400`}>{timeAgo(r.updatedAt)}</td>
 							</tr>
 						))}
 					</tbody>
 				</table>
 			</div>
+			{footer}
 		</div>
 	);
 }

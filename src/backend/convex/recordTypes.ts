@@ -5,7 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, requireInWorkspace, requireMember, requirePermission } from "./lib";
 import { accessInfo, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
-import { NO_BOARD, checkWidths, createType, fieldsOf, fieldsShown, groupsCards, requireType, typesOf, updateType } from "./recordOps";
+import { NO_BOARD, checkWidths, createType, withWidth, fieldsOf, fieldsShown, groupsCards, requireType, typesOf, updateType } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { changeAccessSources } from "./replySources";
 import { accessArg, databaseDisplay } from "./schema";
@@ -104,11 +104,8 @@ async function saveDisplay(ctx: MutationCtx, member: Member, typeId: Id<"recordT
 		const { field, px } = change.width;
 		const live = (await fieldsOf(ctx, typeId)).filter((f) => !f.archived).map((f) => f.key);
 		if (!live.includes(field)) throw new ConvexError("Resize a column this database still has.");
-		const next = { ...widths };
-		delete next[field];
-		if (px !== undefined) next[field] = px;
 		// Widths of fields deleted since go too.
-		widths = checkWidths(next, live);
+		widths = checkWidths(withWidth(widths, field, px), live);
 	}
 	const display = { layout: change.layout ?? type.display?.layout ?? "table", groupBy: change.groupBy ?? type.display?.groupBy, widths };
 	await ctx.db.patch(typeId, { display });

@@ -175,6 +175,7 @@ export function Scroll({
 	header,
 	footer,
 	overlayScrollbar = false,
+	fill = false,
 	className = "",
 	onScroll,
 	children,
@@ -183,6 +184,8 @@ export function Scroll({
 	header?: React.ReactNode;
 	footer?: React.ReactNode;
 	overlayScrollbar?: boolean;
+	/** The content is exactly the screen's height and scrolls itself (`Page`'s `fill`). */
+	fill?: boolean;
 	className?: string;
 	onScroll?: React.UIEventHandler<HTMLDivElement>;
 	children: React.ReactNode;
@@ -208,13 +211,13 @@ export function Scroll({
 		return () => observer.disconnect();
 	}, [scroller, measure]);
 	const content = (
-		<div className="flex min-h-full flex-1 flex-col">
+		<div className={`flex flex-1 flex-col ${fill ? "h-full" : "min-h-full"}`}>
 			{header && (
 				<div className="scrim-top sticky top-0 z-30" data-under={underTop || undefined}>
 					{header}
 				</div>
 			)}
-			<div className="flex flex-1 flex-col">
+			<div className={`flex flex-1 flex-col ${fill ? "min-h-0" : ""}`}>
 				<ScrollUnder.Provider value={underBottom}>{children}</ScrollUnder.Provider>
 			</div>
 			{footer && (
@@ -257,6 +260,7 @@ export function Page({
 	actions,
 	wide,
 	gutter,
+	fill,
 	children,
 }: {
 	title: string;
@@ -271,6 +275,8 @@ export function Page({
 	wide?: boolean;
 	/** Room beside the column, title included, for the page editor's + and ⋮⋮ (54px): they never hang over the sidebar. */
 	gutter?: boolean;
+	/** The content fills the screen down to its bottom edge, and a child with `flex-1 min-h-0` scrolls itself (a table, so its header sticks and its sideways scrollbar sits at the bottom). */
+	fill?: boolean;
 	children: React.ReactNode;
 }) {
 	// Where `PageActions` from the content land, after `actions`.
@@ -278,6 +284,7 @@ export function Page({
 	return (
 		<Scroll
 			className="@container"
+			fill={fill}
 			header={
 				<TopBar
 					crumbs={crumbs}
@@ -304,7 +311,7 @@ export function Page({
 				{/* The column's text is `--text` wide, padded `--pad`. `--bleed`: from the text out to the screen's edge, for `.bleed`. */}
 				<div
 					style={{ "--text": wide ? "61rem" : "39rem", "--pad": gutter ? "4rem" : "1.5rem" } as React.CSSProperties}
-					className="mx-auto flex w-full max-w-[calc(var(--text)+2*var(--pad))] flex-1 flex-col gap-6 px-(--pad) pt-page-top pb-10 [--bleed:max(var(--pad),calc((100cqw-var(--text))/2))]"
+					className={`mx-auto flex w-full max-w-[calc(var(--text)+2*var(--pad))] flex-1 flex-col gap-6 px-(--pad) pt-page-top [--bleed:max(var(--pad),calc((100cqw-var(--text))/2))] ${fill ? "min-h-0" : "pb-10"}`}
 				>
 					{heading && <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>}
 					{children}
@@ -786,7 +793,13 @@ export function useStoredWidth(key: string, fallback: number, min: number, max: 
  * A panel's resizable edge (`side`: which edge of the panel it is). Drag it; double-click for
  * the default; arrow keys when focused. Only the release is saved. The panel needs `relative`.
  */
-export function ResizeHandle({ side, label, size }: { side: "left" | "right"; label: string; size: ReturnType<typeof useStoredWidth> }) {
+export function ResizeHandle({ side, label, size, guide }: {
+	side: "left" | "right";
+	label: string;
+	size: ReturnType<typeof useStoredWidth>;
+	/** Its line runs on down past the handle, clipped by whatever clips it: a table column's edge, all rows long. */
+	guide?: boolean;
+}) {
 	const start = useRef<{ x: number; width: number } | null>(null);
 	const sign = side === "right" ? 1 : -1;
 	const at = (e: React.PointerEvent) => start.current!.width + sign * (e.clientX - start.current!.x);
@@ -817,7 +830,7 @@ export function ResizeHandle({ side, label, size }: { side: "left" | "right"; la
 			onKeyDown={(e) => {
 				if (e.key === "ArrowLeft" || e.key === "ArrowRight") (e.preventDefault(), size.save(size.width + sign * (e.key === "ArrowLeft" ? -16 : 16)));
 			}}
-			className={`no-drag absolute inset-y-0 z-40 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:rounded-full after:bg-neutral-400 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:outline-none focus-visible:after:opacity-100 active:after:opacity-100 ${side === "right" ? "-right-1" : "-left-1"}`}
+			className={`no-drag absolute inset-y-0 z-40 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:rounded-full after:bg-neutral-400 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:outline-none focus-visible:after:opacity-100 active:after:opacity-100 ${guide ? "after:pointer-events-none after:h-screen" : ""} ${side === "right" ? "-right-1" : "-left-1"}`}
 		/>
 	);
 }

@@ -44,6 +44,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"connectors.disconnect": { humanOnly: "Revokes the personal or shared account credential; direct person controls connected account authority." },
 	"databaseViews.save": { agent: ["records.save_view"] },
 	"databaseViews.remove": { agent: ["records.save_view"] },
+	"databaseViews.setWidth": { humanOnly: "People size a view's columns by dragging them in the app." },
 	"databaseViews.dismissNotice": { humanOnly: "People dismiss a view's note in the app; an agent's save clears it." },
 	"files.discard": { humanOnly: "Clears the person's own composer before sending. An agent's copies of chat files are claimed by the call that made them, or dropped." },
 	"images.set": { agent: ["workspace.settings:set_image", "agents.manage:set_image"] },

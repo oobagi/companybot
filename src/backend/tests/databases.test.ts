@@ -214,15 +214,16 @@ it("saves board views grouped by a single choice field, for people, agents and a
 	expect(await save({ version: 6, groupBy: "tags" })).toEqual({ error: expect.stringContaining("choice field") });
 	expect(await save({ version: 6, groupBy: null })).toMatchObject({ layout: "board", version: 7 });
 	expect(await view()).not.toHaveProperty("groupBy");
-	// Widths keep to the columns it shows, within limits; an agent's edit leaves them be.
-	await expect(member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 7, layout: "board", widths: { name: 2000 } })).rejects.toThrow("64 to 800 pixels");
-	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 7, layout: "board", widths: { name: 300, notes: 200 } });
-	expect(await view()).toMatchObject({ widths: { name: 300 }, version: 8 });
-	expect(await save({ version: 8, name: "Wide" })).toMatchObject({ name: "Wide", widths: { name: 300 }, version: 9 });
-	await member.mutation(api.databaseViews.save, { ...input, viewId: id, version: 9, name: "Wide", layout: "board", widths: {} });
+	// A column's width saves as it's dropped, without a new version; saves and agents' edits keep it.
+	await expect(member.mutation(api.databaseViews.setWidth, { viewId: id, field: "name", px: 2000 })).rejects.toThrow("64 to 800 pixels");
+	await expect(member.mutation(api.databaseViews.setWidth, { viewId: id, field: "notes", px: 200 })).rejects.toThrow("this view shows");
+	await member.mutation(api.databaseViews.setWidth, { viewId: id, field: "name", px: 300 });
+	expect(await view()).toMatchObject({ widths: { name: 300 }, version: 7 });
+	expect(await save({ version: 7, name: "Wide" })).toMatchObject({ name: "Wide", widths: { name: 300 }, version: 8 });
+	await member.mutation(api.databaseViews.setWidth, { viewId: id, field: "name" });
 	expect(await view()).not.toHaveProperty("widths");
 	const history = await member.query(api.records.activity, { paginationOpts: page });
-	expect(history.page[1]).toMatchObject({ action: "view.updated", agent: "Companybot" });
+	expect(history.page[0]).toMatchObject({ action: "view.updated", agent: "Companybot" });
 });
 
 it("lists a board column on top of ten filters, checking the grouping field and option", async () => {

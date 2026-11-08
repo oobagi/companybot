@@ -102,6 +102,14 @@ export const groupsCards = (f: Doc<"recordFields">) => !f.archived && f.kind ===
 /** Why a database with no such field can't show as a board: it would show no cards to anyone. */
 export const NO_BOARD = "Add a choice field first: a board groups cards by one.";
 
+/** `widths` with one column set to `px`, or back to its default without one. */
+export function withWidth(widths: Record<string, number> | undefined, field: string, px: number | undefined) {
+	const next = { ...widths };
+	delete next[field];
+	if (px !== undefined) next[field] = px;
+	return next;
+}
+
 /** Keeps a table's column widths for the `keys` it still shows; none left reads as undefined, so every column takes its default. */
 export function checkWidths(widths: Record<string, number> | undefined, keys: string[]) {
 	const kept = Object.entries(widths ?? {}).filter(([key]) => keys.includes(key));

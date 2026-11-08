@@ -4,7 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { type Member, type Who, checkPermission, checkVersion, getMember, requireInWorkspace, requireMember } from "./lib";
-import { NO_BOARD, checkWidths, currencyOf, fieldsOf, groupsCards, logChange, requireType, toField } from "./recordOps";
+import { NO_BOARD, checkWidths, currencyOf, withWidth, fieldsOf, groupsCards, logChange, requireType, toField } from "./recordOps";
 import { validateView } from "./recordQuery";
 import { reach } from "./placeAccess";
 import { viewConfig } from "./recordValidators";
@@ -12,7 +12,7 @@ import { writeSources } from "./replySources";
 
 // Shared database views. App and agent writes use the same validation and history.
 const VIEWS_MAX = 50;
-type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns" | "layout" | "groupBy" | "widths">;
+type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns" | "layout" | "groupBy">;
 
 /** A database's saved views. Seeing them takes View in the database; changing them, Edit (`need`). */
 export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">, need: "view" | "edit" = "view") {
@@ -38,7 +38,6 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 	if (!config.columns.includes("name") || new Set(config.columns).size !== config.columns.length || config.columns.some((k) => !live.includes(k)))
 		throw new ConvexError("Pick live columns from this database, including Name, without duplicates.");
 	if (config.layout === "board" && !fields.some(groupsCards)) throw new ConvexError(NO_BOARD);
-	config.widths = checkWidths(config.widths, config.columns);
 	const group = config.groupBy === undefined ? undefined : fields.find((f) => f.key === config.groupBy && !f.archived);
 	if (config.groupBy !== undefined && (group?.kind !== "choice" || group.multiple)) throw new ConvexError("Group a board by a live choice field that holds one option.");
 	const currency = await currencyOf(ctx, who.member.workspaceId);
@@ -55,7 +54,7 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 	});
 	if (JSON.stringify(config).length > 16_000) throw new ConvexError("Keep a saved view under 16,000 characters.");
 	const text = (value: unknown) => (value === undefined || typeof value === "string" ? value : JSON.stringify(value));
-	const changes = (["name", "filters", "sort", "columns", "layout", "groupBy", "widths"] as const)
+	const changes = (["name", "filters", "sort", "columns", "layout", "groupBy"] as const)
 		.filter((key) => text(old?.[key]) !== text(config[key]))
 		.map((key) => ({ key, old: text(old?.[key]), new: text(config[key]) }));
 	if (old && !changes.length) {
@@ -63,8 +62,8 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 		return old._id;
 	}
 	const id = old ? old._id : await ctx.db.insert("databaseViews", { workspaceId: who.member.workspaceId, typeId, ...config, version: 1 });
-	// Saving clears a note about filters a field's kind change removed (fieldChanges.ts).
-	if (old) await ctx.db.patch(id, { ...config, notice: undefined, version: old.version + 1 });
+	// Saving clears a note about filters a field's kind change removed (fieldChanges.ts). Hidden columns' widths go.
+	if (old) await ctx.db.patch(id, { ...config, widths: checkWidths(old.widths, config.columns), notice: undefined, version: old.version + 1 });
 	await logChange(ctx, who, { typeId, subject: config.name, action: old ? "view.updated" : "view.created", changes });
 	return id;
 }
@@ -101,6 +100,19 @@ export const dismissNotice = mutation({
 		const view = requireInWorkspace(member, await ctx.db.get(viewId), "View");
 		await viewsOf(ctx, member, view.typeId, "edit");
 		if (view.notice) await ctx.db.patch(view._id, { notice: undefined });
+	},
+});
+
+/** One column's width in a view, for everyone, as it's dropped (`px` left out: its default). Takes Edit in the database, like saving. */
+export const setWidth = mutation({
+	args: { viewId: v.id("databaseViews"), field: v.string(), px: v.optional(v.number()) },
+	handler: async (ctx, { viewId, field, px }) => {
+		const member = await requireMember(ctx);
+		checkPermission(member, "records.edit");
+		const view = requireInWorkspace(member, await ctx.db.get(viewId), "View");
+		await viewsOf(ctx, member, view.typeId, "edit");
+		if (!view.columns.includes(field)) throw new ConvexError("Resize a column this view shows.");
+		await ctx.db.patch(view._id, { widths: checkWidths(withWidth(view.widths, field, px), view.columns) });
 	},
 });
 
