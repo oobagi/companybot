@@ -231,7 +231,7 @@ function CommentBox({
 					))}
 				</ul>
 			)}
-			{/* The bar: a pill around one line (the send button's circle inset 4px), a rounded box once it wraps. */}
+			{/* The bar: a pill around one line (the 32px send button inset 4px, the field as tall as it), a rounded box once it wraps. */}
 			<div className={footer ? `flex items-end gap-2 bg-neutral-100 p-1 pl-3.5 ${multi ? "rounded-2xl" : "rounded-full"}` : "flex rounded-lg border border-neutral-200 bg-white px-2.5 py-1 focus-within:border-neutral-300"}>
 				<textarea
 					ref={field}
@@ -241,7 +241,7 @@ function CommentBox({
 					maxLength={COMMENT_MAX}
 					value={text}
 					placeholder={placeholder}
-					onChange={(e) => (setText(e.target.value), setMulti(e.target.scrollHeight > 32), look(e.target.value, e.target.selectionStart))}
+					onChange={(e) => (setText(e.target.value), setMulti(e.target.scrollHeight > 36), look(e.target.value, e.target.selectionStart))}
 					onKeyDown={(e) => {
 						if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
 							e.preventDefault();
@@ -257,10 +257,10 @@ function CommentBox({
 							save();
 						}
 					}}
-					className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1 text-sm leading-5 outline-none"
+					className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 outline-none"
 				/>
 				{footer && (
-					<button type="button" aria-label="Comment" disabled={busy || !text.trim()} className={`${sendButton} size-7`} onClick={save}>
+					<button type="button" aria-label="Comment" disabled={busy || !text.trim()} className={sendButton} onClick={save}>
 						<ArrowUpIcon weight="bold" />
 					</button>
 				)}
