@@ -161,12 +161,17 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
-	// A page inside a record belongs to its database, not Drive (the record page already loaded it, so no flicker).
+	// A page inside a record belongs to its database, not Drive.
 	const openPage = useQuery(api.pages.get, view === "pages" && route[1] ? { pageId: route[1] as Id<"pages"> } : "skip");
 	const pageRecord = view === "pages" ? openPage?.record : undefined;
+	// Until a page loads (a new one), whose it is isn't known: the tab you came from stays lit, and the page isn't remembered as where any tab was left.
+	const placing = view === "pages" && !!route[1] && openPage === undefined;
+	const lastTab = useRef<AppTab>(undefined);
 	// The rail's tab on screen. Settings (Customize included) lights none.
-	const tab: AppTab | undefined =
-		view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
+	const tab: AppTab | undefined = placing
+		? lastTab.current
+		: view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
+	lastTab.current = tab;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	const [newSection, setNewSection] = useState(false);
@@ -183,7 +188,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	if (tab) lastApp.current = route;
 	// Each tab reopens where you left it; clicking the open one goes to its start (the first database).
 	const lastIn = useRef<Partial<Record<AppTab, string[]>>>({});
-	if (tab) lastIn.current[tab] = route;
+	if (tab && !placing) lastIn.current[tab] = route;
 	const startOf = (t: AppTab): string[] =>
 		({ home: ["home"], chat: ["chat"], inbox: ["inbox"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], sites: ["sites"] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
