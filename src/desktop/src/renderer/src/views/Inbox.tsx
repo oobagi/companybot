@@ -56,7 +56,6 @@ import {
 	secondaryButton,
 	sentBubbleClass,
 	shortAgo,
-	surfaceButton,
 	toolButton,
 	useRun,
 } from "../ui";
@@ -349,13 +348,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 	const scroller = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const nearBottom = useRef(true);
-	const items = itemsOf(c.messages, c.channel);
-	const email = c.channel === "email";
-	// An email thread shows the latest email open and the rest folded to a line, as a mail app does; a click flips one.
-	const latest = email ? c.messages.findLast((m) => m.direction !== "event" && m.status !== "draft")?.id : undefined;
-	const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
-	const isOpen = (m: Message) => (m.id === latest || m.status === "failed" || m.status === "sending") !== flipped.has(m.id);
-	const flip = (id: string) => setFlipped((set) => (set.has(id) ? new Set([...set].filter((x) => x !== id)) : new Set([...set, id])));
+	const items = itemsOf(c.messages);
 	// Opens at the latest message, and follows new ones while you're at the bottom (as chat does).
 	useLayoutEffect(() => {
 		const el = scroller.current;
@@ -383,24 +376,21 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 		>
 			<div className="flex flex-1 items-start">
 				<div ref={content} className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end self-stretch px-5 pt-4 pb-5">
-					{email && c.subject && <h2 className="pt-4 pb-4 text-lg font-semibold break-words text-neutral-900">{c.subject}</h2>}
 					{items.map((item, i) => {
 						const first = item.messages[0]!;
 						const prev = items[i - 1]?.messages.at(-1);
-						// A time over the first, and after a quiet stretch; room between groups. Emails carry their own time.
-						const stamp = !email && (!prev || first.at - prev.at > GROUP_GAP_MS);
+						// A time over the first, and after a quiet stretch; room between groups.
+						const stamp = !prev || first.at - prev.at > GROUP_GAP_MS;
 						return (
 							<Fragment key={first.id}>
 								{stamp && <p className={`pt-8 pb-4 text-center tabular-nums ${metadataClass}`}>{dayLabel(first.at)}, {clock(first.at)}</p>}
-								<div className={`group/msg ${stamp || (email && i === 0) ? "" : "pt-3"}`}>
+								<div className={`group/msg ${stamp ? "" : "pt-3"}`}>
 									{first.assignedTo ? (
 										<Line who={first.author} name="Someone on staff">
 											assigned this to <PersonPill who={first.assignedTo} />
 										</Line>
 									) : first.status === "draft" ? (
 										<Draft message={first} channel={c.channel} agent={c.agent} />
-									) : email ? (
-										<EmailCard message={first} them={them} contact={c.contact} open={isOpen(first)} onToggle={() => flip(first.id)} />
 									) : (
 										<Group messages={item.messages} them={them} channel={c.channel} subject={c.subject} />
 									)}
@@ -408,7 +398,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 										<Thread
 											messageId={item.messages.at(-1)!.id}
 											comments={item.messages.flatMap((m) => m.comments).sort((a, b) => a.at - b.at)}
-											side={email || first.direction === "in" ? "them" : "us"}
+											side={first.direction === "in" ? "them" : "us"}
 										/>
 									)}
 									{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
@@ -568,10 +558,9 @@ const sideOf = (m: Message) => (m.direction === "in" ? "them" : m.direction === 
  * The conversation as groups: a run of messages from one sender, close in time, is one group (one name
  * over it, connected bubbles, one comment thread under it). Lines and drafts stand alone.
  */
-function itemsOf(messages: Message[], channel: "email" | "sms") {
+function itemsOf(messages: Message[]) {
 	const items: { messages: Message[] }[] = [];
-	// An email is a card of its own; texts from one sender run together.
-	const alone = (m: Message) => channel === "email" || m.direction === "event" || m.status === "draft";
+	const alone = (m: Message) => m.direction === "event" || m.status === "draft";
 	for (const m of messages) {
 		const run = items.at(-1)?.messages;
 		const prev = run?.at(-1);
@@ -579,39 +568,6 @@ function itemsOf(messages: Message[], channel: "email" | "sms") {
 		else items.push({ messages: [m] });
 	}
 	return items;
-}
-
-/**
- * One email in a thread, as a mail app shows it: who, to whom and when, then the body. Folded, the
- * body is one line under the name; the header opens and folds it.
- */
-function EmailCard({ message: m, them, contact, open, onToggle }: { message: Message; them: string; contact: string; open: boolean; onToggle: () => void }) {
-	const mine = m.direction !== "in";
-	const failed = m.status === "failed";
-	const name = mine ? (m.author?.name ?? "Someone on staff") : them;
-	const forWho = m.author?.for;
-	return (
-		<article className="flex flex-col rounded-xl border border-neutral-200 bg-white">
-			<button type="button" aria-expanded={open} onClick={onToggle} className={`${surfaceButton} flex w-full min-w-0 items-start gap-3 px-4 py-3 text-left`}>
-				<Avatar name={name} image={m.author?.image} agent={m.author?.type === "agent"} size="sm" />
-				<span className="flex min-w-0 flex-1 flex-col">
-					<span className="flex min-w-0 items-baseline gap-2">
-						<span className="shrink-0 font-medium text-neutral-900">{name}</span>
-						<span className={`min-w-0 truncate ${metadataClass}`}>
-							{mine ? `to ${them}` : contact}
-							{forWho && `, for ${forWho.name}`}
-						</span>
-						<span className={`ml-auto shrink-0 tabular-nums ${metadataClass}`}>
-							{dayLabel(m.at)}, {clock(m.at)}
-						</span>
-					</span>
-					{!open && <span className="truncate text-neutral-500">{m.text.replace(/\s+/g, " ")}</span>}
-				</span>
-			</button>
-			{open && <p className="px-4 pb-4 pl-13 break-words whitespace-pre-wrap select-text">{m.text}</p>}
-			{(failed || m.status === "sending") && <p className={`px-4 pb-3 pl-13 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
-		</article>
-	);
 }
 
 /** A run from one sender: their name and picture, then the messages, connected on the sender's side. */
@@ -701,22 +657,12 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 	const discard = useMutation(api.inbox.discardDraft);
 	const [text, setText] = useState(m.text);
 	const { error, busy, run } = useRun();
-	const email = channel === "email";
 	return (
 		<div className="flex flex-col items-end">
-			{email ? null : <Sender author={agent} them="Agent" mine />}
-			{/* In an email thread, a card like the emails around it: who, then the draft under their name. */}
-			<div className={`flex ${email ? "w-full rounded-xl" : "w-[85%] rounded-2xl"} flex-col gap-2 border border-dashed border-neutral-300 bg-white px-4 py-3`}>
-				{email ? (
-					<p className="flex min-w-0 items-baseline gap-3">
-						<Avatar name={agent?.name ?? "Agent"} image={agent?.image} agent className="self-center" size="sm" />
-						<span className="shrink-0 font-medium text-neutral-900">{agent?.name ?? "Agent"}</span>
-						<span className={`min-w-0 truncate ${metadataClass}`}>Draft reply. Check it, then send it.</span>
-					</p>
-				) : (
-					<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
-				)}
-				<textarea aria-label="Reply" rows={email ? 6 : 3} value={text} onChange={(e) => setText(e.target.value)} className={`w-full resize-none bg-transparent outline-none ${email ? "pl-9" : ""}`} />
+			<Sender author={agent} them="Agent" mine />
+			<div className="flex w-[85%] flex-col gap-2 rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-3">
+				<p className="text-xs text-neutral-500">Draft reply. Check it, then send it.</p>
+				<textarea aria-label="Reply" rows={channel === "sms" ? 3 : 6} value={text} onChange={(e) => setText(e.target.value)} className="w-full resize-none bg-transparent outline-none" />
 				<Notice>{error}</Notice>
 				<div className="flex justify-end gap-2">
 					<button type="button" disabled={busy} className={actionButton} onClick={() => run(discard({ messageId: m.id }))}>
@@ -737,6 +683,8 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 	const sendWith = useQuery(api.preferences.get)?.sendWith ?? "enter";
 	const { error, fail } = useRun();
 	const who = contactLabel(c);
+	// An email answers the last one they sent: its subject and first words, across the top of the box.
+	const answering = c.channel === "email" ? (c.messages.findLast((m) => m.direction === "in") ?? c.messages.findLast((m) => m.direction === "out")) : undefined;
 	// A send that fails puts the text back in the box (Composer), with why above it.
 	const send = (text: string) => {
 		fail();
@@ -747,26 +695,27 @@ function ReplyBox({ conversation: c }: { conversation: Opened }) {
 	return (
 		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-4 pb-7">
 			<Notice>{error}</Notice>
-			{c.from && c.channel === "email" && (
-				<div className="flex min-w-0 items-center gap-2 px-2 text-sm text-neutral-500">
-					<ReplyIcon className="shrink-0" />
-					<span className="min-w-0 truncate">
-						Reply to <span className="text-neutral-900">{who}</span> <span className={metadataClass}>{c.contact}</span>
-					</span>
-					<span className="ml-auto flex shrink-0">
-						<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={toolButton} />
-						<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={toolButton} />
-					</span>
-				</div>
-			)}
 			{c.from ? (
 				<Composer
 					key={c.id}
 					sendWith={sendWith}
-					placeholder={c.channel === "email" ? "Write a reply" : `Text ${who}`}
+					placeholder={c.channel === "email" ? `Reply to ${who}` : `Text ${who}`}
 					sources={noSources}
 					draftKey={`inbox:${c.id}`}
 					onSend={send}
+					top={
+						c.channel === "email" && (
+							<>
+								<ReplyIcon className="shrink-0 text-neutral-500" />
+								<span className="max-w-1/2 shrink-0 truncate font-medium text-neutral-900">{c.subject || "(no subject)"}</span>
+								{answering && <span className="min-w-0 flex-1 truncate text-neutral-500">{answering.text.replace(/\s+/g, " ")}</span>}
+								<span className="ml-auto flex shrink-0">
+									<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={toolButton} />
+									<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={toolButton} />
+								</span>
+							</>
+						)
+					}
 					start={<Soon trigger={<AttachIcon />} label="Attach files" text="Send photos and files by email and text." />}
 					tools={
 						<>

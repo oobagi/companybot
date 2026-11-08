@@ -6,7 +6,7 @@ import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
 import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
-import { AgentBadge, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
+import { AgentBadge, Avatar, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, showSending, useDirectory, useMessages } from "./data";
 import { ChannelDetails } from "./dialogs";
@@ -170,7 +170,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						// A channel they can only view: no reacting or editing (the server refuses those too).
 						readOnly={!chat.canPost}
 						onError={fail}
-						intro={all && <Intro title={title} channel={chat.kind === "channel"} />}
+						intro={all && <Intro title={title} channel={chat.kind === "channel"} locked={!!chat.private} agent={agent} />}
 						header={bar}
 						footer={footer}
 					/>
@@ -192,11 +192,17 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	);
 }
 
-function Intro({ title, channel }: { title: string; channel: boolean }) {
+/** The top of a chat's history, centered: its picture (a channel's #, an agent's picture), a welcome, and what this is the start of. */
+function Intro({ title, channel, locked, agent }: { title: string; channel: boolean; locked: boolean; agent?: { name: string; image?: string | null } }) {
 	return (
-		<div className="px-5 pt-6 pb-2">
-			<p className="text-lg font-semibold">{title}</p>
-			<p className="text-sm text-neutral-500">
+		<div className="flex flex-col items-center px-5 pt-10 pb-6 text-center">
+			{agent ? (
+				<Avatar name={agent.name} image={agent.image} agent size="lg" />
+			) : (
+				<span className="flex size-14 items-center justify-center rounded-full bg-neutral-100 text-2xl text-neutral-500">{channel ? locked ? <PrivateIcon /> : <ChannelIcon /> : <ChatIcon />}</span>
+			)}
+			<p className="pt-3 text-xl font-semibold">{channel ? `Welcome to ${title}` : title}</p>
+			<p className="pt-1 text-sm text-neutral-500">
 				{channel ? `This is the very beginning of ${title}.` : `This is the beginning of your conversation with ${title}.`}
 			</p>
 		</div>
