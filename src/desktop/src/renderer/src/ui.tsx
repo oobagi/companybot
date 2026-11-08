@@ -510,8 +510,6 @@ export const smallButton = `inline-flex items-center gap-1 rounded-md border bor
 export const toolButton = `inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100 aria-expanded:text-neutral-900 ${disabledButtonClass}`;
 /** A database filter, as a chip under the toolbar (`data-active` once it filters something). */
 export const filterChip = "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-neutral-300 px-2.5 text-sm text-neutral-500 hover:bg-neutral-50 data-active:border-solid data-active:border-neutral-200 data-active:bg-neutral-100 data-active:text-neutral-900 data-active:hover:bg-neutral-200/70";
-/** The one filled action in a row of `filterChip`s (Save for everyone): their height, so it doesn't move the row. */
-export const chipPrimaryButton = `inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-neutral-900 bg-neutral-900 px-3 text-sm text-white hover:bg-neutral-700 ${disabledButtonClass}`;
 /** A field in `toolButton`'s row (the search box): its height. */
 export const toolControlClass = `h-7 rounded-md px-2 text-sm ${controlClass}`;
 /** An action at the end of a list of field labels, in their look and size (Add field). */
