@@ -335,7 +335,7 @@ export function Tabs<T extends string>({
 	onChange: (tab: T) => void;
 	/** From `useSortable(…, "x")`, for tabs that can be dragged into another order. */
 	drag?: (tab: T) => DragProps | undefined;
-	/** The open tab's menu, like Notion's view menu: clicking the open tab again opens it. */
+	/** The open tab's menu, like Notion's view menu: clicking the open tab again (it shows a ⌄) opens it. */
 	menu?: (close: () => void) => React.ReactNode;
 	/** Extra controls after the last tab. */
 	children?: React.ReactNode;
@@ -354,7 +354,8 @@ export function Tabs<T extends string>({
 				return (
 					<span key={t.id} {...d} className={`relative flex max-w-full ${d?.className ?? ""}`}>
 						{t.id === value && menu ? (
-							<Popover trigger={t.label} className={tabClass(true)} panelClassName="w-60 p-1">
+							// Its ⌄ says so, as a page title's does: clicking the open tab opens its menu.
+							<Popover trigger={<><span className="truncate">{t.label}</span><CaretDownIcon className="shrink-0 text-neutral-400" /></>} className={`${tabClass(true)} flex items-center gap-1`} panelClassName="w-60 p-1">
 								{menu}
 							</Popover>
 						) : (
