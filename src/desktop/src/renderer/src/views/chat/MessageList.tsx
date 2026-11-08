@@ -3,7 +3,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { Markdown } from "../../markdown";
-import { Scroll, smallButton } from "../../ui";
+import { Scroll, conversationColumn, smallButton } from "../../ui";
 import { CaretDownIcon, CaretRightIcon } from "../../icons";
 import { dayLabel, sameDay } from "./common";
 import type { Message, TokenNames } from "./data";
@@ -109,7 +109,7 @@ export function MessageList({
 			}}
 		>
 			{/* A column of at most 768px, centered, as in Inbox: long lines stay readable on a wide screen. */}
-			<div ref={content} className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-end py-4">
+			<div ref={content} className={`${conversationColumn} flex flex-1 flex-col justify-end py-4`}>
 				{intro}
 				{messages.map((m, i) => {
 					// A reply still being written draws nothing yet, so the next message groups with the one above it.

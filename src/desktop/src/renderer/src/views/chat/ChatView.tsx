@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
 import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
-import { Loading, NotFound, Notice, RenameInput, Scroll, TopBar, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
+import { Loading, NotFound, Notice, RenameInput, Scroll, TopBar, conversationColumn, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, Avatar, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
@@ -103,7 +103,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		/>
 	);
 	const footer = (
-		<div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-5 pt-4 pb-7">
+		<div className={`${conversationColumn} flex flex-col gap-2 px-5 pt-4 pb-7`}>
 			<Notice>{error}</Notice>
 			{agent && messages?.length === 0 && !chat.trash && (
 				<div className="flex flex-col items-start gap-2 pb-2" aria-label="Suggested messages">
@@ -158,7 +158,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 				) : messages.length === 0 ? (
 					<Scroll header={bar} footer={footer}>
 						{/* No messages yet: the start of its history, just above the composer, as it shows once there are some. */}
-						<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-end py-4">
+						<div className={`${conversationColumn} flex flex-1 flex-col justify-end py-4`}>
 							<Intro title={title} channel={chat.kind === "channel"} locked={!!chat.private} agent={agent} />
 						</div>
 					</Scroll>

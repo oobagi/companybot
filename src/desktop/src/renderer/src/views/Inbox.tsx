@@ -52,6 +52,7 @@ import {
 	descriptionClass,
 	iconButton,
 	inboxPill,
+	conversationColumn,
 	linkButton,
 	metadataClass,
 	primaryButton,
@@ -389,7 +390,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 			onScroll={(e) => (nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 120)}
 		>
 			<div className="flex flex-1 items-start">
-				<div ref={content} className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-end self-stretch px-5 pt-4 pb-5">
+				<div ref={content} className={`${conversationColumn} flex flex-1 flex-col justify-end self-stretch px-5 pt-4 pb-5`}>
 					{email && c.subject && <h2 className="pt-4 pb-2 text-lg font-semibold break-words text-neutral-900">{c.subject}</h2>}
 					{items.map((item, i) => {
 						const first = item.messages[0]!;
@@ -775,7 +776,7 @@ function ReplyBox({ conversation: c, answering, picked, onSent }: { conversation
 		return sending;
 	};
 	return (
-		<div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-5 pt-4 pb-7">
+		<div className={`${conversationColumn} flex flex-col gap-2 px-5 pt-4 pb-7`}>
 			<Notice>{error}</Notice>
 			{c.from ? (
 				// An email's reply: what it answers on a card tucked behind the box's top edge (pick another with an email's Reply).

@@ -603,6 +603,8 @@ export const chipButton =
 /** A button whose look is what it sits in (a sidebar row, a tab's pill): none of its own. */
 export const surfaceButton = "min-w-0 text-left";
 export const descriptionClass = "text-sm text-neutral-500";
+/** The centered column a conversation's messages and composer sit in, the same in Chat and Inbox. */
+export const conversationColumn = "mx-auto w-full max-w-3xl";
 export const metadataClass = "text-xs text-neutral-400";
 /** Quiet text in place of content: nothing here yet, loading. */
 export const hintClass = "text-sm text-neutral-400";
