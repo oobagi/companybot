@@ -73,6 +73,12 @@ import {
 
 export {
 	ArchiveIcon,
+	ChatsCircleIcon as WebChatIcon,
+	HandIcon,
+	InstagramLogoIcon,
+	MessengerLogoIcon,
+	TagIcon,
+	WhatsappLogoIcon,
 	ArrowBendUpLeftIcon as ReplyIcon,
 	ArrowCounterClockwiseIcon as RestoreIcon,
 	ArrowBendDownRightIcon as MoveIcon,

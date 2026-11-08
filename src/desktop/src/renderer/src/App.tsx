@@ -303,7 +303,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 											<DmsNav chats={chats} openId={openId} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} section={{ collapsed: folded.includes("dms"), onToggle: () => fold("dms") }} />
 										</>
 									)}
-									{tab === "inbox" && <InboxNav openId={route[1]} />}
+									{tab === "inbox" && <InboxNav />}
 									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} openView={view === "drive" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
 									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} />}
 								</SidebarList>

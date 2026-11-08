@@ -86,6 +86,8 @@ export const list = query({
 					contactName: c.contactName ?? null,
 					subject: c.subject ?? null,
 					mode: c.mode,
+					/** Assigned to you, on staff. */
+					mine: c.mode === "staff" && c.takenBy === member.userId,
 					needsStaff: c.needsStaff ?? null,
 					lastAt: c.lastAt,
 					preview: c.preview,

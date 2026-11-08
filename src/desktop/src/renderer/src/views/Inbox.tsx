@@ -2,13 +2,37 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "../api";
 import { Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
-import { AttachIcon, CaretUpDownIcon, CheckIcon, InboxIcon, MailIcon, MembersIcon, PaperPlaneTiltIcon, RecordIcon, SavedReplyIcon, SidebarIcon, SparkleIcon, TextMessageIcon, TrashIcon } from "../icons";
+import {
+	AgentIcon,
+	AttachIcon,
+	CaretUpDownIcon,
+	CheckIcon,
+	HandIcon,
+	InboxIcon,
+	InstagramLogoIcon,
+	MailIcon,
+	MembersIcon,
+	MessengerLogoIcon,
+	PaperPlaneTiltIcon,
+	PhoneIcon,
+	RecordIcon,
+	SavedReplyIcon,
+	SidebarIcon,
+	SparkleIcon,
+	TagIcon,
+	TextMessageIcon,
+	TrashIcon,
+	UserIcon,
+	WebChatIcon,
+	WhatsappLogoIcon,
+} from "../icons";
 import { navigate } from "../router";
 import {
+	CountBadge,
 	EmptyState,
 	Form,
 	Loading,
@@ -35,7 +59,7 @@ import {
 } from "../ui";
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
-import { AddButton, Item } from "./chat/Sidebar";
+import { AddButton, Group as NavGroup, Item } from "./chat/Sidebar";
 import { Composer } from "./chat/Composer";
 import { Thread } from "./InboxComments";
 import { ProfileLink } from "./chat/Profile";
@@ -50,47 +74,166 @@ type Opened = NonNullable<FunctionReturnType<typeof api.inbox.get>>;
 const contactLabel = (c: { channel: "email" | "sms"; contact: string; contactName: string | null }) => c.contactName ?? (c.channel === "sms" ? formatPhone(c.contact) : c.contact);
 const ChannelIcon = ({ channel, className }: { channel: "email" | "sms"; className?: string }) => (channel === "email" ? <MailIcon className={className} /> : <TextMessageIcon className={className} />);
 
+type Row = NonNullable<FunctionReturnType<typeof api.inbox.list>>[number];
+
+/** What Inbox's sidebar picks: a view of who's handling it, a channel, or something planned. */
+type Filter = "needs" | "mine" | "agent" | "all" | "email" | "sms" | (typeof planned)[number]["id"];
+
+const views = [
+	{ id: "needs", label: "Needs you", icon: <HandIcon />, match: (c: Row) => !!c.needsStaff },
+	{ id: "mine", label: "Assigned to me", icon: <UserIcon />, match: (c: Row) => c.mine },
+	{ id: "agent", label: "Agent handling", icon: <AgentIcon />, match: (c: Row) => c.mode === "agent" },
+	{ id: "all", label: "All", icon: <InboxIcon />, match: () => true },
+] as const;
+
+const channels = [
+	{ id: "email", label: "Email", icon: <MailIcon />, match: (c: Row) => c.channel === "email" },
+	{ id: "sms", label: "Texts", icon: <TextMessageIcon />, match: (c: Row) => c.channel === "sms" },
+] as const;
+
+/** Shown, greyed, so everyone can see what's coming. Picking one says what it will do. */
+const planned = [
+	{ id: "calls", label: "Calls", icon: <PhoneIcon />, text: "Your agents will answer calls and take messages. Recordings and transcripts will show up here." },
+	{ id: "whatsapp", label: "WhatsApp", icon: <WhatsappLogoIcon />, text: "Answer WhatsApp messages here, with your agents' help, like email and texts." },
+	{ id: "instagram", label: "Instagram", icon: <InstagramLogoIcon />, text: "Answer Instagram DMs here, with your agents' help." },
+	{ id: "messenger", label: "Messenger", icon: <MessengerLogoIcon />, text: "Answer Facebook Messenger chats here, with your agents' help." },
+	{ id: "webchat", label: "Web chat", icon: <WebChatIcon />, text: "A chat box for your website. Visitors' chats land here." },
+	{ id: "tags", label: "Tags", row: "Tag conversations", icon: <TagIcon />, text: "Label conversations (new lead, billing, VIP) and see each label's here." },
+] as const;
+
+const filters: Record<string, { label: string; icon: React.ReactNode; match?: (c: Row) => boolean; text?: string }> = Object.fromEntries([...views, ...channels, ...planned].map((f) => [f.id, f]));
+
+// Which one is picked: the sidebar sets it, the conversation list reads it. Kept per computer.
+const FILTER_KEY = "inboxFilter";
+const pickedFilter = {
+	value: ((): Filter => {
+		try {
+			const saved = localStorage.getItem(FILTER_KEY);
+			if (saved && saved in filters) return saved as Filter;
+		} catch {
+			// Storage may be unavailable: start on All.
+		}
+		return "all";
+	})(),
+	listeners: new Set<() => void>(),
+};
+const subscribeFilter = (on: () => void) => (pickedFilter.listeners.add(on), () => void pickedFilter.listeners.delete(on));
+function useFilter() {
+	const filter = useSyncExternalStore(subscribeFilter, () => pickedFilter.value);
+	const pick = (f: Filter) => {
+		pickedFilter.value = f;
+		try {
+			localStorage.setItem(FILTER_KEY, f);
+		} catch {
+			// It still holds until reload.
+		}
+		pickedFilter.listeners.forEach((on) => on());
+	};
+	return [filter, pick] as const;
+}
+
 /**
- * Inbox's sidebar: every conversation, the latest first: who, when, the last thing said, and who's
- * answering (their picture). One waiting for staff is bold, with a dot on its icon.
+ * Inbox's sidebar: views of who's handling what (Needs you counts what waits for staff), then
+ * channels, then what's planned, greyed. The conversations are in their own column (InboxView).
  */
-export function InboxNav({ openId }: { openId: string | undefined }) {
+export function InboxNav() {
 	const list = useQuery(api.inbox.list);
-	if (!list?.length) return null;
+	const [filter, pick] = useFilter();
+	const count = (match: (c: Row) => boolean) => list?.filter(match).length ?? 0;
+	const soon = (f: (typeof planned)[number]) => (
+		<Item key={f.id} icon={f.icon} label={f.label} active={filter === f.id} muted onClick={() => pick(f.id)}>
+			<span className="truncate">{"row" in f ? f.row : f.label}</span>
+			<span className={`ml-auto shrink-0 font-normal ${metadataClass}`}>Soon</span>
+		</Item>
+	);
 	return (
-		<div className="flex flex-col gap-px">
-			{list.map((c) => (
-				<Item
-					key={c.id}
-					icon={
-						<span className="relative flex">
-							<ChannelIcon channel={c.channel} />
-							{/* Waiting for staff: a dot on the icon, the same spot on every row. Its ring matches the row behind it. */}
-							{c.needsStaff && (
-								<span
-									aria-label="Needs staff"
-									className={`absolute -top-0.5 -right-0.5 size-2 rounded-full bg-sky-500 ring-2 ${openId === c.id ? "ring-neutral-200" : "ring-neutral-50 group-hover/item:ring-neutral-100"}`}
-								/>
-							)}
-						</span>
-					}
-					label={contactLabel(c)}
-					active={openId === c.id}
-					onClick={() => navigate("inbox", c.id)}
-				>
-					<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
-						<span className="flex items-baseline gap-2">
-							<span className={`min-w-0 flex-1 truncate ${c.needsStaff ? "font-semibold text-neutral-900" : ""}`}>{contactLabel(c)}</span>
-							<span className={`shrink-0 font-normal tabular-nums ${metadataClass}`}>{shortAgo(c.lastAt)}</span>
-						</span>
-						<span className="flex items-center gap-1.5">
-							<span className="min-w-0 flex-1 truncate text-xs font-normal text-neutral-500">{c.preview || "No messages yet"}</span>
-							{c.assignee && <Avatar name={c.assignee.name} image={c.assignee.image} agent={c.assignee.type === "agent"} size="xs" />}
-						</span>
-					</span>
-				</Item>
-			))}
+		<>
+			<div className="flex flex-col gap-px">
+				{views.map((v) => {
+					const n = v.id === "needs" || v.id === "mine" ? count(v.match) : 0;
+					return (
+						<Item key={v.id} icon={v.icon} label={v.label} active={filter === v.id} onClick={() => pick(v.id)}>
+							<span className="truncate">{v.label}</span>
+							{n > 0 && (v.id === "needs" ? <CountBadge count={n} className="ml-auto" /> : <span className={`ml-auto shrink-0 font-normal tabular-nums ${metadataClass}`}>{n}</span>)}
+						</Item>
+					);
+				})}
+			</div>
+			<NavGroup title="Channels">
+				{channels.map((ch) => (
+					<Item key={ch.id} icon={ch.icon} label={ch.label} active={filter === ch.id} onClick={() => pick(ch.id)}>
+						{ch.label}
+					</Item>
+				))}
+				{planned.filter((f) => f.id !== "tags").map(soon)}
+			</NavGroup>
+			<NavGroup title="Tags">{soon(planned.find((f) => f.id === "tags")!)}</NavGroup>
+		</>
+	);
+}
+
+/** The conversations the sidebar picked, the latest first: who, when, the last thing said, and who's answering. */
+function ConversationList({ openId }: { openId: string | undefined }) {
+	const list = useQuery(api.inbox.list);
+	const [filter] = useFilter();
+	const f = filters[filter]!;
+	const shown = f.match ? (list ?? []).filter(f.match) : [];
+	return (
+		<div className="flex w-80 shrink-0 flex-col border-r border-neutral-200">
+			<Scroll header={<TopBar title={<h2 className="min-w-0 truncate">{f.label}</h2>} />}>
+				{list === undefined ? (
+					<Loading />
+				) : !f.match ? (
+					<EmptyState icon={f.icon} title={`${f.label} is coming soon`}>
+						{f.text}
+					</EmptyState>
+				) : shown.length === 0 ? (
+					<EmptyState icon={f.icon} title={filter === "needs" ? "Nothing needs you" : "No conversations"}>
+						{filter === "needs" ? "When an agent hands one off or has a reply for you to check, it shows up here." : "When someone emails or texts one of your agents, it shows up here."}
+					</EmptyState>
+				) : (
+					<div className="flex flex-col gap-px px-3 pb-3">
+						{shown.map((c) => (
+							<ConversationRow key={c.id} c={c} open={openId === c.id} />
+						))}
+					</div>
+				)}
+			</Scroll>
 		</div>
+	);
+}
+
+/** One waiting for staff is bold, with a dot on its icon. */
+function ConversationRow({ c, open }: { c: Row; open: boolean }) {
+	return (
+		<Item
+			icon={
+				<span className="relative flex">
+					<ChannelIcon channel={c.channel} />
+					{/* Waiting for staff: a dot on the icon, the same spot on every row. Its ring matches the row behind it. */}
+					{c.needsStaff && (
+						<span
+							aria-label="Needs staff"
+							className={`absolute -top-0.5 -right-0.5 size-2 rounded-full bg-sky-500 ring-2 ${open ? "ring-neutral-200" : "ring-white group-hover/item:ring-neutral-100"}`}
+						/>
+					)}
+				</span>
+			}
+			label={contactLabel(c)}
+			active={open}
+			onClick={() => navigate("inbox", c.id)}
+		>
+			<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
+				<span className="flex items-baseline gap-2">
+					<span className={`min-w-0 flex-1 truncate ${c.needsStaff ? "font-semibold text-neutral-900" : ""}`}>{contactLabel(c)}</span>
+					<span className={`shrink-0 font-normal tabular-nums ${metadataClass}`}>{shortAgo(c.lastAt)}</span>
+				</span>
+				<span className="flex items-center gap-1.5">
+					<span className="min-w-0 flex-1 truncate text-xs font-normal text-neutral-500">{c.preview || "No messages yet"}</span>
+					{c.assignee && <Avatar name={c.assignee.name} image={c.assignee.image} agent={c.assignee.type === "agent"} size="xs" />}
+				</span>
+			</span>
+		</Item>
 	);
 }
 
@@ -105,9 +248,8 @@ export function InboxAdd() {
 	);
 }
 
-/** Inbox on screen: the open conversation, else an empty state. */
+/** Inbox on screen: the picked conversations, then the open one (else an empty state). */
 export function InboxView({ access, conversationId }: { access: Access; conversationId: string | undefined }) {
-	const list = useQuery(api.inbox.list);
 	if (!can(access, "inbox.use"))
 		return (
 			<Scroll header={<TopBar title="Inbox" />}>
@@ -115,21 +257,20 @@ export function InboxView({ access, conversationId }: { access: Access; conversa
 			</Scroll>
 		);
 	return (
-		<>
-			{conversationId ? (
-				<ConversationScreen key={conversationId} id={conversationId as Id<"inboxConversations">} />
-			) : (
-				<Scroll header={<TopBar title="" />}>
-					{list === undefined ? (
-						<Loading />
-					) : (
-						<EmptyState icon={<InboxIcon />} title={list?.length ? "Pick a conversation" : "No conversations yet"}>
-							{list?.length ? "Open one from the list." : "When someone emails or texts one of your agents, it shows up here. Start one with + beside Inbox."}
+		<div className="flex min-h-0 flex-1">
+			<ConversationList openId={conversationId} />
+			<div className="flex min-w-0 flex-1 flex-col">
+				{conversationId ? (
+					<ConversationScreen key={conversationId} id={conversationId as Id<"inboxConversations">} />
+				) : (
+					<Scroll header={<TopBar title="" />}>
+						<EmptyState icon={<InboxIcon />} title="Pick a conversation">
+							Open one from the list. Start one with + beside Inbox.
 						</EmptyState>
-					)}
-				</Scroll>
-			)}
-		</>
+					</Scroll>
+				)}
+			</div>
+		</div>
 	);
 }
 
