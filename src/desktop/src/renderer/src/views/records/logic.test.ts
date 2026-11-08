@@ -38,6 +38,7 @@ describe("record screens", () => {
 		expect(refitFilter({ field: "x", op: "is", value: "test" }, choice)).toEqual({ field: "x", op: "anyOf", value: ["o1"] });
 		expect(refitFilter({ field: "x", op: "is", value: "nope" }, choice)).toBeUndefined();
 		expect(refitFilter({ field: "x", op: "is", value: "test" }, field("text"))).toBeUndefined();
+		expect(filterProblem({ field: "x", op: "is", value: "nope" }, choice)).toBe("it's a choice field now, and there's no “nope” option");
 	});
 
 	it("offers the operators records.list takes for each kind", () => {

@@ -88,6 +88,8 @@ function aKind(field: Field) {
  * changed may not ("is abc" on what's now a number); lists drop it and say why.
  */
 export function filterProblem(filter: Filter, field: Field): string | undefined {
+	// Text "is X" on what's now a choice, with no option X to become (refitFilter).
+	if (field.kind === "choice" && filter.op === "is" && !Array.isArray(filter.value)) return `it's a choice field now, and there's no “${filter.value.trim()}” option`;
 	if (!opsFor(field).includes(filter.op)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
 	if (filter.op === "anyOf") {
 		if (!Array.isArray(filter.value)) return `it's ${aKind(field)} field now, and that filter doesn't work on those`;
