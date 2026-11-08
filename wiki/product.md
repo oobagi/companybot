@@ -86,18 +86,15 @@ This page is the vision. What's built today: [Architecture](architecture.md).
 - Default: workspace-paid plan via Vercel AI Gateway. Teammates need no AI subscription.
 - Later: bring-your-own API keys; "Sign in with ChatGPT" (OpenAI partner program).
 - Not possible: Claude subscriptions (Anthropic bans third-party use). OpenRouter takes API keys only — no service wraps every subscription.
-- Price per workspace with a usage pool. Pause at the limit; never surprise overage. The monthly cost per workspace is already tracked (Settings → Usage), as the foundation for plans.
+- The monthly AI cost per workspace is tracked (Settings → Usage).
 
 ## Open source
 - The code is AGPL-3.0 (`LICENSE`): anyone can self-host; anyone who runs a changed version as a service must publish their changes.
-- Three editions, like Dify:
-  - **Community** — free, AGPL, self-hosted. Self-hosters bring their own keys as server config.
-  - **Cloud** — we host it. Paid plans with a monthly AI allowance (models, search, images) we resell at a markup; pauses at the limit, top-ups available.
-  - **Enterprise** — a paid license to self-host with enterprise features (single sign-on, audit logs, compliance, support). Those features live in an `ee/` folder under a commercial license. Not built yet.
-- Outside contributors sign a contributor agreement (CLA) before their code is merged, so we can sell it in Enterprise.
+- Two ways to run it: **Cloud**, the copy we host, and **Community**, self-hosted for free. Self-hosters bring their own keys as server config.
+- No contributor agreement (CLA): outside contributions come in under the AGPL like the rest of the code.
 
 ## Rollout
-Test with our own team first. Charge outsiders once the team opens it daily.
+Test with our own team first.
 
 ## Biggest risk
 Adoption. Companybot must replace how the team already talks, not sit beside it.

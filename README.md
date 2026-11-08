@@ -93,10 +93,10 @@ Models run through the Vercel AI Gateway, so agents can use any provider.
 
 ## Contributing
 
-Issues and PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Outside contributors sign the [CLA](CLA.md) once, by commenting on their first PR.
+Issues and PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 Found a security issue? Please follow [SECURITY.md](SECURITY.md) instead of opening an issue.
 
 ## License
 
-[AGPL-3.0](LICENSE). Anyone can self-host. If you run a changed version as a service, you must publish your changes. A paid Cloud edition and an Enterprise license are planned; see [Product → Open source](wiki/product.md#open-source).
+[AGPL-3.0](LICENSE). Anyone can self-host. If you run a changed version as a service, you must publish your changes.
