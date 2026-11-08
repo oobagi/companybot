@@ -25,6 +25,7 @@ export function Composer({
 	sources,
 	attachments,
 	draftKey,
+	initialText,
 	start,
 	tools,
 }: {
@@ -42,6 +43,8 @@ export function Composer({
 	attachments?: Attachments;
 	/** Where an unsent message is kept for this chat or thread (drafts.ts). */
 	draftKey?: string;
+	/** What the box starts with when nothing is saved under `draftKey` (an agent's draft reply). */
+	initialText?: string;
 	/** In the attach button's place, where there are no files to attach (Inbox, until it sends them). */
 	start?: ReactNode;
 	/** More round buttons, before emoji and dictation. */
@@ -87,7 +90,7 @@ export function Composer({
 		onBlur: () => suggestions.hide(),
 	});
 
-	useDraft(editor, saveAt, setEmpty);
+	useDraft(editor, saveAt, setEmpty, initialText);
 
 	const submit = () => {
 		if (!editor) return;

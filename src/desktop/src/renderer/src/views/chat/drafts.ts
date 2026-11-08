@@ -126,7 +126,11 @@ export function useDraftChats(userId: string | undefined, workspaceId: string | 
  * moves to another chat), and saves as you type. Sending empties the editor, which forgets it.
  * `onRestored` hears whether the editor is empty after a restore, which isn't an edit.
  */
-export function useDraft(editor: Editor | null, key: string | undefined, onRestored: (empty: boolean) => void) {
+/** Plain text as an editor document, a paragraph a line. */
+const textDoc = (text: string): JSONContent => ({ type: "doc", content: text.split("\n").map((line) => ({ type: "paragraph", ...(line && { content: [{ type: "text", text: line }] }) })) });
+
+/** Restores the saved draft, else starts from `initial` (a reply an agent drafted), then saves each edit. */
+export function useDraft(editor: Editor | null, key: string | undefined, onRestored: (empty: boolean) => void, initial?: string) {
 	useEffect(() => {
 		if (!editor) return;
 		if (!key) {
@@ -139,6 +143,7 @@ export function useDraft(editor: Editor | null, key: string | undefined, onResto
 		try {
 			// Not an edit: no "typing…" ping.
 			if (saved) editor.commands.setContent(saved, { emitUpdate: false });
+			else if (initial) editor.commands.setContent(textDoc(initial), { emitUpdate: false });
 			else editor.commands.clearContent(false);
 		} catch {
 			saveDraft(localStorage, key, null);
@@ -166,5 +171,5 @@ export function useDraft(editor: Editor | null, key: string | undefined, onResto
 			window.removeEventListener("pagehide", flush);
 			flush();
 		};
-	}, [editor, key, onRestored]);
+	}, [editor, key, onRestored, initial]);
 }
