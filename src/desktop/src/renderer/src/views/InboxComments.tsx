@@ -105,7 +105,7 @@ function CommentRow({ comment: k }: { comment: Comment }) {
 	const [editing, setEditing] = useState(false);
 	const { error, run } = useRun();
 	return (
-		<div className="group/comment flex items-start gap-2.5">
+		<div className="group/comment relative flex items-start gap-2.5">
 			<Avatar name={k.author.name} image={k.author.image} agent={k.author.type === "agent"} size="sm" />
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<p className="flex items-baseline gap-2">
@@ -117,7 +117,8 @@ function CommentRow({ comment: k }: { comment: Comment }) {
 						{k.edited && " (edited)"}
 					</span>
 					{k.mine && !editing && (
-						<span className="ml-auto flex gap-0.5 opacity-0 group-hover/comment:opacity-100 focus-within:opacity-100">
+						// Over the line, not in it: in it, the buttons' height pushed the name down from its picture.
+						<span className="absolute -top-0.5 right-0 flex gap-0.5 bg-white opacity-0 group-hover/comment:opacity-100 focus-within:opacity-100">
 							<button type="button" aria-label="Edit comment" title="Edit" className={smallIconButton} onClick={() => setEditing(true)}>
 								<EditIcon />
 							</button>
