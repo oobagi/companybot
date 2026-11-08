@@ -20,10 +20,13 @@ const COMMENT_MAX = 5_000;
 
 /**
  * A message's comments: the pill (or "Comment" on hover), and its thread when open. `side` is the
- * message's. `actions`: more pills at the start of the row (an email's Reply).
+ * message's. Pass `open` and `onOpenChange` to open it from elsewhere (an email's Comment button);
+ * `quiet` shows nothing until there are comments.
  */
-export function Thread({ messageId, comments, side, actions, className = "" }: { messageId: Id<"inboxMessages">; comments: Comments; side: "them" | "us"; actions?: React.ReactNode; className?: string }) {
-	const [open, setOpen] = useState(false);
+export function Thread({ messageId, comments, side, className = "", open: shown, onOpenChange, quiet }: { messageId: Id<"inboxMessages">; comments: Comments; side: "them" | "us"; className?: string; open?: boolean; onOpenChange?: (open: boolean) => void; quiet?: boolean }) {
+	const [own, setOwn] = useState(false);
+	const open = shown ?? own;
+	const setOpen = onOpenChange ?? setOwn;
 	const left = side === "them";
 	if (open)
 		return (
@@ -31,11 +34,11 @@ export function Thread({ messageId, comments, side, actions, className = "" }: {
 				<ThreadCard messageId={messageId} comments={comments} onClose={() => setOpen(false)} />
 			</div>
 		);
+	if (quiet && !comments.length) return null;
 	// Who's in the thread, each once, in the order they joined it.
 	const authors = [...new Map(comments.map((k) => [`${k.author.type}:${k.author.id}`, k.author])).values()];
 	return (
 		<div className={`flex gap-1.5 pt-1.5 ${left ? "justify-start" : "flex-row-reverse justify-start"} ${className}`}>
-			{actions}
 			{comments.length ? (
 				<button type="button" className={`group/pill ${commentPillButton} pl-1`} onClick={() => setOpen(true)}>
 					<AvatarStack people={authors} size="line" ring="ring-neutral-100 group-hover/pill:ring-neutral-200" />

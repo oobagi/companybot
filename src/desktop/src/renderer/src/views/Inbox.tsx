@@ -30,6 +30,7 @@ import {
 	TrashIcon,
 	UserIcon,
 	WebChatIcon,
+	ChatIcon,
 	WhatsappLogoIcon,
 } from "../icons";
 import { navigate } from "../router";
@@ -57,7 +58,6 @@ import {
 	secondaryButton,
 	sentBubbleClass,
 	shortAgo,
-	commentPillButton,
 	labelButton,
 	smallIconButton,
 	surfaceButton,
@@ -361,6 +361,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 	const flip = (id: string) => setFlipped((set) => (set.has(id) ? new Set([...set].filter((x) => x !== id)) : new Set([...set, id])));
 	// The email a reply answers: one picked with its Reply, else their latest (else ours).
 	const [picked, setPicked] = useState<string>();
+	const [commenting, setCommenting] = useState<string>();
 	const answering = email ? (sent.find((m) => m.id === picked) ?? sent.findLast((m) => m.direction === "in") ?? sent.at(-1)) : undefined;
 	// Opens at the latest message, and follows new ones while you're at the bottom (as chat does).
 	useLayoutEffect(() => {
@@ -398,7 +399,8 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 						return (
 							<Fragment key={first.id}>
 								{stamp && <p className={`pt-8 pb-4 text-center tabular-nums ${metadataClass}`}>{dayLabel(first.at)}, {clock(first.at)}</p>}
-								<div className={`group/msg ${email ? (i > 0 ? "mt-3 border-t border-neutral-100 pt-1" : "") : stamp ? "" : "pt-3"}`}>
+								{/* Emails get a line between them; a line between emails (an assignment) separates them itself. */}
+								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : prev && prev.direction !== "event" ? "border-t border-neutral-100" : "") : stamp ? "" : "pt-3"}`}>
 									{first.assignedTo ? (
 										<Line who={first.author} name="Someone on staff">
 											assigned this to <PersonPill who={first.assignedTo} />
@@ -406,34 +408,29 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 									) : first.status === "draft" ? (
 										<Draft message={first} channel={c.channel} agent={c.agent} />
 									) : email ? (
-										<EmailItem message={first} them={them} contact={c.contact} open={isOpen(first)} onToggle={() => flip(first.id)} />
+										<EmailItem
+											message={first}
+											them={them}
+											contact={c.contact}
+											open={isOpen(first)}
+											onToggle={() => flip(first.id)}
+											replying={answering?.id === first.id}
+											onReply={() => setPicked(picked === first.id ? undefined : first.id)}
+											onComment={() => setCommenting(first.id)}
+										/>
 									) : (
 										<Group messages={item.messages} them={them} channel={c.channel} subject={c.subject} />
 									)}
-									{/* A folded email keeps its row only for comments or the reply mark; open it to reply or comment. */}
-									{first.direction !== "event" && (!email || isOpen(first) || answering?.id === first.id || item.messages.some((m) => m.comments.length > 0)) && (
+									{first.direction !== "event" && (
 										<Thread
 											messageId={item.messages.at(-1)!.id}
 											comments={item.messages.flatMap((m) => m.comments).sort((a, b) => a.at - b.at)}
 											side={email || first.direction === "in" ? "them" : "us"}
-											className={email ? "pl-9" : ""}
-											actions={
-												email &&
-												first.status !== "draft" && (
-													<button
-														type="button"
-														aria-pressed={picked === first.id}
-														className={`${commentPillButton} pl-2`}
-														onClick={() => setPicked(picked === first.id ? undefined : first.id)}
-													>
-														<ReplyIcon /> {answering?.id === first.id ? "Replying" : "Reply"}
-													</button>
-												)
-											}
+											{...(email && { className: "pb-3 pl-9", quiet: true, open: commenting === first.id, onOpenChange: (on: boolean) => setCommenting(on ? first.id : undefined) })}
 										/>
 									)}
 									{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
-									{first.direction === "event" && <div aria-hidden className="h-7.5" />}
+									{!email && first.direction === "event" && <div aria-hidden className="h-7.5" />}
 								</div>
 							</Fragment>
 						);
@@ -603,32 +600,43 @@ function itemsOf(messages: Message[], channel: "email" | "sms") {
 }
 
 /**
- * One email in a thread, as a mail app lists it: who, to whom and when, then the body, with a line
- * between emails. Folded, the body is one line under the name; the header opens and folds it.
+ * One email in a thread, as a mail app lists it: who, to whom and when, then the body. Folded, the body
+ * is one line under the name; the header opens and folds it. Reply and Comment sit by the time (on
+ * hover); Reply stays lit on the email the reply box answers.
  */
-function EmailItem({ message: m, them, contact, open, onToggle }: { message: Message; them: string; contact: string; open: boolean; onToggle: () => void }) {
+function EmailItem({ message: m, them, contact, open, onToggle, replying, onReply, onComment }: { message: Message; them: string; contact: string; open: boolean; onToggle: () => void; replying: boolean; onReply: () => void; onComment: () => void }) {
 	const mine = m.direction !== "in";
 	const failed = m.status === "failed";
 	const name = mine ? (m.author?.name ?? "Someone on staff") : them;
 	const forWho = m.author?.for;
+	const hover = "opacity-0 group-hover/email:opacity-100 focus-visible:opacity-100";
 	return (
-		<article className="flex flex-col">
-			<button type="button" aria-expanded={open} onClick={onToggle} className={`${surfaceButton} flex w-full min-w-0 items-start gap-3 py-2 text-left`}>
+		<article className={`group/email relative flex flex-col ${open ? "pb-3" : ""}`}>
+			<button type="button" aria-expanded={open} onClick={onToggle} className={`${surfaceButton} flex w-full items-start gap-3 py-2.5`}>
 				<Avatar name={name} image={m.author?.image} agent={m.author?.type === "agent"} size="sm" />
 				<span className="flex min-w-0 flex-1 flex-col">
-					<span className="flex min-w-0 items-baseline gap-2">
+					{/* Room on the right for the time and buttons over this line. */}
+					<span className="flex min-w-0 items-baseline gap-2 pr-48">
 						<span className="shrink-0 font-medium text-neutral-900">{name}</span>
 						<span className={`min-w-0 truncate ${metadataClass}`}>
 							{mine ? `to ${them}` : contact}
 							{forWho && `, for ${forWho.name}`}
 						</span>
-						<span className={`ml-auto shrink-0 tabular-nums ${metadataClass}`}>
-							{dayLabel(m.at)}, {clock(m.at)}
-						</span>
 					</span>
 					{!open && <span className="truncate text-neutral-500">{m.text.replace(/\s+/g, " ")}</span>}
 				</span>
 			</button>
+			<span className="absolute top-2 right-0 flex items-center gap-0.5">
+				<button type="button" title="Comment" aria-label="Comment" className={`${smallIconButton} ${hover}`} onClick={onComment}>
+					<ChatIcon />
+				</button>
+				<button type="button" title={replying ? "Replying to this email" : "Reply to this email"} aria-label="Reply" aria-pressed={replying} className={`${smallIconButton} ${replying ? "text-neutral-900" : hover}`} onClick={onReply}>
+					<ReplyIcon />
+				</button>
+				<span className={`pl-1 tabular-nums ${metadataClass}`}>
+					{dayLabel(m.at)}, {clock(m.at)}
+				</span>
+			</span>
 			{open && <p className="pl-9 break-words whitespace-pre-wrap select-text">{m.text}</p>}
 			{(failed || m.status === "sending") && <p className={`pt-1 pl-9 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 		</article>
