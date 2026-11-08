@@ -15,6 +15,7 @@
     "./page-links": "./src/page-links.ts",
     "./record-mentions": "./src/record-mentions.ts",
     "./arrangements": "./src/arrangements.ts",
+    "./rank": "./src/rank.ts",
     "./permissions": "./src/permissions.ts",
     "./place-access": "./src/place-access.ts",
     "./records": "./src/records.ts",

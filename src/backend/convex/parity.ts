@@ -87,6 +87,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"recordTypes.update": { agent: ["records.save_database"] },
 	"records.create": { agent: ["records.save"] },
 	"records.update": { agent: ["records.save"] },
+	"records.move": { humanOnly: "People order a board's cards by dragging them; agents move a card to another column by setting its field (records.save)." },
 	"records.undo": { agent: ["records.undo"] },
 	"skills.share": { humanOnly: "The maker confirms publishing their private instructions to the team in Customize." },
 	"skills.create": { agent: ["skills.create"] },

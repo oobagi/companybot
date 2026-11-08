@@ -291,6 +291,28 @@ describe("records", () => {
 		expect(await sorted("asc")).toEqual(["A", "C", "B", "D"]);
 	});
 
+	it("keeps a board's manual order: newest first, then where cards are dropped, within and across columns", async () => {
+		const { owner, deal } = await setup();
+		const [lead, won] = deal.fields.find((f) => f.key === "stage")!.options!.map((o) => o.id);
+		const make = (name: string, last?: boolean) => owner.mutation(api.records.create, { typeId: deal._id, values: { name, stage: lead }, last });
+		const a = await make("A");
+		const b = await make("B");
+		const c = await make("C");
+		await make("D", true);
+		const column = (option: string) => titles(owner, { typeId: deal._id, group: { field: "stage", option }, sort: { field: "manualOrder", order: "asc" } });
+		// New ones first, a column's New row last.
+		expect(await column(lead!)).toEqual(["C", "B", "A", "D"]);
+		await owner.mutation(api.records.move, { recordId: a, after: c, before: b });
+		expect(await column(lead!)).toEqual(["C", "A", "B", "D"]);
+		await owner.mutation(api.records.move, { recordId: c, after: b });
+		expect(await column(lead!)).toEqual(["A", "B", "C", "D"]);
+		// Into another column: its value changes, with history; its place is where it was dropped.
+		await owner.mutation(api.records.move, { recordId: b, values: { stage: won } });
+		expect(await column(lead!)).toEqual(["A", "C", "D"]);
+		expect(await column(won!)).toEqual(["B"]);
+		await expect(owner.mutation(api.records.move, { recordId: b, after: c, before: a })).rejects.toThrow("aren't next to each other");
+	});
+
 	it("lists what links to a record, optionally through one field", async () => {
 		const { owner, client, deal, task } = await setup();
 		const acme = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });

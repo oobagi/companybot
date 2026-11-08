@@ -313,6 +313,12 @@ body {
 	/* Tighter than a row's, so it fits the room above the columns (Board.tsx) instead of being cut off. */
 	filter: drop-shadow(0 4px 6px rgb(0 0 0 / 0.12));
 }
+/* A board card's copy under the pointer while it's dragged (Board.tsx): lifted like a dragged row, a little tilted. */
+.board-card-lifted {
+	scale: 1.03;
+	rotate: 1.5deg;
+	box-shadow: 0 8px 20px rgb(0 0 0 / 0.14);
+}
 /* A page's block picked up by its ⋮⋮ (PageEditor.tsx) moves as it is: no card, no shadow, its own size and place
    (BlockNote animates a block's margin, so no inset either); the + and ⋮⋮ stay out of the way until it's let go. */
 .page-editor .sortable-lifted,

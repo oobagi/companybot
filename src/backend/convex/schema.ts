@@ -1299,8 +1299,14 @@ export default defineSchema({
 		updatedBy: v.id("users"),
 		/** Set when an agent made the last change, acting for `updatedBy`. */
 		updatedByAgent: v.optional(v.id("agents")),
+		/**
+		 * Its place in the database's manual order (core `rank`): boards without a sort list by it, and dragging a
+		 * card sets it. Starts by creation time, newest first. COMPAT(0.1.0-alpha.10): required once migrations.recordRanks has run on prod.
+		 */
+		rank: v.optional(v.string()),
 	})
 		.index("by_type", ["typeId", "archived"])
+		.index("by_type_rank", ["typeId", "archived", "rank"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
 		// Every record of a database by creation time, in Archive or not: a field change converts them in this order.

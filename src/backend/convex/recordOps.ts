@@ -21,6 +21,7 @@ import {
 	valuesBytes,
 } from "@companybot/core";
 import { type AccessLevel, reaches } from "@companybot/core";
+import { rankAt, rankBetween } from "@companybot/core/rank";
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -237,8 +238,8 @@ function requireSize(values: Values) {
 
 const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId });
 
-/** Returns the new record and its "created" history entry. */
-export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
+/** Returns the new record and its "created" history entry. `last`: at the end of the manual order (a board column's New row), not first. */
+export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>, last = false) {
 	checkPermission(who.member, "records.edit");
 	const type = await requireType(ctx, who.member, typeId);
 	if (type.archived) throw new ConvexError(`${type.plural} is in Archive.`);
@@ -260,8 +261,11 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 		searchText: searchTextOf(fields.map(toField), values),
 		archived: false,
 		createdBy: who.member.userId,
+		...(last && { rank: rankBetween(await lastRank(ctx, typeId), undefined) }),
 		...stamp(who),
 	});
+	// First, as the newest: its place comes from its creation time, known once it's in.
+	if (!last) await ctx.db.patch(id, { rank: rankAt((await ctx.db.get(id))!._creationTime, id) });
 	await writeIndex(ctx, (await ctx.db.get(id))!, fields);
 	const change = await logChange(ctx, who, {
 		typeId,
@@ -420,6 +424,37 @@ export async function requireEditableField(ctx: QueryCtx, member: Member, fieldI
 	await requireType(ctx, member, field.typeId, "edit");
 	checkPermission(member, "fields.edit");
 	return field;
+}
+
+/** The last rank in a database's manual order, live records only. */
+async function lastRank(ctx: QueryCtx, typeId: Id<"recordTypes">) {
+	return (await ctx.db.query("records").withIndex("by_type_rank", (q) => q.eq("typeId", typeId).eq("archived", false)).order("desc").first())?.rank;
+}
+
+/**
+ * Puts a record between two others of its database in the manual order (either missing: first or last),
+ * like dragging a card on a board, after setting `values` when it moves to another column. Order isn't
+ * history: no entry, no `updatedAt`.
+ */
+export async function moveRecord(
+	ctx: MutationCtx,
+	who: Who,
+	recordId: Id<"records">,
+	{ after, before, values }: { after?: Id<"records">; before?: Id<"records">; values?: Record<string, unknown> },
+) {
+	if (values) await updateRecord(ctx, who, recordId, values);
+	else checkPermission(who.member, "records.edit");
+	const record = await requireRecord(ctx, who.member, recordId, "edit");
+	await requireLive(ctx, record);
+	const neighbor = async (id: Id<"records"> | undefined) => {
+		if (!id) return undefined;
+		const other = await ctx.db.get(id);
+		if (!other || other.typeId !== record.typeId || other._id === record._id) throw new ConvexError("Move it next to another record of this database.");
+		return other.rank ?? rankAt(other._creationTime, other._id);
+	};
+	const [a, b] = [await neighbor(after), await neighbor(before)];
+	if (a !== undefined && b !== undefined && a >= b) throw new ConvexError("Those records aren't next to each other anymore. Try again.");
+	await ctx.db.patch(record._id, { rank: rankBetween(a, b) });
 }
 
 /**

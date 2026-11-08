@@ -408,6 +408,7 @@ function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, 
 				keys: plan === "t" ? ["_creationTime"] : ["updatedAt", "_creationTime"],
 			},
 		];
+	if (plan === "r") return [{ table: "records", index: "by_type_rank", prefix: [["typeId", typeId], ["archived", archived]], keys: ["rank", "_creationTime"] }];
 	if (plan === "s") return sortStreams;
 	const check = /^c\d+$/.test(plan) ? checks[Number(plan.slice(1))] : undefined;
 	return check?.eqStreams ?? (check?.rangeStream && [check.rangeStream]);
@@ -419,6 +420,7 @@ function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, 
  */
 async function choosePlan(ctx: QueryCtx, budget: Budget, checks: Check[], sort: Sort | undefined, sortStreams: Stream[] | undefined) {
 	if (sortStreams) return "s";
+	if (sort?.field === MANUAL) return "r";
 	if (sort?.field === "updatedAt") return "u";
 	if (sort?.field === "createdAt") return "t";
 	const candidates = checks.filter((c) => c.eqStreams ?? c.rangeStream).length;
@@ -443,6 +445,9 @@ async function choosePlan(ctx: QueryCtx, budget: Budget, checks: Check[], sort: 
 	}
 	return "t";
 }
+
+/** `sort.field` for the manual order a board's cards are dragged into (records.rank). */
+export const MANUAL = "manualOrder";
 
 /** A board column as a condition. Removed options still list the records that keep them. */
 function groupCondition(fields: Fields, { field: key, option }: Group): Condition {
@@ -506,7 +511,7 @@ export async function findRecords(
 	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
 	// A page can run from the records with the sort field's value into those without it.
 	if (start && endAt && start.p !== endAt.p && !(start.p === "s" && endAt.p === "e")) throw new ConvexError("That page is out of date. Start the list again.");
-	const byField = sort && !["createdAt", "updatedAt"].includes(sort.field);
+	const byField = sort && !["createdAt", "updatedAt", MANUAL].includes(sort.field);
 	// Archived records have no index rows, so their lists scan the type and check every condition.
 	if (archived && byField) throw new ConvexError("Archived records can't be sorted by a field.");
 	let sortStreams: Stream[] | undefined;
@@ -537,7 +542,7 @@ export async function findRecords(
 	let plan =
 		start?.p ??
 		(endAt && !(holdersStream && endAt.p === "e") ? endAt.p : undefined) ??
-		(archived ? (sort?.field === "updatedAt" ? "u" : "t") : onlyEmpty && holdersStream ? "e" : await choosePlan(ctx, budget, checks, sort, sortStreams));
+		(archived ? (sort?.field === "updatedAt" ? "u" : sort?.field === MANUAL ? "r" : "t") : onlyEmpty && holdersStream ? "e" : await choosePlan(ctx, budget, checks, sort, sortStreams));
 	if (plan === "e" && !holdersStream) throw new ConvexError("That page is out of date. Start the list again.");
 	const cursor = (a: Key | undefined) => JSON.stringify({ q: fingerprint, p: plan, a } satisfies Cursor);
 	const limit = endAt?.a ? pageMax : Math.min(paginationOpts.numItems, pageMax);

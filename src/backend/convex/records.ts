@@ -9,6 +9,7 @@ import {
 	createRecord,
 	fieldsOf,
 	inTrash,
+	moveRecord,
 	resolveRefs,
 	typeVisible,
 	fieldsShown,
@@ -215,9 +216,10 @@ export const discussion = query({
 // Field keys → values. Each value is checked against its field (core's normalizeValue); null clears.
 const values = v.record(v.string(), v.any());
 
+/** `last`: at the end of the manual order (a board column's New row); otherwise first, as the newest. */
 export const create = mutation({
-	args: { typeId: v.id("recordTypes"), values },
-	handler: async (ctx, { typeId, values }) => (await createRecord(ctx, { member: await requireMember(ctx) }, typeId, values)).id,
+	args: { typeId: v.id("recordTypes"), values, last: v.optional(v.boolean()) },
+	handler: async (ctx, { typeId, values, last }) => (await createRecord(ctx, { member: await requireMember(ctx) }, typeId, values, last)).id,
 });
 
 /** Changes only the fields given. */
@@ -225,6 +227,18 @@ export const update = mutation({
 	args: { recordId: v.id("records"), values },
 	handler: async (ctx, { recordId, values }) => {
 		await updateRecord(ctx, { member: await requireMember(ctx) }, recordId, values);
+	},
+});
+
+/**
+ * Drops a record between two others in its database's manual order (either left out: first or last), like
+ * dragging a card on a board; `values` change too when it lands in another column. Boards without a sort list
+ * in this order (`list`'s `sort: { field: "manualOrder" }`).
+ */
+export const move = mutation({
+	args: { recordId: v.id("records"), after: v.optional(v.id("records")), before: v.optional(v.id("records")), values: v.optional(values) },
+	handler: async (ctx, { recordId, ...to }) => {
+		await moveRecord(ctx, { member: await requireMember(ctx) }, recordId, to);
 	},
 });
 
