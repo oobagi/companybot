@@ -465,8 +465,13 @@ const columnWidth = (f: TypeField) =>
 	: f.kind === "choice" || f.kind === "user" || f.kind === "link" ? 160
 	: 192;
 const UPDATED_WIDTH = 128;
-/** Lines go on cells, not rows: the table's borders are separate so the sticky header keeps its own. */
-const rowLine = "border-b border-neutral-100 group-last:border-0";
+/** The table's outline, drawn by its first and last cells. */
+const edge = "border-neutral-200 first:border-l last:border-r";
+/**
+ * Lines go on cells, not rows: the table's borders are separate so the sticky header keeps its own.
+ * The last row closes the outline, with its corners rounded.
+ */
+const rowLine = `${edge} border-b border-b-neutral-100 group-hover:bg-neutral-50/60 group-last:border-b-neutral-200 group-last:first:rounded-bl-xl group-last:last:rounded-br-xl`;
 
 /**
  * `head`: each column's header, then Updated's. `onResize`: when they may drag a column's edge.
@@ -490,20 +495,21 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 	return (
 		// Too wide for the column: it scrolls out to the screen's edges.
 		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-6">
-			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick;
-			    the header draws the top line itself, so it doesn't jump when it sticks. */}
-			<div className={`w-max min-w-full overflow-clip rounded-xl border-x border-b border-neutral-200 transition-opacity ${stale ? "opacity-60" : ""}`}>
+			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick.
+			    The cells draw the table's outline (`edge`), so the stuck header keeps its line and rounded corners. */}
+			<div className={`w-max min-w-full overflow-clip rounded-xl transition-opacity ${stale ? "opacity-60" : ""}`}>
 				<table className="min-w-full table-fixed border-separate border-spacing-0 text-sm" style={{ width: columns.reduce((n, f) => n + width(f), UPDATED_WIDTH) }}>
 					<colgroup>
 						{columns.map((f) => <col key={f.key} style={{ width: width(f) }} />)}
 						<col />
 					</colgroup>
-					<thead className="sticky top-0 z-10 bg-neutral-50 text-neutral-500">
+					{/* The page's color shows in the header's rounded corners, hiding rows that scroll under them. */}
+					<thead className="sticky top-0 z-10 bg-white text-neutral-500">
 						<tr>
 							{head.map((content, i) => {
 								const f = columns[i];
 								return (
-									<th key={f?.key ?? "updatedAt"} className="relative border-y border-neutral-200 px-3 py-2 text-left font-medium whitespace-nowrap">
+									<th key={f?.key ?? "updatedAt"} className={`${edge} relative border-y bg-neutral-50 px-3 py-2 text-left font-medium whitespace-nowrap first:rounded-tl-xl last:rounded-tr-xl`}>
 										<div className="overflow-hidden">{content}</div>
 										{f && onResize && (
 											<ResizeHandle
@@ -527,7 +533,7 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 					</thead>
 					<tbody>
 						{rows.map((r) => (
-							<tr key={r._id} className="group hover:bg-neutral-50/60">
+							<tr key={r._id} className="group">
 								{columns.map((f) =>
 									f.key === NAME_KEY ? (
 										// The name opens the record; every other cell edits in place, like Notion's.
