@@ -400,8 +400,8 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 						return (
 							<Fragment key={first.id}>
 								{stamp && <p className={`pt-8 pb-4 text-center tabular-nums ${metadataClass}`}>{dayLabel(first.at)}, {clock(first.at)}</p>}
-								{/* Emails get a line between them; a line between emails (an assignment) separates them itself. */}
-								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : prev && prev.direction !== "event" ? "border-t border-neutral-100" : "") : stamp ? "" : "pt-3"}`}>
+								{/* Emails get a line between them; a line between emails (an assignment) separates them itself, and a draft's box keeps its distance. */}
+								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : first.status === "draft" ? "pt-3" : prev && prev.direction !== "event" ? "border-t border-neutral-100" : "") : stamp ? "" : "pt-3"}`}>
 									{first.assignedTo ? (
 										<Line who={first.author} name="Someone on staff">
 											assigned this to <PersonPill who={first.assignedTo} />
