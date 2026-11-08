@@ -27,7 +27,6 @@ export function Composer({
 	draftKey,
 	start,
 	tools,
-	top,
 }: {
 	/** Rejects if the message didn't go: the composer gets its text and files back. */
 	onSend: (text: string, mentions: Mentions, files: Id<"_storage">[]) => Promise<unknown>;
@@ -47,8 +46,6 @@ export function Composer({
 	start?: ReactNode;
 	/** More round buttons, before emoji and dictation. */
 	tools?: ReactNode;
-	/** A line across the top of the box, over the text: what an email answers (Inbox). */
-	top?: ReactNode;
 }) {
 	const me = useQuery(api.chats.list)?.me;
 	// Each person's own, and none until we know who's here.
@@ -129,7 +126,6 @@ export function Composer({
 			<div className="flex flex-col">
 				{/* One 8px inset all round, and a corner that follows the round buttons' (16px radius + 8px = 24px). */}
 				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-3xl border border-neutral-200 bg-white p-2 shadow-xs focus-within:border-neutral-300 ${attachments || start ? "" : "pl-4"}`} onSubmit={submit}>
-					{top && <div className="flex w-full min-w-0 items-center gap-2 px-2 pt-0.5 text-sm">{top}</div>}
 					{attachments && <PendingFiles attachments={attachments} />}
 					{attachments ? <AttachButton attachments={attachments} /> : start}
 					<EditorContent editor={editor} className="composer min-w-0 flex-1" />

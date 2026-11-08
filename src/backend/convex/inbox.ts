@@ -166,10 +166,11 @@ export const get = query({
 // ---- What staff do (and agents, for them: inbox.manage) ----
 
 export const reply = mutation({
-	args: { id: v.id("inboxConversations"), text: v.string() },
-	handler: async (ctx, { id, text }) => {
+	/** `answers`: the email it replies to, when not their latest. */
+	args: { id: v.id("inboxConversations"), text: v.string(), answers: v.optional(v.id("inboxMessages")) },
+	handler: async (ctx, { id, text, answers }) => {
 		const member = await requirePermission(ctx, "inbox.use");
-		return replyAs(ctx, { member }, await requireConversation(ctx, member, id), text);
+		return replyAs(ctx, { member }, await requireConversation(ctx, member, id), text, answers);
 	},
 });
 
@@ -230,9 +231,11 @@ const checkedText = (channel: InboxChannel, text: string) => {
 };
 
 /** Staff (or an agent for them) answer in a conversation: it goes out at once from the agent's address or number. */
-export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, text: string) {
+export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, text: string, answers?: Id<"inboxMessages">) {
 	checkPermission(who.member, "inbox.use");
 	const body = checkedText(c.channel, text);
+	const answered = answers && (await ctx.db.get(answers));
+	if (answers && (c.channel !== "email" || answered?.conversationId !== c._id || answered.direction === "event")) throw new ConvexError("That email isn't in this conversation.");
 	const id = await ctx.db.insert("inboxMessages", {
 		workspaceId: c.workspaceId,
 		conversationId: c._id,
@@ -241,6 +244,7 @@ export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversat
 		status: "sending",
 		authorUserId: who.member.userId,
 		...(who.agentId && { authorAgentId: who.agentId }),
+		...(answers && { answers }),
 	});
 	await ctx.db.patch(c._id, { lastAt: Date.now(), preview: previewOf(body) });
 	await ctx.scheduler.runAfter(0, internal.inbox.deliver, { messageId: id });
@@ -450,7 +454,9 @@ export const outgoing = internalQuery({
 		const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", kindOf(c.channel))).first();
 		const earlier = (await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").take(20)).filter((m) => m._id !== messageId);
 		const ids = earlier.flatMap((m) => (m.messageId ? [m.messageId] : [])).reverse();
-		const answering = earlier.find((m) => m.direction === "in" && m.messageId)?.messageId;
+		// The email staff picked to answer, else their latest.
+		const picked = message.answers && (await ctx.db.get(message.answers));
+		const answering = picked?.messageId ?? earlier.find((m) => m.direction === "in" && m.messageId)?.messageId;
 		return {
 			text: message.text,
 			channel: c.channel,

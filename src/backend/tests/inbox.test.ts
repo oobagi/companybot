@@ -369,4 +369,21 @@ describe("staff in Inbox", () => {
 		expect((await inboxMessages(t)).find((m) => m._id === draft._id)!.status).toBe("sent");
 		expect((await conversations(t))[0]!.needsStaff).toBeUndefined();
 	});
+
+	it("reply to an earlier email they pick, threaded on that one", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		const calls = stubProviders();
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Roof", message_id: "<m1@acme.com>" });
+		await emailWebhook(t, { email_id: "e2", from: "dana@acme.com", to: [address], subject: "Re: Roof", message_id: "<m2@acme.com>" });
+		const [c] = await conversations(t);
+		const first = (await inboxMessages(t)).find((m) => m.messageId === "<m1@acme.com>")!;
+		vi.useFakeTimers();
+		await owner.mutation(api.inbox.reply, { id: c!._id, text: "About your first email…", answers: first._id });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		const sent = JSON.parse(calls.findLast((x) => x.url === "https://api.resend.com/emails")!.body);
+		expect(sent.headers).toMatchObject({ "In-Reply-To": "<m1@acme.com>" });
+		await expect(owner.mutation(api.inbox.reply, { id: c!._id, text: "x", answers: c!._id as never })).rejects.toThrow();
+	});
 });

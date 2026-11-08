@@ -18,32 +18,34 @@ type Comment = Comments[number];
 
 const COMMENT_MAX = 5_000;
 
-/** A message's comments: the pill (or "Comment" on hover), and its thread when open. `side` is the message's. */
-export function Thread({ messageId, comments, side }: { messageId: Id<"inboxMessages">; comments: Comments; side: "them" | "us" }) {
+/**
+ * A message's comments: the pill (or "Comment" on hover), and its thread when open. `side` is the
+ * message's. `actions`: more pills at the start of the row (an email's Reply).
+ */
+export function Thread({ messageId, comments, side, actions, className = "" }: { messageId: Id<"inboxMessages">; comments: Comments; side: "them" | "us"; actions?: React.ReactNode; className?: string }) {
 	const [open, setOpen] = useState(false);
 	const left = side === "them";
 	if (open)
 		return (
-			<div className={`flex w-full pt-1.5 ${left ? "justify-start" : "justify-end"}`}>
+			<div className={`flex w-full pt-1.5 ${left ? "justify-start" : "justify-end"} ${className}`}>
 				<ThreadCard messageId={messageId} comments={comments} onClose={() => setOpen(false)} />
-			</div>
-		);
-	if (!comments.length)
-		return (
-			<div className={`flex pt-1.5 opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 ${left ? "justify-start" : "justify-end"}`}>
-				<button type="button" className={`${commentPillButton} pl-2`} onClick={() => setOpen(true)}>
-					<ChatIcon /> Comment
-				</button>
 			</div>
 		);
 	// Who's in the thread, each once, in the order they joined it.
 	const authors = [...new Map(comments.map((k) => [`${k.author.type}:${k.author.id}`, k.author])).values()];
 	return (
-		<div className={`flex pt-1.5 ${left ? "justify-start" : "justify-end"}`}>
-			<button type="button" className={`group/pill ${commentPillButton} pl-1`} onClick={() => setOpen(true)}>
-				<AvatarStack people={authors} size="line" ring="ring-neutral-100 group-hover/pill:ring-neutral-200" />
-				{comments.length === 1 ? "1 comment" : `${comments.length} comments`}
-			</button>
+		<div className={`flex gap-1.5 pt-1.5 ${left ? "justify-start" : "flex-row-reverse justify-start"} ${className}`}>
+			{actions}
+			{comments.length ? (
+				<button type="button" className={`group/pill ${commentPillButton} pl-1`} onClick={() => setOpen(true)}>
+					<AvatarStack people={authors} size="line" ring="ring-neutral-100 group-hover/pill:ring-neutral-200" />
+					{comments.length === 1 ? "1 comment" : `${comments.length} comments`}
+				</button>
+			) : (
+				<button type="button" className={`${commentPillButton} pl-2 opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100`} onClick={() => setOpen(true)}>
+					<ChatIcon /> Comment
+				</button>
+			)}
 		</div>
 	);
 }
