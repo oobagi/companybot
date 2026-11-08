@@ -1,3 +1,4 @@
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useStoredIds } from "../../arrangements";
 import { COLUMN_WIDTH, type FieldKind, type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { Access } from "@companybot/core/permissions";
@@ -9,13 +10,14 @@ import { Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CaretRightIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, SearchIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, compactPrimaryButton, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
-import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
+import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, archiveQuestion, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
 import { AddField, EditField } from "./fieldDialogs";
+import { ViewMenu } from "./ViewMenu";
 import { Chip, FieldIcon, RecordPicker, ValueEditor, ValueView, useOptions } from "./fields";
 import {
 	type Filter,
@@ -143,6 +145,16 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	};
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
+	// A column moved before another (null: last). All's columns are yours, saved as you go; a saved view's wait for "Save for everyone".
+	const moveColumn = (key: string, before: string | null) => {
+		const rest = columns.filter((k) => k !== key);
+		const at = before === null ? rest.length : rest.indexOf(before);
+		rest.splice(at < 0 ? rest.length : at, 0, key);
+		if (selected) return change({ columns: rest });
+		if (writable) changeColumns({ op: "move", id: key, beforeId: before, ...(!storedColumns.length && { fill: columns }) });
+	};
+	const updateField = useMutation(api.fields.update);
+	const trash = useMutation(api.trash.move);
 	const open = (id: string) => (setViewId(id), setPreview(undefined));
 	// Someone deleted the open view.
 	useEffect(() => {
@@ -225,60 +237,37 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						<FieldMenu label="Filter" fields={fields} onPick={addFilter}>
 							<FilterIcon /> <span className="@max-xl:hidden">Filter</span>
 						</FieldMenu>
-						{(selected || writable) && <ColumnsPicker
-							label={layout === "board" ? "Properties" : "Columns"}
-							fields={fields}
-							columns={columns}
-							onChange={setColumns}
-							onEditField={setEditingField}
-							onNewField={type.canManage ? () => setAddingField("text") : undefined}
-						/>}
-						{(selected || type.canSetDisplay) && layout === "board" && group && (
-							<GroupPicker fields={groupFields} value={group} onChange={(groupBy) => change({ groupBy })} />
-						)}
-						{(selected || type.canSetDisplay) && (
-							<LayoutPicker
-								value={preview ?? layout}
+						<ViewMenu
+							view={canEdit && selected && saved ? {
+								name: selected.name,
+								// Renaming keeps the view as saved; unsaved changes stay yours until "Save for everyone".
+								onRename: rename,
+								onDuplicate: () => run(saveView({ typeId: type._id, name: `${selected.name} copy`.slice(0, 120), ...config }).then(open)),
+								onDelete: () => confirm({ title: `Delete the view ${selected.name}?`, action: "Delete view", onConfirm: () => removeView({ viewId: selected._id, version: selected.version }).then(() => open("all")) }),
+							} : undefined}
+							layout={selected || type.canSetDisplay ? {
+								value: preview ?? layout,
 								// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
 								// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
-								onChange={(l) => {
+								onChange: (l) => {
 									if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
 									setPreview(l);
-								}}
-							/>
-						)}
+								},
+							} : undefined}
+							properties={selected || writable ? { fields, columns, onChange: setColumns, onMove: moveColumn, where: layout === "board" ? "board" : "table" } : undefined}
+							group={(selected || type.canSetDisplay) && layout === "board" && group ? { fields: groupFields, value: group, onChange: (groupBy) => change({ groupBy }) } : undefined}
+							onEditDatabase={type.canManage ? () => setEditingDatabase(true) : undefined}
+							onNewField={type.canManage ? () => setAddingField("text") : undefined}
+							onEditField={setEditingField}
+							onRenameField={(f, label) => run(updateField({ fieldId: f._id as Id<"recordFields">, label }))}
+							onArchiveField={(f) => confirm(archiveQuestion(f.label, () => trash({ kind: "field", id: f._id as Id<"recordFields"> }), "The field will be hidden; its saved values are kept."))}
+						/>
 					</>
 				}
 				tabs={[{ id: "all", label: "All" }, ...tabs.sorted.map((v) => ({ id: v._id as string, label: v.name }))]}
 				drag={(id) => (id === "all" ? undefined : tabs.drag(id))}
 				value={selected ? viewId : "all"}
 				onChange={open}
-				menu={
-					canEdit && selected && saved
-						? (close) => (
-								<>
-									{/* Renaming keeps the view as saved; unsaved changes stay yours until "Save for everyone". */}
-									<Form
-										className=""
-										onSubmit={(form) => {
-											const name = String(new FormData(form).get("name")).trim();
-											close();
-											if (name && name !== selected.name) rename(name);
-										}}
-									>
-										<input name="name" aria-label="View name" autoFocus required maxLength={120} defaultValue={selected.name} className={`${compactControlClass} w-full`} />
-									</Form>
-									<MenuDivider />
-									<MenuItem
-										danger
-										onClick={() => (close(), confirm({ title: `Delete the view ${selected.name}?`, action: "Delete view", onConfirm: () => removeView({ viewId: selected._id, version: selected.version }).then(() => open("all")) }))}
-									>
-										<TrashIcon /> Delete view
-									</MenuItem>
-								</>
-							)
-						: undefined
-				}
 			>
 				{canEdit && (
 					<button type="button" title="Save these filters as a view" aria-label="Save these filters as a view" className={tabAddButton} onClick={() => setSavingView(true)}>
@@ -749,149 +738,6 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 			placeholder={field.kind === "currency" ? "1000 or EUR 1000" : "Value"}
 			className={`${compactControlClass} w-full`}
 		/>
-	);
-}
-
-/** The view's layout, as a menu: the one in use on the button, the coming-soon ones marked. */
-const layoutOptions = [
-	{ value: "table", label: "Table", icon: <DatabaseIcon />, soon: false },
-	{ value: "board", label: "Board", icon: <BoardIcon />, soon: false },
-	{ value: "calendar", label: "Calendar", icon: <CalendarIcon />, soon: true },
-	{ value: "form", label: "Form", icon: <FormIcon />, soon: true },
-	{ value: "gallery", label: "Gallery", icon: <GalleryIcon />, soon: true },
-] as const;
-
-function LayoutPicker({ value, onChange }: { value: Layout | Preview; onChange: (layout: Layout | Preview) => void }) {
-	const current = layoutOptions.find((o) => o.value === value)!;
-	return (
-		<Popover
-			label="Layout"
-			trigger={
-				<>
-					{current.icon} <span className="@max-xl:hidden">{current.label}</span> <CaretDownIcon />
-				</>
-			}
-			className={toolButton}
-			panelClassName="flex w-48 flex-col gap-px p-1"
-		>
-			{(close) =>
-				layoutOptions.map((o) => (
-					<MenuItem key={o.value} onClick={() => (close(), onChange(o.value))}>
-						<span className="text-neutral-400">{o.icon}</span>
-						<span className="flex-1">{o.label}</span>
-						{o.soon ? <span className="text-xs text-neutral-400">Soon</span> : o.value === value && <CheckIcon className="text-neutral-500" />}
-					</MenuItem>
-				))
-			}
-		</Popover>
-	);
-}
-
-/** The board's grouping: one button naming the field, a menu of the choice fields it can group by. */
-function GroupPicker({ fields, value, onChange }: { fields: TypeField[]; value: TypeField; onChange: (key: string) => void }) {
-	return (
-		<Popover
-			label="Group by"
-			trigger={
-				<>
-					<GroupIcon /> <span className="@max-xl:hidden">Group: {value.label}</span> <CaretDownIcon />
-				</>
-			}
-			className={toolButton}
-			panelClassName="flex w-52 flex-col gap-px p-1"
-		>
-			{(close) => (
-				<>
-					<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Group by</p>
-					{fields.map((f) => (
-						<MenuItem key={f.key} onClick={() => (close(), onChange(f.key))}>
-							<FieldIcon field={f} />
-							<span className="flex-1 truncate">{f.label}</span>
-							{f.key === value.key && <CheckIcon className="text-neutral-500" />}
-						</MenuItem>
-					))}
-				</>
-			)}
-		</Popover>
-	);
-}
-
-function ColumnsPicker({
-	label,
-	fields,
-	columns,
-	onChange,
-	onEditField,
-	onNewField,
-}: {
-	label: string;
-	fields: TypeField[];
-	columns: string[];
-	onChange: (keys: string[]) => void;
-	/** Opens a field's settings (rename, options, archive), for whoever may change them. */
-	onEditField: (field: TypeField) => void;
-	/** Opens the new-field dialog; the field is shown once made. */
-	onNewField?: () => void;
-}) {
-	return (
-		<Popover
-			trigger={
-				<>
-					<PropertiesIcon /> <span className="@max-xl:hidden">{label}</span>
-				</>
-			}
-			className={toolButton}
-			panelClassName="flex max-h-96 w-64 flex-col gap-px overflow-y-auto p-1"
-		>
-			{(close) => (
-				<>
-					{fields.map((f) => {
-						const shown = columns.includes(f.key);
-						const name = (
-							<>
-								<FieldIcon field={f} />
-								<span className={`flex-1 truncate ${shown ? "" : "text-neutral-400"}`}>{f.label}</span>
-							</>
-						);
-						return (
-							// Notion's Properties menu: the name opens the field's settings (the › says so), the eye shows or hides it here.
-							<div key={f.key} className="flex items-center gap-1">
-								{f.canEdit ? (
-									<MenuItem title="Edit field" onClick={() => (close(), onEditField(f))}>
-										{name}
-										<CaretRightIcon className="text-neutral-400" />
-									</MenuItem>
-								) : (
-									<span className="flex flex-1 items-center gap-2 px-2 py-1.5">{name}</span>
-								)}
-								{f.key === NAME_KEY ? (
-									// Always shown, so no eye; the room keeps its › in line with the rest.
-									<span aria-hidden className="size-8 shrink-0" />
-								) : (
-									<button
-										type="button"
-										onClick={() => onChange(shown ? columns.filter((k) => k !== f.key) : fields.map((g) => g.key).filter((k) => k === f.key || columns.includes(k)))}
-										className={iconButton}
-										title={shown ? "Hide" : "Show"}
-										aria-label={`${shown ? "Hide" : "Show"} ${f.label}`}
-									>
-										{shown ? <ShowIcon /> : <HideIcon />}
-									</button>
-								)}
-							</div>
-						);
-					})}
-					{onNewField && (
-						<>
-							<MenuDivider />
-							<MenuItem onClick={() => (close(), onNewField())}>
-								<PlusIcon className="text-neutral-400" /> New field
-							</MenuItem>
-						</>
-					)}
-				</>
-			)}
-		</Popover>
 	);
 }
 
