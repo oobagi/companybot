@@ -31,7 +31,7 @@ export function Thread({ messageId, comments, side }: { messageId: Id<"inboxMess
 	if (!comments.length)
 		return (
 			<div className={`flex pt-1.5 opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 ${left ? "justify-start" : "justify-end"}`}>
-				<button type="button" className={commentPillButton} onClick={() => setOpen(true)}>
+				<button type="button" className={`${commentPillButton} pl-2`} onClick={() => setOpen(true)}>
 					<ChatIcon /> Comment
 				</button>
 			</div>
@@ -41,7 +41,7 @@ export function Thread({ messageId, comments, side }: { messageId: Id<"inboxMess
 	return (
 		<div className={`flex pt-1.5 ${left ? "justify-start" : "justify-end"}`}>
 			<button type="button" className={`group/pill ${commentPillButton} pl-1`} onClick={() => setOpen(true)}>
-				<AvatarStack people={authors} size="xs" ring="ring-neutral-100 group-hover/pill:ring-neutral-200" />
+				<AvatarStack people={authors} size="line" ring="ring-neutral-100 group-hover/pill:ring-neutral-200" />
 				{comments.length === 1 ? "1 comment" : `${comments.length} comments`}
 			</button>
 		</div>

@@ -527,9 +527,15 @@ export const titleBarButton =
 	"no-drag flex size-7 items-center justify-center rounded-md text-lg text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
 /** A small round × in a card's corner (a pending file, a link preview). */
 export const cornerCloseButton = "flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
+/**
+ * Every small pill in an Inbox conversation (who's in a line, "Staff", "2 comments"): one height,
+ * shape, font and icon size. Its left edge depends on what leads it: `pl-1` for pictures (they sit
+ * 4px in, all around), `pl-2` for an icon.
+ */
+export const inboxPill = "inline-flex h-6 items-center gap-1.5 rounded-full pr-2.5 text-xs leading-none font-medium [&>svg]:size-4";
+/** An Inbox pill under a message: "Comment", "2 comments". */
+export const commentPillButton = `${inboxPill} bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-900 aria-expanded:bg-neutral-200`;
 /** A 24px icon beside a title (a DM's New chat). */
-/** A small round pill under a message: "Comment", "2 comments" (Inbox). */
-export const commentPillButton = "inline-flex h-7 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-200 hover:text-neutral-900 aria-expanded:bg-neutral-200";
 export const smallIconButton = "flex size-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
 /** An icon with no box of its own (remove a filter, remove a chip): grey, darker on hover. */
 export const bareIconButton = "text-neutral-400 hover:text-neutral-700";

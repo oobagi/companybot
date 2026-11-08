@@ -27,6 +27,7 @@ import {
 	composerButton,
 	descriptionClass,
 	iconButton,
+	inboxPill,
 	linkButton,
 	primaryButton,
 	secondaryButton,
@@ -263,7 +264,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 										/>
 									)}
 									{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
-									{first.direction === "event" && <div aria-hidden className="h-8.5" />}
+									{first.direction === "event" && <div aria-hidden className="h-7.5" />}
 								</div>
 							</Fragment>
 						);
@@ -272,7 +273,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 						<div className="pt-3">
 							<Line who={c.agent} name={c.agentName}>
 								handed this to
-								<span className={`${pillClass} bg-amber-50 text-amber-800`}>
+								<span className={`${inboxPill} bg-amber-50 pl-2 text-amber-800`}>
 									<MembersIcon /> Staff
 								</span>
 							</Line>
@@ -381,9 +382,6 @@ function Assignee({ conversation: c }: { conversation: Opened }) {
 
 type Message = Opened["messages"][number];
 
-/** Every pill in a line: one height, padding, font and icon size, whether it holds a picture or an icon. */
-const pillClass = "inline-flex h-6 items-center gap-1.5 rounded-md pr-2 pl-1 text-xs leading-none font-medium [&>svg]:size-4";
-
 /**
  * A centered line in the conversation, as in "Changed status to [Contacted]": who, as a pill with
  * their picture (their card on click), then what: assignments, hand-offs, an agent writing.
@@ -406,11 +404,11 @@ function PersonPill({ who, name = "Someone" }: { who: Participant | null; name?:
 		</>
 	);
 	return who ? (
-		<ProfileLink who={who} className={`${pillClass} bg-neutral-100 text-neutral-700 hover:bg-neutral-200`}>
+		<ProfileLink who={who} className={`${inboxPill} bg-neutral-100 pl-1 text-neutral-700 hover:bg-neutral-200`}>
 			{inside}
 		</ProfileLink>
 	) : (
-		<span className={`${pillClass} bg-neutral-100 text-neutral-700`}>{inside}</span>
+		<span className={`${inboxPill} bg-neutral-100 pl-1 text-neutral-700`}>{inside}</span>
 	);
 }
 
