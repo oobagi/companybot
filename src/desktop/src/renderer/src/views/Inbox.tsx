@@ -427,7 +427,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 											messageId={item.messages.at(-1)!.id}
 											comments={item.messages.flatMap((m) => m.comments).sort((a, b) => a.at - b.at)}
 											side={email || first.direction === "in" ? "them" : "us"}
-											{...(email && { className: "pb-3 pl-9", quiet: true, open: commenting === first.id, onOpenChange: (on: boolean) => setCommenting(on ? first.id : undefined) })}
+											{...(email && { className: "pb-3 pl-12", quiet: true, open: commenting === first.id, onOpenChange: (on: boolean) => setCommenting(on ? first.id : undefined) })}
 										/>
 									)}
 									{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
@@ -614,7 +614,7 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 	return (
 		<article className={`group/email relative flex flex-col ${open ? "pb-3" : ""}`}>
 			<button type="button" aria-expanded={open} onClick={onToggle} className={`${surfaceButton} flex w-full items-start gap-3 py-2.5`}>
-				<Avatar name={name} image={m.author?.image} agent={m.author?.type === "agent"} size="sm" />
+				<Avatar name={name} image={m.author?.image} agent={m.author?.type === "agent"} size="md" />
 				<span className="flex min-w-0 flex-1 flex-col">
 					{/* Room on the right for the time and buttons over this line. */}
 					<span className="flex min-w-0 items-baseline gap-2 pr-48">
@@ -638,8 +638,8 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 					{dayLabel(m.at)}, {clock(m.at)}
 				</span>
 			</span>
-			{open && <p className="pl-9 break-words whitespace-pre-wrap select-text">{m.text}</p>}
-			{(failed || m.status === "sending") && <p className={`pt-1 pl-9 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
+			{open && <p className="pl-12 break-words whitespace-pre-wrap select-text">{m.text}</p>}
+			{(failed || m.status === "sending") && <p className={`pt-1 pl-12 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 		</article>
 	);
 }
