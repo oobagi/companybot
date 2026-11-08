@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, BoardIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, GroupIcon, EditIcon, HideIcon, ShowIcon, FilterIcon, PlusIcon, PropertiesIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, compactPrimaryButton, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
@@ -187,6 +187,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
+	const canSave = canEdit && selected && draft.dirty;
 
 	return (
 		<Page
@@ -202,11 +203,6 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				// The view's controls share the tabs' row, like Notion's, so the records start right under it.
 				end={
 					<>
-						{canEdit && selected && draft.dirty && (
-							<button type="button" disabled={draft.stale} className={toolButton} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
-								Save for everyone
-							</button>
-						)}
 						{/* Search is an icon until you use it, like Notion's, so the row fits a narrow window. */}
 						{searching || search ? (
 							<input
@@ -303,7 +299,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					)}
 				</p>
 			)}
-			{(filters.length > 0 || sort) && (
+			{(filters.length > 0 || sort || canSave) && (
 				<div className="-mt-2 flex flex-wrap items-center gap-1.5">
 					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} onChange={setSort} />}
 					{filters.map((f) => (
@@ -320,6 +316,12 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					<FieldMenu label="Add filter" fields={fields} onPick={addFilter}>
 						<PlusIcon /> Add filter
 					</FieldMenu>
+					{/* A saved view's changes are yours until saved, so saving stands out, at the end of the row they're on. */}
+					{canSave && (
+						<button type="button" disabled={draft.stale} className={`${compactPrimaryButton} ml-auto`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
+							Save for everyone
+						</button>
+					)}
 				</div>
 			)}
 			{preview === "board" ? (
