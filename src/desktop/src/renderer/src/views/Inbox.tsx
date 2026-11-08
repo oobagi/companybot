@@ -196,7 +196,11 @@ function Messages({ c, them }: { c: Opened; them: string }) {
 						<Fragment key={m.id}>
 							{stamp && <p className="pt-8 pb-4 text-center text-xs text-neutral-400">{dayLabel(m.at)}, {clock(m.at)}</p>}
 							<div className={gap}>
-								{m.direction === "note" ? (
+								{m.assignedTo ? (
+									<Line who={m.author} name="Someone on staff">
+										assigned this to <PersonPill who={m.assignedTo} />
+									</Line>
+								) : m.direction === "note" ? (
 									<Line who={m.author} name="Someone on staff">
 										<span className="whitespace-pre-wrap text-neutral-700 select-text">{m.text}</span>
 									</Line>
@@ -327,23 +331,28 @@ const pillClass = "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-
  * their picture (their card on click), then what. Notes (only staff see them) and hand-offs use it.
  */
 function Line({ who, name, children }: { who: Participant | null; name: string; children: React.ReactNode }) {
-	const pill = (
+	return (
+		<p className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center text-xs text-neutral-500">
+			<PersonPill who={who} name={name} />
+			{children}
+		</p>
+	);
+}
+
+/** Someone in a line, as a pill with their picture; their card on click. */
+function PersonPill({ who, name = "Someone" }: { who: Participant | null; name?: string }) {
+	const inside = (
 		<>
 			<Avatar name={who?.name ?? name} image={who?.image} agent={who?.type === "agent"} size="xs" />
 			{who?.name ?? name}
 		</>
 	);
-	return (
-		<p className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center text-xs text-neutral-500">
-			{who ? (
-				<ProfileLink who={who} className={`${pillClass} bg-neutral-100 text-neutral-700 hover:bg-neutral-200`}>
-					{pill}
-				</ProfileLink>
-			) : (
-				<span className={`${pillClass} bg-neutral-100 text-neutral-700`}>{pill}</span>
-			)}
-			{children}
-		</p>
+	return who ? (
+		<ProfileLink who={who} className={`${pillClass} bg-neutral-100 text-neutral-700 hover:bg-neutral-200`}>
+			{inside}
+		</ProfileLink>
+	) : (
+		<span className={`${pillClass} bg-neutral-100 text-neutral-700`}>{inside}</span>
 	);
 }
 

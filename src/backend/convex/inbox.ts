@@ -148,6 +148,8 @@ export const get = query({
 						error: m.error ?? null,
 						/** Who wrote it on our side (someone on staff, or the agent, `for` the person it acted for); null for theirs. */
 						author,
+						/** An assignment line: who it went to. */
+						assignedTo: m.assignedTo === undefined ? null : m.assignedTo === "agent" ? await names.agent(c.agentId) : await names.user(m.assignedTo),
 					};
 				}),
 			),
@@ -175,7 +177,7 @@ export const assign = mutation({
 	args: { id: v.id("inboxConversations"), to: v.union(v.literal("agent"), v.id("users")) },
 	handler: async (ctx, { id, to }) => {
 		const member = await requirePermission(ctx, "inbox.use");
-		await assignTo(ctx, member, await requireConversation(ctx, member, id), to);
+		await assignTo(ctx, { member }, await requireConversation(ctx, member, id), to);
 	},
 });
 
@@ -275,18 +277,22 @@ export async function startAs(ctx: MutationCtx, who: Who, args: { agentId: Id<"a
  * Gives a conversation to its agent, or to someone on staff who can use Inbox (the agent stops
  * answering it). Either answers a hand-off.
  */
-export async function assignTo(ctx: MutationCtx, member: Member, c: Doc<"inboxConversations">, to: "agent" | Id<"users">) {
+/** Assigns it, and says so in the conversation: a line staff see ("Jaden assigned this to Maya"). */
+export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, to: "agent" | Id<"users">) {
+	const { member, agentId } = who;
 	checkPermission(member, "inbox.use");
 	const answered = c.needsStaff === "handoff" && { needsStaff: undefined };
 	if (to === "agent") {
 		if (!(await ctx.db.get(c.agentId))) throw new ConvexError("Its agent was deleted. Someone on staff answers this one.");
 		await ctx.db.patch(c._id, { mode: "agent", takenBy: undefined, ...answered });
-		return;
+	} else {
+		const them = await memberOf(ctx, to, member.workspaceId);
+		if (!them || !can(them, "inbox.use")) throw new ConvexError("They can't use Inbox. Pick someone whose role can.");
+		await ctx.db.patch(c._id, { mode: "staff", takenBy: to, ...answered });
+		const by = agentId ? ((await ctx.db.get(agentId))?.name ?? "An agent") : await nameOf(ctx, member.userId);
+		await notify(ctx, c, [to], { kind: "assigned", text: `${by} assigned it to you`, actorUserId: member.userId, ...(agentId && { actorAgentId: agentId }), except: agentId ? undefined : member.userId });
 	}
-	const them = await memberOf(ctx, to, member.workspaceId);
-	if (!them || !can(them, "inbox.use")) throw new ConvexError("They can't use Inbox. Pick someone whose role can.");
-	await ctx.db.patch(c._id, { mode: "staff", takenBy: to, ...answered });
-	await notify(ctx, c, [to], { kind: "assigned", text: `${await nameOf(ctx, member.userId)} assigned it to you`, actorUserId: member.userId, except: member.userId });
+	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "note", text: "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: to });
 }
 
 const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>

@@ -450,6 +450,8 @@ export default defineSchema({
 		providerId: v.optional(v.string()),
 		/** Email Message-ID, for threading replies (In-Reply-To, References). */
 		messageId: v.optional(v.string()),
+		/** A `note` that says who it was assigned to (inbox.assign): its agent, or someone on staff. */
+		assignedTo: v.optional(v.union(v.literal("agent"), v.id("users"))),
 		/** An `in` email that failed its sender check (core `senderVerified`): its From may be forged, so it changes none of their records. */
 		unverified: v.optional(v.literal(true)),
 		error: v.optional(v.string()),

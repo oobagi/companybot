@@ -111,7 +111,8 @@ describe("the Public role", () => {
 
 		await owner.mutation(api.inbox.assign, { id: c!._id, to: (await owner.query(api.workspace.team))!.members[0]!.userId });
 		expect(await act("take_message", "Call me back")).toMatch(/taken/);
-		expect((await inboxMessages(t)).filter((m) => m.direction === "note")).toHaveLength(0);
+		// The assignment shows as a line; the agent, stopped, took no message.
+		expect((await inboxMessages(t)).filter((m) => m.direction === "note").map((m) => m.assignedTo ?? m.text)).toEqual([(await owner.query(api.workspace.team))!.members[0]!.userId]);
 	});
 
 	it("sends at once only when owners let agents reply on their own", async () => {
