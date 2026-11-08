@@ -268,6 +268,29 @@ describe("records", () => {
 		await expect(titles(owner, { typeId: deal._id, filters: [{ field: "nope", eq: 1 }] })).rejects.toThrow("no field");
 	});
 
+	it("sorts a choice field in its options' order, a page at a time, following a reorder", async () => {
+		const { owner, deal } = await setup();
+		const stage = deal.fields.find((f) => f.key === "stage")!;
+		const ids = stage.options!.filter((o) => !o.retired).map((o) => o.id);
+		const [first, second] = [ids.at(-1)!, ids[0]!];
+		for (const [name, option] of [["A", first], ["B", second], ["C", first], ["D", undefined]] as const)
+			await owner.mutation(api.records.create, { typeId: deal._id, values: { name, ...(option && { stage: option }) } });
+		const sorted = (order: "asc" | "desc") => titles(owner, { typeId: deal._id, sort: { field: "stage", order } });
+		// The first option, then the last; ties oldest first going up, newest first going down; no stage last.
+		expect(await sorted("asc")).toEqual(["B", "A", "C", "D"]);
+		expect(await sorted("desc")).toEqual(["C", "A", "B", "D"]);
+		const pages: string[] = [];
+		let cursor: string | null = null;
+		for (let done = false; !done; ) {
+			const result: { page: { title: string }[]; isDone: boolean; continueCursor: string } = await owner.query(api.records.list, { typeId: deal._id, sort: { field: "stage", order: "asc" }, paginationOpts: { numItems: 1, cursor } });
+			pages.push(...result.page.map((r) => r.title));
+			({ isDone: done, continueCursor: cursor } = result);
+		}
+		expect(pages).toEqual(["B", "A", "C", "D"]);
+		await owner.mutation(api.fields.update, { fieldId: stage._id, options: [...stage.options!].reverse().map(({ id, label }) => ({ id, label })) });
+		expect(await sorted("asc")).toEqual(["A", "C", "B", "D"]);
+	});
+
 	it("lists what links to a record, optionally through one field", async () => {
 		const { owner, client, deal, task } = await setup();
 		const acme = await owner.mutation(api.records.create, { typeId: client._id, values: { name: "Acme" } });

@@ -184,6 +184,20 @@ describe("changing a field's kind", () => {
 		expect(after!.version).toBe(view!.version);
 	});
 
+	it("turns a text filter into the option it becomes, with no note", async () => {
+		const { owner, typeId, fieldId, seed, finish } = await setup();
+		await seed([{ name: "A", price: "Test" }, { name: "B", price: "Other" }]);
+		await owner.mutation(api.databaseViews.save, { typeId, name: "Tests", filters: [{ field: "price", eq: "test" }], columns: ["name", "price"] });
+		expect(((await owner.query(api.fields.preview, { fieldId, kind: "choice" })) as { views?: string[] } | null)?.views).toEqual([]);
+		await owner.mutation(api.fields.update, { fieldId, kind: "choice" });
+		await finish();
+		const [view] = await owner.query(api.databaseViews.list, { typeId });
+		const option = (await owner.query(api.recordTypes.list)).find((x) => x._id === typeId)!.fields.find((f) => f.key === "price")!.options!.find((o) => o.label === "Test")!;
+		expect(view).toMatchObject({ filters: [{ field: "price", eq: option.id }] });
+		expect(view!.notice).toBeUndefined();
+		expect((await owner.query(api.records.list, { typeId, filters: view!.filters, paginationOpts: page })).page.map((r) => r.title)).toEqual(["A"]);
+	});
+
 	it("takes the databases switch and Edit in the database, and Name stays text", async () => {
 		const { owner, member, fieldId, fieldOf } = await setup();
 		await setMemberSwitch(owner, "fields.edit", false);

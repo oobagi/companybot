@@ -30,7 +30,7 @@ import {
 	recordPath,
 	sortable,
 	toCondition,
-	filterProblem,
+	filterProblem, refitFilter,
 	sortProblem,
 	valueText,
 } from "./logic";
@@ -165,21 +165,29 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	// A filter or sort made before a field changed may not fit it now: it's dropped, and the bar says why.
-	const problems = filters.map((f) => {
+	// A filter or sort made before a field changed may not fit it now. A filter converts when it can
+	// ("is Test" → the option Test, as the values did); otherwise it's dropped, and the bar says why.
+	const refits = filters.map((f) => {
+		const field = fields.find((x) => x.key === f.field);
+		return field && refitFilter(f, field);
+	});
+	const refitted = refits.some(Boolean);
+	const current = filters.map((f, i) => refits[i] ?? f);
+	const problems = current.map((f) => {
 		const field = fields.find((x) => x.key === f.field);
 		const problem = field && filterProblem(f, field);
 		return problem && `Removed the filter on “${field.label}”: ${problem}.`;
 	});
-	const fitting = filters.filter((_, i) => !problems[i]);
+	const fitting = current.filter((_, i) => !problems[i]);
 	const sortField = sort && fields.find((f) => f.key === sort.field);
 	const sortIssue = sortField && sortProblem(sortField);
 	const [tidied, setTidied] = useState<string>();
 	useEffect(() => {
-		if (fitting.length === filters.length && !sortIssue) return;
+		if (!refitted && fitting.length === filters.length && !sortIssue) return;
 		change({ filters: fitting, sort: sortIssue ? undefined : sort });
-		setTidied([...problems.filter(Boolean), ...(sortIssue ? [`Removed the sort by “${sortField.label}”: ${sortIssue}.`] : [])].join(" "));
-	}, [fitting.length, filters.length, sortIssue]);
+		const notes = [...problems.filter(Boolean), ...(sortIssue ? [`Removed the sort by “${sortField.label}”: ${sortIssue}.`] : [])];
+		if (notes.length) setTidied(notes.join(" "));
+	}, [refitted, fitting.length, filters.length, sortIssue]);
 	const conditions = fitting.map(toCondition).filter((c) => c !== null);
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;

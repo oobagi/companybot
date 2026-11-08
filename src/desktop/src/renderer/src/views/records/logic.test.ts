@@ -1,6 +1,6 @@
 import type { Field } from "@companybot/core/records";
 import { describe, expect, it } from "vitest";
-import { defaultColumns, filterProblem, fromConditions, moneyInput, opsFor, recordPath, sortProblem, sortable, toCondition, valueText, whoLabel } from "./logic";
+import { defaultColumns, filterProblem, fromConditions, refitFilter, moneyInput, opsFor, recordPath, sortProblem, sortable, toCondition, valueText, whoLabel } from "./logic";
 
 const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: kind, label: kind, kind, ...extra });
 const stage = field("choice", {
@@ -31,6 +31,13 @@ describe("record screens", () => {
 		expect(sortProblem(field("checkbox"))).toBe("it's a checkbox field now, and those can't be sorted");
 		expect(sortProblem(field("choice", { multiple: true }))).toBe("it holds several values now, and those can't be sorted");
 		expect(sortProblem(field("currency"))).toBeUndefined();
+	});
+
+	it("turns a text filter into the choice option with its label", () => {
+		const choice = field("choice", { options: [{ id: "o1", label: "Test" }] });
+		expect(refitFilter({ field: "x", op: "is", value: "test" }, choice)).toEqual({ field: "x", op: "anyOf", value: ["o1"] });
+		expect(refitFilter({ field: "x", op: "is", value: "nope" }, choice)).toBeUndefined();
+		expect(refitFilter({ field: "x", op: "is", value: "test" }, field("text"))).toBeUndefined();
 	});
 
 	it("offers the operators records.list takes for each kind", () => {

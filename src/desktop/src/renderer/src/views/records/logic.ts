@@ -102,6 +102,17 @@ export function filterProblem(filter: Filter, field: Field): string | undefined 
 	return valid ? undefined : `“${text}” isn't ${field.kind === "currency" ? "an amount" : `a ${field.kind}`}`;
 }
 
+/**
+ * A filter made before its field turned into a choice, as one on the option with its text for a
+ * label ("is Test" → "is any of Test"), like the values converted; undefined if it can't be.
+ */
+export function refitFilter<F extends Filter>(filter: F, field: Field): F | undefined {
+	if (field.kind !== "choice" || filter.op !== "is" || Array.isArray(filter.value)) return undefined;
+	const text = filter.value.trim().toLowerCase();
+	const option = field.options?.find((o) => !o.retired && o.label.trim().toLowerCase() === text);
+	return option && { ...filter, op: "anyOf", value: [option.id] };
+}
+
 /** Why a list can't be sorted by the field now, or undefined if it can. */
 export function sortProblem(field: Field): string | undefined {
 	if (sortable(field)) return undefined;

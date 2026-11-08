@@ -76,6 +76,11 @@ interface Stream {
 	keys: string[];
 	lo?: Bound;
 	hi?: Bound;
+	/**
+	 * Its place among streams read one after another (a choice field's options, in their order):
+	 * keys start with it, so every row of a lower rank comes first.
+	 */
+	rank?: number;
 }
 
 /** What one request has read so far. Every read goes through it. */
@@ -269,7 +274,8 @@ export async function validateView(ctx: QueryCtx, fields: Fields, conditions: Co
 
 function keyOf(s: Stream, row: Row): Key {
 	const r = row as unknown as Record<string, string | number | undefined>;
-	return s.table === "records" ? [...s.keys.map((k) => r[k]!), r._id!] : s.keys.map((k) => r[k]!);
+	const key = s.table === "records" ? [...s.keys.map((k) => r[k]!), r._id!] : s.keys.map((k) => r[k]!);
+	return s.rank === undefined ? key : [s.rank, ...key];
 }
 
 const compareKeys = (a: Key, b: Key) => {
@@ -311,8 +317,15 @@ async function tie(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "des
  * The stream's rows after `after`, in order, about `limit` of them. `more`: there may be more.
  * For `records`, only whole groups of tied rows come back, so ties can be taken in id order.
  */
-async function readStream(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "desc", after: Key | undefined, limit: number) {
+async function readStream(ctx: QueryCtx, budget: Budget, s: Stream, order: "asc" | "desc", position: Key | undefined, limit: number) {
 	const sign = order === "asc" ? 1 : -1;
+	// A ranked stream starts over past a lower rank, and is used up past a higher one.
+	let after = position;
+	if (s.rank !== undefined && after) {
+		const rank = after[0] as number;
+		if ((rank - s.rank) * sign > 0) return { items: [] as Item[], more: false };
+		after = rank === s.rank ? after.slice(1) : undefined;
+	}
 	const n = s.keys.length;
 	const grouped = s.table === "records";
 	const items: Item[] = after && grouped ? (await tie(ctx, budget, s, order, after)).filter((i) => compareKeys(i.key, after) * sign > 0) : [];
@@ -382,7 +395,7 @@ class Holders {
  * Live records by creation time come from their name rows (every live record has one), so
  * ties page by id; archived ones, which have no index rows, from the records themselves.
  */
-function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, fields: Fields, checks: Check[], sortStream?: Stream): Stream[] | undefined {
+function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, fields: Fields, checks: Check[], sortStreams?: Stream[]): Stream[] | undefined {
 	const name = fields.find((f) => f.key === NAME_KEY);
 	if ((plan === "t" || plan === "e") && !archived && name)
 		return [{ table: "recordValues", index: "by_field_at", prefix: [["fieldId", name._id]], keys: ["at", "recordId"] }];
@@ -395,7 +408,7 @@ function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, 
 				keys: plan === "t" ? ["_creationTime"] : ["updatedAt", "_creationTime"],
 			},
 		];
-	if (plan === "s") return sortStream && [sortStream];
+	if (plan === "s") return sortStreams;
 	const check = /^c\d+$/.test(plan) ? checks[Number(plan.slice(1))] : undefined;
 	return check?.eqStreams ?? (check?.rangeStream && [check.rangeStream]);
 }
@@ -404,8 +417,8 @@ function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, 
  * Picks the driver: the sort, else the fewest rows among equalities, else among ranges,
  * else the type. Counting is shared out of PROBE_ROWS and read through the budget.
  */
-async function choosePlan(ctx: QueryCtx, budget: Budget, checks: Check[], sort: Sort | undefined, sortStream: Stream | undefined) {
-	if (sortStream) return "s";
+async function choosePlan(ctx: QueryCtx, budget: Budget, checks: Check[], sort: Sort | undefined, sortStreams: Stream[] | undefined) {
+	if (sortStreams) return "s";
 	if (sort?.field === "updatedAt") return "u";
 	if (sort?.field === "createdAt") return "t";
 	const candidates = checks.filter((c) => c.eqStreams ?? c.rangeStream).length;
@@ -485,7 +498,9 @@ export async function findRecords(
 	if (search && search.length > SEARCH_MAX) throw new ConvexError(`Search for up to ${SEARCH_MAX} characters.`);
 	const words = search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
 	// Conditions as resolved, so a cursor stops working if what they mean changes (say, the workspace's currency).
-	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, checks.map((c) => c.resolved), sort ?? null, words]));
+	// A choice sort follows its options' order, so reordering them starts the list again.
+	const sortField = sort && fields.find((f) => f.key === sort.field && f.kind === "choice");
+	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, checks.map((c) => c.resolved), sort ?? null, words, sortField?.options?.map((o) => o.id) ?? null]));
 	const start = paginationOpts.cursor ? parseCursor(paginationOpts.cursor, fingerprint) : undefined;
 	const endCursor = paginationOpts.endCursor ?? undefined;
 	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
@@ -494,7 +509,7 @@ export async function findRecords(
 	const byField = sort && !["createdAt", "updatedAt"].includes(sort.field);
 	// Archived records have no index rows, so their lists scan the type and check every condition.
 	if (archived && byField) throw new ConvexError("Archived records can't be sorted by a field.");
-	let sortStream: Stream | undefined;
+	let sortStreams: Stream[] | undefined;
 	// Sorted by a field, records without a value come last, newest first: the field's rows by creation time tell them apart.
 	let holdersStream: Stream | undefined;
 	let onlyEmpty = false;
@@ -504,7 +519,11 @@ export async function findRecords(
 		if (field.multiple || field.kind === "link") throw new ConvexError(`Lists can't be sorted by “${field.label}”.`);
 		// A range on the sort field narrows the scan (and picks the currency).
 		const own = checks.find((c) => c.field._id === field._id && (c.rangeStream?.lo || c.rangeStream?.hi));
-		sortStream = own?.rangeStream ?? valueStream(field);
+		// A choice field lists in its options' order, like Notion's: each option's records in turn, so reordering them needs no reindex.
+		sortStreams =
+			field.kind === "choice"
+				? (field.options ?? []).map((o, rank) => ({ ...eqStream(field, { str: o.id }), rank }))
+				: [own?.rangeStream ?? valueStream(field)];
 		// Any other condition on the field needs a value, and every record has a name.
 		const onField = conditions.filter((c) => c.field === field.key);
 		onlyEmpty = onField.some((c) => c.empty === true);
@@ -518,7 +537,7 @@ export async function findRecords(
 	let plan =
 		start?.p ??
 		(endAt && !(holdersStream && endAt.p === "e") ? endAt.p : undefined) ??
-		(archived ? (sort?.field === "updatedAt" ? "u" : "t") : onlyEmpty && holdersStream ? "e" : await choosePlan(ctx, budget, checks, sort, sortStream));
+		(archived ? (sort?.field === "updatedAt" ? "u" : "t") : onlyEmpty && holdersStream ? "e" : await choosePlan(ctx, budget, checks, sort, sortStreams));
 	if (plan === "e" && !holdersStream) throw new ConvexError("That page is out of date. Start the list again.");
 	const cursor = (a: Key | undefined) => JSON.stringify({ q: fingerprint, p: plan, a } satisfies Cursor);
 	const limit = endAt?.a ? pageMax : Math.min(paginationOpts.numItems, pageMax);
@@ -532,7 +551,7 @@ export async function findRecords(
 	let holders: Holders | undefined;
 	let state: { s: Stream; buffer: Item[]; more: boolean }[] = [];
 	const begin = () => {
-		const found = streamsFor(plan, typeId, archived, fields, checks, sortStream);
+		const found = streamsFor(plan, typeId, archived, fields, checks, sortStreams);
 		if (!found) throw new ConvexError("That page is out of date. Start the list again.");
 		streams = found;
 		// Ranges drive in their own order, records without the sort field's value newest first, everything else in the asked (or newest-first) order.
@@ -550,8 +569,11 @@ export async function findRecords(
 		endCursor ? { page, isDone: false, continueCursor: endCursor, splitCursor: cursor(after), pageStatus: "SplitRequired" } : { page, isDone: false, continueCursor: cursor(after) };
 
 	for (;;) {
+		// Ranked streams come one after another: only the first with rows left is read.
+		const ranked = state[0]?.s.rank !== undefined;
+		const current = ranked ? (sign > 0 ? state : [...state].reverse()).find((st) => st.buffer.length || st.more) : undefined;
 		for (const st of state) {
-			if (st.buffer.length || !st.more) continue;
+			if (st.buffer.length || !st.more || (ranked && st !== current)) continue;
 			let take = Math.max(2, Math.floor(CHUNK / state.filter((x) => x.more).length));
 			// Records come whole, so read only as many as the budget has room for.
 			if (st.s.table === "records") take = Math.min(take, Math.floor((SCAN_BYTES - budget.bytes) / DOC_MAX) - (after ? 1 : 0));
@@ -562,6 +584,8 @@ export async function findRecords(
 		for (const st of state)
 			if (st.buffer.length && (!next || compareKeys(st.buffer[0]!.key, next.buffer[0]!.key) * sign < 0)) next = st;
 		if (!next) {
+			// A ranked stream ran out: read the next one.
+			if (state.some((st) => st.more)) continue;
 			if (plan !== "s" || !holdersStream) return { page, isDone: true, continueCursor: endCursor ?? cursor(after) };
 			// The page ends among the records with a value: the rest is the next page's.
 			if (endAt?.p === "s") return { page, isDone: false, continueCursor: endCursor! };
