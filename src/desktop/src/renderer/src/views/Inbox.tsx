@@ -640,24 +640,49 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 	const [history, setHistory] = useState(false);
 	return (
 		<article className={`group/email relative flex flex-col ${open ? "pb-3" : ""}`}>
-			{/* Folded, one line: who, then a gray preview. Open, who and their address, with the email under it. */}
-			<button type="button" aria-expanded={open} onClick={onToggle} className={`${surfaceButton} flex w-full gap-3 py-2.5 ${open ? "items-start" : "items-center"}`}>
-				<Avatar name={name} image={m.author?.image} agent={m.author?.type === "agent"} size="md" />
-				{/* Room on the right for the time and buttons over this line. */}
-				<span className="flex min-w-0 flex-1 items-baseline gap-2 pr-48">
-					<span className="shrink-0 font-medium text-neutral-900">{name}</span>
-					{open ? (
-						<span className={`min-w-0 truncate ${metadataClass}`}>
-							{mine ? `to ${them}` : contact}
-							{m.cc.length > 0 && `, also to ${m.cc.join(", ")}`}
-							{forWho && `, for ${forWho.name}`}
-							{m.delivery === "delivered" && " · Delivered"}
-						</span>
+			{/*
+			 * Folded, one line: who, then a gray preview. Open, who and their address, with the email under it.
+			 * The whole row folds and opens it; our people's and agents' names and pictures open their card, as in texts.
+			 */}
+			<div className={`relative flex w-full gap-3 py-2.5 ${open ? "items-start" : "items-center"}`}>
+				<button type="button" aria-expanded={open} aria-label={`${open ? "Fold" : "Open"} the email from ${name}`} onClick={onToggle} className={`${surfaceButton} absolute inset-0`} />
+				<span className="pointer-events-none relative flex min-w-0 flex-1 gap-3">
+					{m.author ? (
+						<ProfileLink who={m.author} className="pointer-events-auto shrink-0 self-start rounded-full">
+							<Avatar name={name} image={m.author.image} agent={m.author.type === "agent"} size="md" />
+						</ProfileLink>
 					) : (
-						<span className="min-w-0 truncate text-neutral-500">{m.text.replace(/\s+/g, " ")}</span>
+						<Avatar name={name} size="md" />
 					)}
+					{/* Room on the right for the time and buttons over this line. */}
+					<span className={`flex min-w-0 flex-1 items-baseline gap-2 pr-48 ${open ? "" : "self-center"}`}>
+						{m.author ? (
+							<ProfileLink who={m.author} className="pointer-events-auto shrink-0 font-medium text-neutral-900 hover:underline">
+								{name}
+							</ProfileLink>
+						) : (
+							<span className="shrink-0 font-medium text-neutral-900">{name}</span>
+						)}
+						{open ? (
+							<span className={`min-w-0 truncate ${metadataClass}`}>
+								{mine ? `to ${them}` : contact}
+								{m.cc.length > 0 && `, also to ${m.cc.join(", ")}`}
+								{forWho && (
+									<>
+										{", for "}
+										<ProfileLink who={forWho} className="pointer-events-auto hover:underline">
+											{forWho.name}
+										</ProfileLink>
+									</>
+								)}
+								{m.delivery === "delivered" && " · Delivered"}
+							</span>
+						) : (
+							<span className="min-w-0 truncate text-neutral-500">{m.text.replace(/\s+/g, " ")}</span>
+						)}
+					</span>
 				</span>
-			</button>
+			</div>
 			<span className={`absolute right-0 flex items-center gap-0.5 ${open ? "top-2" : "top-3.5"}`}>
 				<button type="button" title="Comment" aria-label="Comment" className={`${smallIconButton} ${hover}`} onClick={onComment}>
 					<ChatIcon />
@@ -671,7 +696,7 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 			</span>
 			{/* Pulled up under the name, not under the picture. */}
 			{open && (
-				<div className="-mt-5 flex flex-col items-start gap-2 pl-12">
+				<div className="relative -mt-5 flex flex-col items-start gap-2 pl-12">
 					<LinkedText text={m.text} className="w-full" />
 					{/* The history their mail app quoted under it, folded like Gmail's. */}
 					{m.quoted && (
