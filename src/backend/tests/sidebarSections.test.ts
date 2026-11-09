@@ -126,9 +126,8 @@ it("lets go of what's deleted forever, keeps what's archived, and goes with its 
 	const sections = { chat: await owner.mutation(api.sidebarSections.create, { tab: "chat", name: "A" }), databases: await owner.mutation(api.sidebarSections.create, { tab: "databases", name: "B" }), drive: await owner.mutation(api.sidebarSections.create, { tab: "drive", name: "C" }) };
 	const items = [["chat", "channel", channel], ["databases", "database", type], ["drive", "page", page], ["drive", "file", file]] as const;
 	for (const [tab, , id] of items) await place(owner, tab, id, sections[tab]);
-	// Inbox's starting sections hold fixed rows, never anything deleted: left out here.
-	const stored = () => t.run(async (ctx) => (await ctx.db.query("sidebarSections").collect()).filter((s) => s.tab !== "inbox").flatMap((s) => s.ids));
-	const shown = async () => (await layout(owner)).sections.filter((s) => s.tab !== "inbox").flatMap((s) => s.ids);
+	const stored = () => t.run(async (ctx) => (await ctx.db.query("sidebarSections").collect()).flatMap((s) => s.ids));
+	const shown = async () => (await layout(owner)).sections.flatMap((s) => s.ids);
 	vi.useFakeTimers();
 	for (const [, kind, id] of items) await owner.mutation(api.trash.move, { kind, id });
 	// Archived: out of sight, still held, back on restore.
@@ -145,24 +144,23 @@ it("lets go of what's deleted forever, keeps what's archived, and goes with its 
 	expect(await t.run((ctx) => ctx.db.query("sidebarSections").collect())).toEqual([]);
 });
 
-it("starts Inbox with Channels and Tags, and moves its rows within and between sections like any tab's", async () => {
+it("moves Inbox's views within and between sections like any tab's, and keeps its Channels group to itself", async () => {
 	const { owner, member } = await ownerAndMember();
-	expect(await sectionsOf(owner, "inbox")).toEqual([
-		{ name: "Channels", ids: ["email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat"] },
-		{ name: "Tags", ids: ["tags"] },
-	]);
-	const [channels, tags] = (await layout(owner)).sections.filter((s) => s.tab === "inbox").map((s) => s._id);
-	// A row in no section moves in; one in a section moves out, back among the rows in none where it's dropped.
-	await place(owner, "inbox", "needs", tags!, "tags");
-	await place(owner, "inbox", "sms", null, "all", ["mine", "agent", "all"]);
-	expect(await sectionsOf(owner, "inbox")).toEqual([
-		{ name: "Channels", ids: ["email", "calls", "whatsapp", "instagram", "messenger", "webchat"] },
-		{ name: "Tags", ids: ["needs", "tags"] },
-	]);
-	expect((await layout(owner)).rows.find((r) => r.list === "inbox")?.ids).toEqual(["mine", "agent", "sms", "all"]);
-	// Only Inbox's own rows, and only with `sidebar.arrange`.
-	await expect(place(owner, "inbox", "nonsense", channels!)).rejects.toThrow("Not found.");
-	await expect(owner.mutation(api.arrangements.change, { list: "inbox", command: { op: "move", id: "nonsense", beforeId: null } })).rejects.toThrow();
+	// It starts with no sections: Channels and Tags are built in, like Direct messages.
+	expect(await sectionsOf(owner, "inbox")).toEqual([]);
+	const mine = await owner.mutation(api.sidebarSections.create, { tab: "inbox", name: "Mine" });
+	// A view in no section moves in; one in a section moves out, back among the views in none where it's dropped.
+	await place(owner, "inbox", "needs", mine);
+	await place(owner, "inbox", "agent", mine, "needs");
+	await place(owner, "inbox", "agent", null, "all", ["mine", "all"]);
+	expect(await sectionsOf(owner, "inbox")).toEqual([{ name: "Mine", ids: ["needs"] }]);
+	expect((await layout(owner)).rows.find((r) => r.list === "inbox")?.ids).toEqual(["mine", "agent", "all"]);
+	// Channels reorder within their group, and never go into a section.
+	await owner.mutation(api.arrangements.change, { list: "inboxChannels", command: { op: "move", id: "sms", beforeId: "email", fill: ["email", "sms"] } });
+	expect((await layout(owner)).rows.find((r) => r.list === "inboxChannels")?.ids).toEqual(["sms", "email"]);
+	await expect(place(owner, "inbox", "email", mine)).rejects.toThrow("Not found.");
+	await expect(owner.mutation(api.arrangements.change, { list: "inbox", command: { op: "move", id: "email", beforeId: null } })).rejects.toThrow();
+	// Only with `sidebar.arrange`.
 	await setMemberSwitch(owner, "sidebar.arrange", false);
-	await expect(place(member, "inbox", "email", tags!)).rejects.toThrow();
+	await expect(place(member, "inbox", "mine", mine)).rejects.toThrow();
 });

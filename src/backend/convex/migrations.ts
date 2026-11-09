@@ -13,7 +13,6 @@ import { accessOf, memberOf, memberProfile, rolesOf, timeZoneOf } from "./lib";
 import { appendPageBlock } from "./pageOps";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
-import { seedInboxSections } from "./sectionOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -508,15 +507,6 @@ export const railDropCustomize = migrations.define({
 	},
 });
 
-// Inbox's sidebar takes sections like Chat's: workspaces from before get its starting ones (Channels, Tags).
-export const inboxSections = migrations.define({
-	table: "workspaces",
-	batchSize: 50,
-	migrateOne: async (ctx, row) => {
-		if (!row.resetting && !row.deleting) await seedInboxSections(ctx, row._id);
-	},
-});
-
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -554,7 +544,6 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
 	internal.migrations.railDropCustomize,
-	internal.migrations.inboxSections,
 	internal.migrations.agentCustomerReplies,
 ];
 

@@ -18,8 +18,10 @@ export const arrangementLists = {
 	rail: { scope: "personal", entity: undefined },
 	/** Drive's rows above its tree, in your order: Home and the views (`driveRowIds`). */
 	driveRows: { scope: "personal", entity: undefined },
-	/** Inbox's sidebar rows in no section (`inboxRowIds`), in the workspace's order. */
+	/** Inbox's views in no section (`inboxRowIds`), in the workspace's order. */
 	inbox: { scope: "shared", entity: undefined },
+	/** Inbox's Channels group (`inboxChannelIds`), in the workspace's order. */
+	inboxChannels: { scope: "shared", entity: undefined },
 	workspaces: { scope: "account", entity: undefined },
 } as const;
 export type ArrangementList = keyof typeof arrangementLists;
@@ -59,14 +61,15 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
 /**
- * Built-in sidebar sections that fold (`folded`): Chat's Direct messages and Drive's All files. Sections
- * people add (`sidebarSections` rows) fold by their ids in the same list.
+ * Built-in sidebar sections that fold (`folded`): Chat's Direct messages, Drive's All files, Inbox's Channels
+ * and Tags. They're always there: nobody deletes them. Sections people add (`sidebarSections` rows) fold by
+ * their ids in the same list.
  */
-export const builtInSections = ["dms", "files"];
+export const builtInSections = ["dms", "files", "inboxChannels", "inboxTags"];
 /**
  * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
  * orders their items in no section: Chat's channels, Drive's top-level pages, folders and files, the
- * databases, Inbox's rows (`inboxRowIds`). Each item is in at most one of its tab's sections.
+ * databases, Inbox's views (`inboxRowIds`). Each item is in at most one of its tab's sections.
  */
 export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases", inbox: "inbox" } as const;
 export type SectionTab = keyof typeof sectionTabs;
@@ -79,15 +82,12 @@ export const railTabs: readonly string[] = ["home", "chat", "inbox", "drive", "d
 /** Drive's sidebar rows above its tree: Home (the top level) and the views (desktop `views/drive/Views.tsx`). */
 export const driveRowIds = ["home", "recent", "shared", "private"];
 /**
- * Inbox's sidebar rows (desktop `views/Inbox.tsx`): who's handling what, then the channels, then what's
- * planned. Fixed, so the server accepts only these in Inbox's list and sections.
+ * Inbox's views at the top of its sidebar (desktop `views/Inbox.tsx`): who's handling what. They move
+ * like Chat's channels, into and out of sections people add. Fixed, so the server accepts only these.
  */
-export const inboxRowIds = ["needs", "mine", "agent", "all", "email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat", "tags"];
-/** The sections a workspace's Inbox starts with, ordinary ones people rename, reorder or delete. */
-export const inboxStartSections = [
-	{ name: "Channels", ids: ["email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat"] },
-	{ name: "Tags", ids: ["tags"] },
-];
+export const inboxRowIds = ["needs", "mine", "agent", "all"];
+/** Inbox's built-in Channels group, like Chat's Direct messages: reordered within it, never deleted or moved out. */
+export const inboxChannelIds = ["email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
 

@@ -66,9 +66,10 @@ import {
 } from "../ui";
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
-import { AddButton, AddMenu, Item, SectionGroup, SectionsNav } from "./chat/Sidebar";
+import { AddButton, AddMenu, Group as NavGroup, Item, SectionGroup, SectionsNav } from "./chat/Sidebar";
 import { useUnsectioned } from "../sections";
-import type { DragProps } from "../sortable";
+import { type DragProps, useSortable } from "../sortable";
+import { useStoredIds } from "../arrangements";
 import { Composer } from "./chat/Composer";
 import { Thread } from "./InboxComments";
 import { ProfileLink } from "./chat/Profile";
@@ -112,7 +113,8 @@ const planned = [
 
 const filters: Record<string, { label: string; icon: React.ReactNode; match?: (c: Row) => boolean; text?: string; row?: string }> = Object.fromEntries([...views, ...channels, ...planned].map((f) => [f.id, f]));
 /** Every sidebar row, in the order a new Inbox shows them (core `inboxRowIds`). */
-const inboxRows = [...views, ...channels, ...planned];
+const channelRows = [...channels, ...planned.filter((f) => f.id !== "tags")];
+const tagsRow = planned.find((f) => f.id === "tags")!;
 const rowKey = (r: { id: string }) => r.id;
 
 // Which one is picked: the sidebar sets it, the conversation list reads it. Kept per computer.
@@ -145,15 +147,18 @@ function useFilter() {
 }
 
 /**
- * Inbox's sidebar: views of who's handling what (Needs you counts what waits for staff), the channels,
- * and what's planned, greyed. Laid out like Chat's: the rows in no section on top, in the workspace's
- * order, then its sections (a workspace starts with Channels and Tags). With `sidebar.arrange`, drag
- * rows within and between them. The conversations are in their own column (InboxView).
+ * Inbox's sidebar, laid out like Chat's: the views of who's handling what (Needs you counts what waits
+ * for staff) on top and in the sections people add, moving like Chat's channels; then the built-in
+ * Channels and Tags groups, like Direct messages: they fold, Channels' rows reorder, and nobody deletes them. The conversations are in their own column (InboxView).
  */
 export function InboxNav() {
 	const list = useQuery(api.inbox.list);
 	const [filter, pick] = useFilter();
-	const { sorted, drag } = useUnsectioned("inbox", inboxRows, rowKey);
+	// The views move like Chat's channels, into sections people add; Channels and Tags are built in, like Direct messages.
+	const { sorted, drag } = useUnsectioned("inbox", views, rowKey);
+	const channelOrder = useSortable("inboxChannels", channelRows, rowKey);
+	const [folded, changeFolded] = useStoredIds("folded");
+	const fold = (id: string) => ({ collapsed: folded.includes(id), onToggle: () => changeFolded({ op: folded.includes(id) ? "remove" : "add", id }) });
 	const count = (match: (c: Row) => boolean) => list?.filter(match).length ?? 0;
 	const row = (id: string, drag: DragProps | undefined) => {
 		const f = filters[id];
@@ -178,6 +183,12 @@ export function InboxNav() {
 					<SectionGroup {...at} tab="inbox" section={section} rows={section.ids.filter((id) => id in filters)} keep={(id) => id === filter} render={(id, drag) => row(id, drag?.item)} />
 				)}
 			</SectionsNav>
+			<NavGroup title="Channels" section={fold("inboxChannels")}>
+				{channelOrder.sorted.map((r) => row(r.id, channelOrder.drag(r.id)))}
+			</NavGroup>
+			<NavGroup title="Tags" section={fold("inboxTags")}>
+				{row(tagsRow.id, undefined)}
+			</NavGroup>
 		</>
 	);
 }

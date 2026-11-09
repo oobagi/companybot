@@ -513,24 +513,3 @@ it("gives sub-pages from before pages were blocks exactly one block in their par
 	}
 	expect((await blocks()).sort()).toEqual([old, placed].sort());
 });
-
-it("gives workspaces from before Inbox's sections its starting ones, once, and leaves ones that have them alone", async () => {
-	const t = convexTest({ schema, modules, transactionLimits: true });
-	migrationsTest.register(t);
-	const owner = await signIn(t, "owner@co.com");
-	const inbox = () => t.run(async (ctx) => (await ctx.db.query("sidebarSections").collect()).filter((s) => s.tab === "inbox").map((s) => s.name));
-	// From before: no Inbox sections.
-	await t.run(async (ctx) => { for (const s of await ctx.db.query("sidebarSections").collect()) await ctx.db.delete(s._id); });
-	expect(await inbox()).toEqual([]);
-	vi.useFakeTimers();
-	try {
-		await t.mutation(internal.migrations.runAll);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		await t.mutation(internal.migrations.runAll);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-	} finally {
-		vi.useRealTimers();
-	}
-	expect(await inbox()).toEqual(["Channels", "Tags"]);
-	expect((await owner.query(api.arrangements.get))!.sections.filter((s) => s.tab === "inbox").length).toBe(2);
-});
