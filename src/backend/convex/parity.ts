@@ -3,9 +3,9 @@
 // such a claim goes stale silently once they can (tests/parity.test.ts refuses it).
 // Mixed entries name the covered subset and the authority decision that stays human-only.
 export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = {
-	"recordTypes.setDisplay": { humanOnly: "People choose the database All tab display directly in the app." },
-	"recordTypes.migrateDisplay": { humanOnly: "Imports this computer's database display once." },
-	"arrangements.change": { humanOnly: "People arrange their navigation and database display directly in the app." },
+	"recordTypes.setDisplay": { humanOnly: "COMPAT(0.1.0-alpha.11): refuses every call; views are changed with databaseViews.save." },
+	"recordTypes.migrateDisplay": { humanOnly: "COMPAT(0.1.0-alpha.11): an old app's one-time import, which saves nothing now." },
+	"arrangements.change": { humanOnly: "People arrange their navigation and view tabs directly in the app." },
 	"arrangements.migrate": { humanOnly: "Imports this computer's navigation once, without replacing saved arrangements." },
 	"sidebarSections.create": { humanOnly: "People lay out the shared sidebar directly in the app, like its order (arrangements.change)." },
 	"sidebarSections.rename": { humanOnly: "People lay out the shared sidebar directly in the app, like its order (arrangements.change)." },

@@ -1229,6 +1229,7 @@ export default defineSchema({
 	recordTypes: defineTable({
 		/** Sources retained across edits and later audience changes. Older rows have none. */
 		usedPlaces,
+		// COMPAT(0.1.0-alpha.11): the old All tab's shared layout. Once migrations.allView has run on prod, drop this and `databaseDisplay`. Only that migration reads it.
 		display: v.optional(databaseDisplay),
 		version: v.optional(v.number()),
 		workspaceId: v.id("workspaces"),

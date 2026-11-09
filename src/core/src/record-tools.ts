@@ -362,7 +362,7 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.views",
 		title: "Look up saved views",
-		description: "The database's shared saved views, with ids, versions, filters, sort, columns, layout (table unless board) and groupBy. Read before changing one. Field keys and filter values are stored ids, not display labels.",
+		description: "The database's shared views in tab order (the first is the one it opens on), with ids, versions, filters, sort, columns, layout (table unless board) and groupBy. Read before changing one. Field keys and filter values are stored ids, not display labels.",
 		input: z.object({ type: z.string() }),
 		readOnly: true,
 		returnsData: true,
@@ -372,7 +372,7 @@ export const recordTools: ToolDef[] = [
 	defineTool({
 		id: "records.save_view",
 		title: "Save a database view",
-		description: "Create, rename, change or delete a named filter, sort, columns and layout (table, or a board grouped by a choice field) for everyone in the workspace, when asked. New views need a name; default columns include Name. Changes run right away and are logged in Activity; record undo does not undo view changes. Name fields by key, teammates by id, email or me, and linked records by id: a view keeps them.",
+		description: "Create, rename, change or delete a named filter, sort, columns and layout (table, or a board grouped by a choice field) for everyone in the workspace, when asked. New views need a name; default columns include Name. A database keeps at least one view, so its last can't be deleted. Changes run right away and are logged in Activity; record undo does not undo view changes. Name fields by key, teammates by id, email or me, and linked records by id: a view keeps them.",
 		input: viewInput,
 		riskFor: (input) => input.remove === true ? "locked" : "inside",
 		permission: "records.edit",

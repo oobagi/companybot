@@ -23,7 +23,7 @@ It's the same app in a web browser and as the desktop app for Mac. The desktop a
 ## What syncs
 Your rail tabs, pins, recents, pin order, DM order, folded sections and expanded folders and pages follow your account in each workspace. Your workspace switcher order follows your account across workspaces.
 
-Sidebar sections (their names, order and what's in them), channel order, page sibling order, database order, database view tab order, and each database's All tab columns and layout are shared with the workspace. People whose role can **rearrange shared sidebar lists** can change these; Member can unless an owner turned it off. Moving a page to another parent works as before.
+Sidebar sections (their names, order and what's in them), channel order, page sibling order, database order and database view tab order are shared with the workspace. People whose role can **rearrange shared sidebar lists** can change these; Member can unless an owner turned it off. Moving a page to another parent works as before.
 
 Sidebar width, hidden state and chat drafts stay on this computer (in a browser, in that browser). On first load, existing arrangements from this computer are copied up only where nothing is saved yet, then the local keys are deleted. Recents start fresh; old pins are claimed by whoever signs in first on a shared computer. An import that fails retries next launch while you keep using the app.
 

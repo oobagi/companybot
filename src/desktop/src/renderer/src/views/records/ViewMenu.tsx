@@ -26,8 +26,8 @@ type Page = "main" | "layout" | "properties" | "group" | { field: string };
 
 /** Each part is there only for whoever may change it. */
 export type ViewMenuProps = {
-	/** A saved view, for whoever may edit it. */
-	view?: { name: string; onRename: (name: string) => void; onDuplicate: () => void; onDelete: () => void };
+	/** The open view, for whoever may edit it. No `onDelete` when it's the database's last one. */
+	view?: { name: string; onRename: (name: string) => void; onDuplicate: () => void; onDelete?: () => void };
 	layout?: { value: LayoutChoice; onChange: (layout: LayoutChoice) => void };
 	properties?: {
 		fields: TypeField[];
@@ -125,9 +125,11 @@ function MainPage({ view, layout, properties, group, onEditDatabase, close, onPa
 					<MenuItem onClick={() => (close(), view.onDuplicate())}>
 						<CopyIcon className="text-neutral-400" /> Duplicate view
 					</MenuItem>
-					<MenuItem danger onClick={() => (close(), view.onDelete())}>
-						<TrashIcon /> Delete view
-					</MenuItem>
+					{view.onDelete && (
+						<MenuItem danger onClick={() => (close(), view.onDelete?.())}>
+							<TrashIcon /> Delete view
+						</MenuItem>
+					)}
 				</>
 			)}
 		</>

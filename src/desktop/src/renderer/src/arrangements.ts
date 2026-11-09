@@ -71,9 +71,8 @@ export function useStoredIds(list: ArrangementList, entityId?: string) {
 
 type Storage = Pick<globalThis.Storage, "length" | "key" | "getItem" | "removeItem">;
 type Import = FunctionArgs<typeof api.arrangements.migrate>;
-type Display = FunctionArgs<typeof api.recordTypes.migrateDisplay>;
 /** COMPAT(0.1.0-alpha.10): the one-time localStorage import; delete with `arrangements.migrate`. Failed keys stay for the next launch; an unavailable upload must not prevent opening the app. */
-export async function migrateArrangements(storage: Storage, upload: (args: Import) => Promise<unknown>, uploadDisplay: (args: Display) => Promise<unknown>) {
+export async function migrateArrangements(storage: Storage, upload: (args: Import) => Promise<unknown>) {
 	const keys = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter((key): key is string => !!key && (!!legacyArrangement(key) || /^(rail\.(pins|recent)|sidebar\.(channels|dms|databases|pages)|pages-expanded:|views\.order:|records\.(columns|layout)\.)/.test(key)));
 	for (const key of keys) {
 		try {
@@ -82,15 +81,10 @@ export async function migrateArrangements(storage: Storage, upload: (args: Impor
 			if (!target || target.list === "recent") { storage.removeItem(key); continue; }
 			let value: unknown;
 			try { value = JSON.parse(storage.getItem(key) ?? "null"); } catch { /* Discard malformed local data. */ }
-			if (target.list === "layout") {
-				const layout = value as { layout?: string; groupBy?: string } | null;
-				await uploadDisplay({ databaseKey: target.databaseKey!, display: { layout: layout?.layout === "board" ? "board" : "table", ...(typeof layout?.groupBy === "string" && { groupBy: layout.groupBy }) } });
-			} else {
-				let ids = Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === "string" && !!id && id.length <= 256))].slice(0, 4000) : [];
-				while (JSON.stringify(ids).length > 128_000) ids.pop();
-				// Old pins have no account identity: the first signed-in person here claims them.
-				await upload({ list: target.list, entityId: target.entityId, databaseKey: target.databaseKey, targetWorkspaceId: target.workspaceId, ids });
-			}
+			let ids = Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === "string" && !!id && id.length <= 256))].slice(0, 4000) : [];
+			while (JSON.stringify(ids).length > 128_000) ids.pop();
+			// Old pins have no account identity: the first signed-in person here claims them.
+			await upload({ list: target.list, entityId: target.entityId, targetWorkspaceId: target.workspaceId, ids });
 			storage.removeItem(key);
 		} catch (error) { console.error("Could not import arrangement", key, error); }
 	}
@@ -98,14 +92,13 @@ export async function migrateArrangements(storage: Storage, upload: (args: Impor
 
 export function useArrangementMigration(userId?: string) {
 	const upload = useMutation(api.arrangements.migrate);
-	const uploadDisplay = useMutation(api.recordTypes.migrateDisplay);
 	const [done, setDone] = useState(false);
 	useEffect(() => {
 		if (!userId) return;
 		let active = true;
-		void migrateArrangements(localStorage, upload, uploadDisplay).catch(console.error).finally(() => { if (active) setDone(true); });
+		void migrateArrangements(localStorage, upload).catch(console.error).finally(() => { if (active) setDone(true); });
 		return () => { active = false; };
-	}, [userId, upload, uploadDisplay]);
+	}, [userId, upload]);
 	return done;
 }
 

@@ -7,6 +7,7 @@ export const arrangementLists = {
 	/** The order of the sections people add (`sidebarSections`), every tab's in one list. */
 	sectionOrder: { scope: "shared", entity: undefined },
 	views: { scope: "shared", entity: "recordTypes" },
+	/** COMPAT(0.1.0-alpha.11): the old All tab's columns, which alpha.10 apps still send (the server drops them). Delete once those apps are gone. */
 	columns: { scope: "shared", entity: "recordTypes" },
 	folded: { scope: "personal", entity: undefined },
 	channelFolds: { scope: "personal", entity: undefined },
@@ -18,6 +19,8 @@ export const arrangementLists = {
 	rail: { scope: "personal", entity: undefined },
 	/** Drive's rows above its tree, in your order: Home and the views (`driveRowIds`). */
 	driveRows: { scope: "personal", entity: undefined },
+	/** Databases' rows above the databases, in your order: Assigned to me and Due (`databaseRowIds`). */
+	databaseRows: { scope: "personal", entity: undefined },
 	workspaces: { scope: "account", entity: undefined },
 } as const;
 export type ArrangementList = keyof typeof arrangementLists;
@@ -76,10 +79,12 @@ export const SECTION_NAME_MAX = 80;
 export const railTabs: readonly string[] = ["home", "chat", "inbox", "drive", "databases", "sites"];
 /** Drive's sidebar rows above its tree: Home (the top level) and the views (desktop `views/drive/Views.tsx`). */
 export const driveRowIds = ["home", "recent", "shared", "private"];
+/** Databases' sidebar rows above the databases: Assigned to me and Due (desktop `views/records/Lists.tsx`). */
+export const databaseRowIds = ["mine", "due"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
 
-type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
+type Legacy = { list: ArrangementList; workspaceId?: string; entityId?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
 export function legacyArrangement(key: string): Legacy | undefined {
 	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.folded": "folded" } as const;
@@ -93,6 +98,5 @@ export function legacyArrangement(key: string): Legacy | undefined {
 	if (pages) return { list: "pages", workspaceId: pages[1], entityId: pages[2] === "top" ? undefined : pages[2] };
 	const views = /^views\.order:([^:]+)$/.exec(key);
 	if (views) return { list: "views", entityId: views[1] };
-	const display = /^records\.(columns|layout)\.(.+)$/.exec(key);
-	if (display) return { list: display[1] as "columns" | "layout", databaseKey: display[2] };
+	// The All tab's columns and layout (`records.columns.*`, `records.layout.*`) are a saved view's now: dropped.
 }

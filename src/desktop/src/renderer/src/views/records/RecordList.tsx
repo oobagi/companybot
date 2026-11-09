@@ -1,15 +1,14 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useStoredIds } from "../../arrangements";
 import { COLUMN_WIDTH, type FieldKind, type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { Access } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
-import type { FunctionArgs } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { api } from "../../api";
 import { Select, fieldEditClass } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { useSortable } from "../../sortable";
+import { type DragProps, useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, SearchIcon, TrashIcon } from "../../icons";
 import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, toolButton, toolControlClass, compactButton, compactControlClass, compactPrimaryButton, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, archiveQuestion, useConfirm } from "../chat/common";
@@ -53,12 +52,8 @@ const soonLayouts = {
 type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
 /** Columns someone resized, in pixels by field key. */
 type Widths = Record<string, number>;
+type View = FunctionReturnType<typeof api.databaseViews.list>[number];
 
-const optimisticDisplay: OptimisticUpdate<FunctionArgs<typeof api.recordTypes.setDisplay>> = (store, args) => {
-	const queryArgs = { workspaceId: args.workspaceId };
-	const types = store.getQuery(api.recordTypes.list, queryArgs);
-	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: { layout: args.display.layout ?? type.display?.layout ?? "table", groupBy: args.display.groupBy ?? type.display?.groupBy, widths: args.display.width ? withWidth(type.display?.widths, args.display.width.field, args.display.width.px) : type.display?.widths } } : type));
-};
 /** `widths` with one column set to `px`, or back to its default without one. */
 function withWidth(widths: Widths | undefined, field: string, px: number | undefined): Widths {
 	const next = { ...widths };
@@ -72,69 +67,75 @@ const optimisticWidth: OptimisticUpdate<FunctionArgs<typeof api.databaseViews.se
 			store.setQuery(api.databaseViews.list, queryArgs, value.map((v) => (v._id === args.viewId ? { ...v, widths: withWidth(v.widths, args.field, args.px) } : v)));
 };
 /** Module-level, so `useMutation` stays stable between renders. */
-const displayUpdate = () => optimisticDisplay;
 const widthUpdate = () => optimisticWidth;
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
-export function RecordList({ type, access }: { type: RecordType; access: Access }) {
+export function RecordList({ type }: { type: RecordType; access: Access }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
-	// View tabs follow the workspace order. "All" stays first.
+	// View tabs follow the workspace order, and the first is the one the database opens on.
 	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
+	const [viewId, setViewId] = useState<string>();
+	// The open view: the first until another is picked, and again if the open one is deleted, by you or anyone.
+	const view = tabs.sorted.find((v) => v._id === viewId) ?? tabs.sorted[0];
+	// Nothing until the views load, so a database never opens on one view and then jumps to another.
+	if (!views) return <Page wide fill title={type.plural}><Loading /></Page>;
+	if (!view) return <NoViews type={type} onAdded={setViewId} />;
+	return <ViewList type={type} view={view} views={tabs.sorted} drag={tabs.drag} onOpen={setViewId} />;
+}
+
+/** A database keeps at least one view; this is only for one that has none yet. */
+function NoViews({ type, onAdded }: { type: RecordType; onAdded: (id: string) => void }) {
+	const saveView = useMutation(api.databaseViews.save);
+	const { error, run } = useRun();
+	return (
+		<Page wide fill title={type.plural}>
+			<Notice>{error}</Notice>
+			<EmptyState icon={<DatabaseIcon />} title="No views yet">
+				A view shows this database's records as a table or a board.
+				{type.canEdit && (
+					<span className="mt-3 flex justify-center">
+						<button type="button" onClick={() => run(saveView({ typeId: type._id, name: "All", filters: [], columns: defaultColumns(type.fields) }).then(onAdded))} className={compactButton}>
+							<PlusIcon /> Add a view
+						</button>
+					</span>
+				)}
+			</EmptyState>
+		</Page>
+	);
+}
+
+/** One view of the database, with its tabs. Changes stay yours until "Save for everyone". */
+function ViewList({ type, view, views, drag, onOpen }: { type: RecordType; view: View; views: View[]; drag: (id: string) => DragProps | undefined; onOpen: (id: string) => void }) {
 	const saveView = useMutation(api.databaseViews.save);
 	const setWidth = useMutation(api.databaseViews.setWidth, widthUpdate);
 	const removeView = useMutation(api.databaseViews.remove);
-	const [viewId, setViewId] = useState("all");
 	const [preview, setPreview] = useState<Preview>();
-	const selected = views?.find((v) => v._id === viewId);
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
-	// "All" follows the workspace display; saved views keep their own settings.
-	const [storedColumns, changeColumns, writable] = useStoredIds("columns", type._id);
-	const setDisplay = useMutation(api.recordTypes.setDisplay, displayUpdate);
-	const display = type.display ?? { layout: "table" as const };
-	const saved: Settings | undefined = selected && {
-		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
-		sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
-		columns: selected.columns,
-		layout: selected.layout ?? "table",
-		groupBy: selected.groupBy,
+	const saved: Settings = {
+		filters: fromConditions(view.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
+		sort: view.sort && live(view.sort.field) ? view.sort : undefined,
+		columns: view.columns,
+		layout: view.layout ?? "table",
+		groupBy: view.groupBy,
 	};
-	const draft = useDraft<Settings>(`view:${type._id}:${viewId}`,
-		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
-		selected?.version ?? 0,
-	);
-	const { filters, sort } = draft.value;
-	// Renames the view, keeping it as saved.
-	const rename = (name: string) => {
-		if (!selected || !saved) return;
-		const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
-		const filters = saved.filters.map((f) => toCondition(f)).filter((c) => c !== null);
-		run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns: saved.columns.filter(live), layout: saved.layout, groupBy }));
+	const draft = useDraft<Settings>(`view:${type._id}:${view._id}`, saved, view.version);
+	const { filters, sort, layout } = draft.value;
+	// Renames a view, keeping it as saved: unsaved changes stay yours until "Save for everyone".
+	const rename = (v: View, name: string) => {
+		const kept = (key: string | undefined) => (key && live(key) ? key : undefined);
+		const sort = v.sort && kept(v.sort.field) ? v.sort : undefined;
+		return run(saveView({ typeId: type._id, viewId: v._id, version: v.version, name, filters: v.filters.filter((c) => live(c.field)), sort, columns: v.columns.filter(live), layout: v.layout, groupBy: kept(v.groupBy) }));
 	};
-	const layout = selected ? draft.value.layout : display.layout;
-	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
+	const columns = draft.value.columns.filter(live);
 	// Like Notion's, a column's width saves for everyone as it's dropped, not with the view's other settings.
-	const widths = selected ? selected.widths : display.widths;
-	const resize = selected
-		? type.canEdit ? (field: string, px: number | undefined) => run(setWidth({ viewId: selected._id, field, px })) : undefined
-		: type.canSetDisplay ? (field: string, px: number | undefined) => run(setDisplay({ typeId: type._id, display: { width: { field, px } } })) : undefined;
+	const widths = view.widths;
+	const resize = type.canEdit ? (field: string, px: number | undefined) => run(setWidth({ viewId: view._id, field, px })) : undefined;
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
 	const groupFields = fields.filter(groupable);
-	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
-	const change = (next: Partial<Settings>) => {
-		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
-		draft.set(value);
-		if (!selected && writable && next.columns) {
-			// One command per column shown or hidden, starting from what's on screen if nothing's saved.
-			const shown = next.columns;
-			const seed = storedColumns.length ? undefined : columns;
-			for (const id of shown.filter((k) => !columns.includes(k))) changeColumns({ op: "add", id, seed });
-			for (const id of columns.filter((k) => !shown.includes(k))) changeColumns({ op: "remove", id, seed });
-		}
-		// Send only what changed, so someone else's layout or grouping change isn't overwritten.
-		if (!selected && type.canSetDisplay && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
-	};
+	const group = groupFields.find((f) => f.key === draft.value.groupBy) ?? groupFields[0];
+	const change = (next: Partial<Settings>) => draft.set({ ...draft.value, columns, ...next });
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
 	// The filter whose editor is open: a new one opens at once, like Notion's.
 	const [openFilter, setOpenFilter] = useState<string>();
@@ -145,21 +146,16 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	};
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
-	// A column moved before another (null: last). All's columns are yours, saved as you go; a saved view's wait for "Save for everyone".
+	// A column moved before another (null: last).
 	const moveColumn = (key: string, before: string | null) => {
 		const rest = columns.filter((k) => k !== key);
 		const at = before === null ? rest.length : rest.indexOf(before);
 		rest.splice(at < 0 ? rest.length : at, 0, key);
-		if (selected) return change({ columns: rest });
-		if (writable) changeColumns({ op: "move", id: key, beforeId: before, ...(!storedColumns.length && { fill: columns }) });
+		change({ columns: rest });
 	};
 	const updateField = useMutation(api.fields.update);
 	const trash = useMutation(api.trash.move);
-	const open = (id: string) => (setViewId(id), setPreview(undefined));
-	// Someone deleted the open view.
-	useEffect(() => {
-		if (views && viewId !== "all" && !selected) open("all");
-	}, [views, viewId, selected]);
+	const open = (id: string) => (onOpen(id), setPreview(undefined));
 	const [savingView, setSavingView] = useState(false);
 	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
@@ -200,7 +196,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort, search: query.trim() || undefined };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
-	const canSave = canEdit && selected && draft.dirty;
+	const canSave = canEdit && draft.dirty;
 
 	return (
 		<Page
@@ -238,14 +234,14 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 							<FilterIcon /> <span className="@max-xl:hidden">Filter</span>
 						</FieldMenu>
 						<ViewMenu
-							view={canEdit && selected && saved ? {
-								name: selected.name,
-								// Renaming keeps the view as saved; unsaved changes stay yours until "Save for everyone".
-								onRename: rename,
-								onDuplicate: () => run(saveView({ typeId: type._id, name: `${selected.name} copy`.slice(0, 120), ...config }).then(open)),
-								onDelete: () => confirm({ title: `Delete the view ${selected.name}?`, action: "Delete view", onConfirm: () => removeView({ viewId: selected._id, version: selected.version }).then(() => open("all")) }),
+							view={canEdit ? {
+								name: view.name,
+								onRename: (name) => void rename(view, name),
+								onDuplicate: () => run(saveView({ typeId: type._id, name: `${view.name} copy`.slice(0, 120), ...config }).then(open)),
+								// A database keeps at least one view.
+								onDelete: views.length > 1 ? () => confirm({ title: `Delete the view ${view.name}?`, action: "Delete view", onConfirm: () => removeView({ viewId: view._id, version: view.version }) }) : undefined,
 							} : undefined}
-							layout={selected || type.canSetDisplay ? {
+							layout={{
 								value: preview ?? layout,
 								// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
 								// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
@@ -253,9 +249,9 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 									if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
 									setPreview(l);
 								},
-							} : undefined}
-							properties={selected || writable ? { fields, columns, onChange: setColumns, onMove: moveColumn, where: layout === "board" ? "board" : "table" } : undefined}
-							group={(selected || type.canSetDisplay) && layout === "board" && group ? { fields: groupFields, value: group, onChange: (groupBy) => change({ groupBy }) } : undefined}
+							}}
+							properties={{ fields, columns, onChange: setColumns, onMove: moveColumn, where: layout === "board" ? "board" : "table" }}
+							group={layout === "board" && group ? { fields: groupFields, value: group, onChange: (groupBy) => change({ groupBy }) } : undefined}
 							onEditDatabase={type.canManage ? () => setEditingDatabase(true) : undefined}
 							onNewField={type.canManage ? () => setAddingField("text") : undefined}
 							onEditField={setEditingField}
@@ -264,10 +260,12 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						/>
 					</>
 				}
-				tabs={[{ id: "all", label: "All" }, ...tabs.sorted.map((v) => ({ id: v._id as string, label: v.name }))]}
-				drag={(id) => (id === "all" ? undefined : tabs.drag(id))}
-				value={selected ? viewId : "all"}
+				tabs={views.map((v) => ({ id: v._id as string, label: v.name }))}
+				drag={drag}
+				value={view._id}
 				onChange={open}
+				// Double-click or F2, like the sidebar's rows.
+				onRename={canEdit ? (id, name) => rename(views.find((v) => v._id === id)!, name) : undefined}
 			>
 				{canEdit && (
 					<button type="button" title="Save these filters as a view" aria-label="Save these filters as a view" className={tabAddButton} onClick={() => setSavingView(true)}>
@@ -298,7 +296,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 					</FieldMenu>
 					{/* A saved view's changes are yours until saved, so saving stands out, at the end of the row they're on. */}
 					{canSave && (
-						<button type="button" disabled={draft.stale} className={`${compactPrimaryButton} ml-auto`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
+						<button type="button" disabled={draft.stale} className={`${compactPrimaryButton} ml-auto`} onClick={() => run(saveView({ typeId: type._id, viewId: view._id, version: draft.base, name: view.name, ...config }), draft.discard)}>
 							Save for everyone
 						</button>
 					)}

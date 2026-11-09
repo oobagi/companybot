@@ -104,7 +104,7 @@ it("clears a new database draft after creation", async () => {
 });
 
 it("keeps a database view draft across tabs and clears it after saving", async () => {
-	state.queries["databaseViews:list"] = [{ _id: "view", name: "My view", filters: [], columns: ["name"], version: 1 }];
+	state.queries["databaseViews:list"] = [{ _id: "all", name: "All", filters: [], columns: ["name"], version: 1 }, { _id: "view", name: "My view", filters: [], columns: ["name"], version: 1 }];
 	const type = { _id: "database", name: "Project", plural: "Projects", key: "project", canEdit: true, fields: [{ key: "name", label: "Name", kind: "text" }] } as never;
 	const screen = () => createElement(RecordList, { type, access });
 	await render(screen()); await click("My view"); await click("Filter"); await click("Name");

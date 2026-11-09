@@ -17,7 +17,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { activityPage } from "./activity";
-import { deleteView, saveView, viewsOf } from "./databaseViews";
+import { deleteView, saveView, viewsInOrder, viewsOf } from "./databaseViews";
 import { type Member, asToolResult, nameOf, normalizeEmail, profileOf, requireInWorkspace } from "./lib";
 import {
 	createType,
@@ -524,7 +524,7 @@ export const viewsFor = internalMutation({
 	args: { turnId: v.id("agentTurns"), type: v.string() },
 	handler: async (ctx, { turnId, type: name }) => {
 		const { member } = await runningTurn(ctx, turnId);
-		return asToolResult(async () => ({ rows: await viewsOf(ctx, member, (await typeNamed(ctx, member, name))._id) }));
+		return asToolResult(async () => ({ rows: await viewsInOrder(ctx, member, (await typeNamed(ctx, member, name))._id) }));
 	},
 });
 

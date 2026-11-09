@@ -28,7 +28,7 @@ import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
 import { AddButton, AddMenu, ChannelsAdd, ChannelsNav, DmsNav, Item, NewSection, SectionGroup, SectionsNav, SidebarList } from "./views/chat/Sidebar";
-import type { DragProps } from "./sortable";
+import { type DragProps, useSortable } from "./sortable";
 import { type SectionId, useSections, useUnsectioned } from "./sections";
 import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
@@ -340,6 +340,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 }
 
 const typeKeyOf = (t: { _id: string }) => t._id;
+const listKey = (l: { id: string }) => l.id;
 
 /**
  * Databases' sidebar: Assigned to me and Due (`databaseLists`), then the databases in no section, in the workspace's order, then the sections people
@@ -360,6 +361,8 @@ function DatabasesNav({
 }) {
 	const { place } = useSections("databases");
 	const { sorted, drag } = useUnsectioned("databases", types, typeKeyOf);
+	// Assigned to me and Due, in your order (`databaseRows`); they drag only among themselves.
+	const lists = useSortable("databaseRows", databaseLists, listKey);
 	const byId = useMemo(() => new Map<string, RecordType>(types.map((t) => [t._id, t])), [types]);
 	const [editing, setEditing] = useState<RecordType>();
 	const [creatingIn, setCreatingIn] = useState<SectionId>();
@@ -397,8 +400,8 @@ function DatabasesNav({
 	return (
 		<>
 			<div className="flex flex-col gap-px">
-				{databaseLists.map((l) => (
-					<Item key={l.id} icon={l.icon} label={l.label} active={openList === l.id} onClick={() => navigate("databases", l.id)}>
+				{lists.sorted.map((l) => (
+					<Item key={l.id} drag={lists.drag(l.id)} icon={l.icon} label={l.label} active={openList === l.id} onClick={() => navigate("databases", l.id)}>
 						<span className="truncate">{l.label}</span>
 					</Item>
 				))}

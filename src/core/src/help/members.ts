@@ -21,7 +21,7 @@ Each role is a list of switches, each one thing a person may do:
 | Switch | Member, unless an owner changed it |
 |---|---|
 | Change workspace settings (name, logo, currency, memory) | no |
-| Rearrange shared sidebar lists (channel, page, database and view order; a database's All tab columns and layout) | yes |
+| Rearrange shared sidebar lists (channel, page, database and view order) | yes |
 | Invite and remove people and change their roles | no |
 | Change agents | no |
 | Install connectors and choose who can use them | no |

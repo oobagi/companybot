@@ -1,4 +1,7 @@
 import { rankAt } from "@companybot/core/rank";
+import { NAME_KEY } from "@companybot/core/records";
+import { VIEWS_MAX } from "./databaseViews";
+import { checkWidths, fieldsOf, groupsCards } from "./recordOps";
 import { setActivity } from "./chatOps";
 import { publicSearchChat, ensureSeatActivity } from "./chatDiscovery";
 import { fromLegacy } from "./wakeups";
@@ -511,6 +514,56 @@ export const dropViewNotice = migrations.define({
 	},
 });
 
+// The All tab became an ordinary saved view. Each database gets a view named "All" with what its All tab showed
+// everyone: its shared columns (the `columns` arrangement, or without one Name and the next four live fields, as
+// the app did) and its `display` (layout, grouping, column widths). It goes first in the database's view order, so
+// it's still what opens, and then `display` and the columns arrangement go.
+// - A saved view already named "All" keeps its name; the new one is "All 2" (or "All 3", and so on).
+// - Done already: no `display`, no columns arrangement, and the first view in order is one of those names. That's
+//   a re-run, or a database made since (recordOps.createType makes its own All), and it's left alone.
+// - A database already at VIEWS_MAX views gets no new one, since nobody could see a view past the limit: it
+//   opens on its first view. Its old All settings are cleared all the same.
+// COMPAT(0.1.0-alpha.11): once this has run on prod, delete it, its entry in `all` and its test, `recordTypes.display`
+// (schema.ts), the `setDisplay` and `migrateDisplay` stubs (recordTypes.ts) and the `columns` arrangement list.
+export const allView = migrations.define({
+	table: "recordTypes",
+	batchSize: 20,
+	migrateOne: async (ctx, type) => {
+		const arrangement = (list: "views" | "columns") =>
+			ctx.db.query("arrangements").withIndex("by_list", (q) => q.eq("workspaceId", type.workspaceId).eq("userId", undefined).eq("list", list).eq("entityId", type._id)).unique();
+		const order = await arrangement("views");
+		const shared = await arrangement("columns");
+		const views = await ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", type._id)).take(VIEWS_MAX);
+		const first = order?.ids.map((id) => views.find((v) => v._id === id)).find((v) => v) ?? views[0];
+		if (!type.display && !shared && first && /^All( \d+)?$/.test(first.name)) return;
+		if (views.length < VIEWS_MAX) {
+			const fields = (await fieldsOf(ctx, type._id)).filter((f) => !f.archived);
+			const live = fields.map((f) => f.key);
+			const kept = [...new Set(shared?.ids.filter((key) => live.includes(key)))];
+			const columns = !kept.length ? live.slice(0, 5) : kept.includes(NAME_KEY) ? kept : [NAME_KEY, ...kept];
+			const { layout, groupBy, widths } = type.display ?? {};
+			let name = "All";
+			for (let n = 2; views.some((v) => v.name.toLowerCase() === name.toLowerCase()); n++) name = `All ${n}`;
+			const id = await ctx.db.insert("databaseViews", {
+				workspaceId: type.workspaceId,
+				typeId: type._id,
+				name,
+				filters: [],
+				columns,
+				// Only what a saved view would accept: a board needs a field to group by.
+				...(layout === "board" && fields.some(groupsCards) && { layout }),
+				...(groupBy && fields.some((f) => f.key === groupBy && groupsCards(f)) && { groupBy }),
+				widths: checkWidths(widths, columns),
+				version: 1,
+			});
+			if (order) await ctx.db.patch(order._id, { ids: [id, ...order.ids] });
+			else await ctx.db.insert("arrangements", { workspaceId: type.workspaceId, list: "views", entityId: type._id, ids: [id] });
+		}
+		if (shared) await ctx.db.delete(shared._id);
+		if (type.display) await ctx.db.patch(type._id, { display: undefined });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -549,6 +602,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.railDropCustomize,
 	internal.migrations.dropViewNotice,
 	internal.migrations.recordRanks,
+	internal.migrations.allView,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

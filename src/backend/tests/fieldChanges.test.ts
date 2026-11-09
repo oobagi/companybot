@@ -172,7 +172,7 @@ describe("changing a field's kind", () => {
 		await owner.mutation(api.fields.update, { fieldId, kind: "checkbox" });
 		await owner.mutation(api.fields.update, { fieldId: stage._id, multiple: true });
 		await finish();
-		const [view] = await owner.query(api.databaseViews.list, { typeId });
+		const view = (await owner.query(api.databaseViews.list, { typeId })).find((v) => v.name === "Board");
 		expect(view).toMatchObject({ filters: [{ field: "price", empty: false }], columns: ["name", "price"], layout: "board" });
 		expect(view!.sort).toBeUndefined();
 		expect(view!.groupBy).toBeUndefined();
@@ -185,7 +185,7 @@ describe("changing a field's kind", () => {
 		expect(((await owner.query(api.fields.preview, { fieldId, kind: "choice" })) as { views?: string[] } | null)?.views).toEqual([]);
 		await owner.mutation(api.fields.update, { fieldId, kind: "choice" });
 		await finish();
-		const [view] = await owner.query(api.databaseViews.list, { typeId });
+		const view = (await owner.query(api.databaseViews.list, { typeId })).find((v) => v.name === "Tests");
 		const option = (await owner.query(api.recordTypes.list)).find((x) => x._id === typeId)!.fields.find((f) => f.key === "price")!.options!.find((o) => o.label === "Test")!;
 		expect(view).toMatchObject({ filters: [{ field: "price", eq: option.id }] });
 		expect((await owner.query(api.records.list, { typeId, filters: view!.filters, paginationOpts: page })).page.map((r) => r.title)).toEqual(["A"]);
