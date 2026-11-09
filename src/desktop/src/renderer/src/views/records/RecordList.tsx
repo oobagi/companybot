@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
 import { api } from "../../api";
-import { Select } from "../../controls";
+import { Select, fieldEditClass } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
@@ -524,7 +524,7 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 											</button>
 										</td>
 									) : (
-										<td key={f.key} className={`${rowLine} overflow-hidden px-1 py-0.5 align-middle text-neutral-700`}>
+										<td key={f.key} className={`${rowLine} overflow-hidden px-1 py-0.5 align-middle text-neutral-700 focus-within:overflow-visible`}>
 											<Cell row={r} field={f} refs={refs} editable={type.canEdit && !f.changing} />
 										</td>
 									),
@@ -540,15 +540,50 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 	);
 }
 
-/** One value in the table: the record page's editor when you may change it, else the value. */
+/** Whether an editor opened at `el` fits rightward inside the table's scroll box (it clips what spills). */
+function roomRight(el: HTMLElement) {
+	let box = el.closest("td")?.parentElement ?? null;
+	while (box && getComputedStyle(box).overflowX === "visible") box = box.parentElement;
+	const edge = box ? box.getBoundingClientRect().right : window.innerWidth;
+	return el.getBoundingClientRect().left + 384 <= edge;
+}
+
+/** Text kinds open over their cell to edit, so a long value shows whole instead of scrolling in a narrow box. */
+const typedKinds = new Set(["text", "number", "email", "phone", "url"]);
+
+/**
+ * One value in the table: the record page's editor when you may change it, else the value. Typed
+ * values read cut short with "…"; clicking one opens an editor over the cell, as wide as the text
+ * (up to a limit, then long text wraps), like Notion's.
+ */
 function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs: Refs; editable: boolean }) {
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
+	// Open, and which side the editor grows from: rightward, or leftward when the table's edge is near.
+	const [open, setOpen] = useState<"left" | "right">();
 	const value = row.values[field.key] as FieldValue | undefined;
 	if (!editable) return <span className="block truncate px-2 py-1"><ValueView field={field} value={value} refs={refs} /></span>;
+	const save = (next: unknown) => run(update({ recordId: row._id, values: { [field.key]: next } }));
+	if (typedKinds.has(field.kind)) {
+		const text = valueText(field, value, refs);
+		return (
+			<span className="relative block" title={error}>
+				<button type="button" onFocus={(e) => setOpen(roomRight(e.currentTarget) ? "left" : "right")} className={`${titleButton} ${fieldEditClass} ${text ? "" : "text-neutral-400"} ${open ? "invisible" : ""}`}>
+					<span className="truncate">{text || "—"}</span>
+				</button>
+				{open && (
+					// Closes when focus leaves it; the editor saves on blur first.
+					<span className={`absolute -top-px ${open === "left" ? "left-0" : "right-0"} z-20 w-max max-w-96 min-w-full rounded-lg bg-white shadow-md [&_input]:[field-sizing:content] [&_input]:min-w-full [&_textarea]:[field-sizing:content] [&_textarea]:min-w-full`} onBlur={() => setOpen(undefined)}>
+						<ValueEditor field={field} value={value} refs={refs} autoFocus onSave={save} />
+					</span>
+				)}
+				{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
+			</span>
+		);
+	}
 	return (
 		<span className="block" title={error}>
-			<ValueEditor field={field} value={value} refs={refs} oneLine onSave={(next) => run(update({ recordId: row._id, values: { [field.key]: next } }))} />
+			<ValueEditor field={field} value={value} refs={refs} oneLine onSave={save} />
 			{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
 		</span>
 	);

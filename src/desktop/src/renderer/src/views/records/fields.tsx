@@ -107,7 +107,7 @@ export function Chip({ children, color, onRemove }: { children: React.ReactNode;
  * An inline editor for one field. `onSave` gets what to send `records.update` for it:
  * the typed text (the server checks and normalizes it), ids, `{ amount, currency }`, or null to clear.
  * `oneLine` (a table cell) keeps it to one line: long text scrolls instead of wrapping, and an
- * amount leaves its currency to the record page.
+ * amount leaves its currency to the record page. `autoFocus`: a text value's box starts focused.
  */
 export function ValueEditor({
 	field,
@@ -115,12 +115,14 @@ export function ValueEditor({
 	refs,
 	onSave,
 	oneLine = false,
+	autoFocus = false,
 }: {
 	field: TypeField;
 	value: FieldValue | undefined;
 	refs: Refs;
 	onSave: (value: unknown) => void;
 	oneLine?: boolean;
+	autoFocus?: boolean;
 }) {
 	switch (field.kind) {
 		case "checkbox":
@@ -145,12 +147,12 @@ export function ValueEditor({
 		case "link":
 			return <PickEditor field={field} ids={value === undefined ? [] : [value].flat().map(String)} refs={refs} onSave={onSave} />;
 		default:
-			return <TextEditor field={field} value={value === undefined ? "" : String(value)} onSave={onSave} oneLine={oneLine} />;
+			return <TextEditor field={field} value={value === undefined ? "" : String(value)} onSave={onSave} oneLine={oneLine} autoFocus={autoFocus} />;
 	}
 }
 
 /** Text, number, email, phone and web address. Long text wraps onto more lines, unless `oneLine`. */
-function TextEditor({ field, value, onSave, oneLine }: { field: TypeField; value: string; onSave: (value: unknown) => void; oneLine: boolean }) {
+function TextEditor({ field, value, onSave, oneLine, autoFocus }: { field: TypeField; value: string; onSave: (value: unknown) => void; oneLine: boolean; autoFocus: boolean }) {
 	const [draft, setDraft] = useSynced(value);
 	const commit = () => draft.trim() !== value && onSave(draft.trim() || null);
 	const keys = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -167,7 +169,7 @@ function TextEditor({ field, value, onSave, oneLine }: { field: TypeField; value
 		onKeyDown: keys,
 		maxLength: TEXT_MAX,
 		placeholder: "—",
-		// Cut short with "…" in a table cell, until you click in.
+		autoFocus,
 		className: `${fieldEditClass} placeholder:text-neutral-400 ${oneLine ? "truncate" : ""}`,
 	};
 	if (field.kind === "text" && field.key !== "name" && !oneLine) {
