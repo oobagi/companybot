@@ -407,8 +407,9 @@ function RecordResults({
 	if (status === "LoadingFirstPage") return <Loading />;
 	if (rows.length === 0 && status === "Exhausted") return empty;
 	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} canManage={canManage} onAdd={onAdd} /> : noGroup;
+	// Takes room only while there's more to load, so a fully loaded table ends as close to the bottom as a board.
 	const more = (
-		<div ref={setEnd} className="flex flex-col items-center py-2">
+		<div ref={setEnd} className={`flex flex-col items-center ${status === "CanLoadMore" || status === "LoadingMore" ? "py-2" : ""}`}>
 			<LoadMore status={status} onMore={() => loadMore(25)} />
 		</div>
 	);
