@@ -632,21 +632,23 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 	const hover = "opacity-0 group-hover/email:opacity-100 focus-visible:opacity-100";
 	return (
 		<article className={`group/email relative flex flex-col ${open ? "pb-3" : ""}`}>
-			<button type="button" aria-expanded={open} onClick={onToggle} className={`${surfaceButton} flex w-full items-start gap-3 py-2.5`}>
+			{/* Folded, one line: who, then a gray preview. Open, who and their address, with the email under it. */}
+			<button type="button" aria-expanded={open} onClick={onToggle} className={`${surfaceButton} flex w-full gap-3 py-2.5 ${open ? "items-start" : "items-center"}`}>
 				<Avatar name={name} image={m.author?.image} agent={m.author?.type === "agent"} size="md" />
-				<span className="flex min-w-0 flex-1 flex-col">
-					{/* Room on the right for the time and buttons over this line. */}
-					<span className="flex min-w-0 items-baseline gap-2 pr-48">
-						<span className="shrink-0 font-medium text-neutral-900">{name}</span>
+				{/* Room on the right for the time and buttons over this line. */}
+				<span className="flex min-w-0 flex-1 items-baseline gap-2 pr-48">
+					<span className="shrink-0 font-medium text-neutral-900">{name}</span>
+					{open ? (
 						<span className={`min-w-0 truncate ${metadataClass}`}>
 							{mine ? `to ${them}` : contact}
 							{forWho && `, for ${forWho.name}`}
 						</span>
-					</span>
-					{!open && <span className="truncate text-neutral-500">{m.text.replace(/\s+/g, " ")}</span>}
+					) : (
+						<span className="min-w-0 truncate text-neutral-500">{m.text.replace(/\s+/g, " ")}</span>
+					)}
 				</span>
 			</button>
-			<span className="absolute top-2 right-0 flex items-center gap-0.5">
+			<span className={`absolute right-0 flex items-center gap-0.5 ${open ? "top-2" : "top-3.5"}`}>
 				<button type="button" title="Comment" aria-label="Comment" className={`${smallIconButton} ${hover}`} onClick={onComment}>
 					<ChatIcon />
 				</button>
