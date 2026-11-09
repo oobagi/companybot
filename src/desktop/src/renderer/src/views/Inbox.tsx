@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "../api";
 import { Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
@@ -349,25 +349,27 @@ function Conversation({ c }: { c: Opened }) {
 	const shown = wide ? !hidden : opened;
 	const toggle = () => (wide ? (setHidden(!hidden), localStorage.setItem("inbox.details.hidden", String(!hidden))) : setOpened(!opened));
 	return (
-		<div ref={row} className="relative flex min-h-0 min-w-0 flex-1">
-			<Messages
-				c={c}
-				them={them}
-				bar={
-					<TopBar title={<h1 className="min-w-0 truncate">{them}</h1>} description={c.channel === "email" ? "Email" : "Text"}>
-						<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
-							<SidebarIcon className="-scale-x-100" />
-						</button>
-					</TopBar>
-				}
-				side={shown && wide ? <Details conversation={c} /> : null}
-			/>
-			{shown && !wide && (
-				<aside className="absolute top-12 right-3 z-40 w-72 rounded-xl shadow-lg">
-					<Details conversation={c} />
-				</aside>
-			)}
-		</div>
+		<Customer.Provider value={c}>
+			<div ref={row} className="relative flex min-h-0 min-w-0 flex-1">
+				<Messages
+					c={c}
+					them={them}
+					bar={
+						<TopBar title={<h1 className="min-w-0 truncate"><CustomerLink className="hover:underline">{them}</CustomerLink></h1>} description={c.channel === "email" ? "Email" : "Text"}>
+							<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
+								<SidebarIcon className="-scale-x-100" />
+							</button>
+						</TopBar>
+					}
+					side={shown && wide ? <Details conversation={c} /> : null}
+				/>
+				{shown && !wide && (
+					<aside className="absolute top-12 right-3 z-40 w-72 rounded-xl shadow-lg">
+						<Details conversation={c} />
+					</aside>
+				)}
+			</div>
+		</Customer.Provider>
 	);
 }
 
@@ -652,7 +654,9 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 							<Avatar name={name} image={m.author.image} agent={m.author.type === "agent"} size="md" />
 						</ProfileLink>
 					) : (
-						<Avatar name={name} size="md" />
+						<CustomerLink className="pointer-events-auto shrink-0 self-start rounded-full">
+							<Avatar name={name} size="md" />
+						</CustomerLink>
 					)}
 					{/* Room on the right for the time and buttons over this line. */}
 					<span className={`flex min-w-0 flex-1 items-baseline gap-2 pr-48 ${open ? "" : "self-center"}`}>
@@ -661,7 +665,9 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 								{name}
 							</ProfileLink>
 						) : (
-							<span className="shrink-0 font-medium text-neutral-900">{name}</span>
+							<CustomerLink className="pointer-events-auto shrink-0 font-medium text-neutral-900 hover:underline">
+								{name}
+							</CustomerLink>
 						)}
 						{open ? (
 							<span className={`min-w-0 truncate ${metadataClass}`}>
@@ -746,6 +752,50 @@ function LinkedText({ text, className = "" }: { text: string; className?: string
 	return <p className={`break-words whitespace-pre-wrap ${className}`}>{parts}</p>;
 }
 
+/** The open conversation, for its customer's card wherever their name shows. */
+const Customer = createContext<Opened | null>(null);
+
+/** A customer's name or picture: their card on click, as a teammate's or an agent's opens theirs. */
+function CustomerLink({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+	const c = useContext(Customer);
+	if (!c) return <span className={className}>{children}</span>;
+	return (
+		<Popover trigger={children} className={`cursor-pointer ${className}`}>
+			{() => <CustomerCard conversation={c} />}
+		</Popover>
+	);
+}
+
+/** Who they are to you: name, their address or number, and the record they're linked to. */
+function CustomerCard({ conversation: c }: { conversation: Opened }) {
+	const them = contactLabel(c);
+	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
+	return (
+		<div className="flex flex-col gap-3 p-4">
+			<div className="flex items-center gap-3">
+				<Avatar name={them} />
+				<div className="min-w-0">
+					<p className="truncate font-semibold">{them}</p>
+					<p className="truncate text-neutral-500 select-text">{them === address ? (c.channel === "sms" ? "Texts" : "Emails") + " your agents" : address}</p>
+				</div>
+			</div>
+			<dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+				<dt className="text-neutral-500">Record</dt>
+				<dd className="min-w-0 truncate">{c.record ? c.record.title : "Not in your records"}</dd>
+			</dl>
+			<div className="flex">
+				{c.record ? (
+					<button type="button" onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))} className={actionButton}>
+						Open record
+					</button>
+				) : (
+					<Soon trigger="Add to records" label="Add to records" text={`Save ${them} as a contact, with their ${c.channel === "sms" ? "number" : "address"} filled in.`} className={actionButton} />
+				)}
+			</div>
+		</div>
+	);
+}
+
 /** A run from one sender: their name and picture, then the messages, connected on the sender's side. */
 function Group({ messages, them, channel, subject }: { messages: Message[]; them: string; channel: "email" | "sms"; subject: string | null }) {
 	const mine = messages[0]!.direction !== "in";
@@ -775,10 +825,12 @@ function Sender({ author, them, mine }: { author: Participant | null; them?: str
 	const line = `flex items-center gap-2 text-sm text-neutral-600 ${mine ? "flex-row-reverse" : ""}`;
 	if (!author)
 		return (
-			<p className={`${line} pb-1.5`}>
-				<Avatar name={them ?? "Them"} size="sm" />
-				<span>{them}</span>
-			</p>
+			<div className="pb-1.5">
+				<CustomerLink className={`${line} rounded-md`}>
+					<Avatar name={them ?? "Them"} size="sm" />
+					<span className="hover:underline">{them}</span>
+				</CustomerLink>
+			</div>
 		);
 	return (
 		<div className="pb-1.5">
