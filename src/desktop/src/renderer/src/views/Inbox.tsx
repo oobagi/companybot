@@ -237,6 +237,8 @@ function ConversationRow({ c, open }: { c: Row; open: boolean }) {
 	return (
 		<Item
 			pin={`inbox:${c.id}`}
+			// Hovered, its ⋯ takes the time's and the assignee's place.
+			swap
 			icon={
 				<span className="relative flex">
 					<ChannelIcon channel={c.channel} />
@@ -256,11 +258,15 @@ function ConversationRow({ c, open }: { c: Row; open: boolean }) {
 			<span className="flex min-w-0 flex-1 flex-col py-0.5 text-left">
 				<span className="flex items-baseline gap-2">
 					<span className={`min-w-0 flex-1 truncate ${c.needsStaff ? "font-semibold text-neutral-900" : ""}`}>{contactLabel(c)}</span>
-					<span className={`shrink-0 font-normal tabular-nums ${metadataClass}`}>{shortAgo(c.lastAt)}</span>
+					<span className={`shrink-0 font-normal tabular-nums group-hover/item:invisible group-has-[:focus-visible]/item:invisible group-has-[[aria-expanded=true]]/item:invisible ${metadataClass}`}>{shortAgo(c.lastAt)}</span>
 				</span>
 				<span className="flex items-center gap-1.5">
 					<span className="min-w-0 flex-1 truncate text-xs font-normal text-neutral-500">{c.preview || "No messages yet"}</span>
-					{c.assignee && <Avatar name={c.assignee.name} image={c.assignee.image} agent={c.assignee.type === "agent"} size="xs" />}
+					{c.assignee && (
+						<span className="flex group-hover/item:invisible group-has-[:focus-visible]/item:invisible group-has-[[aria-expanded=true]]/item:invisible">
+							<Avatar name={c.assignee.name} image={c.assignee.image} agent={c.assignee.type === "agent"} size="xs" />
+						</span>
+					)}
 				</span>
 			</span>
 		</Item>

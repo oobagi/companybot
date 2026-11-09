@@ -536,6 +536,7 @@ export function Item({
 	onToggle,
 	menu,
 	actions,
+	swap,
 	rename,
 	drag,
 	over,
@@ -569,6 +570,8 @@ export function Item({
 	menu?: (close: () => void) => React.ReactNode;
 	/** Other controls after the menu button. Controls in the icon slot need `relative z-10` to sit above the row's click area. */
 	actions?: React.ReactNode;
+	/** The menu button sits over the row's end, where its trailing details hide on hover (they take `group-hover/item:invisible`), instead of pushing them aside. */
+	swap?: boolean;
 	/** The name as edited (without a channel's #), and what saves a new one. */
 	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
 	/** From `useSortable`: makes the row draggable within its list. */
@@ -654,7 +657,8 @@ export function Item({
 				</button>
 			)}
 			{(items || actions) && !renaming && (
-				<span className={`relative z-10 items-center gap-0.5 ${menuAt ? "flex" : "hidden group-focus-within/item:flex group-hover/item:flex has-[[aria-expanded=true]]:flex"}`}>
+				// Swapped in, it shows for keyboard focus only (a clicked row keeps focus, and its details should stay).
+				<span className={`${swap ? "absolute inset-y-0 right-2" : "relative"} z-10 items-center gap-0.5 ${menuAt ? "flex" : `hidden group-hover/item:flex has-[[aria-expanded=true]]:flex ${swap ? "group-has-[:focus-visible]/item:flex" : "group-focus-within/item:flex"}`}`}>
 					{items && (
 						<PopoverPanel
 							opened={menuAt === "button"}
