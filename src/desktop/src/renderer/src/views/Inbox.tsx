@@ -183,11 +183,12 @@ export function InboxNav() {
 					<SectionGroup {...at} tab="inbox" section={section} rows={section.ids.filter((id) => id in filters)} keep={(id) => id === filter} render={(id, drag) => row(id, drag?.item)} />
 				)}
 			</SectionsNav>
+			{/* Folded, only the picked row stays, like a folded section's. */}
 			<NavGroup title="Channels" section={fold("inboxChannels")}>
-				{channelOrder.sorted.map((r) => row(r.id, channelOrder.drag(r.id)))}
+				{channelOrder.sorted.filter((r) => !folded.includes("inboxChannels") || r.id === filter).map((r) => row(r.id, channelOrder.drag(r.id)))}
 			</NavGroup>
 			<NavGroup title="Tags" section={fold("inboxTags")}>
-				{row(tagsRow.id, undefined)}
+				{(!folded.includes("inboxTags") || filter === tagsRow.id) && row(tagsRow.id, undefined)}
 			</NavGroup>
 		</>
 	);
