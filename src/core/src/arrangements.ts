@@ -61,9 +61,9 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
 /**
- * Built-in sidebar sections that fold (`folded`): Chat's Direct messages, Drive's All files, Inbox's Channels
- * and Tags. They're always there: nobody deletes them. Sections people add (`sidebarSections` rows) fold by
- * their ids in the same list.
+ * Built-in sidebar sections: Chat's Direct messages, Drive's All files, Inbox's Channels and Tags. They're
+ * always there: nobody deletes them. They fold (`folded`) and move (`sectionOrder`) by these ids, among
+ * the sections people add (`sidebarSections` rows), which do both by theirs.
  */
 export const builtInSections = ["dms", "files", "inboxChannels", "inboxTags"];
 /**

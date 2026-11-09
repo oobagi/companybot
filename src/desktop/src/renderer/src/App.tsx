@@ -299,8 +299,8 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 									{!tab && <SettingsNav tab={settingsTab} />}
 									{tab === "chat" && chats && (
 										<>
-											<ChannelsNav chats={chats} openId={openId} openThread={route[2] === "thread" ? route[3] : undefined} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} />
-											<DmsNav chats={chats} openId={openId} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} section={{ collapsed: folded.includes("dms"), onToggle: () => fold("dms") }} />
+											<ChannelsNav chats={chats} openId={openId} openThread={route[2] === "thread" ? route[3] : undefined} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")}
+												dms={(at) => <DmsNav chats={chats} openId={openId} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} section={{ collapsed: folded.includes("dms"), onToggle: () => fold("dms") }} at={at} />} />
 										</>
 									)}
 									{tab === "inbox" && <InboxNav />}

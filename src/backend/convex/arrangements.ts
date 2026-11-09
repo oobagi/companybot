@@ -121,7 +121,7 @@ export function viewer(ctx: QueryCtx, member: Member) {
 			switch (list) {
 				case "channels": case "channelFolds": return channels(ids);
 				case "databases": { const seen = await types(); return ids.filter((id) => seen.has(id)); }
-				case "sectionOrder": { const all = new Set<string>((await sections()).map((s) => s._id)); return ids.filter((id) => all.has(id)); }
+				case "sectionOrder": { const all = new Set<string>((await sections()).map((s) => s._id)); return ids.filter((id) => all.has(id) || builtInSections.includes(id)); }
 				case "views": case "columns": return (await types()).has(entityId!) ? ids : null;
 				case "pages": {
 					const kept: string[] = [];
@@ -205,7 +205,8 @@ async function live(ctx: QueryCtx, member: Member, target: Target, id: string, s
 			return !!view && view.workspaceId === member.workspaceId && view.typeId === target.entityId;
 		}
 		case "databases": return seen.database(id);
-		case "sectionOrder": return !!(await seen.section(id));
+		// Built-in sections (Direct messages, All files, …) move among the ones people add.
+		case "sectionOrder": return builtInSections.includes(id) || !!(await seen.section(id));
 		case "dms": case "dmFolds": {
 			const agent = await read("agents", id);
 			const chat = await read("chats", id);

@@ -1,7 +1,7 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import type { SectionTab } from "@companybot/core/arrangements";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, TrashIcon, UnpinIcon } from "../../icons";
@@ -43,7 +43,7 @@ type ChatNavProps = {
  * it (replied to lately, by the workspace's setting; `chats.activeThreads`). Drag a channel within or
  * between them. New channel, Browse channels and New section are the + beside the tab's name.
  */
-export function ChannelsNav({ chats, openId, openThread, onOpen }: ChatNavProps) {
+export function ChannelsNav({ chats, openId, openThread, onOpen, dms }: ChatNavProps & { dms: BuiltIn["render"] }) {
 	const workspace = useWorkspace();
 	const now = useClock();
 	const threads = useQuery(api.chats.activeThreads, { now }) ?? [];
@@ -108,7 +108,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen }: ChatNavProps)
 	return (
 		<>
 			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((c) => row(c, drag(c._id)))}</div>}
-			<SectionsNav tab="chat">
+			<SectionsNav tab="chat" builtIns={[{ id: "dms", render: dms }]}>
 				{(section, at) => {
 					const rows = section.ids.filter((id) => byId.has(id));
 					// Folded, what needs you stays, as in Direct messages.
@@ -141,7 +141,7 @@ export function ChannelsAdd({ onOpen, onNewSection }: { onOpen: (chatId: Id<"cha
  * written to it. Most recent first until you drag one; then your order, with new ones after.
  * An agent's side chats nest under it, like a channel's threads.
  */
-export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, section }: ChatNavProps & { section: SectionProps }) {
+export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, section, at }: ChatNavProps & { section: SectionProps; at: Parameters<BuiltIn["render"]>[0] }) {
 	const workspace = useWorkspace();
 	const openDm = useMutation(api.chats.openDm);
 	const createSide = useMutation(api.chats.createSideChat);
@@ -170,7 +170,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 	const markRead = useMutation(api.chats.markRead);
 	const closeDm = useMutation(api.chats.closeDm);
 	return (
-		<Group title="Direct messages" section={section} add={<AddButton label="New message" onClick={() => setDialog("message")} />}>
+		<Group title="Direct messages" section={section} {...at} add={<AddButton label="New message" onClick={() => setDialog("message")} />}>
 			{shown.map((d) => {
 				const sides = section.collapsed ? sidesOf(d.dmId).filter(needed) : sidesOf(d.dmId);
 				const open = section.collapsed || !folded.includes(d.key);
@@ -339,18 +339,56 @@ export function Group({ title, section, add, menu, rename, drag, divider, childr
 	);
 }
 
-const sectionKey = (s: Section) => s._id;
+/** A built-in section (core `builtInSections`) drawn among the ones people add: `render` gets its header's drag and divider. */
+export type BuiltIn = { id: string; render: (at: { drag: DragProps | undefined; divider: ReturnType<typeof useDragStatic> | undefined }) => React.ReactNode };
+type Entry = { id: string; section?: Section };
+const entryKey = (e: Entry) => e.id;
 
 /**
- * A tab's sections people added (backend sidebarSections.ts), in the workspace's order, after its rows
- * in no section. With `sidebar.arrange`, drag a header to move its section. `children` draws each one
- * (`SectionGroup`), told whether it's first: its header then also ends the list above, so that list
- * takes drops even when it's empty.
+ * A tab's sections, built in (`builtIns`) and people added (backend sidebarSections.ts), in the
+ * workspace's order, after its rows in no section. With `sidebar.arrange`, drag a header to move its
+ * section. `children` draws each one people added (`SectionGroup`), told whether it's first after the
+ * rows in no section: its header then also ends that list, so it takes drops even when it's empty.
+ * `holder`: the built-in that holds those rows (Drive's All files), on top until someone moves it;
+ * other built-ins start after the sections.
  */
-export function SectionsNav({ tab, children }: { tab: SectionTab; children: (section: Section, at: { drag: DragProps | undefined; first: boolean }) => React.ReactNode }) {
+export function SectionsNav({ tab, builtIns = [], holder, children }: {
+	tab: SectionTab;
+	builtIns?: BuiltIn[];
+	holder?: string;
+	children: (section: Section, at: { drag: DragProps | undefined; first: boolean }) => React.ReactNode;
+}) {
 	const { sections } = useSections(tab);
-	const { sorted, drag } = useSortable("sectionOrder", sections, sectionKey, "y", undefined, { group: `${itemsGroup(tab)}:sections` });
-	return <>{sorted.map((s, i) => <Fragment key={s._id}>{children(s, { drag: drag(s._id), first: i === 0 })}</Fragment>)}</>;
+	const [order] = useStoredIds("sectionOrder");
+	const ids = builtIns.map((b) => b.id).join(" ");
+	const entries = useMemo((): Entry[] => {
+		const fixed = ids ? ids.split(" ").map((id) => ({ id })) : [];
+		return [...fixed.filter((e) => e.id === holder), ...sections.map((s) => ({ id: s._id, section: s })), ...fixed.filter((e) => e.id !== holder)];
+	}, [ids, holder, sections]);
+	// Unsaved, the holder stays on top (an unsaved id otherwise goes after the saved ones).
+	const onTop = !!holder && !order.includes(holder);
+	const arrange = useCallback((sorted: Entry[]) => (onTop ? [...sorted.filter((e) => e.id === holder), ...sorted.filter((e) => e.id !== holder)] : sorted), [onTop, holder]);
+	const { sorted, drag } = useSortable("sectionOrder", entries, entryKey, "y", undefined, { group: `${itemsGroup(tab)}:sections`, arrange });
+	const byId = new Map(builtIns.map((b) => [b.id, b]));
+	return (
+		<>
+			{sorted.map((e, i) => {
+				const first = holder ? sorted[i - 1]?.id === holder : i === 0;
+				const builtIn = byId.get(e.id);
+				return (
+					<Fragment key={e.id}>
+						{e.section ? children(e.section, { drag: drag(e.id), first }) : builtIn && <BuiltInSlot tab={tab} first={first} drag={drag(e.id)} render={builtIn.render} />}
+					</Fragment>
+				);
+			})}
+		</>
+	);
+}
+
+/** A built-in section in its place. Its header shifts with drags of the tab's rows, and first after the rows in no section, it also ends that list (as `SectionGroup`'s). */
+function BuiltInSlot({ tab, first, drag, render }: { tab: SectionTab; first: boolean; drag: DragProps | undefined; render: BuiltIn["render"] }) {
+	const divider = useDragStatic(itemsGroup(tab), { endOf: first ? unsectionedList(tab) : undefined });
+	return <>{render({ drag, divider })}</>;
 }
 
 /** Where a deleted section's things go back to, by tab. */

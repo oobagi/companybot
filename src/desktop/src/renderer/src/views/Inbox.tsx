@@ -177,19 +177,24 @@ export function InboxNav() {
 	return (
 		<>
 			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((r) => row(r.id, drag(r.id)))}</div>}
-			<SectionsNav tab="inbox">
+			<SectionsNav tab="inbox" builtIns={[
+				// Folded, only the picked row stays, like a folded section's.
+				{ id: "inboxChannels", render: (at) => (
+					<NavGroup title="Channels" section={fold("inboxChannels")} {...at}>
+						{channelOrder.sorted.filter((r) => !folded.includes("inboxChannels") || r.id === filter).map((r) => row(r.id, channelOrder.drag(r.id)))}
+					</NavGroup>
+				) },
+				{ id: "inboxTags", render: (at) => (
+					<NavGroup title="Tags" section={fold("inboxTags")} {...at}>
+						{(!folded.includes("inboxTags") || filter === tagsRow.id) && row(tagsRow.id, undefined)}
+					</NavGroup>
+				) },
+			]}>
 				{(section, at) => (
 					// Folded, the picked one stays.
 					<SectionGroup {...at} tab="inbox" section={section} rows={section.ids.filter((id) => id in filters)} keep={(id) => id === filter} render={(id, drag) => row(id, drag?.item)} />
 				)}
 			</SectionsNav>
-			{/* Folded, only the picked row stays, like a folded section's. */}
-			<NavGroup title="Channels" section={fold("inboxChannels")}>
-				{channelOrder.sorted.filter((r) => !folded.includes("inboxChannels") || r.id === filter).map((r) => row(r.id, channelOrder.drag(r.id)))}
-			</NavGroup>
-			<NavGroup title="Tags" section={fold("inboxTags")}>
-				{(!folded.includes("inboxTags") || filter === tagsRow.id) && row(tagsRow.id, undefined)}
-			</NavGroup>
 		</>
 	);
 }

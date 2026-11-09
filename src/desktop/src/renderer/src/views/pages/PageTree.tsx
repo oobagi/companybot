@@ -151,16 +151,19 @@ function DriveNavTree({ openId, openFileId, openView, canEdit }: { openId?: stri
 					);
 				})}
 			</div>
-			<Group
-				title="All files"
-				divider={allFiles}
-				section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: "files" }) }}
-				add={canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files)} />}
-			>
-				{!collapsed && level()}
-				<UploadRows uploads={uploads.pending.filter((u) => !u.sectionId)} onDismiss={uploads.dismiss} />
-			</Group>
-			<SectionsNav tab="drive">
+			<SectionsNav tab="drive" holder="files" builtIns={[{ id: "files", render: ({ drag }) => (
+				// Its own divider: its header starts the list it holds.
+				<Group
+					title="All files"
+					drag={drag}
+					divider={allFiles}
+					section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: "files" }) }}
+					add={canEdit && <NewMenu onPage={() => add("page")} onFolder={() => add("folder")} onUpload={(files) => uploads.start(files)} />}
+				>
+					{!collapsed && level()}
+					<UploadRows uploads={uploads.pending.filter((u) => !u.sectionId)} onDismiss={uploads.dismiss} />
+				</Group>
+			) }]}>
 				{(section, at) => (
 					<DriveSection key={section._id} section={section} at={at} moves={moves} renderPage={renderPage} renderFile={renderFile} keep={(id) => id === openId || id === openFileId}
 						add={canEdit && <NewMenu onPage={() => add("page", undefined, section._id)} onFolder={() => add("folder", undefined, section._id)} onUpload={(files) => uploads.start(files, undefined, { id: section._id, onAdded: (fileId) => sections.place(fileId, section._id) })} />}>
