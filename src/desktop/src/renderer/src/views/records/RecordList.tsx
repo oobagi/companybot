@@ -11,14 +11,14 @@ import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { useSortable } from "../../sortable";
 import { ArrowDownIcon, ArrowUpIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, SearchIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, iconButton, toolButton, toolControlClass, compactButton, compactControlClass, compactPrimaryButton, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, toolButton, toolControlClass, compactButton, compactControlClass, compactPrimaryButton, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
 import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, archiveQuestion, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
 import { AddField, EditField } from "./fieldDialogs";
 import { ViewMenu } from "./ViewMenu";
-import { Chip, FieldIcon, RecordPicker, ValueEditor, ValueView, useOptions } from "./fields";
+import { CheckList, Chip, FieldIcon, Picked, RecordPicker, ValueEditor, ValueView, useOptions } from "./fields";
 import {
 	type Filter,
 	type Refs,
@@ -677,7 +677,7 @@ function FilterChip({
 		<PopoverPanel
 			opened={open}
 			onClose={() => onOpen(false)}
-			className="flex w-80 flex-col gap-2 p-2"
+			className="flex w-80 flex-col gap-px p-1"
 			target={
 				<button type="button" onClick={() => onOpen(!open)} data-active={active || undefined} className={filterChip}>
 					<FieldIcon field={field} />
@@ -700,15 +700,16 @@ function FilterChip({
 				</button>
 			}
 		>
-			<div className="flex items-center gap-1 text-sm">
+			{/* Shaped like the sort's menu: what it checks, its value, then Remove at the bottom. */}
+			<div className="flex items-center gap-1 px-1 text-sm">
 				<span className="truncate pl-1 text-neutral-500">{field.label}</span>
 				<Select className={toolButton} label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
-				<span className="flex-1" />
-				<button type="button" onClick={onRemove} className={iconButton} title="Remove filter" aria-label="Remove filter">
-					<TrashIcon />
-				</button>
 			</div>
 			{needsValue(filter.op) && <FilterValue field={field} filter={filter} onChange={(value) => onChange({ ...filter, value })} />}
+			<MenuDivider />
+			<MenuItem danger onClick={onRemove}>
+				<TrashIcon /> Remove filter
+			</MenuItem>
 		</PopoverPanel>
 	);
 }
@@ -719,47 +720,26 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 	const ids = Array.isArray(filter.value) ? filter.value : [];
 	const [names, setNames] = useState<Refs>({});
 	if (filter.op === "anyOf") {
-		const label = (id: string) => options.find((o) => o.id === id)?.label ?? names[id]?.name ?? id;
+		const toggle = (id: string) => onChange(ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]);
+		if (field.kind !== "link") {
+			// The options as a checklist, as when picking one on a record.
+			return options.length ? <CheckList field={field} options={options} picked={ids} onToggle={toggle} /> : <span className={`px-2 py-1 ${hintClass}`}>No options yet.</span>;
+		}
 		return (
-			<span className="flex flex-wrap items-center gap-1.5">
-				{ids.map((id) => (
-					<Chip key={id} color={options.find((o) => o.id === id)?.color} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
-				))}
-				{field.kind === "link" ? (
-					field.linkType && <RecordPicker
+			<>
+				{ids.map((id) => <Picked key={id} label={names[id]?.name ?? id} onClick={() => toggle(id)} />)}
+				{field.linkType && (
+					<RecordPicker
 						typeId={field.linkType}
 						exclude={ids}
 						label="Pick"
 						onPick={(id, name) => {
 							setNames({ ...names, [id]: { name } });
-							onChange([...ids, id]);
+							toggle(id);
 						}}
 					/>
-				) : field.kind === "choice" ? (
-					// Options as their chips, as when picking one on a record.
-					<Popover trigger={<span className="text-neutral-400">Pick…</span>} className={`inline-flex items-center ${compactControlClass}`} panelClassName="flex max-h-72 w-56 flex-col gap-px overflow-y-auto p-1">
-						{(close) =>
-							options.filter((o) => !ids.includes(o.id)).length ? (
-								options
-									.filter((o) => !ids.includes(o.id))
-									.map((o) => (
-										<MenuItem key={o.id} onClick={() => (close(), onChange([...ids, o.id]))}>
-											<Chip color={o.color}><span className="truncate">{o.label}</span></Chip>
-										</MenuItem>
-									))
-							) : (
-								<span className={`px-2 py-1 ${hintClass}`}>All picked.</span>
-							)
-						}
-					</Popover>
-				) : (
-					<Select
-						value=""
-						options={options.filter((o) => !ids.includes(o.id)).map((o) => ({ value: o.id, label: o.label }))}
-						onChange={(id) => onChange([...ids, id])}
-					/>
 				)}
-			</span>
+			</>
 		);
 	}
 	const type = field.kind === "date" ? "date" : "text";
@@ -771,7 +751,7 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 			value={typeof filter.value === "string" ? filter.value : ""}
 			onChange={(e) => onChange(e.target.value)}
 			placeholder={field.kind === "currency" ? "1000 or EUR 1000" : "Value"}
-			className={`${compactControlClass} w-full`}
+			className={`${compactControlClass} m-1`}
 		/>
 	);
 }
