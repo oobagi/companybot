@@ -446,7 +446,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 											messageId={item.messages.at(-1)!.id}
 											comments={item.messages.flatMap((m) => m.comments).sort((a, b) => a.at - b.at)}
 											side={email || first.direction === "in" ? "them" : "us"}
-											{...(email && { className: "pb-3 pl-12", quiet: true, open: commenting === first.id, onOpenChange: (on: boolean) => setCommenting(on ? first.id : undefined) })}
+											{...(email && { className: `pb-3 pl-12 ${first.status !== "draft" && !isOpen(first) ? "-mt-1.5" : ""}`, quiet: true, open: commenting === first.id, onOpenChange: (on: boolean) => setCommenting(on ? first.id : undefined) })}
 										/>
 									)}
 									{/* Lines get the same room under them as a group's comment pill, so every gap is the same. */}
@@ -803,47 +803,41 @@ function ReplyBox({ conversation: c, answering, picked, onSent }: { conversation
 	return (
 		<div className={`${conversationColumn} flex flex-col gap-2 px-5 pt-4 pb-7`}>
 			<Notice>{error}</Notice>
-			{c.from ? (
-				// An email's reply: what it answers on a card tucked behind the box's top edge (pick another with an email's Reply).
-				<div className={`relative ${email ? "pt-8" : ""}`}>
-					{email && (
-						<div aria-label="Replying to" className="absolute inset-x-3 top-0 flex h-14 min-w-0 items-start gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 pt-1 text-sm">
-							<span className="flex h-6 min-w-0 flex-1 items-center gap-2">
-								<ReplyIcon className="shrink-0 text-neutral-500" />
-								<span className="max-w-1/2 shrink-0 truncate font-medium text-neutral-900">{c.subject || "(no subject)"}</span>
-								{answering && <span className="min-w-0 flex-1 truncate text-neutral-500">{answering.text.replace(/\s+/g, " ")}</span>}
-							</span>
-							<span className="flex shrink-0 items-center gap-1">
-								<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={labelButton} />
-								<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={labelButton} />
-								<Soon trigger={<CloseIcon />} label="New email" text="Start a new email to them, with its own subject, instead of replying." className={smallIconButton} />
-							</span>
-						</div>
-					)}
-					<div className="relative">
-						<Composer
-							key={c.id}
-							sendWith={sendWith}
-							placeholder={email ? `Reply to ${who}` : `Text ${who}`}
-							sources={noSources}
-							draftKey={`inbox:${c.id}`}
-							onSend={send}
-							start={<Soon trigger={<AttachIcon />} label="Attach files" text="Send photos and files by email and text." />}
-							tools={
-								<>
-									<Soon trigger={<SparkleIcon />} label="Write a reply" text={`${c.agentName} will draft a reply from the conversation and ${who}'s record, for you to edit.`} />
-									<Soon trigger={<SavedReplyIcon />} label="Saved replies" text="Answers your team sends often, a click away." />
-								</>
-							}
-						/>
+			{/* An email's reply: what it answers on a card tucked behind the box's top edge (pick another with an email's Reply). With no address or number to send from, the box stays, greyed, saying why. */}
+			<div className={`relative ${email && c.from ? "pt-8" : ""}`}>
+				{email && c.from && (
+					<div aria-label="Replying to" className="absolute inset-x-3 top-0 flex h-14 min-w-0 items-start gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 pt-1 text-sm">
+						<span className="flex h-6 min-w-0 flex-1 items-center gap-2">
+							<ReplyIcon className="shrink-0 text-neutral-500" />
+							<span className="max-w-1/2 shrink-0 truncate font-medium text-neutral-900">{c.subject || "(no subject)"}</span>
+							{answering && <span className="min-w-0 flex-1 truncate text-neutral-500">{answering.text.replace(/\s+/g, " ")}</span>}
+						</span>
+						<span className="flex shrink-0 items-center gap-1">
+							<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={labelButton} />
+							<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={labelButton} />
+							<Soon trigger={<CloseIcon />} label="New email" text="Start a new email to them, with its own subject, instead of replying." className={smallIconButton} />
+						</span>
 					</div>
+				)}
+				<div className="relative">
+					<Composer
+						key={c.id}
+						sendWith={sendWith}
+						placeholder={!c.from ? `${c.agentName} has no ${email ? "email address" : "phone number"} now, so replies can't be sent` : email ? `Reply to ${who}` : `Text ${who}`}
+						disabled={!c.from}
+						sources={noSources}
+						draftKey={`inbox:${c.id}`}
+						onSend={send}
+						start={<Soon trigger={<AttachIcon />} label="Attach files" text="Send photos and files by email and text." />}
+						tools={
+							<>
+								<Soon trigger={<SparkleIcon />} label="Write a reply" text={`${c.agentName} will draft a reply from the conversation and ${who}'s record, for you to edit.`} />
+								<Soon trigger={<SavedReplyIcon />} label="Saved replies" text="Answers your team sends often, a click away." />
+							</>
+						}
+					/>
 				</div>
-			) : (
-				<p className="flex items-center gap-2 rounded-xl border border-neutral-200 px-4 py-3 text-sm text-neutral-500">
-					<ChannelIcon channel={c.channel} className="shrink-0 text-neutral-400" />
-					{c.agentName} no longer has {c.channel === "email" ? "an email address" : "a phone number"}, so replies can't be sent.
-				</p>
-			)}
+			</div>
 		</div>
 	);
 }

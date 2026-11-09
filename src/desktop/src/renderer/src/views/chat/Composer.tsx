@@ -1,6 +1,6 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { ArrowUpIcon, ChannelIcon, DatabaseIcon, PrivateIcon, SkillIcon } from "../../icons";
@@ -27,6 +27,7 @@ export function Composer({
 	draftKey,
 	start,
 	tools,
+	disabled,
 }: {
 	/** Rejects if the message didn't go: the composer gets its text and files back. */
 	onSend: (text: string, mentions: Mentions, files: Id<"_storage">[]) => Promise<unknown>;
@@ -46,6 +47,8 @@ export function Composer({
 	start?: ReactNode;
 	/** More round buttons, before emoji and dictation. */
 	tools?: ReactNode;
+	/** Nothing can be sent from here now: the box stays, greyed, and its placeholder says why. */
+	disabled?: boolean;
 }) {
 	const me = useQuery(api.chats.list)?.me;
 	// Each person's own, and none until we know who's here.
@@ -53,8 +56,8 @@ export function Composer({
 	const [menu, setMenu] = useState<Menu | null>(null);
 	const [empty, setEmpty] = useState(true);
 	// The editor is made once; it reads the latest props (and this render's submit) through this ref.
-	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, saveAt, submit: () => {} });
-	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments, saveAt };
+	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, saveAt, disabled, submit: () => {} });
+	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments, saveAt, disabled };
 	const suggestions = useMemo(() => new SuggestionMenu(() => latest.current.sources, setMenu), []);
 
 	const editor = useEditor({
@@ -88,9 +91,12 @@ export function Composer({
 	});
 
 	useDraft(editor, saveAt, setEmpty);
+	useEffect(() => {
+		if (editor && editor.isEditable === !!disabled) editor.setEditable(!disabled);
+	}, [editor, disabled]);
 
 	const submit = () => {
-		if (!editor) return;
+		if (!editor || latest.current.disabled) return;
 		const text = plainText(editor);
 		const files = latest.current.attachments;
 		if (files?.uploading || (!text && !files?.ids.length)) return;
@@ -125,7 +131,7 @@ export function Composer({
 			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} onPickEmoji={(char) => suggestions.pickEmoji(char)} />}
 			<div className="flex flex-col">
 				{/* One 8px inset all round, and a corner that follows the round buttons' (16px radius + 8px = 24px). */}
-				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-3xl border border-neutral-200 bg-white p-2 shadow-xs focus-within:border-neutral-300 ${attachments || start ? "" : "pl-4"}`} onSubmit={submit}>
+				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-3xl border border-neutral-200 p-2 shadow-xs focus-within:border-neutral-300 ${disabled ? "bg-neutral-50" : "bg-white"} ${attachments || start ? "" : "pl-4"}`} onSubmit={submit}>
 					{attachments && <PendingFiles attachments={attachments} />}
 					{attachments ? <AttachButton attachments={attachments} /> : start}
 					<EditorContent editor={editor} className="composer min-w-0 flex-1" />
@@ -133,7 +139,7 @@ export function Composer({
 					<ComposerTools editor={editor} />
 					<button
 						type="submit"
-						disabled={attachments?.uploading || (empty && !attachments?.ids.length)}
+						disabled={disabled || attachments?.uploading || (empty && !attachments?.ids.length)}
 						className={sendButton}
 						aria-label="Send"
 					>

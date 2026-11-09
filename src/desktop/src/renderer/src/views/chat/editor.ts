@@ -291,7 +291,8 @@ export function composerExtensions(options: {
 		// Only Shift-Enter: Mod-Enter is a send preference (Send above).
 		HardBreak.extend({ addKeyboardShortcuts: () => ({}) }),
 		UndoRedo,
-		Placeholder.configure({ placeholder: () => options.placeholder() }),
+		// Shown on a disabled box too: there it says why nothing can be sent.
+		Placeholder.configure({ placeholder: () => options.placeholder(), showOnlyWhenEditable: false }),
 		Token.configure({
 			deleteTriggerWithBackspace: true,
 			renderText: ({ node }) => sentText(node),
