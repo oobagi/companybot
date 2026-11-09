@@ -33,6 +33,7 @@ import { type SectionId, useSections, useUnsectioned } from "./sections";
 import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
 import { DriveView } from "./views/drive/Views";
+import { DatabaseList, databaseLists } from "./views/records/Lists";
 import { ComingSoon } from "./views/ComingSoon";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
@@ -150,7 +151,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox, /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox, /records/<type>[/<record>], /databases/<list>, /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -170,7 +171,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	// The rail's tab on screen. Settings (Customize included) lights none.
 	const tab: AppTab | undefined = placing
 		? lastTab.current
-		: view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
+		: view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" || view === "databases" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
 	lastTab.current = tab;
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
@@ -301,7 +302,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										</>
 									)}
 									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} openView={view === "drive" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} openList={view === "databases" ? route[1] : undefined} canCreate={can(access, "fields.edit")} />}
 								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
@@ -328,6 +329,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
 						{view === "files" && <FileView fileId={route[1]} />}
 						{view === "drive" && <DriveView id={route[1]} />}
+						{view === "databases" && <DatabaseList id={route[1]} />}
 						{(view === "home" || view === "inbox" || view === "sites") && <ComingSoon tab={view} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
@@ -340,16 +342,19 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 const typeKeyOf = (t: { _id: string }) => t._id;
 
 /**
- * Databases' sidebar: the databases in no section, in the workspace's order, then the sections people
+ * Databases' sidebar: Assigned to me and Due (`databaseLists`), then the databases in no section, in the workspace's order, then the sections people
  * add (`SectionsNav`). New ones come from the + by the tab's name, or a section's own +.
  */
 function DatabasesNav({
 	types,
 	openKey,
+	openList,
 	canCreate,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
+	/** The open list (`databaseLists`), on its screen. */
+	openList: string | undefined;
 	/** `fields.edit`: a section's + makes a database in it. */
 	canCreate: boolean;
 }) {
@@ -391,6 +396,13 @@ function DatabasesNav({
 	);
 	return (
 		<>
+			<div className="flex flex-col gap-px">
+				{databaseLists.map((l) => (
+					<Item key={l.id} icon={l.icon} label={l.label} active={openList === l.id} onClick={() => navigate("databases", l.id)}>
+						<span className="truncate">{l.label}</span>
+					</Item>
+				))}
+			</div>
 			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((type) => row(type, drag(type._id)))}</div>}
 			<SectionsNav tab="databases">
 				{(section, at) => (

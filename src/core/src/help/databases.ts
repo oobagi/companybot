@@ -9,6 +9,8 @@ A **database** is a collection of records the team tracks: clients, deals, jobs,
 
 Each database has its own entry in Databases' sidebar (Databases in the rail); its address is #/records/<key>. Older shortcuts like #/clients still open too.
 
+**Assigned to me** and **Due** sit at the top of the sidebar, above the databases (#/databases/mine, #/databases/due). They'll gather records from every database: ones where a person field is you, and ones with a date coming up or past. They say "Coming soon" for now.
+
 ## Who can do what
 - **Create, rename or delete databases, and add or change fields**: people whose role can add and change databases and fields (not Member, to start; an owner can turn it on). The + is beside Databases.
 - **Add and edit records, undo changes**: people whose role can add and change records (Member, to start).
