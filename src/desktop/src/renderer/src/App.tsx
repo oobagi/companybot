@@ -27,9 +27,9 @@ import { type PinKey, pinOf, usePins } from "./pins";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, AddMenu, ChannelsAdd, ChannelsNav, DmsNav, Item, NewSection, SectionGroup, SectionsNav, SidebarList } from "./views/chat/Sidebar";
-import { type DragProps, useSortable } from "./sortable";
-import { type SectionId, useSections, useUnsectioned } from "./sections";
+import { AddButton, AddMenu, ChannelsAdd, ChannelsNav, DmsNav, Group, Item, NewSection, SectionGroup, SectionsNav, SidebarList } from "./views/chat/Sidebar";
+import { type DragProps, useDragStatic, useSortable } from "./sortable";
+import { type SectionId, itemsGroup, unsectionedList, useSections, useUnsectioned } from "./sections";
 import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
 import { DriveView } from "./views/drive/Views";
@@ -174,7 +174,6 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		: view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" || view === "databases" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
 	lastTab.current = tab;
 	const types = useTypes();
-	const [newDatabase, setNewDatabase] = useState(false);
 	const [newSection, setNewSection] = useState(false);
 	const sectionTab = tab === "chat" || tab === "drive" || tab === "databases" ? tab : undefined;
 	const addSection = can(access, "sidebar.arrange") ? { label: "New section", onClick: () => setNewSection(true) } : undefined;
@@ -259,7 +258,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
 												<h1 className="min-w-0 flex-1 truncate px-2 py-1.25 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
-												{/* The + here adds to the rows right under the name (channels, databases) and adds sections; a section (Direct messages, All files, the ones people add) has its own on its header. */}
+												{/* The + here adds to the rows right under the name (channels) and adds sections; a section (Direct messages, All files, All databases, the ones people add) has its own on its header. */}
 												{tab === "chat" && (
 													<span className="no-drag flex">
 														<ChannelsAdd onOpen={open} onNewSection={addSection?.onClick} />
@@ -267,7 +266,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 												)}
 												{(tab === "databases" || tab === "drive") && (
 													<span className="no-drag flex">
-														<AddMenu label="New" actions={[...(tab === "databases" && can(access, "fields.edit") ? [{ label: "New database", onClick: () => setNewDatabase(true) }] : []), ...(addSection ? [addSection] : [])]} />
+														<AddMenu label="New" actions={addSection ? [addSection] : []} />
 													</span>
 												)}
 											</div>
@@ -309,7 +308,6 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 						</aside>
 					)}
 
-					{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
 					{newSection && sectionTab && <NewSection tab={sectionTab} onClose={() => setNewSection(false)} />}
 					<main className="flex min-w-0 flex-1 flex-col">
 						<Notice>{error}</Notice>
@@ -365,7 +363,12 @@ function DatabasesNav({
 	const lists = useSortable("databaseRows", databaseLists, listKey);
 	const byId = useMemo(() => new Map<string, RecordType>(types.map((t) => [t._id, t])), [types]);
 	const [editing, setEditing] = useState<RecordType>();
-	const [creatingIn, setCreatingIn] = useState<SectionId>();
+	// undefined: no dialog; null: in no section (All databases).
+	const [creatingIn, setCreatingIn] = useState<SectionId | null>();
+	const [folded, changeFolded] = useStoredIds("folded");
+	const collapsed = folded.includes("databases");
+	// Its header starts the unsectioned list, so a drop just under its title goes in while it's empty.
+	const allDatabases = useDragStatic(itemsGroup("databases"), { startOf: unsectionedList("databases") });
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
@@ -406,7 +409,15 @@ function DatabasesNav({
 					</Item>
 				))}
 			</div>
-			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((type) => row(type, drag(type._id)))}</div>}
+			<Group
+				title="All databases"
+				divider={allDatabases}
+				section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: "databases" }) }}
+				add={canCreate && <AddButton label="New database" onClick={() => setCreatingIn(null)} />}
+			>
+				{/* Folded, the open database stays. */}
+				{sorted.filter((type) => !collapsed || type.key === openKey).map((type) => row(type, drag(type._id)))}
+			</Group>
 			<SectionsNav tab="databases">
 				{(section, at) => (
 					<SectionGroup
@@ -423,7 +434,7 @@ function DatabasesNav({
 			</SectionsNav>
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
-			{creatingIn && <DatabaseDialog onCreated={(id) => place(id, creatingIn)} onClose={() => setCreatingIn(undefined)} />}
+			{creatingIn !== undefined && <DatabaseDialog onCreated={creatingIn ? (id) => place(id, creatingIn) : undefined} onClose={() => setCreatingIn(undefined)} />}
 			{dialog}
 		</>
 	);

@@ -60,10 +60,10 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
 /**
- * Built-in sidebar sections that fold (`folded`): Chat's Direct messages and Drive's All files. Sections
+ * Built-in sidebar sections that fold (`folded`): Chat's Direct messages, Drive's All files and Databases' All databases. Sections
  * people add (`sidebarSections` rows) fold by their ids in the same list.
  */
-export const builtInSections = ["dms", "files"];
+export const builtInSections = ["dms", "files", "databases"];
 /**
  * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
  * orders their items in no section: Chat's channels, Drive's top-level pages, folders and files, the
