@@ -23,6 +23,7 @@
     "convex-helpers": "^0.1.128",
     "happy-dom": "^21.0.4",
     "linkedom": "^0.18.14",
+    "livekit-server-sdk": "^2.19.2",
     "resend": "^6.34.1",
     "turndown": "^7.2.4",
     "undici": "^7.30.1",

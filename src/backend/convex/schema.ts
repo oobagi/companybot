@@ -276,6 +276,7 @@ export default defineSchema({
 		routerModel: v.optional(v.string()),
 		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
 		imageBudgetUsd: v.optional(v.number()),
+		phoneBudgetUsd: v.optional(v.number()),
 		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`; 0 forever). Unset means THREAD_HOURS_DEFAULT. */
 		threadHours: v.optional(v.number()),
 		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
@@ -471,8 +472,24 @@ export default defineSchema({
 			from: v.string(),
 			token: v.string(),
 			dispatchedAt: v.optional(v.number()),
-			state: v.optional(v.union(v.literal("queued"), v.literal("sent"), v.literal("delivered"), v.literal("undelivered"), v.literal("failed"), v.literal("unknown"), v.literal("simulated"))),
+			state: v.optional(v.union(v.literal("queued"), v.literal("delivered"), v.literal("failed"), v.literal("unknown"))),
 		})),
+		/** A call is a message on the ordinary Inbox conversation, not a second history. */
+		call: v.optional(v.object({
+			room: v.string(),
+			pointId: v.id("contactPoints"),
+			from: v.string(),
+			active: v.boolean(),
+			state: v.union(v.literal("ringing"), v.literal("connected"), v.literal("ending"), v.literal("completed"), v.literal("missed"), v.literal("failed"), v.literal("unknown")),
+			userId: v.optional(v.id("users")),
+			memberId: v.optional(v.id("members")),
+			declined: v.array(v.id("users")),
+			dispatched: v.optional(v.boolean()),
+			connectedAt: v.optional(v.number()),
+			endedAt: v.optional(v.number()),
+			rateUsd: v.number(),
+		})),
+
 		/** Email Message-ID, for threading replies (In-Reply-To, References). */
 		messageId: v.optional(v.string()),
 		/** An `out` email: the one in this conversation it answers (its In-Reply-To), when staff picked it. Else the latest of theirs. */
@@ -490,7 +507,9 @@ export default defineSchema({
 		error: v.optional(v.string()),
 	})
 		.index("by_conversation", ["conversationId"])
-		.index("by_provider", ["providerId"]),
+		.index("by_provider", ["providerId"])
+		.index("by_call_room", ["call.room"])
+		.index("by_live_call", ["workspaceId", "call.active"]),
 
 	agentVersions: defineTable({
 		agentId: v.id("agents"),

@@ -10,6 +10,12 @@ import { manageInputs, manageTools } from "./manage-tools";
 import { modelToolName } from "./tools";
 
 describe("grouped tools", () => {
+	it("asks before preparing or ending a phone call through Inbox", async () => {
+		for (const request of [{ action: "call", agentId: "agent-id", to: "+15125550199" }, { action: "end_call", id: "call-id" }]) {
+			const action = await actionOf("inbox_manage", { request }, builtinTools);
+			expect(toolRisk(action!.tool)).toBe("outside");
+		}
+	});
 	it("asks for exact invitations and skill edits, and locks irreversible removal tools", async () => {
 		for (const id of ["members.invite", "skills.edit", "members.remove", "skills.remove", "automations.remove"] as const) {
 			const tool = manageTools.find((t) => t.id === id)!;

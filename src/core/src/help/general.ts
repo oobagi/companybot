@@ -13,6 +13,9 @@ export default {
 - **Currency**: the default for new amounts. Existing amounts keep theirs.
 - **Memory**: whether agents remember things. Off keeps existing memories for later. See **help: memory**.
 
+## Calls
+The monthly call budget starts at $0 (off). It uses the same saved workspace settings as the picture budget. Active calls reserve up to 31 minutes at the server's configured rate, including ringing and rounding; estimates settle into Usage when the call ends. See **help: inbox**.
+
 ## Pictures
 Agents with the picture tool (Companybot has it) make a picture when you ask ("make a logo for our roofing ad"), or edit one attached in the chat ("make the roof red"). The picture is attached to their reply. They can only edit pictures from chats you can see.
 

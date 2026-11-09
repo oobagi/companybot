@@ -285,6 +285,7 @@ function GeneralForm({
 		imageModel: string;
 		imageModels: ImageModelInfo[];
 		imageBudgetUsd: number;
+		phoneBudgetUsd: number;
 		imageSpentUsd: number | null;
 		routerModel: string;
 		routerModels: ModelInfo[];
@@ -295,14 +296,14 @@ function GeneralForm({
 }) {
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
-	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) };
+	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), phoneBudget: String(settings.phoneBudgetUsd), threadHours: String(settings.threadHours) };
 	const draft = useDraft("settings", saved, settings.version);
 	const value = canManage ? draft.value : saved;
 	const [confirming, setConfirming] = useState(false);
 	const { error, run } = useRun();
 	const submit = () => {
-		const { imageBudget, threadHours, ...rest } = value;
-		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), threadHours: Number(threadHours), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
+		const { imageBudget, phoneBudget, threadHours, ...rest } = value;
+		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), phoneBudgetUsd: Number(phoneBudget || 0), threadHours: Number(threadHours), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
 	};
 	const spent = settings.imageSpentUsd === null ? "" : ` ${formatUsd(settings.imageSpentUsd)} used in ${monthLabel(usageMonth(Date.now()))}.`;
 	const currencyChanged = value.currency !== settings.currency;
@@ -375,6 +376,7 @@ function GeneralForm({
 					/>
 				</Setting>
 			</Settings>
+			<Settings title="Calls"><Setting label="Monthly budget" hint="Estimated call spend in US dollars. $0 turns calling off. Each call reserves up to 31 minutes before connecting."><input aria-label="Monthly call budget" className={wideControlClass} disabled={!canManage} inputMode="decimal" value={value.phoneBudget} onChange={(e) => draft.set({ ...value, phoneBudget: e.target.value.replace(/[^\d.]/g, "") })} /></Setting></Settings>
 			{canManage && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />}
 			{canManage && confirming && (
 				<Confirm title="Change currency?" action="Change currency" onConfirm={submit} onClose={() => setConfirming(false)}>

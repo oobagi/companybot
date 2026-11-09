@@ -21,7 +21,7 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
-    NSMicrophoneUsageDescription: Companybot uses the microphone when you dictate a message.
+    NSMicrophoneUsageDescription: Companybot uses the microphone for calls and message dictation.
   # Auto-update on macOS only works for signed, notarized apps.
   notarize: true
   target:

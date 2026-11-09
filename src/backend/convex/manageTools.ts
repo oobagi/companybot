@@ -1,3 +1,4 @@
+import { startCall, endCall } from "./calls";
 import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
@@ -339,6 +340,8 @@ export const runFor = internalMutation({
 							page: result.page.map((c) => ({ id: c._id, agentId: c.agentId, channel: c.channel, contact: c.contact, contactName: c.contactName ?? null, subject: c.subject ?? null, mode: c.mode, needsStaff: c.needsStaff ?? null, lastAt: new Date(c.lastAt).toISOString() })),
 						};
 					}
+					if (r.action === "call") return { callId: await startCall(ctx, { member, agentId: turn.agentId }, { agentId: rowId(ctx, "agents", r.agentId), to: r.to, ...(r.recordId && { recordId: rowId(ctx, "records", r.recordId) }) }), note: "Call prepared. Your person must join with their microphone in the app before dialing." };
+					if (r.action === "end_call") return (await endCall(ctx, member, rowId(ctx, "inboxMessages", r.id)), { ended: true });
 					if (r.action === "start") return startAs(ctx, { member, agentId: turn.agentId }, { ...r, agentId: rowId(ctx, "agents", r.agentId) });
 					const who = { member, agentId: turn.agentId };
 					const mentions = (ids: string[] | undefined) => (ids ?? []).map((u) => rowId(ctx, "users", u));
@@ -367,6 +370,7 @@ export const runFor = internalMutation({
 								direction: m.direction,
 								status: m.status,
 								sms: m.sms?.state ?? null,
+								call: m.call ? { state: m.call.state, connectedAt: m.call.connectedAt, endedAt: m.call.endedAt } : null,
 								error: m.error ?? null,
 								text: m.text,
 								...(m.assignedTo && { assignedTo: m.assignedTo }),

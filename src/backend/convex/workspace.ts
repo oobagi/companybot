@@ -622,6 +622,7 @@ export async function imageSettings(ctx: QueryCtx, member: Member, workspace: Do
 	return {
 		imageModel: (await workspaceImageModel(ctx, workspace.imageModel)).id,
 		imageBudgetUsd: workspace.imageBudgetUsd ?? IMAGE_BUDGET_DEFAULT_USD,
+		phoneBudgetUsd: workspace.phoneBudgetUsd ?? 0,
 		imageModels: await catalogImageModels(ctx),
 		imageSpentUsd: can(member, "usage.view") ? await imageSpent(ctx, workspace._id) : null,
 	};
@@ -673,6 +674,7 @@ const updateWorkspaceSettingsArgs = v.object({
 	memory: v.optional(v.boolean()),
 	imageModel: v.optional(v.string()),
 	imageBudgetUsd: v.optional(v.number()),
+	phoneBudgetUsd: v.optional(v.number()),
 	routerModel: v.optional(v.string()),
 	threadHours: v.optional(v.number()),
 	expectedVersion: v.number(),
@@ -683,7 +685,7 @@ export const updateSettings = mutation({
 	handler: async (ctx, args) => updateWorkspaceSettings(ctx, await requireMember(ctx), args),
 });
 
-export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, routerModel, threadHours, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
+export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, phoneBudgetUsd, routerModel, threadHours, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
 	const { workspaceId } = checkPermission(member, "workspace.manage");
 	const workspace = (await ctx.db.get(workspaceId))!;
 	checkVersion(workspace.version ?? 0, expectedVersion);
@@ -701,6 +703,7 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 	if (imageBudgetUsd !== undefined && !(imageBudgetUsd >= 0 && imageBudgetUsd <= IMAGE_BUDGET_MAX_USD)) {
 		throw new ConvexError(`Set an image budget from $0 (off) to $${IMAGE_BUDGET_MAX_USD.toLocaleString("en-US")} a month.`);
 	}
+	if (phoneBudgetUsd !== undefined && (!Number.isFinite(phoneBudgetUsd) || phoneBudgetUsd < 0 || phoneBudgetUsd > IMAGE_BUDGET_MAX_USD)) throw new ConvexError("Set a monthly call budget from $0 (off) to $10,000.");
 	if (threadHours !== undefined && !isThreadWindow(threadHours)) throw new ConvexError(`Threads stay in the sidebar for ${threadWindows.map((w) => w.hours).join(", ")} hours (0 is forever).`);
 	await ctx.db.patch(workspaceId, {
 		name: name.trim(),
@@ -709,6 +712,7 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 		...(imageModel !== undefined && { imageModel }),
 		...(routerModel !== undefined && { routerModel }),
 		...(imageBudgetUsd !== undefined && { imageBudgetUsd: Math.round(imageBudgetUsd * 100) / 100 }),
+		...(phoneBudgetUsd !== undefined && { phoneBudgetUsd: Math.round(phoneBudgetUsd * 100) / 100 }),
 		...(threadHours !== undefined && { threadHours }),
 		version: (workspace.version ?? 0) + 1,
 	});

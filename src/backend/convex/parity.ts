@@ -3,6 +3,11 @@
 // such a claim goes stale silently once they can (tests/parity.test.ts refuses it).
 // Mixed entries name the covered subset and the authority decision that stays human-only.
 export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = {
+	"calls.start": { agent: ["inbox.manage:call"] },
+	"calls.end": { agent: ["inbox.manage:end_call"] },
+	"calls.join": { humanOnly: "The person accepts a live caller and consents to connecting their own microphone." },
+	"calls.ready": { humanOnly: "The person's own device confirms its microphone is connected before dialing." },
+	"calls.decline": { humanOnly: "A person dismisses ringing on their own devices without refusing for the team." },
 	"recordTypes.setDisplay": { humanOnly: "People choose the database All tab display directly in the app." },
 	"recordTypes.migrateDisplay": { humanOnly: "Imports this computer's database display once." },
 	"arrangements.change": { humanOnly: "People arrange their navigation and database display directly in the app." },

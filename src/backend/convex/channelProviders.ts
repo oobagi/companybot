@@ -5,8 +5,7 @@ import { isLocalBackend } from "@companybot/core";
 // Server config only (Convex env), never per-workspace keys:
 //   Email: RESEND_API_KEY, EMAIL_DOMAIN (a Resend domain with receiving on), RESEND_WEBHOOK_SECRET.
 //   Texts: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN.
-// A local backend (`pnpm dev`) with none set gets a stand-in that logs what it would send and makes up
-// numbers, so the screens can be tried. Elsewhere, unset means the feature isn't offered.
+// Email has a local logging stand-in. Phone features always require a configured account; tests mock the network.
 
 export interface OutgoingEmail {
 	from: string;
@@ -49,7 +48,7 @@ export function smsProvider(): SmsProvider | null {
 	const sid = process.env.TWILIO_ACCOUNT_SID;
 	const token = process.env.TWILIO_AUTH_TOKEN;
 	if (sid && token) return twilio(sid, token);
-	return local() ? loggedSms : null;
+	return null;
 }
 
 /** Where Twilio posts a number's texts (http.ts). */
@@ -120,7 +119,7 @@ function twilio(sid: string, token: string): SmsProvider {
 			};
 			const number = found.available_phone_numbers[0]?.phone_number;
 			if (!number) throw new Error(areaCode ? `No numbers are free in area code ${areaCode}. Try another.` : "No numbers are free right now. Try again later.");
-			const bought = (await (await ok(await fetch(`${base}/IncomingPhoneNumbers.json`, { method: "POST", headers, body: form({ PhoneNumber: number, SmsUrl: smsUrl, SmsMethod: "POST" }) }), "Buying the number")).json()) as {
+			const bought = (await (await ok(await fetch(`${base}/IncomingPhoneNumbers.json`, { method: "POST", headers, body: form({ PhoneNumber: number, SmsUrl: smsUrl, SmsMethod: "POST", ...(process.env.TWILIO_SIP_TRUNK_SID && { TrunkSid: process.env.TWILIO_SIP_TRUNK_SID }) }) }), "Buying the number")).json()) as {
 				sid: string;
 				phone_number: string;
 			};
@@ -154,17 +153,5 @@ const loggedEmail: EmailProvider = {
 	},
 	async received() {
 		return { text: "", headers: {} };
-	},
-};
-
-const loggedSms: SmsProvider = {
-	async buy({ areaCode }) {
-		const digits = String(Math.floor(Math.random() * 10_000)).padStart(4, "0");
-		return { id: fakeId("PNlocal"), number: `+1${areaCode ?? "555"}555${digits}` };
-	},
-	async release() {},
-	async send({ from, to, text }) {
-		console.log(`Text from ${from} to ${to}: ${text}`);
-		return { id: fakeId("SMlocal"), status: "simulated" };
 	},
 };

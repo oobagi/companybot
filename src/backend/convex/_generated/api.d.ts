@@ -18,6 +18,8 @@ import type * as automationOps from "../automationOps.js";
 import type * as automationRuns from "../automationRuns.js";
 import type * as automationTools from "../automationTools.js";
 import type * as automations from "../automations.js";
+import type * as calls from "../calls.js";
+import type * as phoneProvider from "../phoneProvider.js";
 import type * as cascade from "../cascade.js";
 import type * as chains from "../chains.js";
 import type * as channelProviders from "../channelProviders.js";
@@ -115,6 +117,8 @@ declare const fullApi: ApiFromModules<{
   automationRuns: typeof automationRuns;
   automationTools: typeof automationTools;
   automations: typeof automations;
+  calls: typeof calls;
+  phoneProvider: typeof phoneProvider;
   cascade: typeof cascade;
   chains: typeof chains;
   channelProviders: typeof channelProviders;

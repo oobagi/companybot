@@ -131,4 +131,6 @@ What we take: Android's ask-when-used and keep-working-on-deny (one held call ne
 
 ## Phone sends
 
+Staff calls use the same `inbox.use` and agent-number gate. `inbox.manage:call` and `end_call` are outside actions; microphone pickup is direct device consent. Call tokens reach one claimed room and microphone/data only. Media is closed on staff disconnect; the server rechecks membership, number and agent at most 10 seconds apart, including while a call is active. Public voice remains Soon.
+
 SMS keeps the existing `agents.manage` number gate and `inbox.use` staff gate; agent-initiated starts and replies still use the existing outside-risk Inbox approval. Before its one provider attempt, dispatch checks the workspace, active agent, original number and staff sender's current Inbox permission. Automatic Public replies also stop on takeover or when automatic replies are disabled. A staff-approved draft acts for the person who approved it. Receipt callbacks only settle the bound attempt; they grant no customer or staff access. See [Phone](phone.md).

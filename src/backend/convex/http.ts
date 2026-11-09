@@ -141,4 +141,14 @@ http.route({
 	}),
 });
 
+http.route({
+	path: "/phone/events", method: "POST",
+	handler: httpAction(async (ctx, request) => {
+		const body = await readCapped(request);
+		if (body === null) return new Response("Too big.", { status: 413 });
+		const ok = await ctx.runAction(internal.phoneProvider.event, { body, authorization: request.headers.get("authorization") ?? "" });
+		return new Response(null, { status: ok ? 204 : 403 });
+	}),
+});
+
 export default http;

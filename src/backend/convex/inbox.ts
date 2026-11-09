@@ -53,7 +53,7 @@ async function requireConversation(ctx: QueryCtx, member: Member, id: Id<"inboxC
 }
 
 /** The record linked to a conversation, as this person may see it: its title and where it opens, or nothing. */
-async function recordShown(ctx: QueryCtx, member: Member, recordId: Id<"records"> | undefined, visible = typeVisible(ctx, member)) {
+export async function recordShown(ctx: QueryCtx, member: Member, recordId: Id<"records"> | undefined, visible = typeVisible(ctx, member)) {
 	const record = recordId && (await ctx.db.get(recordId));
 	if (!record || record.archived || !(await visible(record.typeId))) return null;
 	const type = await ctx.db.get(record.typeId);
@@ -148,6 +148,7 @@ export const get = query({
 						at: m._creationTime,
 						direction: m.direction,
 						status: m.status,
+						call: m.call ? { direction: m.direction, state: m.call.state, connectedAt: m.call.connectedAt ?? null, endedAt: m.call.endedAt ?? null } : null,
 						sms: m.sms?.state ?? null,
 						text: m.text,
 						/** Theirs: the history their mail app quoted under it, shown folded. */
@@ -248,6 +249,7 @@ export async function smsSender(ctx: MutationCtx, c: Doc<"inboxConversations">) 
 /** Staff (or an agent for them) answer in a conversation: it goes out at once from the agent's address or number. */
 export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, text: string, answers?: Id<"inboxMessages">) {
 	checkPermission(who.member, "inbox.use");
+	if (c.channel === "call") throw new ConvexError("Use the dialer to call this person.");
 	const body = checkedText(c.channel, text);
 	const answered = answers && (await ctx.db.get(answers));
 	if (answers && (c.channel !== "email" || answered?.conversationId !== c._id || answered.direction === "event")) throw new ConvexError("That email isn't in this conversation.");
@@ -310,6 +312,7 @@ export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversa
 	checkPermission(member, "inbox.use");
 	const answered = c.needsStaff === "handoff" && { needsStaff: undefined };
 	if (to === "agent") {
+		if (c.channel === "call") throw new ConvexError("Agent voice is coming soon. Assign calls to staff.");
 		if (!(await ctx.db.get(c.agentId))) throw new ConvexError("Its agent was deleted. Someone on staff answers this one.");
 		await ctx.db.patch(c._id, { mode: "agent", takenBy: undefined, ...answered });
 	} else {
@@ -322,7 +325,7 @@ export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversa
 	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "event", text: "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: to });
 }
 
-const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>
+export const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>
 	ctx.db.query("inboxConversations").withIndex("by_contact", (q) => q.eq("workspaceId", workspaceId).eq("agentId", agentId).eq("channel", channel).eq("contact", contact)).first();
 
 // ---- Record matching ----
@@ -354,7 +357,7 @@ export async function matchRecord(ctx: QueryCtx, workspaceId: Id<"workspaces">, 
 	return null;
 }
 
-async function linkRecord(ctx: MutationCtx, c: Doc<"inboxConversations">) {
+export async function linkRecord(ctx: MutationCtx, c: Doc<"inboxConversations">) {
 	if (c.recordId) return;
 	const recordId = await matchRecord(ctx, c.workspaceId, c.channel, c.contact);
 	if (recordId) await ctx.db.patch(c._id, { recordId });
@@ -557,17 +560,17 @@ export const claimSms = internalMutation({
 			return null;
 		}
 		await ctx.db.patch(m._id, { sms: { ...m.sms, dispatchedAt: Date.now() } });
-		await ctx.scheduler.runAfter(60_000, internal.inbox.smsUncertain, { messageId });
+		await ctx.scheduler.runAfter(60_000, internal.inbox.smsSettled, { messageId, state: "unknown" });
 		return { from: m.sms.from, to: c.contact, text: m.text, token: m.sms.token };
 	},
 });
 
 type SmsState = NonNullable<NonNullable<Doc<"inboxMessages">["sms"]>["state"]>;
 const smsState = (value: string): SmsState | null => {
-	if (["accepted", "sending"].includes(value)) return "queued";
-	return ["queued", "sent", "delivered", "undelivered", "failed", "unknown", "simulated"].includes(value) ? value as SmsState : null;
+	if (["accepted", "sending", "sent"].includes(value)) return "queued";
+	if (value === "undelivered") return "failed";
+	return ["queued", "delivered", "failed", "unknown"].includes(value) ? value as SmsState : null;
 };
-const smsTerminal = (state: SmsState | undefined) => state === "delivered" || state === "undelivered" || state === "failed" || state === "simulated";
 
 /** Both REST responses and signed receipts use this path. Early callbacks win over late REST responses. */
 async function settleSms(ctx: MutationCtx, m: Doc<"inboxMessages">, state: SmsState, providerId?: string, error?: string) {
@@ -576,12 +579,12 @@ async function settleSms(ctx: MutationCtx, m: Doc<"inboxMessages">, state: SmsSt
 	if (!c || c.channel !== "sms" || c.workspaceId !== m.workspaceId || !(await liveWorkspace(ctx, m.workspaceId))) return;
 	if (m.providerId && providerId && m.providerId !== providerId) return;
 	const old = m.sms.state;
-	if (smsTerminal(old) || old === state || (old === "sent" && state === "queued") || (old && old !== "unknown" && state === "unknown")) return;
+	if ((old === "delivered" || old === "failed") || old === state || (old && old !== "unknown" && state === "unknown")) return;
 	await ctx.db.patch(m._id, {
 		sms: { ...m.sms, state },
-		status: ["failed", "undelivered", "unknown"].includes(state) ? "failed" : "sent",
+		status: ["failed", "unknown"].includes(state) ? "failed" : "sent",
 		...(providerId && { providerId }),
-		error: state === "unknown" ? "Delivery is unknown. Check the phone company's message log before sending again." : state === "undelivered" || state === "failed" ? error ?? "The phone company couldn't deliver this text." : undefined,
+		error: state === "unknown" ? "Delivery is unknown. Check the phone company's message log before sending again." : state === "failed" ? error ?? "The phone company couldn't deliver this text." : undefined,
 	});
 }
 
@@ -593,15 +596,6 @@ export const smsSettled = internalMutation({
 	},
 });
 
-/** A claimed action that crashed also becomes uncertain, without ever resending it. */
-export const smsUncertain = internalMutation({
-	args: { messageId: v.id("inboxMessages") },
-	handler: async (ctx, { messageId }) => {
-		const m = await ctx.db.get(messageId);
-		if (m?.status === "sending") await settleSms(ctx, m, "unknown");
-	},
-});
-
 /** A signed callback names this exact attempt, account and pair of numbers, even before REST returns. */
 export const smsReceipt = internalMutation({
 	args: { messageId: v.string(), token: v.string(), providerId: v.string(), from: v.string(), to: v.string(), state: v.string(), errorCode: v.optional(v.string()) },
@@ -610,7 +604,7 @@ export const smsReceipt = internalMutation({
 		const m = id && await ctx.db.get(id);
 		const c = m && await ctx.db.get(m.conversationId);
 		const state = smsState(args.state);
-		if (!m?.sms || !c || m.sms.token !== args.token || m.sms.from !== args.from || c.contact !== args.to || !state || state === "simulated" || state === "unknown") return;
+		if (!m?.sms || !c || m.sms.token !== args.token || m.sms.from !== args.from || c.contact !== args.to || !state || state === "unknown") return;
 		const error = args.errorCode && /^\d{3,6}$/.test(args.errorCode) ? `The phone company couldn't deliver this text (Twilio ${args.errorCode}). Check its message log before sending again.` : undefined;
 		await settleSms(ctx, m, state, args.providerId, error);
 	},

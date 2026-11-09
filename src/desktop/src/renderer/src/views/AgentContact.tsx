@@ -46,7 +46,7 @@ export function AgentContact({ agentId, agentName, canManage }: { agentId: Id<"a
 					<span className={hintClass}>Not set up on this server</span>
 				)}
 			</Setting>
-			<Setting label="Phone number" hint={phone?.status === "failed" ? `Couldn't get one: ${phone.error}` : "Its own number: it answers texts. Calls are coming soon."}>
+			<Setting label="Phone number" hint={phone?.status === "failed" ? `Couldn't get one: ${phone.error}` : "Its own number: customers text it, and your team makes and takes calls in Inbox."}>
 				{phone?.status === "active" ? (
 					<span className="flex items-center gap-1">
 						<span className="text-sm select-text">{formatPhone(phone.address)}</span>

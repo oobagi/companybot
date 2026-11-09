@@ -26,7 +26,7 @@ A test earns its place by catching a bug a person or agent would notice. It shou
 - Before you keep a new test, break the code it protects and watch it fail.
 
 ## Where tests live
-- Phone behavior: `src/backend/tests/phone.test.ts` exercises real Convex provisioning, staff texts, drafts, signed receipts and send-time permissions, with only the provider network replaced. No phone test buys a number, sends a real text or runs a paid model.
+- Phone behavior: `src/backend/tests/phone.test.ts` and `calls.test.ts` exercise Convex provisioning, staff texts/drafts, signed receipts, dialing/pickup, budget holds and revocation. Only provider requests are mocked; media tokens and webhook signatures use the real SDK. No phone test buys a number, sends a real text or runs a paid model.
 - `src/core/src/*.test.ts`: next to the module. Pure, no Convex.
 - `src/backend/tests/*.test.ts`: Convex functions through `convex-test` (edge runtime). It doesn't enforce every Convex limit or run crons: call the cron's function yourself.
 - `src/backend/tests/*.scale.test.ts`: thousands of rows under real limits. Slow, so only in `pnpm test:scale` (CI runs both).

@@ -82,7 +82,7 @@ describe("an agent's phone in Inbox", () => {
 		expect((await owner.query(api.inbox.get, { id: sent.conversationId }))!.messages[0]).toMatchObject({ status: "sent", sms: "queued" });
 		const callback = network.sent[0]!.get("StatusCallback")!;
 		expect((await receipt(t, callback, "sent")).status).toBe(204);
-		expect((await row(t, sent.messageId))!.sms!.state).toBe("sent");
+		expect((await row(t, sent.messageId))!.sms!.state).toBe("queued");
 		expect((await receipt(t, callback, "delivered")).status).toBe(204);
 		await receipt(t, callback, "queued");
 		await receipt(t, callback, "undelivered", { ErrorCode: "30003" });
@@ -102,7 +102,7 @@ describe("an agent's phone in Inbox", () => {
 		await t.action(internal.inbox.deliver, { messageId: sent.messageId });
 		await receipt(t, network.sent[0]!.get("StatusCallback")!, "undelivered", { ErrorCode: "21610" });
 		await receipt(t, network.sent[0]!.get("StatusCallback")!, "sent");
-		expect(await row(t, sent.messageId)).toMatchObject({ status: "failed", sms: { state: "undelivered" }, error: expect.stringContaining("21610") });
+		expect(await row(t, sent.messageId)).toMatchObject({ status: "failed", sms: { state: "failed" }, error: expect.stringContaining("21610") });
 	});
 
 	it("keeps an early delivery receipt when the create response arrives afterward", async () => {
@@ -168,7 +168,7 @@ describe("an agent's phone in Inbox", () => {
 		expect((await row(t, sent.messageId))!.sms!.state).toBe("unknown");
 	});
 
-	it("distinguishes a definite provider refusal and a local simulation from delivery", async () => {
+	it("refuses a rejected text and refuses sends without a configured phone account", async () => {
 		const { t, owner, agentId, network } = await withPhone();
 		network.sendWith(async () => Response.json({ message: "not registered" }, { status: 400 }));
 		const refused = await owner.mutation(api.inbox.start, { agentId, channel: "sms", to: TO, text: "Hello" });
@@ -179,7 +179,7 @@ describe("an agent's phone in Inbox", () => {
 		vi.stubEnv("CONVEX_CLOUD_URL", "http://127.0.0.1:3210");
 		const local = await owner.mutation(api.inbox.reply, { id: refused.conversationId, text: "Local hello" });
 		await t.action(internal.inbox.deliver, { messageId: local.messageId });
-		expect((await row(t, local.messageId))!.sms!.state).toBe("simulated");
+		expect((await row(t, local.messageId))!.sms!.state).toBe("failed");
 		expect(network.sent).toHaveLength(1);
 	});
 
