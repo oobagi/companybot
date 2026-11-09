@@ -355,9 +355,9 @@ export function Tabs<T extends string>({
 				return (
 					<span key={t.id} {...(renaming !== t.id && d)} className={`relative flex max-w-full ${d?.className ?? ""}`}>
 						{renaming === t.id && onRename ? (
-							// Looks like the tab it renames (size, weight, padding, underline), so nothing shifts; only a light border marks the text.
+							// Looks like the tab it renames (size, weight, padding, underline), so nothing shifts; only a light border, with room around the text like the sidebar's, marks it.
 							<span className={tabClass(t.id === value)}>
-								<RenameInput value={t.label} onSave={(name) => onRename(t.id, name)} onDone={() => setRenaming(undefined)} className="-mx-1 min-w-[3ch] px-1 [field-sizing:content]" />
+								<RenameInput value={t.label} onSave={(name) => onRename(t.id, name)} onDone={() => setRenaming(undefined)} className="-mx-2 -my-1 min-w-[4ch] px-2 py-1 [field-sizing:content]" />
 							</span>
 						) : (
 							<button
