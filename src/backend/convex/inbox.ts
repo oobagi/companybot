@@ -25,15 +25,16 @@ import { namer } from "./chatOps";
 import { commentsOf } from "./inboxComments";
 import { notify } from "./notifications";
 import { mutation, query } from "./functions";
+import { pointByAddress } from "./contactPoints";
 import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { typeVisible } from "./recordOps";
 
-// Inbox: conversations with people outside the workspace, by email and text. Each agent's address and
-// number (contactPoints.ts) take messages in through webhooks (http.ts → `receive`), one conversation per
-// outside contact per channel per agent, linked to the record whose email or phone field matches. The
-// agent answers as Public (inboxAgent.ts); staff with inbox.use watch, reply, take over and hand back.
-// A short "New conversation from …" can go to a channel picked on the agent; the conversation stays here.
-// wiki/architecture.md → Inbox.
+// Inbox: conversations with people outside the workspace, by email and text. The workspace's addresses
+// and numbers (contactPoints.ts) take messages in through webhooks (http.ts → `receive`), one conversation
+// per outside contact per address, linked to the record whose email or phone field matches. The agent
+// picked on the address answers new ones as Public (inboxAgent.ts), or staff do when none is; staff with
+// inbox.use watch, reply, take over and assign them to any agent. Every reply goes out from the address
+// the conversation is with, under the name of whoever wrote it. wiki/architecture.md → Inbox.
 
 const READ_MAX = 200;
 /** What of a message an automation's run is handed: enough to act on, short enough for a prompt. */
@@ -60,7 +61,17 @@ async function recordShown(ctx: QueryCtx, member: Member, recordId: Id<"records"
 	return type && !type.archived ? { id: record._id, title: record.title, typeKey: type.key } : null;
 }
 
-const agentName = async (ctx: QueryCtx, agentId: Id<"agents">) => (await ctx.db.get(agentId))?.name ?? "Agent";
+/** The agent that answers a conversation now, if one does: assigned to it, and not deleted or in Archive. */
+export async function answeringAgent(ctx: QueryCtx, c: Doc<"inboxConversations">) {
+	const agent = c.mode === "agent" && c.agentId ? await ctx.db.get(c.agentId) : null;
+	return agent && !agent.archived ? agent : null;
+}
+
+/** Whether replies can go out from a conversation's address: still the workspace's and working, or why not. */
+async function viaOf(ctx: QueryCtx, c: Doc<"inboxConversations">) {
+	const point = c.via ? await pointByAddress(ctx, c.workspaceId, kindOf(c.channel), c.via) : null;
+	return { address: c.via, status: point?.status ?? ("removed" as const), error: point?.error ?? null };
+}
 
 /** Conversations, the latest first. */
 export const list = query({
@@ -70,18 +81,16 @@ export const list = query({
 		if (!member || !can(member, "inbox.use")) return null;
 		const rows = await ctx.db.query("inboxConversations").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).order("desc").take(READ_MAX);
 		const visible = typeVisible(ctx, member);
-		const names = new Map<Id<"agents">, string>();
 		const people = namer(ctx, { images: true });
 		return Promise.all(
 			rows.map(async (c) => {
-				if (!names.has(c.agentId)) names.set(c.agentId, await agentName(ctx, c.agentId));
 				return {
 					/** Who answers it, with their picture: its agent, or who on staff it's assigned to. */
-					assignee: c.mode === "agent" ? await people.agent(c.agentId) : c.takenBy ? await people.user(c.takenBy) : null,
+					assignee: c.mode === "agent" && c.agentId ? await people.agent(c.agentId) : c.takenBy ? await people.user(c.takenBy) : null,
 					id: c._id,
-					agentId: c.agentId,
-					agentName: names.get(c.agentId)!,
 					channel: c.channel,
+					/** Our address or number it's with. */
+					via: c.via,
 					contact: c.contact,
 					contactName: c.contactName ?? null,
 					subject: c.subject ?? null,
@@ -122,12 +131,10 @@ export const get = query({
 		// People and agents as chat shows them (picture, and "for" when an agent acted for someone), so names open their card.
 		const names = namer(ctx, { images: true });
 		const comments = await commentsOf(ctx, { member }, id, names);
-		const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", kindOf(c.channel))).first();
 		return {
 			id: c._id,
-			agentId: c.agentId,
-			agentName: await agentName(ctx, c.agentId),
-			agent: await names.agent(c.agentId),
+			/** The agent answering it (while `mode` is agent), or that last did (it handed off, or staff took over). */
+			agent: c.agentId ? await names.agent(c.agentId) : null,
 			channel: c.channel,
 			contact: c.contact,
 			contactName: c.contactName ?? null,
@@ -137,8 +144,8 @@ export const get = query({
 			takenBy: c.takenBy ? await names.user(c.takenBy) : null,
 			needsStaff: c.needsStaff ?? null,
 			replying: !!c.replyingSince && Date.now() - c.replyingSince < REPLY_STALE_MS,
-			/** The agent's address or number it goes from; null once removed (replies can't go out). */
-			from: point?.status === "active" ? point.address : null,
+			/** Our address or number replies go from, and whether they can: `removed` (no longer the workspace's) or `failed` means they can't. */
+			via: await viaOf(ctx, c),
 			record: await recordShown(ctx, member, c.recordId),
 			messages: await Promise.all(
 				messages.map(async (m) => {
@@ -161,7 +168,7 @@ export const get = query({
 						/** What staff said about it, oldest first: never sent. */
 						comments: comments.get(m._id) ?? [],
 						/** An assignment line: who it went to. */
-						assignedTo: m.assignedTo === undefined ? null : m.assignedTo === "agent" ? await names.agent(c.agentId) : await names.user(m.assignedTo),
+						assignedTo: m.assignedTo === undefined ? null : ctx.db.normalizeId("agents", m.assignedTo) ? await names.agent(m.assignedTo as Id<"agents">) : await names.user(m.assignedTo as Id<"users">),
 					};
 				}),
 			),
@@ -181,13 +188,14 @@ export const reply = mutation({
 });
 
 export const start = mutation({
-	args: { agentId: v.id("agents"), channel: v.union(v.literal("email"), v.literal("sms")), to: v.string(), subject: v.optional(v.string()), text: v.string() },
+	/** `from`: which of our addresses or numbers it goes from; left out, the first that works. */
+	args: { from: v.optional(v.string()), channel: v.union(v.literal("email"), v.literal("sms")), to: v.string(), subject: v.optional(v.string()), text: v.string() },
 	handler: async (ctx, args) => startAs(ctx, { member: await requirePermission(ctx, "inbox.use") }, args),
 });
 
-/** Who answers it: its agent, or someone on staff (the agent stops answering). */
+/** Who answers it: an agent, or someone on staff (agents stop answering). */
 export const assign = mutation({
-	args: { id: v.id("inboxConversations"), to: v.union(v.literal("agent"), v.id("users")) },
+	args: { id: v.id("inboxConversations"), to: v.union(v.id("agents"), v.id("users")) },
 	handler: async (ctx, { id, to }) => {
 		const member = await requirePermission(ctx, "inbox.use");
 		await assignTo(ctx, { member }, await requireConversation(ctx, member, id), to);
@@ -236,7 +244,7 @@ const checkedText = (channel: InboxChannel, text: string) => {
 	return trimmed;
 };
 
-/** Staff (or an agent for them) answer in a conversation: it goes out at once from the agent's address or number. */
+/** Staff (or an agent for them) answer in a conversation: it goes out at once from its address or number. */
 export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, text: string, answers?: Id<"inboxMessages">) {
 	checkPermission(who.member, "inbox.use");
 	const body = checkedText(c.channel, text);
@@ -258,31 +266,37 @@ export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversat
 }
 
 /**
- * Starts (or continues) a conversation from an agent's address or number. Started by a person, it's theirs:
- * the agent stays out until someone hands it back. Started by an agent for someone, the agent answers replies.
+ * Starts (or continues) a conversation from one of our addresses or numbers (`from`, else the first that
+ * works). Started by a person, it's theirs: agents stay out until someone assigns one. Started by an agent
+ * for someone, that agent answers the replies.
  */
-export async function startAs(ctx: MutationCtx, who: Who, args: { agentId: Id<"agents">; channel: InboxChannel; to: string; subject?: string; text: string }) {
+export async function startAs(ctx: MutationCtx, who: Who, args: { from?: string; channel: InboxChannel; to: string; subject?: string; text: string }) {
 	const { member } = who;
 	checkPermission(member, "inbox.use");
-	const agent = await requireLiveAgent(ctx, member, args.agentId);
+	const kind = kindOf(args.channel);
 	const contact = args.channel === "email" ? (isEmail(args.to) ? normalizeEmail(args.to) : null) : normalizePhone(args.to);
 	if (!contact) throw new ConvexError(args.channel === "email" ? `${args.to} isn't an email address.` : `${args.to} isn't a phone number. Include its country code, like +1.`);
-	const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", agent._id).eq("kind", kindOf(args.channel))).first();
-	if (point?.status !== "active") throw new ConvexError(args.channel === "email" ? `${agent.name} has no email address yet. Add one on its page.` : `${agent.name} has no phone number yet. Add one on its page.`);
-	if (contact === point.address) throw new ConvexError("That's the agent's own address.");
+	const from = args.from && (kind === "email" ? normalizeEmail(args.from) : normalizePhone(args.from));
+	const point = from
+		? await pointByAddress(ctx, member.workspaceId, kind, from)
+		: (await ctx.db.query("contactPoints").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).take(50)).find((p) => p.kind === kind && p.status === "active");
+	if (point?.status !== "active") {
+		if (args.from) throw new ConvexError(`${args.from} isn't one of this workspace's ${kind === "email" ? "email addresses" : "phone numbers"}.`);
+		throw new ConvexError(kind === "email" ? "There's no email address to send from yet. Add one in Settings → Email and phone." : "There's no phone number to text from yet. Add one in Settings → Email and phone.");
+	}
+	if (contact === point.address) throw new ConvexError("That's our own address.");
 	const subject = cleanSubject(args.subject);
 	if (args.channel === "email" && !subject) throw new ConvexError("Give the email a subject.");
-	const existing = await conversationWith(ctx, member.workspaceId, agent._id, args.channel, contact);
+	const existing = await conversationWith(ctx, member.workspaceId, args.channel, point.address, contact);
 	const id =
 		existing?._id ??
 		(await ctx.db.insert("inboxConversations", {
 			workspaceId: member.workspaceId,
-			agentId: agent._id,
 			channel: args.channel,
+			via: point.address,
 			contact,
 			...(subject && { subject }),
-			mode: who.agentId ? "agent" : "staff",
-			...(!who.agentId && { takenBy: member.userId }),
+			...(who.agentId ? { mode: "agent" as const, agentId: who.agentId } : { mode: "staff" as const, takenBy: member.userId }),
 			lastAt: Date.now(),
 			preview: "",
 		}));
@@ -291,29 +305,31 @@ export async function startAs(ctx: MutationCtx, who: Who, args: { agentId: Id<"a
 }
 
 /**
- * Gives a conversation to its agent, or to someone on staff who can use Inbox (the agent stops
- * answering it). Either answers a hand-off.
+ * Gives a conversation to an agent (it answers from the next message), or to someone on staff who can
+ * use Inbox (agents stop answering it). Either answers a hand-off, and says so in the conversation: a
+ * line staff see ("Jaden assigned this to Maya").
  */
-/** Assigns it, and says so in the conversation: a line staff see ("Jaden assigned this to Maya"). */
-export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, to: "agent" | Id<"users">) {
+export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, to: Id<"agents"> | Id<"users">) {
 	const { member, agentId } = who;
 	checkPermission(member, "inbox.use");
 	const answered = c.needsStaff === "handoff" && { needsStaff: undefined };
-	if (to === "agent") {
-		if (!(await ctx.db.get(c.agentId))) throw new ConvexError("Its agent was deleted. Someone on staff answers this one.");
-		await ctx.db.patch(c._id, { mode: "agent", takenBy: undefined, ...answered });
+	const toAgent = ctx.db.normalizeId("agents", to);
+	if (toAgent) {
+		const agent = await requireLiveAgent(ctx, member, toAgent);
+		await ctx.db.patch(c._id, { mode: "agent", agentId: agent._id, takenBy: undefined, ...answered });
 	} else {
-		const them = await memberOf(ctx, to, member.workspaceId);
+		const user = to as Id<"users">;
+		const them = await memberOf(ctx, user, member.workspaceId);
 		if (!them || !can(them, "inbox.use")) throw new ConvexError("They can't use Inbox. Pick someone whose role can.");
-		await ctx.db.patch(c._id, { mode: "staff", takenBy: to, ...answered });
+		await ctx.db.patch(c._id, { mode: "staff", takenBy: user, ...answered });
 		const by = agentId ? ((await ctx.db.get(agentId))?.name ?? "An agent") : await nameOf(ctx, member.userId);
-		await notify(ctx, c, [to], { kind: "assigned", text: `${by} assigned it to you`, actorUserId: member.userId, ...(agentId && { actorAgentId: agentId }), except: agentId ? undefined : member.userId });
+		await notify(ctx, c, [user], { kind: "assigned", text: `${by} assigned it to you`, actorUserId: member.userId, ...(agentId && { actorAgentId: agentId }), except: agentId ? undefined : member.userId });
 	}
-	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "event", text: "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: to });
+	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "event", text: "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: toAgent ?? to });
 }
 
-const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>
-	ctx.db.query("inboxConversations").withIndex("by_contact", (q) => q.eq("workspaceId", workspaceId).eq("agentId", agentId).eq("channel", channel).eq("contact", contact)).first();
+const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, channel: InboxChannel, via: string, contact: string) =>
+	ctx.db.query("inboxConversations").withIndex("by_contact", (q) => q.eq("workspaceId", workspaceId).eq("channel", channel).eq("via", via).eq("contact", contact)).first();
 
 // ---- Record matching ----
 
@@ -353,10 +369,10 @@ async function linkRecord(ctx: MutationCtx, c: Doc<"inboxConversations">) {
 // ---- Incoming ----
 
 /**
- * A message from outside, after its webhook's signature checked out (http.ts). Finds the agent by the
- * address or number it was sent to, then the conversation with that contact (or starts one, announcing it),
- * stores the message once however often it's delivered, links a matching record, and has the agent answer
- * unless staff have it. `automated`: an auto-reply or bulk mail, which the agent never answers (no loops).
+ * A message from outside, after its webhook's signature checked out (http.ts). Finds the workspace by the
+ * address or number it was sent to, then the conversation with that contact (or starts one, answered by
+ * the address's agent, else by staff), stores the message once however often it's delivered, links a
+ * matching record, and has the agent answer unless staff have it. `automated`: an auto-reply or bulk mail, which the agent never answers (no loops).
  */
 export const receive = internalMutation({
 	args: {
@@ -381,25 +397,25 @@ export const receive = internalMutation({
 		const contact = args.kind === "email" ? normalizeEmail(args.from) : normalizePhone(args.from);
 		if (!to || !contact) return { outcome: "unknown" };
 		const point = await ctx.db.query("contactPoints").withIndex("by_address", (q) => q.eq("kind", args.kind).eq("address", to)).first();
-		const agent = point && (await ctx.db.get(point.agentId));
-		if (point?.status !== "active" || !agent || !(await liveWorkspace(ctx, point.workspaceId))) return { outcome: "unknown" };
+		if (point?.status !== "active" || !(await liveWorkspace(ctx, point.workspaceId))) return { outcome: "unknown" };
 		// One agent writing to another (or to itself) would answer back and forth forever.
 		const fromUs = !!(await ctx.db.query("contactPoints").withIndex("by_address", (q) => q.eq("kind", args.kind).eq("address", contact)).first());
 		const channel = channelOfKind(args.kind);
 		const now = Date.now();
 		const text = clipText(args.text.trim() || "(No text)");
-		let c = await conversationWith(ctx, point.workspaceId, agent._id, channel, contact);
+		let c = await conversationWith(ctx, point.workspaceId, channel, point.address, contact);
 		const isNew = !c;
 		if (!c) {
 			const subject = cleanSubject(args.subject);
+			const answerer = point.agentId && (await ctx.db.get(point.agentId));
 			const id = await ctx.db.insert("inboxConversations", {
 				workspaceId: point.workspaceId,
-				agentId: agent._id,
 				channel,
+				via: point.address,
 				contact,
 				...(args.fromName && { contactName: args.fromName.slice(0, 100) }),
 				...(subject && { subject }),
-				mode: "agent",
+				...(answerer && !answerer.archived ? { mode: "agent" as const, agentId: answerer._id } : { mode: "staff" as const }),
 				lastAt: now,
 				preview: previewOf(text),
 			});
@@ -418,15 +434,17 @@ export const receive = internalMutation({
 			...(args.cc?.length && { cc: args.cc.slice(0, 20) }),
 		});
 		await linkRecord(ctx, c);
-		if (c.mode === "agent" && !agent.archived && !args.automated && !fromUs) await queueReply(ctx, c);
+		const agent = await answeringAgent(ctx, c);
+		if (agent && !args.automated && !fromUs) await queueReply(ctx, c);
 		// Someone on staff answers this one: tell them (or, if it's nobody's, everyone who can).
-		if (c.mode === "staff" && !args.automated && !fromUs) await notify(ctx, c, c.takenBy ? [c.takenBy] : "inbox", { kind: "message", text });
+		if (!agent && !args.automated && !fromUs) await notify(ctx, c, c.mode === "staff" && c.takenBy ? [c.takenBy] : "inbox", { kind: "message", text });
 		// In-app events, so owners build their own steps ("when someone new texts, add a lead to Clients"). Never for
 		// auto-replies or our own addresses (no loops). Runs act as the automation's person, never as Public.
 		if (!args.automated && !fromUs) {
 			const now = (await ctx.db.get(c._id))!;
 			const data = {
-				agent: agent.name,
+				to: point.address,
+				agent: agent?.name ?? null,
 				by: channelWords[channel],
 				from: contact,
 				name: now.contactName ?? null,
@@ -453,7 +471,7 @@ export async function queueReply(ctx: MutationCtx, c: Doc<"inboxConversations">)
 
 // ---- Outgoing ----
 
-/** What sending one message needs: its conversation, the agent's address or number, and the thread so far. */
+/** What sending one message needs: its conversation, our address or number, who wrote it, and the thread so far. */
 export const outgoing = internalQuery({
 	args: { messageId: v.id("inboxMessages") },
 	handler: async (ctx, { messageId }) => {
@@ -461,8 +479,10 @@ export const outgoing = internalQuery({
 		if (message?.status !== "sending") return null;
 		const c = await ctx.db.get(message.conversationId);
 		if (!c || !(await liveWorkspace(ctx, c.workspaceId))) return null;
-		const agent = await ctx.db.get(c.agentId);
-		const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", kindOf(c.channel))).first();
+		const point = c.via ? await pointByAddress(ctx, c.workspaceId, kindOf(c.channel), c.via) : null;
+		// Who wrote it: the agent (even when staff approved its draft), else the person.
+		const writer = message.authorAgentId ? ((await ctx.db.get(message.authorAgentId))?.name ?? "Agent") : message.authorUserId ? await nameOf(ctx, message.authorUserId) : null;
+		const business = (await ctx.db.get(c.workspaceId))?.name ?? "";
 		const earlier = (await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").take(20)).filter((m) => m._id !== messageId);
 		const ids = earlier.flatMap((m) => (m.messageId ? [m.messageId] : [])).reverse();
 		// The email staff picked to answer, else their latest.
@@ -473,7 +493,8 @@ export const outgoing = internalQuery({
 			channel: c.channel,
 			to: c.contact,
 			from: point?.status === "active" ? point.address : null,
-			agentName: agent?.name ?? "Companybot",
+			/** The From name: "Jaden from Acme", or the business alone. */
+			fromName: writer && business ? `${writer} from ${business}` : writer || business,
 			subject: earlier.some((m) => m.direction === "in") ? replySubject(c.subject) : cleanSubject(c.subject) || "Hello",
 			references: referencesFor(ids, answering),
 			answering,
@@ -490,7 +511,7 @@ export const deliver = internalAction({
 		const out = await ctx.runQuery(internal.inbox.outgoing, { messageId });
 		if (!out) return;
 		const fail = (error: string) => ctx.runMutation(internal.inbox.settle, { messageId, error });
-		if (!out.from) return void (await fail(out.channel === "email" ? "The agent no longer has an email address." : "The agent no longer has a phone number."));
+		if (!out.from) return void (await fail(out.channel === "email" ? "This conversation's email address isn't the workspace's anymore." : "This conversation's phone number isn't the workspace's anymore."));
 		try {
 			if (out.channel === "email") {
 				const provider = emailProvider();
@@ -498,7 +519,7 @@ export const deliver = internalAction({
 				if (!provider || !domain) return void (await fail("Email isn't set up on this server."));
 				const ownId = `<${crypto.randomUUID()}@${domain}>`;
 				const sent = await provider.send({
-					from: `"${headerName(out.agentName)}" <${out.from}>`,
+					from: `"${headerName(out.fromName)}" <${out.from}>`,
 					to: out.to,
 					subject: out.subject,
 					text: out.text,

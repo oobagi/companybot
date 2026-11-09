@@ -4,9 +4,9 @@ import type { Id } from "../convex/_generated/dataModel";
 import { textOfHtml } from "../convex/channelProviders";
 import { type As, agentsOf, newTest, ownerAndMember, signIn } from "./helpers";
 
-// Inbox: an agent's address and number take messages from outside (signed webhooks only), which land as
-// conversations linked to matching records, and the agent answers as the Public role, whose ceiling holds
-// whatever owners switch on. The network is stubbed: no Resend or Twilio key exists here.
+// Inbox: the workspace's addresses and numbers take messages from outside (signed webhooks only), which land
+// as conversations linked to matching records, and the agent picked on the address answers as the Public
+// role, whose ceiling holds whatever owners switch on. The network is stubbed: no Resend or Twilio key exists here.
 
 const SECRET_BYTES = "inbox-test-secret-32-bytes-long!";
 const WEBHOOK_SECRET = `whsec_${btoa(SECRET_BYTES)}`;
@@ -69,7 +69,7 @@ afterEach(() => {
 const conversations = (t: ReturnType<typeof newTest>) => t.run((ctx) => ctx.db.query("inboxConversations").collect());
 const inboxMessages = (t: ReturnType<typeof newTest>) => t.run((ctx) => ctx.db.query("inboxMessages").collect());
 
-/** Companybot with its own address. */
+/** An address for the workspace, answered by Companybot. */
 async function withAddress(owner: As) {
 	const { companybot } = await agentsOf(owner);
 	const address = await owner.mutation(api.contactPoints.add, { agentId: companybot._id, kind: "email", name: "frontdesk" });
@@ -265,7 +265,7 @@ describe("routing to Inbox", () => {
 		expect(posted).toEqual([]);
 	});
 
-	it("stores nothing for an address no agent has, and never answers auto-replies", async () => {
+	it("stores nothing for an address no workspace has, and never answers auto-replies", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		const fetch = stubProviders();
@@ -279,7 +279,7 @@ describe("routing to Inbox", () => {
 		expect(c!.replyingSince).toBeUndefined();
 	});
 
-	it("gives an agent a number, takes its texts in, and releases the number when it's removed", async () => {
+	it("gets the workspace a number, takes its texts in, and releases the number when it's removed", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		const calls = stubProviders();
@@ -288,7 +288,7 @@ describe("routing to Inbox", () => {
 		await owner.mutation(api.contactPoints.add, { agentId: companybot._id, kind: "phone", areaCode: "512" });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		vi.useRealTimers();
-		expect((await owner.query(api.contactPoints.forAgent, { agentId: companybot._id }))!.phone).toMatchObject({ status: "active", address: "+15125550100" });
+		expect(await owner.query(api.contactPoints.forAgent, { agentId: companybot._id })).toEqual([{ kind: "phone", address: "+15125550100" }]);
 		expect(calls.find((c) => c.url.endsWith("/IncomingPhoneNumbers.json"))!.body).toContain(encodeURIComponent(`${SITE}/sms/inbound`));
 
 		const res = await smsWebhook(t, { From: "+15125550199", To: "+15125550100", Body: "Are you open Saturday?", MessageSid: "SM1" });
@@ -296,7 +296,8 @@ describe("routing to Inbox", () => {
 		expect((await owner.query(api.inbox.list))![0]).toMatchObject({ channel: "sms", contact: "+15125550199", preview: "Are you open Saturday?" });
 
 		vi.useFakeTimers();
-		await owner.mutation(api.contactPoints.remove, { agentId: companybot._id, kind: "phone" });
+		const [number] = (await owner.query(api.contactPoints.list))!.points;
+		await owner.mutation(api.contactPoints.remove, { id: number!.id });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		expect(calls.some((c) => c.method === "DELETE" && c.url.includes("/IncomingPhoneNumbers/PN123.json"))).toBe(true);
 	});
@@ -312,6 +313,71 @@ describe("routing to Inbox", () => {
 		const [c] = await conversations(t);
 		await expect(member.mutation(api.inbox.reply, { id: c!._id, text: "Hi" })).rejects.toThrow();
 		expect(await member.query(api.inbox.get, { id: c!._id })).toBeNull();
+	});
+});
+
+describe("shared addresses", () => {
+	it("leave an address nobody answers to staff, and a new answerer takes only new conversations", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		stubProviders();
+		const address = (await owner.mutation(api.contactPoints.add, { kind: "email", name: "hello" })) as string;
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Hi" });
+		const [first] = await conversations(t);
+		expect(first).toMatchObject({ via: address, mode: "staff" });
+		expect(first!.agentId).toBeUndefined();
+		expect(first!.replyingSince).toBeUndefined();
+		expect(await t.run((ctx) => ctx.db.query("notifications").collect())).toEqual([expect.objectContaining({ conversationId: first!._id, kind: "message" })]);
+
+		const { companybot } = await agentsOf(owner);
+		const [point] = (await owner.query(api.contactPoints.list))!.points;
+		await owner.mutation(api.contactPoints.setAgent, { id: point!.id, agentId: companybot._id });
+		expect((await owner.query(api.contactPoints.list))!.points[0]!.agent).toEqual({ id: companybot._id, name: "Companybot" });
+		await emailWebhook(t, { email_id: "e2", from: "dana@acme.com", to: [address], subject: "Hi again" });
+		await emailWebhook(t, { email_id: "e3", from: "sam@acme.com", to: [address], subject: "Quote" });
+		const byContact = (contact: string) => conversations(t).then((all) => all.find((c) => c.contact === contact)!);
+		expect(await byContact("dana@acme.com")).toMatchObject({ mode: "staff" });
+		expect(await byContact("sam@acme.com")).toMatchObject({ mode: "agent", agentId: companybot._id });
+		expect((await byContact("sam@acme.com")).replyingSince).toBeDefined();
+	});
+
+	it("send what staff write under their own name, from the address it came to, until that's removed", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		const calls = stubProviders();
+		const { address } = await withAddress(owner);
+		vi.useFakeTimers();
+		const { conversationId } = await owner.mutation(api.inbox.start, { from: address, channel: "email", to: "Dana@Acme.com", subject: "Your roof", text: "Hi Dana" });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		vi.useRealTimers();
+		const sent = JSON.parse(calls.find((x) => x.url === "https://api.resend.com/emails")!.body);
+		const business = await t.run(async (ctx) => (await ctx.db.query("workspaces").first())!.name);
+		expect(sent.from).toMatch(new RegExp(`^"(?!Companybot).+ from ${business}" <${address}>$`));
+		expect((await conversations(t))[0]).toMatchObject({ via: address, mode: "staff", takenBy: owner.userId });
+
+		const [point] = (await owner.query(api.contactPoints.list))!.points;
+		await owner.mutation(api.contactPoints.remove, { id: point!.id });
+		expect((await owner.query(api.inbox.get, { id: conversationId }))!.via).toEqual({ address, status: "removed", error: null });
+		vi.useFakeTimers();
+		const { messageId } = await owner.mutation(api.inbox.reply, { id: conversationId, text: "Still there?" });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect((await inboxMessages(t)).find((m) => m._id === messageId)).toMatchObject({ status: "failed", error: "This conversation's email address isn't the workspace's anymore." });
+	});
+
+	it("assign a conversation to any agent, which then answers it", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		stubProviders();
+		const address = (await owner.mutation(api.contactPoints.add, { kind: "email", name: "hello" })) as string;
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Hi" });
+		const [c] = await conversations(t);
+		const { companybot } = await agentsOf(owner);
+		await owner.mutation(api.inbox.assign, { id: c!._id, to: companybot._id });
+		const opened = (await owner.query(api.inbox.get, { id: c!._id }))!;
+		expect(opened).toMatchObject({ mode: "agent", agent: expect.objectContaining({ name: "Companybot" }) });
+		expect(opened.messages.at(-1)!.assignedTo).toMatchObject({ type: "agent", name: "Companybot" });
+		await emailWebhook(t, { email_id: "e2", from: "dana@acme.com", to: [address], subject: "Re: Hi" });
+		expect((await conversations(t))[0]!.replyingSince).toBeDefined();
 	});
 });
 
@@ -357,7 +423,8 @@ describe("staff in Inbox", () => {
 		await owner.mutation(api.inbox.sendDraft, { messageId: draft._id, text: "Happy to help! — Companybot" });
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		const sent = JSON.parse(calls.find((x) => x.url === "https://api.resend.com/emails")!.body);
-		expect(sent).toMatchObject({ from: `"Companybot" <${address}>`, to: ["dana@acme.com"], subject: "Re: Roof", text: "Happy to help! — Companybot" });
+		const business = await t.run(async (ctx) => (await ctx.db.query("workspaces").first())!.name);
+		expect(sent).toMatchObject({ from: `"Companybot from ${business}" <${address}>`, to: ["dana@acme.com"], subject: "Re: Roof", text: "Happy to help! — Companybot" });
 		expect(sent.headers).toMatchObject({ "In-Reply-To": "<m1@acme.com>", References: "<m1@acme.com>" });
 		expect((await inboxMessages(t)).find((m) => m._id === draft._id)!.status).toBe("sent");
 		expect((await conversations(t))[0]!.needsStaff).toBeUndefined();

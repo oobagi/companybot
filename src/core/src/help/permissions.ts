@@ -41,7 +41,7 @@ Each channel, database and page has a **Who can access** list: **Everyone**, cho
 - **Agents** use the access of the person who asked. When that person can't see something, the agent says who can: "Only Office and Owners can see Deals." It names the place only if they asked for it by that name; otherwise it's "this database". In a channel they can only view, agents don't reply or follow up for them, and a reply already under way stops when they lose Post.
 
 ## Customers
-When a customer emails or texts an agent, nobody on the team asked, so the agent acts as the **Public** role. It can answer, take a message or hand off, as owners allow in [Roles](#/settings/roles), and use only what's shared with Public:
+When a customer emails or texts an address an agent answers, nobody on the team asked, so the agent acts as the **Public** role. It can answer, take a message or hand off, as owners allow in [Roles](#/settings/roles), and use only what's shared with Public:
 - Add **Public** to a page's or database's Who can access list, like any role. A page at View, and the sub-pages that follow its list, can be read to customers. A database at View lets the agent look up its records; at **Add**, the agent can add records for the customer and show, change or cancel only theirs (the customer is whoever writes from that email address or number).
 - Public can never hold Edit, a channel, settings, members, roles, memory, connectors or automations. That ceiling is fixed; sharing anything above it is refused.
 - Customers see records' plain fields only: never teammates, links to other records, or a record's page. Keep internal notes out of databases shared with Public.

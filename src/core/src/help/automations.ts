@@ -8,7 +8,7 @@ export default {
 An automation asks an agent to do something without you typing it. Make one in [Automations](#/settings/automations) → New automation, or ask Companybot ("every Monday morning summarize last week").
 
 ## Parts
-- **When**: on a schedule, when something happens here (someone posts in a channel, someone joins the workspace, someone new emails or texts an agent, an agent gets an email or text), or when another app sends a webhook. Email and text ones are only for people who can see [Inbox](#/inbox), and run as you with your permissions, never as the customer: "when someone new texts, add them to Leads and tell #sales". The agent gets who wrote, how and what they said, as data, not instructions. A webhook gives you a secret URL to paste into the other app; keep it private.
+- **When**: on a schedule, when something happens here (someone posts in a channel, someone joins the workspace, someone new emails or texts you, an email or text comes in), or when another app sends a webhook. Email and text ones are only for people who can see [Inbox](#/inbox), and run as you with your permissions, never as the customer: "when someone new texts, add them to Leads and tell #sales". The agent gets who wrote, how and what they said, as data, not instructions. A webhook gives you a secret URL to paste into the other app; keep it private.
 - **What to ask the agent**: the prompt, sent each run as if the person it runs for had asked.
 - **Agent**: which agent does it.
 - **Runs for**: just you; anyone who turns it on; or one post in a channel. Nobody gets messages they didn't ask for: others choose to turn it on.

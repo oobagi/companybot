@@ -11,7 +11,7 @@ import { useMutation, useQuery } from "../convex";
 import { describeUpdate, desktop, openLink, useUpdates } from "../desktop";
 import { navigate } from "../router";
 import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, compactDangerButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon, MailIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -24,6 +24,7 @@ import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
 import { TrashView } from "./Trash";
 import { UsageTab } from "./Usage";
+import { AddressesTab } from "./Addresses";
 
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
@@ -65,6 +66,7 @@ const sections = [
 			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
 		],
 	},
+	{ title: "Customers", scope: "workspace", tabs: [{ id: "addresses", label: "Email and phone", description: "Where customers reach you, and which agent answers each", icon: <MailIcon /> }] },
 	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations")] },
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
@@ -102,6 +104,7 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 				</>
 			)}
 			{tab === "preferences" && <ProfileTab />}
+			{tab === "addresses" && <AddressesTab access={access} />}
 		</Page>
 	);
 }

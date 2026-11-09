@@ -1,5 +1,5 @@
 // Inbox: conversations with people outside the workspace, by email and text. One conversation per
-// outside contact per channel per agent. Pure helpers shared by the backend and tests: addresses,
+// outside contact per channel per workspace address. Pure helpers shared by the backend and tests: addresses,
 // webhook signatures, threading, and what an agent is fed when it answers a customer (as Public,
 // public-role.ts). wiki/product.md → Inbox, wiki/architecture.md → Inbox.
 
@@ -68,7 +68,7 @@ export function phoneKeys(e164: string): string[] {
 	return digits.length === 11 && digits.startsWith("1") ? [digits, digits.slice(1)] : [digits];
 }
 
-/** The part before @ that people pick for an agent's address. */
+/** The part before @ that people pick for one of the workspace's addresses. */
 export function localPartError(local: string): string | null {
 	if (!local) return "Pick the part before the @.";
 	if (local.length > 40) return "Keep it under 40 characters.";
@@ -76,9 +76,9 @@ export function localPartError(local: string): string | null {
 	return null;
 }
 
-/** A suggested address for an agent: its name in lowercase, plus a few random characters so it's free. */
-export const suggestLocalPart = (agentName: string, random: string) =>
-	`${agentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "agent"}-${random}`;
+/** A suggested address: the workspace's name in lowercase, plus a few random characters so it's free (the domain is shared). */
+export const suggestLocalPart = (name: string, random: string) =>
+	`${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "hello"}-${random}`;
 
 /** A one-line subject. */
 export const cleanSubject = (subject: string | undefined | null) => (subject ?? "").replace(/\s+/g, " ").trim().slice(0, SUBJECT_MAX);

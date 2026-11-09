@@ -17,7 +17,7 @@ const page0 = { numItems: 50, cursor: null };
 async function conversationWith(t: Test, owner: As, contact = "+15125550199") {
 	const workspaceId = await workspaceOf(owner);
 	const { companybot } = await agentsOf(owner);
-	return t.run((ctx) => ctx.db.insert("inboxConversations", { workspaceId, agentId: companybot._id, channel: "sms", contact, mode: "agent", lastAt: Date.now(), preview: "" }));
+	return t.run((ctx) => ctx.db.insert("inboxConversations", { workspaceId, agentId: companybot._id, channel: "sms", via: "+15125550100", contact, mode: "agent", lastAt: Date.now(), preview: "" }));
 }
 
 /** A Leads database with a phone and a notes field, made by the owner. */

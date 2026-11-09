@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation } from "./_generated/server";
-import { queueReply } from "./inbox";
+import { answeringAgent, queueReply } from "./inbox";
 import { COMMENT_MAX, commentByAgent } from "./inboxComments";
 import { notify } from "./notifications";
 import { liveWorkspace } from "./lib";
@@ -31,8 +31,8 @@ export const begin = internalMutation({
 		const c = await ctx.db.get(conversationId);
 		if (!c) return null;
 		const workspace = await liveWorkspace(ctx, c.workspaceId);
-		const agent = await ctx.db.get(c.agentId);
-		if (!workspace || !agent || agent.archived || c.mode !== "agent") {
+		const agent = await answeringAgent(ctx, c);
+		if (!workspace || !agent) {
 			await ctx.db.patch(c._id, { replyingSince: undefined, replyAgain: false });
 			return null;
 		}
@@ -48,6 +48,7 @@ export const begin = internalMutation({
 			.reverse()
 			.flatMap((m) => (m.direction === "event" || m.status === "failed" ? [] : [{ direction: m.status === "draft" ? ("draft" as const) : m.direction === "in" ? ("in" as const) : ("out" as const), text: m.text, by: m.authorUserId ? "Someone on staff" : undefined }]));
 		return {
+			agentId: agent._id,
 			model: agent.model,
 			sends: agent.customerReplies === "send",
 			shared: await sharedSummary(ctx, c.workspaceId),
@@ -91,7 +92,7 @@ export const respond = internalAction({
 		} catch (e) {
 			console.error(`Inbox reply for ${conversationId} failed: ${e instanceof Error ? e.message : e}`);
 		} finally {
-			await ctx.runMutation(internal.inboxAgent.end, { conversationId, model: run.model, costUsd });
+			await ctx.runMutation(internal.inboxAgent.end, { conversationId, agentId: run.agentId, model: run.model, costUsd });
 		}
 	},
 });
@@ -105,9 +106,9 @@ export const act = internalMutation({
 	handler: async (ctx, { conversationId, name, text }): Promise<string> => {
 		const c = await ctx.db.get(conversationId);
 		const workspace = c && (await liveWorkspace(ctx, c.workspaceId));
-		const agent = c && (await ctx.db.get(c.agentId));
-		if (!c || !workspace || !agent || agent.archived) return "This conversation is gone. Stop.";
-		if (c.mode !== "agent") return "Someone on staff has taken this conversation. Don't reply.";
+		if (!c || !workspace) return "This conversation is gone. Stop.";
+		const agent = await answeringAgent(ctx, c);
+		if (!agent) return "Someone on staff has taken this conversation. Don't reply.";
 		const body = text.trim();
 		if (!body) return "Nothing to send.";
 		if (name === "reply") return replyFor(ctx, c, agent, body, agent.customerReplies === "send");
@@ -149,11 +150,11 @@ async function replyFor(ctx: MutationCtx, c: Doc<"inboxConversations">, agent: D
 
 /** Records what the reply cost (the agent's, run for nobody on the team) and runs again for messages that came meanwhile. */
 export const end = internalMutation({
-	args: { conversationId: v.id("inboxConversations"), model: v.string(), costUsd: v.number() },
-	handler: async (ctx, { conversationId, model, costUsd }) => {
+	args: { conversationId: v.id("inboxConversations"), agentId: v.id("agents"), model: v.string(), costUsd: v.number() },
+	handler: async (ctx, { conversationId, agentId, model, costUsd }) => {
 		const c = await ctx.db.get(conversationId);
 		if (!c) return;
-		await recordUsage(ctx, { workspaceId: c.workspaceId, agentId: c.agentId, kind: "chat", model, costUsd });
+		await recordUsage(ctx, { workspaceId: c.workspaceId, agentId, kind: "chat", model, costUsd });
 		const again = c.replyAgain && c.mode === "agent";
 		await ctx.db.patch(c._id, { replyingSince: undefined, replyAgain: false });
 		if (again) await queueReply(ctx, { ...c, replyingSince: undefined });

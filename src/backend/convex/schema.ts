@@ -365,10 +365,11 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
 
-	// An agent's own email address or phone number (contactPoints.ts): how people outside reach it. One of each per agent.
+	// One of the workspace's email addresses or phone numbers (contactPoints.ts): how people outside reach the business.
 	contactPoints: defineTable({
 		workspaceId: v.id("workspaces"),
-		agentId: v.id("agents"),
+		/** The agent that answers new conversations to it. Unset: nobody does, and staff answer them. */
+		agentId: v.optional(v.id("agents")),
 		kind: v.union(v.literal("email"), v.literal("phone")),
 		/** Lowercased email, or E.164 phone. Empty while a number is still being bought. Unique among live rows. */
 		address: v.string(),
@@ -385,11 +386,14 @@ export default defineSchema({
 		.index("by_agent", ["agentId", "kind"])
 		.index("by_workspace", ["workspaceId"]),
 
-	// Inbox (inbox.ts): one conversation per outside contact per channel per agent. Staff see them in Inbox; the agent answers as Public.
+	// Inbox (inbox.ts): one conversation per outside contact per workspace address. Staff see them in Inbox; an agent answers as Public.
 	inboxConversations: defineTable({
 		workspaceId: v.id("workspaces"),
-		agentId: v.id("agents"),
 		channel: oneOf(inboxChannels),
+		/** Our address or number it's with (a `contactPoints` address). Replies go from it while it's still the workspace's. */
+		via: v.string(),
+		/** The agent answering it, while `mode` is agent: the address's agent when it started, or whoever it was assigned to. */
+		agentId: v.optional(v.id("agents")),
 		/** Their address: lowercased email, or E.164 phone. */
 		contact: v.string(),
 		/** The name their email gave, if any. Their words, shown as text. */
@@ -398,7 +402,7 @@ export default defineSchema({
 		subject: v.optional(v.string()),
 		/** The record whose email or phone field matches `contact`, once found. */
 		recordId: v.optional(v.id("records")),
-		/** `agent`: its agent answers each new message; `staff`: people do, and the agent stays quiet. */
+		/** `agent`: `agentId` answers each new message; `staff`: people do, and agents stay quiet. */
 		mode: v.union(v.literal("agent"), v.literal("staff")),
 		/** Who on staff it's assigned to, while `mode` is staff. */
 		takenBy: v.optional(v.id("users")),
@@ -411,7 +415,7 @@ export default defineSchema({
 		replyingSince: v.optional(v.number()),
 		replyAgain: v.optional(v.boolean()),
 	})
-		.index("by_contact", ["workspaceId", "agentId", "channel", "contact"])
+		.index("by_contact", ["workspaceId", "channel", "via", "contact"])
 		.index("by_workspace", ["workspaceId", "lastAt"])
 		.index("by_needs", ["workspaceId", "needsStaff"])
 		.index("by_agent", ["agentId"])
@@ -469,8 +473,8 @@ export default defineSchema({
 		messageId: v.optional(v.string()),
 		/** An `out` email: the one in this conversation it answers (its In-Reply-To), when staff picked it. Else the latest of theirs. */
 		answers: v.optional(v.id("inboxMessages")),
-		/** An `event` that says who it was assigned to (inbox.assign): its agent, or someone on staff. */
-		assignedTo: v.optional(v.union(v.literal("agent"), v.id("users"))),
+		/** An `event` that says who it was assigned to (inbox.assign): an agent, or someone on staff. */
+		assignedTo: v.optional(v.union(v.id("agents"), v.id("users"))),
 		/** An `in` email that failed its sender check (core `senderVerified`): its From may be forged, so it changes none of their records. */
 		unverified: v.optional(v.literal(true)),
 		/** An `in` email's history its sender's mail app quoted under it (core `splitQuoted`), shown folded; `text` is the new part. */

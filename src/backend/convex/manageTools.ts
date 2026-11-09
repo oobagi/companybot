@@ -1,4 +1,4 @@
-import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
+import { can, DEFAULT_CURRENCY, THREAD_HOURS_DEFAULT, isGranted, manageInputs, modelNote, normalizeCustomAutomation, normalizePhone, pickAgentConfig, replyModeOf, searchModels } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -20,7 +20,7 @@ import { withReceipt } from "./approvals";
 import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
-import { addContact, removeContact } from "./contactPoints";
+import { POINTS_MAX, addPoint, removePoint, setPointAgent } from "./contactPoints";
 import { replyAs, assignTo, startAs } from "./inbox";
 import { commentAs, commentsOf, editAs, removeAs } from "./inboxComments";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
@@ -320,8 +320,6 @@ export const runFor = internalMutation({
 					if (r.action === "history") return ctx.db.query("agentVersions").withIndex("by_agent", (q) => q.eq("agentId", id)).order("desc").paginate(paging(r.cursor));
 					if (r.action === "delete") await setAgentTrashed(ctx, who, id, true);
 					if (r.action === "set_image") await setImage(ctx, member, id, r.file === null ? null : copyOf(r.file));
-					if (r.action === "add_contact") return { done: r.action, id, address: await addContact(ctx, member, { agentId: id, kind: r.kind, name: r.name, areaCode: r.areaCode }) };
-					if (r.action === "remove_contact") await removeContact(ctx, member, id, r.kind);
 					if (r.action === "update") {
 						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined || r.customerReplies !== undefined || r.handOffTopics !== undefined)) throw new ConvexError("Only a person can change your instructions, model, reasoning or how you answer customers.");
 						const { action, id: _, expectedVersion, ...changes } = r;
@@ -336,10 +334,22 @@ export const runFor = internalMutation({
 						const result = await ctx.db.query("inboxConversations").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).order("desc").paginate(paging(r.cursor));
 						return {
 							...result,
-							page: result.page.map((c) => ({ id: c._id, agentId: c.agentId, channel: c.channel, contact: c.contact, contactName: c.contactName ?? null, subject: c.subject ?? null, mode: c.mode, needsStaff: c.needsStaff ?? null, lastAt: new Date(c.lastAt).toISOString() })),
+							page: result.page.map((c) => ({ id: c._id, ...(c.mode === "agent" && c.agentId && { agentId: c.agentId }), via: c.via, channel: c.channel, contact: c.contact, contactName: c.contactName ?? null, subject: c.subject ?? null, mode: c.mode, needsStaff: c.needsStaff ?? null, lastAt: new Date(c.lastAt).toISOString() })),
 						};
 					}
-					if (r.action === "start") return startAs(ctx, { member, agentId: turn.agentId }, { ...r, agentId: rowId(ctx, "agents", r.agentId) });
+					if (r.action === "addresses") {
+						const rows = await ctx.db.query("contactPoints").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).take(POINTS_MAX * 2);
+						return rows.map((p) => ({ kind: p.kind, address: p.address || null, status: p.status, ...(p.error && { error: p.error }), answeredBy: p.agentId ?? "staff" }));
+					}
+					if (r.action === "add_address") return { done: r.action, address: await addPoint(ctx, member, { kind: r.kind, name: r.name, areaCode: r.areaCode, agentId: r.agentId ? rowId(ctx, "agents", r.agentId) : undefined }) };
+					if (r.action === "remove_address" || r.action === "set_answerer") {
+						const point = (await ctx.db.query("contactPoints").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).take(POINTS_MAX * 2)).find((p) => p.address === (r.address.includes("@") ? normalizeEmail(r.address) : normalizePhone(r.address)));
+						if (!point) throw new ConvexError(`${r.address} isn't one of this workspace's addresses. List them with addresses.`);
+						if (r.action === "remove_address") await removePoint(ctx, member, point._id);
+						else await setPointAgent(ctx, member, point._id, r.agentId === null ? null : rowId(ctx, "agents", r.agentId));
+						return { done: r.action, address: point.address };
+					}
+					if (r.action === "start") return startAs(ctx, { member, agentId: turn.agentId }, r);
 					const who = { member, agentId: turn.agentId };
 					const mentions = (ids: string[] | undefined) => (ids ?? []).map((u) => rowId(ctx, "users", u));
 					if (r.action === "comment") {
@@ -374,7 +384,7 @@ export const runFor = internalMutation({
 						};
 					}
 					if (r.action === "reply") return replyAs(ctx, { member, agentId: turn.agentId }, c, r.text);
-					await assignTo(ctx, { member, agentId: turn.agentId }, c, r.to === "agent" ? "agent" : rowId(ctx, "users", r.to));
+					await assignTo(ctx, { member, agentId: turn.agentId }, c, ctx.db.normalizeId("agents", r.to) ?? rowId(ctx, "users", r.to));
 					return { done: r.action, id: c._id, to: r.to };
 				}
 				case "workspace.settings": {

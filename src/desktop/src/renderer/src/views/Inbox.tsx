@@ -33,6 +33,7 @@ import {
 	ChatIcon,
 	MoreIcon,
 	WhatsappLogoIcon,
+	WarningIcon,
 } from "../icons";
 import { navigate } from "../router";
 import {
@@ -273,7 +274,7 @@ function ConversationRow({ c, open }: { c: Row; open: boolean }) {
 	);
 }
 
-/** The + beside Inbox's name: starts a conversation from an agent's address or number, and (with `sidebar.arrange`) adds a section. */
+/** The + beside Inbox's name: starts a conversation from one of the workspace's addresses or numbers, and (with `sidebar.arrange`) adds a section. */
 export function InboxAdd({ canStart, onNewSection }: { canStart: boolean; onNewSection?: () => void }) {
 	const [starting, setStarting] = useState(false);
 	return (
@@ -473,7 +474,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 					})}
 					{c.needsStaff === "handoff" && (
 						<div className="pt-3">
-							<Line who={c.agent} name={c.agentName}>
+							<Line who={c.agent} name={c.agent?.name ?? "An agent"}>
 								handed this to
 								<span className={`${inboxPill} bg-amber-50 pl-2 text-amber-800`}>
 									<MembersIcon /> Staff
@@ -483,7 +484,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 					)}
 					{c.replying && (
 						<div className="pt-3">
-							<Line who={c.agent} name={c.agentName}>
+							<Line who={c.agent} name={c.agent?.name ?? "An agent"}>
 								is writing a reply…
 							</Line>
 						</div>
@@ -520,24 +521,25 @@ function Details({ conversation: c }: { conversation: Opened }) {
 				<p className="text-xs font-medium text-neutral-500">Assigned to</p>
 				<Assignee conversation={c} />
 			</div>
-			{c.from && (
+			{c.via.address && (
 				<div className="flex flex-col gap-1 border-t border-neutral-100 pt-3">
 					<p className="text-xs font-medium text-neutral-500">Replies go from</p>
-					<p className="truncate text-neutral-600 select-text">{c.channel === "sms" ? formatPhone(c.from) : c.from}</p>
+					<p className="truncate text-neutral-600 select-text">{viaLabel(c)}</p>
 				</div>
 			)}
 		</section>
 	);
 }
 
-/** Who answers it, as a picker: its agent, or anyone on staff who can use Inbox (the agent stops answering). */
+/** Who answers it, as a picker: any agent, or anyone on staff who can use Inbox (agents stop answering). */
 function Assignee({ conversation: c }: { conversation: Opened }) {
 	const team = useQuery(api.workspace.team);
+	const agents = (useQuery(api.agents.list) ?? []).filter((a) => !a.archived);
 	const assign = useMutation(api.inbox.assign);
 	const { error, run } = useRun();
 	const current = c.mode === "agent" ? c.agent : c.takenBy;
 	const people = (team?.members ?? []).filter((m) => m.inbox).sort((a, b) => Number(b.isYou) - Number(a.isYou));
-	const pick = (to: "agent" | Id<"users">) => run(assign({ id: c.id, to }));
+	const pick = (to: Id<"agents"> | Id<"users">) => run(assign({ id: c.id, to }));
 	return (
 		<>
 			<Popover
@@ -554,13 +556,16 @@ function Assignee({ conversation: c }: { conversation: Opened }) {
 			>
 				{(close) => (
 					<>
-						{c.agent && (
-							<MenuItem onClick={() => (close(), c.mode !== "agent" && pick("agent"))}>
-								<Avatar name={c.agent.name} image={c.agent.image} agent size="sm" />
-								<span className="min-w-0 flex-1 truncate">{c.agent.name}</span>
-								{c.mode === "agent" && <CheckIcon className="shrink-0" />}
-							</MenuItem>
-						)}
+						{agents.map((a) => {
+							const on = c.mode === "agent" && c.agent?.id === a._id;
+							return (
+								<MenuItem key={a._id} onClick={() => (close(), !on && pick(a._id))}>
+									<Avatar name={a.name} image={a.image} agent size="sm" />
+									<span className="min-w-0 flex-1 truncate">{a.name}</span>
+									{on && <CheckIcon className="shrink-0" />}
+								</MenuItem>
+							);
+						})}
 						{people.map((m) => {
 							const on = c.mode === "staff" && c.takenBy?.id === m.userId;
 							return (
@@ -927,13 +932,36 @@ function Draft({ message: m, channel, agent }: { message: Message; channel: "ema
 	);
 }
 
-/** Answer as the business, from the agent's address or number. Enter sends; Shift+Enter starts a new line. */
+/** Our address or number it's with, as people read it. */
+const viaLabel = (c: Opened) => (c.channel === "sms" ? formatPhone(c.via.address) : c.via.address);
+
+/**
+ * Why replies can't go out, when they can't: the address isn't the workspace's anymore (a warning: someone
+ * can add it back), it broke (an error, with why), or it's still being set up (just wait). Null when they can.
+ */
+function blocked(c: Opened): { tone: "warning" | "error" | "wait"; text: string; more?: string } | null {
+	if (c.via.status === "active") return null;
+	const address = viaLabel(c) || `This conversation's ${c.channel === "email" ? "email address" : "phone number"}`;
+	if (c.via.status === "getting") return { tone: "wait", text: `${address} is still being set up. You can reply once it's ready.` };
+	if (c.via.status === "failed") return { tone: "error", text: `${address} isn't working, so replies can't be sent.`, more: c.via.error ?? undefined };
+	return { tone: "warning", text: `${address} was removed, so replies can't be sent.`, more: "Add it back in Settings, under Email and phone, to reply." };
+}
+
+const blockedTab = {
+	warning: "border-amber-200 bg-amber-50 text-amber-900",
+	error: "border-red-200 bg-red-50 text-red-800",
+	wait: "border-neutral-200 bg-neutral-50 text-neutral-600",
+};
+
+/** Answer as the business, from the conversation's address or number, under your name. Enter sends; Shift+Enter starts a new line. */
 function ReplyBox({ conversation: c, answering, picked, onSent }: { conversation: Opened; answering: Message | undefined; picked: boolean; onSent: () => void }) {
 	const reply = useMutation(api.inbox.reply);
 	const sendWith = useQuery(api.preferences.get)?.sendWith ?? "enter";
+	const access = useQuery(api.workspace.me)?.access;
 	const { error, fail } = useRun();
 	const who = contactLabel(c);
 	const email = c.channel === "email";
+	const stop = blocked(c);
 	// A send that fails puts the text back in the box (Composer), with why above it.
 	const send = (text: string) => {
 		fail();
@@ -944,35 +972,51 @@ function ReplyBox({ conversation: c, answering, picked, onSent }: { conversation
 	return (
 		<div className={`${conversationColumn} flex flex-col gap-2 px-5 pt-4 pb-7`}>
 			<Notice>{error}</Notice>
-			{/* An email's reply: what it answers on a card tucked behind the box's top edge (pick another with an email's Reply). With no address or number to send from, the box stays, greyed, saying why. */}
-			<div className={`relative ${email && c.from ? "pt-8" : ""}`}>
-				{email && c.from && (
-					<div aria-label="Replying to" className="absolute inset-x-3 top-0 flex h-14 min-w-0 items-start gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 pt-1 text-sm">
+			{/* A tab tucked behind the box's top edge: what an email's reply answers (pick another with an email's Reply), or why nothing can be sent, with the box greyed. */}
+			<div className={`relative ${email || stop ? "pt-8" : ""}`}>
+				{stop ? (
+					<div role={stop.tone === "wait" ? "status" : "alert"} className={`absolute inset-x-3 top-0 flex h-14 min-w-0 items-start gap-2 rounded-2xl border px-3 pt-1 text-sm ${blockedTab[stop.tone]}`}>
 						<span className="flex h-6 min-w-0 flex-1 items-center gap-2">
-							<ReplyIcon className="shrink-0 text-neutral-500" />
-							<span className="max-w-1/2 shrink-0 truncate font-medium text-neutral-900">{c.subject || "(no subject)"}</span>
-							{answering && <span className="min-w-0 flex-1 truncate text-neutral-500">{answering.text.replace(/\s+/g, " ")}</span>}
+							{stop.tone !== "wait" && <WarningIcon className="shrink-0" />}
+							<span className="min-w-0 flex-1 truncate" title={stop.more ? `${stop.text} ${stop.more}` : stop.text}>
+								{stop.text}
+							</span>
 						</span>
-						<span className="flex shrink-0 items-center gap-1">
-							<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={labelButton} />
-							<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={labelButton} />
-							<Soon trigger={<CloseIcon />} label="New email" text="Start a new email to them, with its own subject, instead of replying." className={smallIconButton} />
-						</span>
+						{stop.tone !== "wait" && access && can(access, "inbox.setup") && (
+							<button type="button" className={`${labelButton} shrink-0`} onClick={() => navigate("settings", "addresses")}>
+								Open settings
+							</button>
+						)}
 					</div>
+				) : (
+					email && (
+						<div aria-label="Replying to" className="absolute inset-x-3 top-0 flex h-14 min-w-0 items-start gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 pt-1 text-sm">
+							<span className="flex h-6 min-w-0 flex-1 items-center gap-2">
+								<ReplyIcon className="shrink-0 text-neutral-500" />
+								<span className="max-w-1/2 shrink-0 truncate font-medium text-neutral-900">{c.subject || "(no subject)"}</span>
+								{answering && <span className="min-w-0 flex-1 truncate text-neutral-500">{answering.text.replace(/\s+/g, " ")}</span>}
+							</span>
+							<span className="flex shrink-0 items-center gap-1">
+								<Soon trigger="Cc" label="Cc" text="Copy teammates or anyone else on a reply." className={labelButton} />
+								<Soon trigger="Bcc" label="Bcc" text="Copy someone without the others seeing." className={labelButton} />
+								<Soon trigger={<CloseIcon />} label="New email" text="Start a new email to them, with its own subject, instead of replying." className={smallIconButton} />
+							</span>
+						</div>
+					)
 				)}
 				<div className="relative">
 					<Composer
 						key={c.id}
 						sendWith={sendWith}
-						placeholder={!c.from ? `${c.agentName} has no ${email ? "email address" : "phone number"} now, so replies can't be sent` : email ? `Reply to ${who}` : `Text ${who}`}
-						disabled={!c.from}
+						placeholder={stop ? "Replies can't be sent" : email ? `Reply to ${who}` : `Text ${who}`}
+						disabled={!!stop}
 						sources={noSources}
 						draftKey={`inbox:${c.id}`}
 						onSend={send}
 						start={<Soon trigger={<AttachIcon />} label="Attach files" text="Send photos and files by email and text." />}
 						tools={
 							<>
-								<Soon trigger={<SparkleIcon />} label="Write a reply" text={`${c.agentName} will draft a reply from the conversation and ${who}'s record, for you to edit.`} />
+								<Soon trigger={<SparkleIcon />} label="Write a reply" text={`An agent will draft a reply from the conversation and ${who}'s record, for you to edit.`} />
 								<Soon trigger={<SavedReplyIcon />} label="Saved replies" text="Answers your team sends often, a click away." />
 							</>
 						}
@@ -997,55 +1041,51 @@ function Soon({ trigger, label, text, className = composerButton }: { trigger: R
 	);
 }
 
-/** Starts a conversation from an agent's address or number, laid out as an email: From, To, Subject, then the message. A person who starts one answers it; hand it back for the agent to. */
+/**
+ * Starts a conversation from one of the workspace's addresses or numbers, laid out as an email: From, To,
+ * Subject, then the message. It goes out under your name, and you answer it; assign it to an agent for it to.
+ */
 function NewConversation({ onClose }: { onClose: () => void }) {
-	const agents = useQuery(api.agents.list);
+	const addresses = useQuery(api.contactPoints.list);
+	const access = useQuery(api.workspace.me)?.access;
 	const start = useMutation(api.inbox.start);
-	const [agentId, setAgentId] = useState<string>();
 	const [picked, setPicked] = useState<"email" | "sms">("email");
+	const [fromPicked, setFrom] = useState<string>();
 	const [to, setTo] = useState("");
 	const [subject, setSubject] = useState("");
 	const [text, setText] = useState("");
 	const { error, busy, run } = useRun();
-	const live = (agents ?? []).filter((a) => !a.archived);
-	const chosen = agentId ?? live[0]?._id;
-	const points = useQuery(api.contactPoints.forAgent, chosen ? { agentId: chosen as Id<"agents"> } : "skip");
-	const has = { email: points?.email?.status === "active", sms: points?.phone?.status === "active" };
-	// The one they picked, unless this agent can't send that way and can the other.
-	const channel = !has[picked] && has[picked === "email" ? "sms" : "email"] ? (picked === "email" ? "sms" : "email") : picked;
-	const point = channel === "email" ? points?.email : points?.phone;
-	const from = point?.status === "active" ? (channel === "sms" ? formatPhone(point.address) : point.address) : null;
+	const working = (addresses?.points ?? []).filter((p) => p.status === "active");
+	const of = (kind: "email" | "sms") => working.filter((p) => p.kind === (kind === "email" ? "email" : "phone"));
+	// The one they picked, unless the workspace can't send that way and can the other.
+	const channel = !of(picked).length && of(picked === "email" ? "sms" : "email").length ? (picked === "email" ? "sms" : "email") : picked;
+	const options = of(channel);
+	const from = options.find((p) => p.address === fromPicked)?.address ?? options[0]?.address;
+	const shown = (address: string) => (channel === "sms" ? formatPhone(address) : address);
+	const canSetup = !!access && can(access, "inbox.setup");
 	const row = "flex items-center gap-3 border-b border-neutral-100 px-4";
 	const rowLabel = "w-14 shrink-0 text-sm text-neutral-500";
-	const agentPicker = (className: string) => <Select label="From" value={chosen} options={live.map((a) => ({ value: a._id as string, label: a.name }))} onChange={setAgentId} className={className} />;
 	return (
 		<Modal title="New conversation" onClose={onClose}>
-			<Form
-				onSubmit={() =>
-					run(
-						start({ agentId: chosen as Id<"agents">, channel, to, text, ...(channel === "email" && { subject }) }).then((r) => navigate("inbox", r.conversationId)),
-						onClose,
-					)
-				}
-			>
+			<Form onSubmit={() => run(start({ from, channel, to, text, ...(channel === "email" && { subject }) }).then((r) => navigate("inbox", r.conversationId)), onClose)}>
 				<div role="group" aria-label="Send by" className="grid grid-cols-2 gap-3">
 					{(["email", "sms"] as const).map((kind) => {
-						const p = kind === "email" ? points?.email : points?.phone;
-						const address = p?.status === "active" ? (kind === "sms" ? formatPhone(p.address) : p.address) : null;
+						const first = of(kind)[0];
+						const address = first && (kind === "sms" ? formatPhone(first.address) : first.address);
 						return (
 							<button
 								key={kind}
 								type="button"
-								aria-pressed={channel === kind && has[kind]}
-								disabled={!points}
-								// One it can't send by yet opens the agent's page, where it gets one.
-								onClick={() => (has[kind] ? setPicked(kind) : (onClose(), navigate("settings", "agents", chosen!)))}
+								aria-pressed={channel === kind && !!first}
+								disabled={!addresses || (!first && !canSetup)}
+								// One the workspace can't send by yet opens Settings, where it gets one.
+								onClick={() => (first ? setPicked(kind) : (onClose(), navigate("settings", "addresses")))}
 								className={choiceCardButton}
 							>
 								<span className={`text-xl ${address ? "text-neutral-700" : "text-neutral-400"}`}>{kind === "email" ? <MailIcon /> : <TextMessageIcon />}</span>
 								<span className="flex min-w-0 flex-col">
 									<span className={`font-medium ${address ? "" : "text-neutral-500"}`}>{kind === "email" ? "Email" : "Text message"}</span>
-									<span className="truncate text-xs text-neutral-500">{address ?? (points ? `Set up ${kind === "email" ? "an address" : "a number"}` : "")}</span>
+									<span className="truncate text-xs text-neutral-500">{address ?? (addresses ? (canSetup ? `Add ${kind === "email" ? "an address" : "a number"}` : `No ${kind === "email" ? "address" : "number"} yet`) : "")}</span>
 								</span>
 							</button>
 						);
@@ -1054,8 +1094,11 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 				<div className="flex flex-col overflow-hidden rounded-xl border border-neutral-200 focus-within:border-neutral-300">
 					<div className={`${row} py-1`}>
 						<span className={rowLabel}>From</span>
-						{agentPicker(bareSelectClass)}
-						<span className="min-w-0 truncate text-sm text-neutral-400">{from ?? ""}</span>
+						{options.length > 1 ? (
+							<Select label="From" value={from} options={options.map((p) => ({ value: p.address, label: shown(p.address) }))} onChange={setFrom} className={bareSelectClass} />
+						) : (
+							<span className="min-w-0 truncate py-1.5 text-sm text-neutral-600">{from ? shown(from) : ""}</span>
+						)}
 					</div>
 					<label className={row}>
 						<span className={rowLabel}>To</span>
@@ -1074,7 +1117,7 @@ function NewConversation({ onClose }: { onClose: () => void }) {
 					<button type="button" onClick={onClose} className={secondaryButton}>
 						Discard
 					</button>
-					<button type="submit" disabled={busy || !chosen || !from || !to.trim() || !text.trim()} className={primaryButton}>
+					<button type="submit" disabled={busy || !from || !to.trim() || !text.trim()} className={primaryButton}>
 						<PaperPlaneTiltIcon /> Send
 					</button>
 				</DialogButtons>

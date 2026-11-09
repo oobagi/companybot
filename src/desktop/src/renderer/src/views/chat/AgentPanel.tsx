@@ -12,7 +12,7 @@ import { MarkdownEditor } from "../pages/PageEditor";
 import { Avatar } from "./common";
 
 /**
- * An agent's details beside its DM: who it is, how customers reach it, how it answers them, and its
+ * An agent's details beside its DM: who it is, the workspace addresses it answers, how it answers customers, and its
  * instructions, each changed right here (with agents.manage). Everything else is in Settings → Agents.
  */
 export function AgentPanel({ agentId, onClose }: { agentId: Id<"agents">; onClose: () => void }) {
@@ -45,9 +45,8 @@ export function AgentPanel({ agentId, onClose }: { agentId: Id<"agents">; onClos
 					<Notice>{error}</Notice>
 
 					<Part title="How customers reach it">
-						<Line label="Email" value={contact?.email?.address} />
-						<Line label="Phone" value={contact?.phone?.address && formatPhone(contact.phone.address)} />
-						{!contact?.email && !contact?.phone && <p className={metadataClass}>No email address or phone number yet. Add them in its settings.</p>}
+						{contact?.map((p) => <Line key={p.address} label={p.kind === "email" ? "Email" : "Phone"} value={p.kind === "phone" ? formatPhone(p.address) : p.address} />)}
+						{contact && !contact.length && <p className={metadataClass}>It doesn't answer an email address or phone number yet. Pick it for one in Settings, under Email and phone.</p>}
 					</Part>
 
 					<Part title="When a customer emails or texts it">

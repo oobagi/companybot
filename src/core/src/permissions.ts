@@ -48,6 +48,8 @@ export const permissions = {
 	"fields.edit": { label: "add and change databases and fields", member: false },
 	/** See Inbox (conversations with customers by email and text), reply as the business, and take conversations over from agents. */
 	"inbox.use": { label: "see Inbox and reply to customers", member: true },
+	/** Add and remove the workspace's email addresses and phone numbers (a number costs money each month), and pick which agent answers each. */
+	"inbox.setup": { label: "add email addresses and phone numbers, and pick which agent answers each", member: false },
 	/** Make channels, and rename, delete and add people to any channel. */
 	"channels.edit": { label: "make and change channels", member: true },
 	/** Delete forever from Archive (wiki/data.md#trash). Agents never delete forever. */

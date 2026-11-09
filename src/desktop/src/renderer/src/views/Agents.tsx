@@ -12,7 +12,7 @@ import { ImagePicker } from "./ImagePicker";
 import { pictureLimits } from "@companybot/core/images";
 import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
-import { AgentContact } from "./AgentContact";
+import { AgentAddresses } from "./Addresses";
 import { Choice, Topics } from "./chat/AgentPanel";
 import { MarkdownEditor } from "./pages/PageEditor";
 import { archiveQuestion, useConfirm } from "./chat/common";
@@ -136,8 +136,9 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 						</div>
 					</Setting>
 				</Settings>
+				<AgentAddresses agentId={agent._id} agentName={agent.name} />
 				<Settings title="When a customer emails or texts it">
-					<Setting wide label="Replies" hint="Customers reach it at the email address or phone number below.">
+					<Setting wide label="Replies" hint="For the email addresses and phone numbers it answers, above.">
 						<div className="w-full">
 							<Choice picked={config.customerReplies ?? "check"} disabled={!editable} name={config.name || "It"} onPick={(customerReplies) => edit({ customerReplies })} />
 						</div>
@@ -148,7 +149,6 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 						</div>
 					</Setting>
 				</Settings>
-				<AgentContact agentId={agent._id} agentName={agent.name} canManage={canManage && !agent.archived} />
 				<Section title="Tools">
 					{options.groups.map((g) => (
 						<ToolGroup key={g.id} group={g} grants={config.tools} canManage={canManage} access={access} onChange={(tools) => edit({ tools })} />

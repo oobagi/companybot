@@ -150,6 +150,7 @@ export {
 	PaperPlaneTiltIcon,
 	PencilSimpleIcon as EditIcon,
 	PhoneIcon,
+	WarningIcon,
 	PlugsConnectedIcon as ConnectorIcon,
 	PlusIcon,
 	PulseIcon as ActivityIcon,

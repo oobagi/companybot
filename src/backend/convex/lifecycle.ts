@@ -238,15 +238,16 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 	// A phone number is released with the provider as its row goes, so nobody keeps paying for it (contactPoints.ts).
 	contactPoints: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"], onDelete: releaseLater },
-		agent: { index: "by_agent", eq: ["agentId"], onDelete: releaseLater },
-		keep: "An agent's address and number are the agent's, not whoever added them.",
+		// The agent that answered it went: the address stays the workspace's, and staff answer it.
+		agent: { index: "by_agent", eq: ["agentId"], scrub: () => ({ agentId: undefined }) },
+		keep: "Addresses and numbers are the workspace's, not whoever added them.",
 	},
 
 	// ---- Inbox ----
 	inboxConversations: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
-		// They're with its address or number, which goes with it.
-		agent: { index: "by_agent", eq: ["agentId"] },
+		// Its agent went: the conversation stays the workspace's, for staff to answer.
+		agent: { index: "by_agent", eq: ["agentId"], scrub: (row) => ({ agentId: undefined, ...(row.mode === "agent" && { mode: "staff" as const }) }) },
 		// The customer's record went: the conversation stays, unlinked.
 		record: { index: "by_record", eq: ["recordId"], scrub: () => ({ recordId: undefined }) },
 		keep: "Conversations with customers are the workspace's. Whoever took one over shows as a former member once they go.",

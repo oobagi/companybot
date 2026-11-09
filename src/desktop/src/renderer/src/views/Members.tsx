@@ -215,7 +215,7 @@ export function RolesTab({ access }: { access: Access }) {
 				<button type="button" onClick={() => navigate("settings", "roles", "public")} className={`items-center gap-3 ${cardButton}`}>
 					<span className="flex min-w-0 flex-1 flex-col">
 						<span className="truncate font-medium">Public</span>
-						<span className="truncate text-xs text-neutral-500">Anyone outside who emails or texts an agent</span>
+						<span className="truncate text-xs text-neutral-500">Anyone outside who emails or texts you</span>
 					</span>
 					<span className={descriptionClass}>Customers</span>
 					<CaretRightIcon className="text-neutral-400" />

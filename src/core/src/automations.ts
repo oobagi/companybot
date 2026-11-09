@@ -82,10 +82,10 @@ export type AutomationAudience = "creator" | "subscribers" | "channel";
 export const appEvents = {
 	"message.posted": { label: "When someone posts in a channel" },
 	"member.joined": { label: "When someone joins the workspace" },
-	/** Someone outside emails or texts an agent for the first time (a new Inbox conversation). */
-	"inbox.started": { label: "When someone new emails or texts an agent", needs: "inbox.use" },
-	/** Any email or text an agent gets in Inbox, the first one included. */
-	"inbox.received": { label: "When an agent gets an email or text", needs: "inbox.use" },
+	/** Someone outside emails or texts one of the workspace's addresses for the first time (a new Inbox conversation). */
+	"inbox.started": { label: "When someone new emails or texts you", needs: "inbox.use" },
+	/** Any email or text that comes in to Inbox, the first one included. */
+	"inbox.received": { label: "When an email or text comes in", needs: "inbox.use" },
 } as const satisfies Record<string, { label: string; needs?: Permission }>;
 export type AppEvent = keyof typeof appEvents;
 export const appEventIds = Object.keys(appEvents) as AppEvent[];
@@ -160,7 +160,7 @@ export function sampleData(trigger: AutomationTrigger): Record<string, unknown> 
 	if (trigger.event === "message.posted")
 		return { sample: true, channel: trigger.label.replace("When someone posts in ", ""), author: "A teammate", text: "Has anyone heard back from Acme about the renewal?" };
 	if (trigger.event === "inbox.started" || trigger.event === "inbox.received")
-		return { sample: true, agent: "Front desk", by: "text", from: "+15555550123", name: null, text: "Hi, do you do roof repairs? I'm in Austin.", new: trigger.event === "inbox.started" };
+		return { sample: true, to: "+15555550100", agent: "Front desk", by: "text", from: "+15555550123", name: null, text: "Hi, do you do roof repairs? I'm in Austin.", new: trigger.event === "inbox.started" };
 	return { sample: true, name: "New teammate", email: "new@example.com" };
 }
 

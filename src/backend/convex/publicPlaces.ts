@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { answeringAgent } from "./inbox";
 import { type Outsider, asToolResult, liveWorkspace } from "./lib";
 import { pageTitlesFor, readDoc } from "./pageOps";
 import { pageStates } from "./pageTree";
@@ -28,9 +29,9 @@ const RECORDS_SHOWN = 20;
 /** Who an agent is acting for in this conversation, or null if it shouldn't act (staff took it, the agent or workspace went). */
 export async function outsiderOf(ctx: QueryCtx, conversationId: Id<"inboxConversations">): Promise<Outsider | null> {
 	const c = await ctx.db.get(conversationId);
-	if (!c || c.mode !== "agent" || !(await liveWorkspace(ctx, c.workspaceId))) return null;
-	const agent = await ctx.db.get(c.agentId);
-	if (!agent || agent.archived) return null;
+	if (!c || !(await liveWorkspace(ctx, c.workspaceId))) return null;
+	const agent = await answeringAgent(ctx, c);
+	if (!agent) return null;
 	// Replies only ever go to their real address, so a forged sender reads nothing; changes wait for one that checks out.
 	const recent = await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").take(20);
 	const latest = recent.find((m) => m.direction === "in");

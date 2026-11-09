@@ -1,34 +1,48 @@
-import { localPartError, normalizeEmail, suggestLocalPart } from "@companybot/core";
+import { can, localPartError, normalizeEmail, suggestLocalPart } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { emailDomain, emailProvider, smsProvider, smsWebhookUrl } from "./channelProviders";
 import { mutation, query } from "./functions";
-import { type Member, checkPermission, getMember, liveWorkspace, requireAgent, requireLiveAgent, requirePermission } from "./lib";
+import { type Member, checkPermission, getMember, liveWorkspace, requireAgent, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 
-// An agent's own email address and phone number: how people outside the workspace reach it. Shown in
-// the Contact section of its page; people with agents.manage add and remove them (agents too, through
-// agents.manage add_contact / remove_contact, which always ask). What arrives lands in Inbox (inbox.ts).
-// A number is bought from the provider and released when it's removed, or when its agent is deleted
-// forever or its workspace deleted or reset (lifecycle.ts), so nobody pays for a number nothing uses.
+// The workspace's email addresses and phone numbers: how people outside reach the business. Settings →
+// Email and phone lists them; people with inbox.setup add and remove them and pick the agent that answers
+// each (or none: staff answer). Agents do the same through inbox.manage, always asking first. What
+// arrives lands in Inbox (inbox.ts), and every reply goes out from the address it came to, under the
+// name of whoever wrote it. A number is bought from the provider and released when it's removed or its
+// workspace deleted or reset (lifecycle.ts), so nobody pays for a number nothing uses. An agent deleted
+// for good leaves its addresses with nobody answering them.
 
 export type ContactKind = Doc<"contactPoints">["kind"];
 
-const contactOf = (ctx: MutationCtx | Parameters<typeof getMember>[0], agentId: Id<"agents">, kind: ContactKind) =>
-	ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", agentId).eq("kind", kind)).first();
+/** Addresses and numbers per kind, a workspace at most: plenty for teams, and a cap on what numbers cost. */
+export const POINTS_MAX = 10;
 
-/** An agent's address and number, and whether this server offers each. */
-export const forAgent = query({
-	args: { agentId: v.id("agents") },
-	handler: async (ctx, { agentId }) => {
+const shown = async (ctx: Parameters<typeof getMember>[0], row: Doc<"contactPoints">) => {
+	const agent = row.agentId && (await ctx.db.get(row.agentId));
+	return {
+		id: row._id,
+		kind: row.kind,
+		address: row.address,
+		status: row.status,
+		error: row.error ?? null,
+		areaCode: row.areaCode ?? null,
+		/** Who answers new conversations to it; null: staff do. An agent in Archive answers nothing, so it shows as none. */
+		agent: agent && !agent.archived ? { id: agent._id, name: agent.name } : null,
+	};
+};
+
+/** The workspace's addresses and numbers, oldest first, and what this server offers. For anyone in Inbox or setting it up. */
+export const list = query({
+	args: {},
+	handler: async (ctx) => {
 		const member = await getMember(ctx);
-		if (!member) return null;
-		await requireAgent(ctx, member, agentId);
-		const shown = (row: Doc<"contactPoints"> | null) => row && { address: row.address, status: row.status, error: row.error ?? null, areaCode: row.areaCode ?? null };
+		if (!member || !(can(member, "inbox.use") || can(member, "inbox.setup"))) return null;
+		const rows = await ctx.db.query("contactPoints").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).take(POINTS_MAX * 2);
 		return {
-			email: shown(await contactOf(ctx, agentId, "email")),
-			phone: shown(await contactOf(ctx, agentId, "phone")),
+			points: await Promise.all(rows.map((row) => shown(ctx, row))),
 			/** What this server can do: unset keys mean the feature isn't offered (channelProviders.ts). */
 			available: { email: !!emailDomain() && !!emailProvider(), phone: !!smsProvider() },
 			domain: emailDomain(),
@@ -36,56 +50,98 @@ export const forAgent = query({
 	},
 });
 
+/** The addresses and numbers an agent answers, for its page and details. */
+export const forAgent = query({
+	args: { agentId: v.id("agents") },
+	handler: async (ctx, { agentId }) => {
+		const member = await getMember(ctx);
+		if (!member) return null;
+		await requireAgent(ctx, member, agentId);
+		const rows = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", agentId)).take(POINTS_MAX * 2);
+		return rows.filter((r) => r.status === "active" && r.workspaceId === member.workspaceId).map((r) => ({ kind: r.kind, address: r.address }));
+	},
+});
+
+const kindArg = v.union(v.literal("email"), v.literal("phone"));
+
 export const add = mutation({
-	args: { agentId: v.id("agents"), kind: v.union(v.literal("email"), v.literal("phone")), name: v.optional(v.string()), areaCode: v.optional(v.string()) },
-	handler: async (ctx, args) => addContact(ctx, await requirePermission(ctx, "agents.manage"), args),
+	args: { kind: kindArg, name: v.optional(v.string()), areaCode: v.optional(v.string()), agentId: v.optional(v.id("agents")) },
+	handler: async (ctx, args) => addPoint(ctx, await requirePermission(ctx, "inbox.setup"), args),
 });
 
 export const remove = mutation({
-	args: { agentId: v.id("agents"), kind: v.union(v.literal("email"), v.literal("phone")) },
-	handler: async (ctx, args) => removeContact(ctx, await requirePermission(ctx, "agents.manage"), args.agentId, args.kind),
+	args: { id: v.id("contactPoints") },
+	handler: async (ctx, { id }) => removePoint(ctx, await requirePermission(ctx, "inbox.setup"), id),
 });
 
+export const setAgent = mutation({
+	args: { id: v.id("contactPoints"), agentId: v.union(v.id("agents"), v.null()) },
+	handler: async (ctx, { id, agentId }) => setPointAgent(ctx, await requirePermission(ctx, "inbox.setup"), id, agentId),
+});
+
+/** Tries buying a number again, after it failed. */
+export const retry = mutation({
+	args: { id: v.id("contactPoints") },
+	handler: async (ctx, { id }) => {
+		const member = await requirePermission(ctx, "inbox.setup");
+		const row = requireInWorkspace(member, await ctx.db.get(id), "Number");
+		if (row.kind !== "phone" || row.status !== "failed") return;
+		await ctx.db.patch(row._id, { status: "getting", error: undefined });
+		await ctx.scheduler.runAfter(0, internal.contactPoints.buyNumber, { id: row._id });
+	},
+});
+
+/** One of the workspace's addresses or numbers, by its address (as written, or formatted). */
+export async function pointByAddress(ctx: Parameters<typeof getMember>[0], workspaceId: Id<"workspaces">, kind: ContactKind, address: string) {
+	const row = await ctx.db.query("contactPoints").withIndex("by_address", (q) => q.eq("kind", kind).eq("address", address)).first();
+	return row?.workspaceId === workspaceId ? row : null;
+}
+
 /**
- * Gives an agent its email address (on the server's domain, `name` before the @) or starts buying it a
- * number (in `areaCode`, else anywhere in the US). One of each per agent; an address is never shared.
- * Returns the address, or "getting" while a number is bought.
+ * Adds an email address (on the server's domain, `name` before the @) or starts buying a number (in
+ * `areaCode`, else anywhere in the US), answered by `agentId` or, without one, by staff. An address is
+ * never shared between workspaces. Returns the address, or "getting" while a number is bought.
  */
-export async function addContact(ctx: MutationCtx, member: Member, { agentId, kind, name, areaCode }: { agentId: Id<"agents">; kind: ContactKind; name?: string; areaCode?: string }) {
-	checkPermission(member, "agents.manage");
-	const agent = await requireLiveAgent(ctx, member, agentId);
-	const existing = await contactOf(ctx, agentId, kind);
-	if (existing && existing.status !== "failed") throw new ConvexError(kind === "email" ? "It already has an email address. Remove it first." : "It already has a phone number. Release it first.");
-	if (existing) await ctx.db.delete(existing._id);
+export async function addPoint(ctx: MutationCtx, member: Member, { kind, name, areaCode, agentId }: { kind: ContactKind; name?: string; areaCode?: string; agentId?: Id<"agents"> }) {
+	checkPermission(member, "inbox.setup");
+	if (agentId) await requireLiveAgent(ctx, member, agentId);
+	const mine = await ctx.db.query("contactPoints").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).take(POINTS_MAX * 2);
+	if (mine.filter((r) => r.kind === kind).length >= POINTS_MAX) throw new ConvexError(kind === "email" ? `A workspace has at most ${POINTS_MAX} email addresses.` : `A workspace has at most ${POINTS_MAX} phone numbers.`);
 	if (kind === "email") {
 		const domain = emailDomain();
 		if (!domain || !emailProvider()) throw new ConvexError("Email isn't set up on this server yet.");
-		const local = normalizeEmail(name || suggestLocalPart(agent.name, crypto.randomUUID().slice(0, 4)));
+		const workspace = await ctx.db.get(member.workspaceId);
+		const local = normalizeEmail(name || suggestLocalPart(workspace?.name ?? "", crypto.randomUUID().slice(0, 4)));
 		const problem = localPartError(local);
 		if (problem) throw new ConvexError(problem);
 		const address = `${local}@${domain}`;
 		const taken = await ctx.db.query("contactPoints").withIndex("by_address", (q) => q.eq("kind", "email").eq("address", address)).first();
 		if (taken) throw new ConvexError(`${address} is taken. Pick another.`);
-		await ctx.db.insert("contactPoints", { workspaceId: member.workspaceId, agentId, kind, address, status: "active", createdBy: member.userId });
+		await ctx.db.insert("contactPoints", { workspaceId: member.workspaceId, kind, address, status: "active", createdBy: member.userId, ...(agentId && { agentId }) });
 		return address;
 	}
 	if (!smsProvider()) throw new ConvexError("Texting isn't set up on this server yet.");
 	if (areaCode !== undefined && !/^\d{3}$/.test(areaCode)) throw new ConvexError("An area code is 3 digits.");
-	const id = await ctx.db.insert("contactPoints", { workspaceId: member.workspaceId, agentId, kind, address: "", status: "getting", createdBy: member.userId, ...(areaCode && { areaCode }) });
+	const id = await ctx.db.insert("contactPoints", { workspaceId: member.workspaceId, kind, address: "", status: "getting", createdBy: member.userId, ...(areaCode && { areaCode }), ...(agentId && { agentId }) });
 	await ctx.scheduler.runAfter(0, internal.contactPoints.buyNumber, { id });
 	return "getting";
 }
 
-/** Takes an agent's address or number away. A number is released: it can't be got back. Conversations stay in Inbox. */
-export async function removeContact(ctx: MutationCtx, member: Member, agentId: Id<"agents">, kind: ContactKind) {
-	checkPermission(member, "agents.manage");
-	await requireAgent(ctx, member, agentId);
-	const row = await contactOf(ctx, agentId, kind);
-	if (!row) throw new ConvexError(kind === "email" ? "It has no email address." : "It has no phone number.");
-	await dropContact(ctx, row);
+/** Takes an address or number away. A number is released: it can't be got back. Its conversations stay in Inbox, unable to reply. */
+export async function removePoint(ctx: MutationCtx, member: Member, id: Id<"contactPoints">) {
+	checkPermission(member, "inbox.setup");
+	await dropContact(ctx, requireInWorkspace(member, await ctx.db.get(id), "Address"));
 }
 
-/** Deletes the row, releasing its number with the provider. Also run by the lifecycle cascades. */
+/** Picks who answers new conversations to it: an agent, or (null) staff. Conversations already going keep who has them. */
+export async function setPointAgent(ctx: MutationCtx, member: Member, id: Id<"contactPoints">, agentId: Id<"agents"> | null) {
+	checkPermission(member, "inbox.setup");
+	const row = requireInWorkspace(member, await ctx.db.get(id), "Address");
+	if (agentId) await requireLiveAgent(ctx, member, agentId);
+	await ctx.db.patch(row._id, { agentId: agentId ?? undefined });
+}
+
+/** Deletes the row, releasing its number with the provider. */
 export async function dropContact(ctx: MutationCtx, row: Doc<"contactPoints">) {
 	await releaseLater(ctx, row);
 	await ctx.db.delete(row._id);
@@ -123,15 +179,14 @@ export const pending = internalQuery({
 });
 
 /**
- * Saves a bought number. If its row went meanwhile (removed, its agent or workspace deleted), the number
+ * Saves a bought number. If its row went meanwhile (removed, or its workspace deleted), the number
  * is released straight away: nothing would use it, and it costs money every month.
  */
 export const bought = internalMutation({
 	args: { id: v.id("contactPoints"), providerId: v.string(), number: v.string() },
 	handler: async (ctx, { id, providerId, number }) => {
 		const row = await ctx.db.get(id);
-		const agent = row && (await ctx.db.get(row.agentId));
-		if (!row || row.status !== "getting" || !agent || !(await liveWorkspace(ctx, row.workspaceId))) {
+		if (!row || row.status !== "getting" || !(await liveWorkspace(ctx, row.workspaceId))) {
 			await ctx.scheduler.runAfter(0, internal.contactPoints.releaseNumber, { providerId });
 			return;
 		}

@@ -162,8 +162,8 @@ function AutomationFields({
 								options={[
 									{ value: "message.posted", label: "Someone posts in", disabled: !firstChannel },
 									{ value: "member.joined", label: "Someone joins the workspace" },
-									{ value: "inbox.started", label: "Someone new emails or texts an agent", disabled: !inbox && trigger.event !== "inbox.started" },
-									{ value: "inbox.received", label: "An agent gets an email or text", disabled: !inbox && trigger.event !== "inbox.received" },
+									{ value: "inbox.started", label: "Someone new emails or texts you", disabled: !inbox && trigger.event !== "inbox.started" },
+									{ value: "inbox.received", label: "An email or text comes in", disabled: !inbox && trigger.event !== "inbox.received" },
 								]}
 								onChange={(event) =>
 									setTrigger(event === "message.posted" ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: event as "member.joined" | "inbox.started" | "inbox.received" })
