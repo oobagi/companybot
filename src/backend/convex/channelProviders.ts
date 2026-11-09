@@ -27,7 +27,7 @@ export interface SmsProvider {
 	/** Buys a number that can send and receive texts, pointing its texts at `smsUrl`. */
 	buy(input: { areaCode?: string; smsUrl: string }): Promise<{ id: string; number: string }>;
 	release(id: string): Promise<void>;
-	send(input: { from: string; to: string; text: string }): Promise<{ id: string }>;
+	send(input: { from: string; to: string; text: string; statusUrl: string }): Promise<{ id: string; status: string }>;
 }
 
 const local = () => isLocalBackend(process.env.CONVEX_CLOUD_URL);
@@ -54,6 +54,7 @@ export function smsProvider(): SmsProvider | null {
 
 /** Where Twilio posts a number's texts (http.ts). */
 export const smsWebhookUrl = () => `${process.env.CONVEX_SITE_URL ?? ""}/sms/inbound`;
+export const smsStatusUrl = (messageId: string, token: string) => `${process.env.CONVEX_SITE_URL ?? ""}/sms/status?${new URLSearchParams({ messageId, token })}`;
 
 async function ok(response: Response, what: string) {
 	if (response.ok) return response;
@@ -113,7 +114,7 @@ function twilio(sid: string, token: string): SmsProvider {
 	const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString();
 	return {
 		async buy({ areaCode, smsUrl }) {
-			const search = new URLSearchParams({ SmsEnabled: "true", PageSize: "1", ...(areaCode && { AreaCode: areaCode }) });
+			const search = new URLSearchParams({ SmsEnabled: "true", VoiceEnabled: "true", PageSize: "1", ...(areaCode && { AreaCode: areaCode }) });
 			const found = (await (await ok(await fetch(`${base}/AvailablePhoneNumbers/US/Local.json?${search}`, { headers }), "Finding a number")).json()) as {
 				available_phone_numbers: { phone_number: string }[];
 			};
@@ -130,12 +131,19 @@ function twilio(sid: string, token: string): SmsProvider {
 			// Already gone counts as released.
 			if (response.status !== 404) await ok(response, "Releasing the number");
 		},
-		async send({ from, to, text }) {
-			const sent = (await (await ok(await fetch(`${base}/Messages.json`, { method: "POST", headers, body: form({ From: from, To: to, Body: text }) }), "Sending the text")).json()) as { sid: string };
-			return { id: sent.sid };
+		async send({ from, to, text, statusUrl }) {
+			const response = await fetch(`${base}/Messages.json`, { method: "POST", headers, body: form({ From: from, To: to, Body: text, StatusCallback: statusUrl }), signal: AbortSignal.timeout(15_000) });
+			// A 4xx is a definite refusal. A timeout, 5xx or unreadable response may have sent it:
+			// the caller keeps that uncertain and never automatically repeats the paid POST.
+			if (response.status >= 400 && response.status < 500) throw new SmsRejectedError(`The phone company refused the text (${response.status}). Check the number and the account's texting registration.`);
+			const sent = (await (await ok(response, "Sending the text")).json()) as { sid?: string; status?: string };
+			if (!sent.sid) throw new Error("The phone company didn't return a message id.");
+			return { id: sent.sid, status: sent.status ?? "queued" };
 		},
 	};
 }
+
+export class SmsRejectedError extends Error {}
 
 const fakeId = (prefix: string) => `${prefix}${crypto.randomUUID().replace(/-/g, "")}`;
 
@@ -157,6 +165,6 @@ const loggedSms: SmsProvider = {
 	async release() {},
 	async send({ from, to, text }) {
 		console.log(`Text from ${from} to ${to}: ${text}`);
-		return { id: fakeId("SMlocal") };
+		return { id: fakeId("SMlocal"), status: "simulated" };
 	},
 };

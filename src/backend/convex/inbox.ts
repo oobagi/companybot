@@ -20,7 +20,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { fireEvent } from "./automationRuns";
-import { emailDomain, emailProvider, smsProvider } from "./channelProviders";
+import { emailDomain, emailProvider, SmsRejectedError, smsProvider, smsStatusUrl } from "./channelProviders";
 import { namer } from "./chatOps";
 import { commentsOf } from "./inboxComments";
 import { notify } from "./notifications";
@@ -148,6 +148,7 @@ export const get = query({
 						at: m._creationTime,
 						direction: m.direction,
 						status: m.status,
+						sms: m.sms?.state ?? null,
 						text: m.text,
 						/** Theirs: the history their mail app quoted under it, shown folded. */
 						quoted: m.quoted ?? null,
@@ -202,7 +203,7 @@ export const sendDraft = mutation({
 		const draft = requireInWorkspace(member, await ctx.db.get(messageId), "Reply");
 		if (draft.status !== "draft") throw new ConvexError("That reply was already sent or discarded.");
 		const c = await requireConversation(ctx, member, draft.conversationId);
-		await ctx.db.patch(draft._id, { text: checkedText(c.channel, text), status: "sending", authorUserId: member.userId });
+		await ctx.db.patch(draft._id, { text: checkedText(c.channel, text), status: "sending", authorUserId: member.userId, ...(await smsSender(ctx, c)) });
 		await ctx.scheduler.runAfter(0, internal.inbox.deliver, { messageId });
 		await afterDraft(ctx, c, draft._id, text);
 	},
@@ -236,6 +237,14 @@ const checkedText = (channel: InboxChannel, text: string) => {
 	return trimmed;
 };
 
+/** Freeze the approved sender. Removing and replacing a number must never reroute a queued text. */
+export async function smsSender(ctx: MutationCtx, c: Doc<"inboxConversations">) {
+	if (c.channel !== "sms") return {};
+	const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", "phone")).first();
+	if (point?.status !== "active") throw new ConvexError("The agent no longer has a phone number.");
+	return { sms: { contactPointId: point._id, from: point.address, token: crypto.randomUUID() } };
+}
+
 /** Staff (or an agent for them) answer in a conversation: it goes out at once from the agent's address or number. */
 export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, text: string, answers?: Id<"inboxMessages">) {
 	checkPermission(who.member, "inbox.use");
@@ -248,6 +257,7 @@ export async function replyAs(ctx: MutationCtx, who: Who, c: Doc<"inboxConversat
 		direction: "out",
 		text: body,
 		status: "sending",
+		...(await smsSender(ctx, c)),
 		authorUserId: who.member.userId,
 		...(who.agentId && { authorAgentId: who.agentId }),
 		...(answers && { answers }),
@@ -489,6 +499,19 @@ export const deliver = internalAction({
 	handler: async (ctx, { messageId }) => {
 		const out = await ctx.runQuery(internal.inbox.outgoing, { messageId });
 		if (!out) return;
+		if (out.channel === "sms") {
+			const text = await ctx.runMutation(internal.inbox.claimSms, { messageId });
+			if (!text) return;
+			const provider = smsProvider();
+			if (!provider) return void (await ctx.runMutation(internal.inbox.smsSettled, { messageId, state: "failed", error: "Texting isn't set up on this server." }));
+			try {
+				const sent = await provider.send({ from: text.from, to: text.to, text: text.text, statusUrl: smsStatusUrl(messageId, text.token) });
+				await ctx.runMutation(internal.inbox.smsSettled, { messageId, providerId: sent.id, state: sent.status });
+			} catch (e) {
+				await ctx.runMutation(internal.inbox.smsSettled, { messageId, state: e instanceof SmsRejectedError ? "failed" : "unknown", ...(e instanceof SmsRejectedError && { error: e.message }) });
+			}
+			return;
+		}
 		const fail = (error: string) => ctx.runMutation(internal.inbox.settle, { messageId, error });
 		if (!out.from) return void (await fail(out.channel === "email" ? "The agent no longer has an email address." : "The agent no longer has a phone number."));
 		try {
@@ -505,15 +528,91 @@ export const deliver = internalAction({
 					headers: { "Message-ID": ownId, ...(out.answering && { "In-Reply-To": out.answering }), ...(out.references.length && { References: out.references.join(" ") }) },
 				});
 				await ctx.runMutation(internal.inbox.settle, { messageId, providerId: sent.id, sentMessageId: ownId });
-			} else {
-				const provider = smsProvider();
-				if (!provider) return void (await fail("Texting isn't set up on this server."));
-				const sent = await provider.send({ from: out.from, to: out.to, text: out.text });
-				await ctx.runMutation(internal.inbox.settle, { messageId, providerId: sent.id });
 			}
 		} catch (e) {
 			await fail(e instanceof Error ? e.message.slice(0, 300) : String(e));
 		}
+	},
+});
+
+/** Claim before the paid POST. Concurrent workers and crashed actions never repeat a text. */
+export const claimSms = internalMutation({
+	args: { messageId: v.id("inboxMessages") },
+	handler: async (ctx, { messageId }): Promise<{ from: string; to: string; text: string; token: string } | null> => {
+		const m = await ctx.db.get(messageId);
+		if (!m || m.direction !== "out" || m.status !== "sending" || m.sms?.dispatchedAt !== undefined) return null;
+		const c = await ctx.db.get(m.conversationId);
+		if (!c || c.channel !== "sms" || c.workspaceId !== m.workspaceId || !(await liveWorkspace(ctx, c.workspaceId))) return null;
+		const agent = await ctx.db.get(c.agentId);
+		const point = m.sms && await ctx.db.get(m.sms.contactPointId);
+		const member = m.authorUserId && await memberOf(ctx, m.authorUserId, c.workspaceId);
+		const author = m.authorAgentId && await ctx.db.get(m.authorAgentId);
+		let error: string | undefined;
+		if (!agent || agent.archived || (m.authorAgentId && (!author || author.archived))) error = "The agent is no longer available.";
+		else if (m.authorUserId && (!member || !can(member, "inbox.use"))) error = "The sender no longer has permission to use Inbox.";
+		else if (!m.authorUserId && (c.mode !== "agent" || agent.customerReplies !== "send")) error = "Staff must check this reply before it can be sent.";
+		else if (!point || point.status !== "active" || point.kind !== "phone" || point.agentId !== c.agentId || point.workspaceId !== c.workspaceId || point.address !== m.sms?.from) error = "The phone number changed or was released. Review and send a new text.";
+		if (error || !m.sms) {
+			await ctx.db.patch(m._id, { status: "failed", error: error ?? "Review and send a new text from the agent's current number." });
+			return null;
+		}
+		await ctx.db.patch(m._id, { sms: { ...m.sms, dispatchedAt: Date.now() } });
+		await ctx.scheduler.runAfter(60_000, internal.inbox.smsUncertain, { messageId });
+		return { from: m.sms.from, to: c.contact, text: m.text, token: m.sms.token };
+	},
+});
+
+type SmsState = NonNullable<NonNullable<Doc<"inboxMessages">["sms"]>["state"]>;
+const smsState = (value: string): SmsState | null => {
+	if (["accepted", "sending"].includes(value)) return "queued";
+	return ["queued", "sent", "delivered", "undelivered", "failed", "unknown", "simulated"].includes(value) ? value as SmsState : null;
+};
+const smsTerminal = (state: SmsState | undefined) => state === "delivered" || state === "undelivered" || state === "failed" || state === "simulated";
+
+/** Both REST responses and signed receipts use this path. Early callbacks win over late REST responses. */
+async function settleSms(ctx: MutationCtx, m: Doc<"inboxMessages">, state: SmsState, providerId?: string, error?: string) {
+	if (!m.sms || m.sms.dispatchedAt === undefined || m.direction !== "out") return;
+	const c = await ctx.db.get(m.conversationId);
+	if (!c || c.channel !== "sms" || c.workspaceId !== m.workspaceId || !(await liveWorkspace(ctx, m.workspaceId))) return;
+	if (m.providerId && providerId && m.providerId !== providerId) return;
+	const old = m.sms.state;
+	if (smsTerminal(old) || old === state || (old === "sent" && state === "queued") || (old && old !== "unknown" && state === "unknown")) return;
+	await ctx.db.patch(m._id, {
+		sms: { ...m.sms, state },
+		status: ["failed", "undelivered", "unknown"].includes(state) ? "failed" : "sent",
+		...(providerId && { providerId }),
+		error: state === "unknown" ? "Delivery is unknown. Check the phone company's message log before sending again." : state === "undelivered" || state === "failed" ? error ?? "The phone company couldn't deliver this text." : undefined,
+	});
+}
+
+export const smsSettled = internalMutation({
+	args: { messageId: v.id("inboxMessages"), state: v.string(), providerId: v.optional(v.string()), error: v.optional(v.string()) },
+	handler: async (ctx, { messageId, state, providerId, error }) => {
+		const m = await ctx.db.get(messageId);
+		if (m) await settleSms(ctx, m, smsState(state) ?? "unknown", providerId, error);
+	},
+});
+
+/** A claimed action that crashed also becomes uncertain, without ever resending it. */
+export const smsUncertain = internalMutation({
+	args: { messageId: v.id("inboxMessages") },
+	handler: async (ctx, { messageId }) => {
+		const m = await ctx.db.get(messageId);
+		if (m?.status === "sending") await settleSms(ctx, m, "unknown");
+	},
+});
+
+/** A signed callback names this exact attempt, account and pair of numbers, even before REST returns. */
+export const smsReceipt = internalMutation({
+	args: { messageId: v.string(), token: v.string(), providerId: v.string(), from: v.string(), to: v.string(), state: v.string(), errorCode: v.optional(v.string()) },
+	handler: async (ctx, args) => {
+		const id = ctx.db.normalizeId("inboxMessages", args.messageId);
+		const m = id && await ctx.db.get(id);
+		const c = m && await ctx.db.get(m.conversationId);
+		const state = smsState(args.state);
+		if (!m?.sms || !c || m.sms.token !== args.token || m.sms.from !== args.from || c.contact !== args.to || !state || state === "simulated" || state === "unknown") return;
+		const error = args.errorCode && /^\d{3,6}$/.test(args.errorCode) ? `The phone company couldn't deliver this text (Twilio ${args.errorCode}). Check its message log before sending again.` : undefined;
+		await settleSms(ctx, m, state, args.providerId, error);
 	},
 });
 

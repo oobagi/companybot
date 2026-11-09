@@ -128,3 +128,7 @@ Modeled on Android runtime permissions and OAuth incremental consent: ask for wh
 - **MCP tool hints:** clients usually auto-approve read-only tools and confirm destructive ones, but hints aren't guarantees; unlabeled tools should be treated as destructive. [Speakeasy](https://www.speakeasy.com/docs/mcp/build/gram-functions/tool-annotations)
 
 What we take: Android's ask-when-used and keep-working-on-deny (one held call never stops an automation's run), OAuth's per-action grants that carry over, Claude Code's strictest-wins order and owner locks, Lindy's per-action toggle and "loosen as trust builds," MCP's untrusted hints, and Muse's in-chat prompts with plainer "always" wording. We skip "for this session" because Companybot has no sessions (one continuous conversation per agent).
+
+## Phone sends
+
+SMS keeps the existing `agents.manage` number gate and `inbox.use` staff gate; agent-initiated starts and replies still use the existing outside-risk Inbox approval. Before its one provider attempt, dispatch checks the workspace, active agent, original number and staff sender's current Inbox permission. Automatic Public replies also stop on takeover or when automatic replies are disabled. A staff-approved draft acts for the person who approved it. Receipt callbacks only settle the bound attempt; they grant no customer or staff access. See [Phone](phone.md).

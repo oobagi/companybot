@@ -1,11 +1,11 @@
-import { localPartError, normalizeEmail, suggestLocalPart } from "@companybot/core";
+import { can, localPartError, normalizeEmail, suggestLocalPart } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { emailDomain, emailProvider, smsProvider, smsWebhookUrl } from "./channelProviders";
 import { mutation, query } from "./functions";
-import { type Member, checkPermission, getMember, liveWorkspace, requireAgent, requireLiveAgent, requirePermission } from "./lib";
+import { type Member, checkPermission, getMember, liveWorkspace, memberOf, requireAgent, requireLiveAgent, requirePermission } from "./lib";
 
 // An agent's own email address and phone number: how people outside the workspace reach it. Shown in
 // the Contact section of its page; people with agents.manage add and remove them (agents too, through
@@ -103,6 +103,7 @@ export const buyNumber = internalAction({
 	handler: async (ctx, { id }) => {
 		const row = await ctx.runQuery(internal.contactPoints.pending, { id });
 		if (!row) return;
+		if (!row.allowed) return void (await ctx.runMutation(internal.contactPoints.failed, { id, error: "The agent or the person getting its number is no longer available." }));
 		const provider = smsProvider();
 		if (!provider) return void (await ctx.runMutation(internal.contactPoints.failed, { id, error: "Texting isn't set up on this server." }));
 		try {
@@ -118,7 +119,10 @@ export const pending = internalQuery({
 	args: { id: v.id("contactPoints") },
 	handler: async (ctx, { id }) => {
 		const row = await ctx.db.get(id);
-		return row?.status === "getting" ? row : null;
+		if (row?.status !== "getting") return null;
+		const agent = await ctx.db.get(row.agentId);
+		const member = await memberOf(ctx, row.createdBy, row.workspaceId);
+		return { ...row, allowed: !!agent && !agent.archived && !!member && can(member, "agents.manage") && !!(await liveWorkspace(ctx, row.workspaceId)) };
 	},
 });
 
@@ -131,8 +135,10 @@ export const bought = internalMutation({
 	handler: async (ctx, { id, providerId, number }) => {
 		const row = await ctx.db.get(id);
 		const agent = row && (await ctx.db.get(row.agentId));
-		if (!row || row.status !== "getting" || !agent || !(await liveWorkspace(ctx, row.workspaceId))) {
+		if (row?.status === "active" && row.providerId === providerId && row.address === number) return;
+		if (!row || row.status !== "getting" || !agent || agent.archived || !(await liveWorkspace(ctx, row.workspaceId))) {
 			await ctx.scheduler.runAfter(0, internal.contactPoints.releaseNumber, { providerId });
+			if (row?.status === "getting") await ctx.db.patch(id, { status: "failed", error: "The agent is no longer available." });
 			return;
 		}
 		await ctx.db.patch(id, { status: "active", address: number, providerId, error: undefined });

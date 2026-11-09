@@ -8,6 +8,7 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Pages](pages.md) — standalone pages and every record's body, one concept; BlockNote + prosemirror-sync, Notion-style history and restore, agent tools, storage bounds
 - [Drive](drive.md) — folders and files beside pages: the tree, listings, uploads, viewers (PDF, Word, Excel, PowerPoint, CSV, text), access inheritance, Archive, agent file tools; what's still an issue (native sheets, slides, sites)
 - [Chat](chat.md) — channels, DMs, threads, reactions; when agents reply, agents working together (handoffs, asks, loop limits), what they're fed, the chat API
+- [Phone](phone.md): Night Owl port plan, agent numbers and two-way texts, delivery receipts, LiveKit call slices, provider costs and real-account setup
 - [Permissions](permissions.md) — who can access each channel, database and page; what asks, Allow once / Always / Deny, per-person rules, roles (incl. Public, the ceiling for outsiders), workspace locks, automation grants, where it shows up, how others do it
 - [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; keeping the in-app help docs current; invariants to keep
 - [Testing](testing.md) — what to test and what not to (behavior, not wording or markup), how to write one, where tests live, how to run them

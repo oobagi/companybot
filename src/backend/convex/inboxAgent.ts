@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, internalAction, internalMutation } from "./_generated/server";
-import { queueReply } from "./inbox";
+import { queueReply, smsSender } from "./inbox";
 import { COMMENT_MAX, commentByAgent } from "./inboxComments";
 import { notify } from "./notifications";
 import { liveWorkspace } from "./lib";
@@ -136,11 +136,11 @@ async function replyFor(ctx: MutationCtx, c: Doc<"inboxConversations">, agent: D
 		(m) => m.authorAgentId === agent._id && !m.authorUserId && m.direction === "out" && m._creationTime >= since,
 	);
 	if (already) return "You've already replied this time. Stop.";
-	const id = await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "out", text: text.slice(0, c.channel === "sms" ? 1_600 : 20_000), status: onItsOwn ? "sending" : "draft", authorAgentId: agent._id });
+	const id = await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "out", text: text.slice(0, c.channel === "sms" ? 1_600 : 20_000), status: onItsOwn ? "sending" : "draft", authorAgentId: agent._id, ...(onItsOwn ? await smsSender(ctx, c) : {}) });
 	if (onItsOwn) {
 		await ctx.db.patch(c._id, { lastAt: Date.now(), preview: text.replace(/\s+/g, " ").slice(0, 140) });
 		await ctx.scheduler.runAfter(0, internal.inbox.deliver, { messageId: id });
-		return "Sent.";
+		return "Queued for sending. This does not confirm delivery.";
 	}
 	await ctx.db.patch(c._id, { needsStaff: "draft" });
 	await notify(ctx, c, "inbox", { kind: "draft", text: `${agent.name} wrote a reply for you to check`, actorAgentId: agent._id });

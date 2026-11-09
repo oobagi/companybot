@@ -465,6 +465,14 @@ export default defineSchema({
 		authorAgentId: v.optional(v.id("agents")),
 		/** The provider's id (Resend email id, Twilio MessageSid): an inbound one is stored once however often it's delivered. */
 		providerId: v.optional(v.string()),
+		/** The number approved when this text was queued. Dispatch claims it once; callbacks use its token. */
+		sms: v.optional(v.object({
+			contactPointId: v.id("contactPoints"),
+			from: v.string(),
+			token: v.string(),
+			dispatchedAt: v.optional(v.number()),
+			state: v.optional(v.union(v.literal("queued"), v.literal("sent"), v.literal("delivered"), v.literal("undelivered"), v.literal("failed"), v.literal("unknown"), v.literal("simulated"))),
+		})),
 		/** Email Message-ID, for threading replies (In-Reply-To, References). */
 		messageId: v.optional(v.string()),
 		/** An `out` email: the one in this conversation it answers (its In-Reply-To), when staff picked it. Else the latest of theirs. */

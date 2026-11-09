@@ -23,6 +23,11 @@ Anyone whose role can **see Inbox and reply to customers** (Member can, unless a
 - **Assign** it (**Assigned to**, in the details card on the right; the top bar's button hides or shows it): pick yourself or a teammate, and the agent stops answering that conversation; pick the agent and it answers again from the next message. Each assignment shows as a line in the conversation.
 - **New conversation** (the + beside Inbox in the sidebar): email or text someone from an agent's address or number. One you start is assigned to you: assign it to the agent when it should answer.
 
+## Text delivery
+Texts show whether they are queued with the phone company, sent to the carrier, delivered, or couldn't be delivered. Queued and sent do not confirm delivery. If delivery is unknown, check the phone company's message log before sending again; Companybot won't automatically repeat the text. Local development sends say that no text was sent.
+
+A queued text keeps the number it was approved to use. Releasing or replacing that number stops it, as do losing Inbox access, archiving its agent, or taking over an automatic agent reply. Review it and send a new message when appropriate. Calls remain Soon in Inbox.
+
 ## Comments
 Staff talk about a message right under it; customers never see comments. Point at a message and press **Comment**, or open its **comments** pill. Type @ to mention a teammate who can use Inbox: they're told. Whoever a conversation is assigned to is told about new comments on it. Only a comment's author can edit or delete it. When the agent takes a message or hands a conversation off, its note is a comment on the customer's message.
 

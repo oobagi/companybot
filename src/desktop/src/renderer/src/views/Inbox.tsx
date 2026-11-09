@@ -868,7 +868,11 @@ function MessageItem({ message: m, channel, subject, corners, last }: { message:
 	return (
 		<div className={`flex w-full flex-col ${mine ? "items-end" : "items-start"}`}>
 			{body}
-			{(failed || m.status === "sending") && <p className={`pt-1 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
+			{m.sms ? (
+				<p className={`pt-1 ${m.sms === "unknown" ? "text-xs text-amber-700" : failed ? "text-xs text-red-600" : metadataClass}`}>
+					{m.sms === "unknown" ? m.error : m.sms === "simulated" ? "Local test only. No text was sent." : m.sms === "failed" || m.sms === "undelivered" ? m.error : m.sms === "delivered" ? "Delivered" : m.sms === "sent" ? "Sent to carrier" : "Queued with phone company"}
+				</p>
+			) : (failed || m.status === "sending") && <p className={`pt-1 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 			{!failed && m.status !== "sending" && last && forWho && (
 				<p className={`pt-1 ${metadataClass}`}>
 					For{" "}

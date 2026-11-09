@@ -366,6 +366,8 @@ export const runFor = internalMutation({
 								id: m._id,
 								direction: m.direction,
 								status: m.status,
+								sms: m.sms?.state ?? null,
+								error: m.error ?? null,
 								text: m.text,
 								...(m.assignedTo && { assignedTo: m.assignedTo }),
 								at: new Date(m._creationTime).toISOString(),
