@@ -1,25 +1,17 @@
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import { INBOX_TEXT_MAX } from "./inbox";
-import type { PublicAbility } from "./public-role";
 
 // The only tools an agent has while it answers someone outside the workspace (Inbox, backend
 // inboxAgent.ts). No built-in, connector or skill tool is ever in this set, whatever the agent is
 // granted in chat. Two kinds:
-// - Conversation tools, from Public's abilities (public-role.ts): reply, take a message, hand off.
+// - Conversation tools, always: reply (sent at once or kept as a draft, by the agent's setting), take a message, hand off.
 // - Data tools, from what owners shared with Public in pages' and databases' Who can access lists
 //   (backend publicPlaces.ts): read shared pages and records, and add records where Public has Add.
 //   They're offered only when something is shared, and every call is checked against the lists again.
 
 export const conversationTools = ["reply", "take_message", "hand_off"] as const;
 export type ConversationTool = (typeof conversationTools)[number];
-
-/** The ability each conversation tool needs. Replying always works: without `public.reply` the reply waits for staff. */
-export const publicToolNeeds: Record<ConversationTool, PublicAbility | null> = {
-	reply: null,
-	take_message: "public.message",
-	hand_off: "public.handoff",
-};
 
 /** What's shared with Public, so a reply gets only the data tools it can use. */
 export interface PublicShared {
@@ -44,27 +36,25 @@ export interface PublicActs {
 
 const value = z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]);
 
-/** The tools for one reply to an outsider, from what Public may do now. */
-export function publicTools(abilities: readonly PublicAbility[], shared: PublicShared, acts: PublicActs): ToolSet {
+/** The tools for one reply to an outsider. `sends`: its reply goes out at once, else it waits for staff. */
+export function publicTools(sends: boolean, shared: PublicShared, acts: PublicActs): ToolSet {
 	const tools: ToolSet = {
 		reply: tool({
-			description: abilities.includes("public.reply") ? "Send your reply to the customer. It goes out at once." : "Write your reply to the customer. Someone on staff checks it, then sends it.",
+			description: sends ? "Send your reply to the customer. It goes out at once." : "Write your reply to the customer. Someone on staff checks it, then sends it.",
 			inputSchema: z.object({ text: z.string().min(1).max(INBOX_TEXT_MAX).describe("The whole reply, ready to send") }),
 			execute: ({ text }) => acts.act("reply", { text }),
 		}),
-	};
-	if (abilities.includes("public.message"))
-		tools.take_message = tool({
+		take_message: tool({
 			description: "Leave a note for staff on this conversation: who they are, what they want, how to reach them. The customer never sees it.",
 			inputSchema: z.object({ text: z.string().min(1).max(2_000).describe("The message for staff") }),
 			execute: ({ text }) => acts.act("take_message", { text }),
-		});
-	if (abilities.includes("public.handoff"))
-		tools.hand_off = tool({
+		}),
+		hand_off: tool({
 			description: "Pass this conversation to staff. You stop replying to it until someone hands it back.",
 			inputSchema: z.object({ text: z.string().min(1).max(500).describe("Why someone on staff should take it, in a sentence") }),
 			execute: ({ text }) => acts.act("hand_off", { text }),
-		});
+		}),
+	};
 	if (!shared.pages && !shared.view && !shared.add) return tools;
 	tools.shared = tool({
 		description: "What the business shares with customers: pages you can read (by title, or matching search) and databases, with their fields and what you may do in each.",

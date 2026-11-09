@@ -8,7 +8,7 @@ import { useArrangementState, useStoredIds } from "./arrangements";
 import { useMutation } from "./convex";
 import { applyOrder, moveCommand, useSortable } from "./sortable";
 
-// The sections people add to Chat's, Drive's and Databases' sidebars (backend sidebarSections.ts), from
+// The sections people add to Chat's, Drive's, Databases' and Inbox's sidebars (backend sidebarSections.ts), from
 // the loaded arrangements, so a tab's layout shows in one piece. Views draw them with `SectionsNav`.
 
 export type Section = NonNullable<FunctionReturnType<typeof api.arrangements.get>>["sections"][number];
@@ -59,10 +59,10 @@ export function useSections(tab: SectionTab) {
 }
 
 /**
- * A tab's rows in no section (Chat's channels, the databases), in the tab's shared order: drag them
+ * A tab's rows in no section (Chat's channels, the databases, Inbox's rows), in the tab's shared order: drag them
  * within it, and rows from its sections land in it where they're dropped.
  */
-export function useUnsectioned<T>(tab: "chat" | "databases", items: readonly T[], id: (item: T) => string) {
+export function useUnsectioned<T>(tab: "chat" | "databases" | "inbox", items: readonly T[], id: (item: T) => string) {
 	const { held, place } = useSections(tab);
 	const list = sectionTabs[tab];
 	const [order] = useStoredIds(list);

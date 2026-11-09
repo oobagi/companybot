@@ -19,6 +19,8 @@ vi.mock("./convex", () => ({
 	useMutation: () => state.save,
 	useAction: () => state.save,
 	usePaginatedQuery: () => ({ results: [], status: "Exhausted", loadMore: state.save }),
+	useFetch: () => state.save,
+	useHeldQuery: () => undefined,
 }));
 let root: Root;
 let host: HTMLDivElement;

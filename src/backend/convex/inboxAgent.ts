@@ -1,4 +1,4 @@
-import { INBOX_HISTORY, gatewayCost, publicSwitches, publicToolNeeds, publicTools, publicTurnPrompt } from "@companybot/core";
+import { INBOX_HISTORY, gatewayCost, publicTools, publicTurnPrompt } from "@companybot/core";
 import { generateText, isStepCount } from "ai";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -14,10 +14,10 @@ import { recordUsage } from "./usage";
 // An agent answering someone outside the workspace, as the Public role (core public-role.ts). This is
 // not a chat turn: there's no member to act as, so it never gets a ToolContext, connectors, skills or
 // memory. The model sees the agent's instructions, the conversation (what the customer wrote fenced as
-// data, core `publicTurnPrompt`) and only the tools Public's abilities give, plus read and add tools for
-// what owners shared with Public (core `publicTools`, backend publicPlaces.ts). Every call rechecks, as of
-// now, that the workspace and agent are live, staff haven't taken the conversation, the ability is still on
-// and the place is still shared, so an owner switching one off stops it mid-reply.
+// data, core `publicTurnPrompt`), its own topics to pass to staff, and only the conversation tools, plus
+// read and add tools for what owners shared with Public (core `publicTools`, backend publicPlaces.ts).
+// Every call rechecks, as of now, that the workspace and agent are live, staff haven't taken the
+// conversation and the place is still shared; a reply goes out at once only if the agent's setting says so then.
 
 /** Model steps per reply: enough to take a message and answer. */
 const STEPS = 4;
@@ -49,11 +49,12 @@ export const begin = internalMutation({
 			.flatMap((m) => (m.direction === "event" || m.status === "failed" ? [] : [{ direction: m.status === "draft" ? ("draft" as const) : m.direction === "in" ? ("in" as const) : ("out" as const), text: m.text, by: m.authorUserId ? "Someone on staff" : undefined }]));
 		return {
 			model: agent.model,
-			abilities: publicSwitches(workspace.publicAbilities),
+			sends: agent.customerReplies === "send",
 			shared: await sharedSummary(ctx, c.workspaceId),
 			input: {
 				business: workspace.name,
 				agent: { name: agent.name, instructions: agent.instructions },
+				handOffTopics: agent.handOffTopics ?? [],
 				channel: c.channel,
 				contact: { name: c.contactName ?? null, address: c.contact },
 				...(c.subject && { subject: c.subject }),
@@ -70,12 +71,12 @@ export const respond = internalAction({
 		if (!run) return;
 		let costUsd = 0;
 		try {
-			const { instructions, prompt } = publicTurnPrompt({ ...run.input, abilities: run.abilities, shared: run.shared });
+			const { instructions, prompt } = publicTurnPrompt({ ...run.input, sends: run.sends, shared: run.shared });
 			const result = await generateText({
 				model: run.model,
 				instructions,
 				prompt,
-				tools: publicTools(run.abilities, run.shared, {
+				tools: publicTools(run.sends, run.shared, {
 					act: (name, input) => ctx.runMutation(internal.inboxAgent.act, { conversationId, name, text: input.text }),
 					shared: (input) => ctx.runQuery(internal.publicPlaces.shared, { conversationId, ...input }),
 					readPage: (input) => ctx.runAction(internal.publicPlaces.readPage, { conversationId, ...input }),
@@ -96,8 +97,8 @@ export const respond = internalAction({
 });
 
 /**
- * One tool call, checked as of now. Replies: at most one per run, sent at once only with `public.reply`,
- * else kept as a draft that staff send. Notes and hand-offs stay inside the workspace.
+ * One tool call, checked as of now. Replies: at most one per run, sent at once only when the agent is set
+ * to send replies right away, else kept as a draft that staff send. Notes and hand-offs stay inside the workspace.
  */
 export const act = internalMutation({
 	args: { conversationId: v.id("inboxConversations"), name: v.union(v.literal("reply"), v.literal("take_message"), v.literal("hand_off")), text: v.string() },
@@ -107,12 +108,9 @@ export const act = internalMutation({
 		const agent = c && (await ctx.db.get(c.agentId));
 		if (!c || !workspace || !agent || agent.archived) return "This conversation is gone. Stop.";
 		if (c.mode !== "agent") return "Someone on staff has taken this conversation. Don't reply.";
-		const abilities = publicSwitches(workspace.publicAbilities);
-		const needs = publicToolNeeds[name];
-		if (needs && !abilities.includes(needs)) return "That isn't allowed for customers any more.";
 		const body = text.trim();
 		if (!body) return "Nothing to send.";
-		if (name === "reply") return replyFor(ctx, c, agent, body, abilities.includes("public.reply"));
+		if (name === "reply") return replyFor(ctx, c, agent, body, agent.customerReplies === "send");
 		if (name === "take_message") {
 			await note(ctx, c, agent._id, `Message for staff: ${body}`);
 			await notify(ctx, c, "inbox", { kind: "comment", text: `${agent.name} took a message: ${body}`, actorAgentId: agent._id });

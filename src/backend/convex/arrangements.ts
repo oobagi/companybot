@@ -1,4 +1,4 @@
-import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, driveRowIds, extraIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
+import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, driveRowIds, extraIds, inboxRowIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { can } from "@companybot/core/permissions";
 import { ConvexError, getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -82,10 +82,11 @@ export function viewer(ctx: QueryCtx, member: Member) {
 	/** A Drive row this person sees: a page, folder or file (a level's order and a section hold all three). */
 	const driveItem = (id: string) => (ctx.db.normalizeId("driveFiles", id) ? file(id) : page(id));
 	const sections = once(() => sectionsOf(ctx, member.workspaceId));
-	/** Whether a section can hold this and the person sees it: a channel, a database, or a top-level page, folder or file. */
+	/** Whether a section can hold this and the person sees it: a channel, a database, a top-level page, folder or file, or an Inbox row. */
 	const sectionItem = async (tab: SectionTab, id: string) => {
 		if (tab === "chat") return channel(id);
 		if (tab === "databases") return (await types()).has(id);
+		if (tab === "inbox") return inboxRowIds.includes(id);
 		const doc = await driveItem(id);
 		return !!doc && !doc.parentId;
 	};
@@ -230,6 +231,7 @@ function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
 		// COMPAT(0.1.0-alpha.10): that app still draws a Customize tab and may move it; newer ones ignore the id.
 		case "rail": return railTabs.includes(id) || id === "customize" || isPinKey(id);
 		case "driveRows": return driveRowIds.includes(id);
+		case "inbox": return inboxRowIds.includes(id);
 		default: return true;
 	}
 }

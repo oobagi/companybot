@@ -323,7 +323,7 @@ export const runFor = internalMutation({
 					if (r.action === "add_contact") return { done: r.action, id, address: await addContact(ctx, member, { agentId: id, kind: r.kind, name: r.name, areaCode: r.areaCode }) };
 					if (r.action === "remove_contact") await removeContact(ctx, member, id, r.kind);
 					if (r.action === "update") {
-						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)) throw new ConvexError("Only a person can change your instructions, model or reasoning.");
+						if (id === turn.agentId && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined || r.customerReplies !== undefined || r.handOffTopics !== undefined)) throw new ConvexError("Only a person can change your instructions, model, reasoning or how you answer customers.");
 						const { action, id: _, expectedVersion, ...changes } = r;
 						await updateAgent(ctx, member, id, expectedVersion, { ...pickAgentConfig(agent), ...changes });
 					}

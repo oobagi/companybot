@@ -19,6 +19,7 @@ import { savePreferences, updatePreferences } from "./preferences";
 import { completeSteps, freshTutorial, welcome } from "./onboarding";
 import { builtInId, checkRoles, requireGrantable, seedRoles, setMemberRoles } from "./roles";
 import { writeSources } from "./replySources";
+import { seedInboxSections } from "./sectionOps";
 
 export const me = query({
 	args: {},
@@ -152,7 +153,7 @@ async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: strin
 }
 
 /**
- * What a workspace starts with: the default agents, #general with everyone in it and a fresh
+ * What a workspace starts with: the default agents, Inbox's sidebar sections, #general with everyone in it and a fresh
  * tutorial each, and the main agent's welcome there, from `userId` (who made it, or reset it).
  * A reset cascade ends with this too (cascade.ts), and opens the workspace again. Its roles are
  * made with it (startWorkspace) and kept by a reset. Two writes a member and no per-member reads,
@@ -160,6 +161,7 @@ async function startWorkspace(ctx: MutationCtx, userId: Id<"users">, name: strin
  */
 export async function startAgain(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">) {
 	await seedAgents(ctx, workspaceId, userId);
+	await seedInboxSections(ctx, workspaceId);
 	const general = await ensureGeneral(ctx, workspaceId, userId);
 	let seats = 0;
 	for await (const row of ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))) {

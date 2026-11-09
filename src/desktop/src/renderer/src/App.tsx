@@ -171,7 +171,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const types = useTypes();
 	const [newDatabase, setNewDatabase] = useState(false);
 	const [newSection, setNewSection] = useState(false);
-	const sectionTab = tab === "chat" || tab === "drive" || tab === "databases" ? tab : undefined;
+	const sectionTab = tab === "chat" || tab === "drive" || tab === "databases" || tab === "inbox" ? tab : undefined;
 	const addSection = can(access, "sidebar.arrange") ? { label: "New section", onClick: () => setNewSection(true) } : undefined;
 	// The database on screen, by key, and the record open in it.
 	const typeKey = view === "records" ? route[1] : pageRecord?.typeKey;
@@ -256,15 +256,15 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
 												<h1 className="min-w-0 flex-1 truncate px-2 py-1.25 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
-												{/* The + here adds to the rows right under the name (channels, databases) and adds sections; a section (Direct messages, All files, the ones people add) has its own on its header. */}
+												{/* The + here adds to the rows right under the name (channels, databases, conversations) and adds sections; a section (Direct messages, All files, the ones people add) has its own on its header. */}
 												{tab === "chat" && (
 													<span className="no-drag flex">
 														<ChannelsAdd onOpen={open} onNewSection={addSection?.onClick} />
 													</span>
 												)}
-												{tab === "inbox" && can(access, "inbox.use") && (
+												{tab === "inbox" && (can(access, "inbox.use") || addSection) && (
 													<span className="no-drag flex">
-														<InboxAdd />
+														<InboxAdd canStart={can(access, "inbox.use")} onNewSection={addSection?.onClick} />
 													</span>
 												)}
 												{(tab === "databases" || tab === "drive") && (

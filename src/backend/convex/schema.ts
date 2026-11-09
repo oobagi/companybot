@@ -1,4 +1,4 @@
-import { accessLevels, appEventIds, builtInRoles, fieldKinds, fileTypes, inboxChannels, permissions, publicAbilityIds, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { accessLevels, customerReplyModes, appEventIds, builtInRoles, fieldKinds, fileTypes, inboxChannels, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
@@ -40,6 +40,9 @@ export const agentConfig = v.object({
 	/** Unset on agents and versions saved before it existed: `defaultReasoning`. */
 	reasoning: v.optional(oneOf(reasonings)),
 	tools: v.array(v.string()),
+	/** Unset is "check" (core AgentConfig). */
+	customerReplies: v.optional(oneOf(customerReplyModes)),
+	handOffTopics: v.optional(v.array(v.string())),
 });
 
 /** A file on a message: its name, the type its bytes say it is, and (pictures) its size in pixels. */
@@ -261,11 +264,8 @@ export default defineSchema({
 	workspaces: defineTable({
 		name: v.string(),
 		version: v.optional(v.number()),
-		/**
-		 * The Public role (core public-role.ts): what agents may do for people outside the workspace. Only the
-		 * abilities an owner flipped from their default; nothing outside the ceiling can be stored.
-		 */
-		publicAbilities: v.optional(v.array(v.object({ ability: oneOf(publicAbilityIds), on: v.boolean() }))),
+		// COMPAT(0.1.0-alpha.10): once migrations.agentCustomerReplies has run on prod, drop this field. Nothing reads it.
+		publicAbilities: v.optional(v.array(v.object({ ability: v.string(), on: v.boolean() }))),
 		/** ISO 4217: the default for new amounts. Each amount stores its own. Unset means DEFAULT_CURRENCY. */
 		currency: v.optional(v.string()),
 		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */

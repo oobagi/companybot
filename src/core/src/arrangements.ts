@@ -18,6 +18,8 @@ export const arrangementLists = {
 	rail: { scope: "personal", entity: undefined },
 	/** Drive's rows above its tree, in your order: Home and the views (`driveRowIds`). */
 	driveRows: { scope: "personal", entity: undefined },
+	/** Inbox's sidebar rows in no section (`inboxRowIds`), in the workspace's order. */
+	inbox: { scope: "shared", entity: undefined },
 	workspaces: { scope: "account", entity: undefined },
 } as const;
 export type ArrangementList = keyof typeof arrangementLists;
@@ -64,9 +66,9 @@ export const builtInSections = ["dms", "files"];
 /**
  * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
  * orders their items in no section: Chat's channels, Drive's top-level pages, folders and files, the
- * databases. Each item is in at most one of its tab's sections.
+ * databases, Inbox's rows (`inboxRowIds`). Each item is in at most one of its tab's sections.
  */
-export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases" } as const;
+export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases", inbox: "inbox" } as const;
 export type SectionTab = keyof typeof sectionTabs;
 /** Sections one tab can have, and items one section holds, so the sidebar's reads stay bounded. */
 export const SECTIONS_MAX = 50;
@@ -76,6 +78,16 @@ export const SECTION_NAME_MAX = 80;
 export const railTabs: readonly string[] = ["home", "chat", "inbox", "drive", "databases", "sites"];
 /** Drive's sidebar rows above its tree: Home (the top level) and the views (desktop `views/drive/Views.tsx`). */
 export const driveRowIds = ["home", "recent", "shared", "private"];
+/**
+ * Inbox's sidebar rows (desktop `views/Inbox.tsx`): who's handling what, then the channels, then what's
+ * planned. Fixed, so the server accepts only these in Inbox's list and sections.
+ */
+export const inboxRowIds = ["needs", "mine", "agent", "all", "email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat", "tags"];
+/** The sections a workspace's Inbox starts with, ordinary ones people rename, reorder or delete. */
+export const inboxStartSections = [
+	{ name: "Channels", ids: ["email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat"] },
+	{ name: "Tags", ids: ["tags"] },
+];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
 export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
 

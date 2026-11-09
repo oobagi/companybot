@@ -77,21 +77,19 @@ async function withAddress(owner: As) {
 }
 
 describe("the Public role", () => {
-	it("can't be given staff powers: only its customer-safe abilities switch on", async () => {
+	it("is no member's role, and how an agent answers customers is set on the agent, by those who manage agents", async () => {
 		const { owner, member } = await ownerAndMember();
-		await expect(owner.mutation(api.roles.setPublicAbility, { ability: "records.edit", on: true })).rejects.toThrow("Public can't be given that");
-		await expect(owner.mutation(api.roles.setPublicAbility, { ability: "workspace.manage", on: true })).rejects.toThrow("Public can't be given that");
-		await owner.mutation(api.roles.setPublicAbility, { ability: "public.reply", on: true });
-		const abilities = (await owner.query(api.roles.publicRole))!.abilities;
-		expect(abilities.find((a) => a.id === "public.reply")!.on).toBe(true);
-		expect(abilities.every((a) => a.id.startsWith("public."))).toBe(true);
-		// Only owners shape it, as with any role.
-		await expect(member.mutation(api.roles.setPublicAbility, { ability: "public.handoff", on: false })).rejects.toThrow();
-		// It's no member's role: it isn't among the roles people are given.
 		expect((await owner.query(api.roles.list))!.map((r) => r.name)).not.toContain("Public");
+		const agentId = (await owner.query(api.agents.list))[0]!._id as Id<"agents">;
+		await owner.mutation(api.agents.setCustomerHandling, { agentId, customerReplies: "send", handOffTopics: [" Refunds ", "refunds", ""] });
+		const agent = (await owner.query(api.agents.list)).find((a) => a._id === agentId)!;
+		expect([agent.customerReplies, agent.handOffTopics]).toEqual(["send", ["Refunds"]]);
+		// A new version, so it shows in the agent's history and can be restored.
+		expect((await owner.query(api.agents.history, { agentId }))[0]!.config.customerReplies).toBe("send");
+		await expect(member.mutation(api.agents.setCustomerHandling, { agentId, customerReplies: "check" })).rejects.toThrow();
 	});
 
-	it("checks each ability when the agent uses it, and stops once staff take the conversation", async () => {
+	it("keeps replies as drafts unless the agent sends right away, and stops once staff take the conversation", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		stubProviders();
@@ -100,14 +98,10 @@ describe("the Public role", () => {
 		const [c] = await conversations(t);
 		const act = (name: "reply" | "take_message" | "hand_off", text: string) => t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name, text });
 
-		// Without "reply on its own", the reply waits for staff as a draft and nothing is sent.
+		// Set to check each reply (the default), the reply waits for staff as a draft and nothing is sent.
 		expect(await act("reply", "Happy to help!")).toMatch(/staff/);
 		expect((await inboxMessages(t)).find((m) => m.direction === "out")!.status).toBe("draft");
 		expect((await conversations(t))[0]!.needsStaff).toBe("draft");
-
-		await owner.mutation(api.roles.setPublicAbility, { ability: "public.handoff", on: false });
-		expect(await act("hand_off", "Needs a person")).toMatch(/isn't allowed/);
-		expect((await conversations(t))[0]!.mode).toBe("agent");
 
 		await owner.mutation(api.inbox.assign, { id: c!._id, to: (await owner.query(api.workspace.team))!.members[0]!.userId });
 		expect(await act("take_message", "Call me back")).toMatch(/taken/);
@@ -116,12 +110,12 @@ describe("the Public role", () => {
 		expect(await t.run((ctx) => ctx.db.query("inboxComments").collect())).toEqual([]);
 	});
 
-	it("sends at once only when owners let agents reply on their own", async () => {
+	it("sends at once only when the agent is set to send replies right away", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		stubProviders();
-		const { address } = await withAddress(owner);
-		await owner.mutation(api.roles.setPublicAbility, { ability: "public.reply", on: true });
+		const { address, agentId } = await withAddress(owner);
+		await owner.mutation(api.agents.setCustomerHandling, { agentId, customerReplies: "send" });
 		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Roof" });
 		const [c] = await conversations(t);
 		await t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name: "reply", text: "We'll send a quote." });
@@ -193,7 +187,6 @@ describe("notifications", () => {
 		const { address } = await withAddress(owner);
 		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Roof" });
 		const [c] = await conversations(t);
-		await owner.mutation(api.roles.setPublicAbility, { ability: "public.handoff", on: true });
 		await t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name: "hand_off", text: "Wants a site visit" });
 		for (const as of [owner, member]) expect((await as.query(api.notifications.list))!.map((n) => [n.kind, n.text])).toEqual([["handoff", "Companybot handed it to staff: Wants a site visit"]]);
 	});
@@ -242,7 +235,6 @@ describe("comments", () => {
 		const { address } = await withAddress(owner);
 		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Roof" });
 		const [c] = await conversations(t);
-		await owner.mutation(api.roles.setPublicAbility, { ability: "public.handoff", on: true });
 		await t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name: "hand_off", text: "Wants a site visit" });
 		const [message] = (await owner.query(api.inbox.get, { id: c!._id }))!.messages;
 		expect(message!.direction).toBe("in");

@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
-import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
-import { Loading, NotFound, Notice, RenameInput, Scroll, TopBar, conversationColumn, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
+import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon, SidebarIcon } from "../../icons";
+import { Loading, NotFound, Notice, RenameInput, Scroll, TopBar, conversationColumn, iconButton, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
 import { AgentBadge, Avatar, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, showSending, useDirectory, useMessages } from "./data";
+import { AgentPanel } from "./AgentPanel";
 import { ChannelDetails } from "./dialogs";
 import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
@@ -21,6 +22,8 @@ const suggestions = [
 	"Show the 5 largest US cities in a table",
 	"Remember that I prefer mornings for meetings.",
 ];
+
+const AGENT_PANEL_KEY = "agentPanel";
 
 /** A message to show on opening, from a link elsewhere (a record's discussion): its thread, or the message itself. */
 type ChatFocus = { thread: string } | { message: string };
@@ -48,6 +51,22 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const directory = useDirectory();
 	const workspace = useWorkspace();
 	const [details, setDetails] = useState(false);
+	// An agent DM's details beside it: kept open or shut per computer.
+	const [agentPanel, setAgentPanel] = useState(() => {
+		try {
+			return localStorage.getItem(AGENT_PANEL_KEY) !== "closed";
+		} catch {
+			return true;
+		}
+	});
+	const showAgentPanel = (open: boolean) => {
+		setAgentPanel(open);
+		try {
+			localStorage.setItem(AGENT_PANEL_KEY, open ? "open" : "closed");
+		} catch {
+			// It still holds until reload.
+		}
+	};
 	const { error, fail } = useRun();
 
 	// The open thread is in the route (/chat/<id>/thread/<message>), so the sidebar's thread rows,
@@ -133,6 +152,11 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			}
 			description={agent ? undefined : chat.topic}
 		>
+			{agent && (
+				<button type="button" aria-label={agentPanel ? "Hide details" : "Show details"} title={agentPanel ? "Hide details" : "Show details"} aria-expanded={agentPanel} className={iconButton} onClick={() => showAgentPanel(!agentPanel)}>
+					<SidebarIcon className="-scale-x-100" />
+				</button>
+			)}
 			{!agent && (
 				<button
 					type="button"
@@ -190,6 +214,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					onClose={() => openThread()}
 				/>
 			)}
+			{agent && agentPanel && !threadId && <AgentPanel agentId={agent.id as Id<"agents">} onClose={() => showAgentPanel(false)} />}
 			{details && <ChannelDetails chat={chat} onClose={() => setDetails(false)} onLeft={onLeft} />}
 		</div>
 	);

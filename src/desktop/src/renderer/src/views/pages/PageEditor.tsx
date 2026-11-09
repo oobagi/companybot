@@ -537,3 +537,34 @@ function UpgradePageLinks({ editor, editable }: { editor: PageBlockEditor; edita
 	}, [editor, editable]);
 	return null;
 }
+
+/**
+ * Plain instructions (an agent's) edited in the page editor: Markdown in, Markdown out. Not synced like a
+ * page: it loads `markdown` once and reports each change, and the caller saves it. No pictures or sub-pages.
+ */
+export function MarkdownEditor({ markdown, editable, onChange, label }: { markdown: string; editable: boolean; onChange: (markdown: string) => void; label: string }) {
+	const editor = useMemo(() => BlockNoteEditor.create(editorOptions) as PageBlockEditor, []);
+	const latest = useRef(onChange);
+	latest.current = onChange;
+	const [ready, setReady] = useState(false);
+	useEffect(() => {
+		// Loaded once: later saves come from here, so reloading would move the cursor under the typist.
+		const blocks = editor.tryParseMarkdownToBlocks(markdown);
+		editor.replaceBlocks(editor.document, blocks.length ? blocks : [{ type: "paragraph" }]);
+		setReady(true);
+		// Subscribed after loading, so the load itself isn't reported as an edit.
+		return editor.onChange(() => latest.current(editor.blocksToMarkdownLossy(editor.document).trim()));
+	}, [editor]);
+	const sideMenuFloating = useSideMenuFloating(editor);
+	if (!ready) return <Loading />;
+	return (
+		<div aria-label={label} className="pl-6">
+			<View editor={editor} editable={editable}>
+				<SideMenuController sideMenu={PageSideMenu} floatingUIOptions={sideMenuFloating} />
+				<FormattingToolbarController formattingToolbar={PageFormattingToolbar} floatingUIOptions={floating(layer.toolbars)} />
+				<LinkToolbarController floatingUIOptions={floating(layer.toolbars)} />
+				<SuggestionMenuController triggerCharacter="/" floatingUIOptions={floating(layer.menus)} getItems={async (query) => filterSuggestionItems(slashItems(editor).filter((item) => item.title !== "Image" && item.title !== "Table"), query)} />
+			</View>
+		</div>
+	);
+}

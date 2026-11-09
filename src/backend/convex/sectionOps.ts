@@ -1,4 +1,4 @@
-import { SECTIONS_MAX, type SectionTab } from "@companybot/core/arrangements";
+import { SECTIONS_MAX, inboxStartSections, type SectionTab } from "@companybot/core/arrangements";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -13,4 +13,10 @@ export async function leaveSections(ctx: MutationCtx, workspaceId: Id<"workspace
 	for (const section of await sectionsOf(ctx, workspaceId, tab)) {
 		if (section.ids.includes(id)) await ctx.db.patch(section._id, { ids: section.ids.filter((k) => k !== id) });
 	}
+}
+
+/** Inbox's starting sections (core `inboxStartSections`), for a workspace whose Inbox has none yet. */
+export async function seedInboxSections(ctx: MutationCtx, workspaceId: Id<"workspaces">) {
+	if ((await sectionsOf(ctx, workspaceId, "inbox")).length) return;
+	for (const { name, ids } of inboxStartSections) await ctx.db.insert("sidebarSections", { workspaceId, tab: "inbox", name, ids });
 }

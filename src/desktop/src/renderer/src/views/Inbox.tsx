@@ -66,7 +66,9 @@ import {
 } from "../ui";
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
-import { AddButton, Group as NavGroup, Item } from "./chat/Sidebar";
+import { AddButton, AddMenu, Item, SectionGroup, SectionsNav } from "./chat/Sidebar";
+import { useUnsectioned } from "../sections";
+import type { DragProps } from "../sortable";
 import { Composer } from "./chat/Composer";
 import { Thread } from "./InboxComments";
 import { ProfileLink } from "./chat/Profile";
@@ -108,7 +110,10 @@ const planned = [
 	{ id: "tags", label: "Tags", row: "Tag conversations", icon: <TagIcon />, text: "Label conversations (new lead, billing, VIP) and see each label's here." },
 ] as const;
 
-const filters: Record<string, { label: string; icon: React.ReactNode; match?: (c: Row) => boolean; text?: string }> = Object.fromEntries([...views, ...channels, ...planned].map((f) => [f.id, f]));
+const filters: Record<string, { label: string; icon: React.ReactNode; match?: (c: Row) => boolean; text?: string; row?: string }> = Object.fromEntries([...views, ...channels, ...planned].map((f) => [f.id, f]));
+/** Every sidebar row, in the order a new Inbox shows them (core `inboxRowIds`). */
+const inboxRows = [...views, ...channels, ...planned];
+const rowKey = (r: { id: string }) => r.id;
 
 // Which one is picked: the sidebar sets it, the conversation list reads it. Kept per computer.
 const FILTER_KEY = "inboxFilter";
@@ -140,41 +145,39 @@ function useFilter() {
 }
 
 /**
- * Inbox's sidebar: views of who's handling what (Needs you counts what waits for staff), then
- * channels, then what's planned, greyed. The conversations are in their own column (InboxView).
+ * Inbox's sidebar: views of who's handling what (Needs you counts what waits for staff), the channels,
+ * and what's planned, greyed. Laid out like Chat's: the rows in no section on top, in the workspace's
+ * order, then its sections (a workspace starts with Channels and Tags). With `sidebar.arrange`, drag
+ * rows within and between them. The conversations are in their own column (InboxView).
  */
 export function InboxNav() {
 	const list = useQuery(api.inbox.list);
 	const [filter, pick] = useFilter();
+	const { sorted, drag } = useUnsectioned("inbox", inboxRows, rowKey);
 	const count = (match: (c: Row) => boolean) => list?.filter(match).length ?? 0;
-	const soon = (f: (typeof planned)[number]) => (
-		<Item key={f.id} icon={f.icon} label={f.label} active={filter === f.id} muted onClick={() => pick(f.id)}>
-			<span className="truncate">{"row" in f ? f.row : f.label}</span>
-			<span className={`ml-auto shrink-0 font-normal ${metadataClass}`}>Soon</span>
-		</Item>
-	);
+	const row = (id: string, drag: DragProps | undefined) => {
+		const f = filters[id];
+		if (!f) return null;
+		const soon = !f.match;
+		const n = id === "needs" || id === "mine" ? count(f.match!) : 0;
+		return (
+			<Item key={id} drag={drag} icon={f.icon} label={f.label} active={filter === id} muted={soon} onClick={() => pick(id as Filter)}>
+				<span className="truncate">{f.row ?? f.label}</span>
+				{soon ? (
+					<span className={`ml-auto shrink-0 font-normal ${metadataClass}`}>Soon</span>
+				) : n > 0 && (id === "needs" ? <CountBadge count={n} className="ml-auto" /> : <span className={`ml-auto shrink-0 font-normal tabular-nums ${metadataClass}`}>{n}</span>)}
+			</Item>
+		);
+	};
 	return (
 		<>
-			<div className="flex flex-col gap-px">
-				{views.map((v) => {
-					const n = v.id === "needs" || v.id === "mine" ? count(v.match) : 0;
-					return (
-						<Item key={v.id} icon={v.icon} label={v.label} active={filter === v.id} onClick={() => pick(v.id)}>
-							<span className="truncate">{v.label}</span>
-							{n > 0 && (v.id === "needs" ? <CountBadge count={n} className="ml-auto" /> : <span className={`ml-auto shrink-0 font-normal tabular-nums ${metadataClass}`}>{n}</span>)}
-						</Item>
-					);
-				})}
-			</div>
-			<NavGroup title="Channels">
-				{channels.map((ch) => (
-					<Item key={ch.id} icon={ch.icon} label={ch.label} active={filter === ch.id} onClick={() => pick(ch.id)}>
-						{ch.label}
-					</Item>
-				))}
-				{planned.filter((f) => f.id !== "tags").map(soon)}
-			</NavGroup>
-			<NavGroup title="Tags">{soon(planned.find((f) => f.id === "tags")!)}</NavGroup>
+			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((r) => row(r.id, drag(r.id)))}</div>}
+			<SectionsNav tab="inbox">
+				{(section, at) => (
+					// Folded, the picked one stays.
+					<SectionGroup {...at} tab="inbox" section={section} rows={section.ids.filter((id) => id in filters)} keep={(id) => id === filter} render={(id, drag) => row(id, drag?.item)} />
+				)}
+			</SectionsNav>
 		</>
 	);
 }
@@ -244,12 +247,16 @@ function ConversationRow({ c, open }: { c: Row; open: boolean }) {
 	);
 }
 
-/** The + beside Inbox's name: starts a conversation from an agent's address or number. */
-export function InboxAdd() {
+/** The + beside Inbox's name: starts a conversation from an agent's address or number, and (with `sidebar.arrange`) adds a section. */
+export function InboxAdd({ canStart, onNewSection }: { canStart: boolean; onNewSection?: () => void }) {
 	const [starting, setStarting] = useState(false);
 	return (
 		<>
-			<AddButton label="New conversation" onClick={() => setStarting(true)} />
+			{onNewSection ? (
+				<AddMenu label="New" actions={[...(canStart ? [{ label: "New conversation", onClick: () => setStarting(true) }] : []), { label: "New section", onClick: onNewSection }]} />
+			) : (
+				canStart && <AddButton label="New conversation" onClick={() => setStarting(true)} />
+			)}
 			{starting && <NewConversation onClose={() => setStarting(false)} />}
 		</>
 	);

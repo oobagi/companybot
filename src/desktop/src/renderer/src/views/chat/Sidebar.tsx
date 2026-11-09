@@ -354,7 +354,7 @@ export function SectionsNav({ tab, children }: { tab: SectionTab; children: (sec
 }
 
 /** Where a deleted section's things go back to, by tab. */
-const homeOf: Record<SectionTab, string> = { chat: "Its channels move back above the sections.", drive: "What it holds moves back to All files.", databases: "Its databases move back above the sections." };
+const homeOf: Record<SectionTab, string> = { chat: "Its channels move back above the sections.", drive: "What it holds moves back to All files.", databases: "Its databases move back above the sections.", inbox: "What it holds moves back above the sections." };
 
 /**
  * One section people added: `rows` (the ids it holds that this tab draws, in order; `render` draws one
@@ -424,7 +424,7 @@ export function NewSection({ tab, onClose }: { tab: SectionTab; onClose: () => v
 	return (
 		<Modal title="New section" size="md" onClose={onClose}>
 			<Form onSubmit={() => run(create({ tab, name }), onClose)}>
-				<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder={tab === "chat" ? "e.g. Sales" : tab === "drive" ? "e.g. Clients" : "e.g. Pipeline"} className={fullControlClass} />
+				<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder={tab === "chat" ? "e.g. Sales" : tab === "drive" ? "e.g. Clients" : tab === "inbox" ? "e.g. Priority" : "e.g. Pipeline"} className={fullControlClass} />
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>

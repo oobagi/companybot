@@ -126,14 +126,16 @@ it("lets go of what's deleted forever, keeps what's archived, and goes with its 
 	const sections = { chat: await owner.mutation(api.sidebarSections.create, { tab: "chat", name: "A" }), databases: await owner.mutation(api.sidebarSections.create, { tab: "databases", name: "B" }), drive: await owner.mutation(api.sidebarSections.create, { tab: "drive", name: "C" }) };
 	const items = [["chat", "channel", channel], ["databases", "database", type], ["drive", "page", page], ["drive", "file", file]] as const;
 	for (const [tab, , id] of items) await place(owner, tab, id, sections[tab]);
-	const stored = () => t.run(async (ctx) => (await ctx.db.query("sidebarSections").collect()).flatMap((s) => s.ids));
+	// Inbox's starting sections hold fixed rows, never anything deleted: left out here.
+	const stored = () => t.run(async (ctx) => (await ctx.db.query("sidebarSections").collect()).filter((s) => s.tab !== "inbox").flatMap((s) => s.ids));
+	const shown = async () => (await layout(owner)).sections.filter((s) => s.tab !== "inbox").flatMap((s) => s.ids);
 	vi.useFakeTimers();
 	for (const [, kind, id] of items) await owner.mutation(api.trash.move, { kind, id });
 	// Archived: out of sight, still held, back on restore.
-	expect((await layout(owner)).sections.flatMap((s) => s.ids)).toEqual([]);
+	expect(await shown()).toEqual([]);
 	expect(await stored()).toEqual([channel, type, page, file]);
 	await owner.mutation(api.trash.restore, { kind: "page", id: page });
-	expect((await layout(owner)).sections.flatMap((s) => s.ids)).toEqual([page]);
+	expect(await shown()).toEqual([page]);
 	await owner.mutation(api.trash.move, { kind: "page", id: page });
 	for (const [, , id] of items) await owner.mutation(api.trash.purge, { id });
 	await settle(t);
@@ -141,4 +143,26 @@ it("lets go of what's deleted forever, keeps what's archived, and goes with its 
 	await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 	await settle(t);
 	expect(await t.run((ctx) => ctx.db.query("sidebarSections").collect())).toEqual([]);
+});
+
+it("starts Inbox with Channels and Tags, and moves its rows within and between sections like any tab's", async () => {
+	const { owner, member } = await ownerAndMember();
+	expect(await sectionsOf(owner, "inbox")).toEqual([
+		{ name: "Channels", ids: ["email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat"] },
+		{ name: "Tags", ids: ["tags"] },
+	]);
+	const [channels, tags] = (await layout(owner)).sections.filter((s) => s.tab === "inbox").map((s) => s._id);
+	// A row in no section moves in; one in a section moves out, back among the rows in none where it's dropped.
+	await place(owner, "inbox", "needs", tags!, "tags");
+	await place(owner, "inbox", "sms", null, "all", ["mine", "agent", "all"]);
+	expect(await sectionsOf(owner, "inbox")).toEqual([
+		{ name: "Channels", ids: ["email", "calls", "whatsapp", "instagram", "messenger", "webchat"] },
+		{ name: "Tags", ids: ["needs", "tags"] },
+	]);
+	expect((await layout(owner)).rows.find((r) => r.list === "inbox")?.ids).toEqual(["mine", "agent", "sms", "all"]);
+	// Only Inbox's own rows, and only with `sidebar.arrange`.
+	await expect(place(owner, "inbox", "nonsense", channels!)).rejects.toThrow("Not found.");
+	await expect(owner.mutation(api.arrangements.change, { list: "inbox", command: { op: "move", id: "nonsense", beforeId: null } })).rejects.toThrow();
+	await setMemberSwitch(owner, "sidebar.arrange", false);
+	await expect(place(member, "inbox", "email", tags!)).rejects.toThrow();
 });

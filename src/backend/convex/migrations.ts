@@ -13,6 +13,7 @@ import { accessOf, memberOf, memberProfile, rolesOf, timeZoneOf } from "./lib";
 import { appendPageBlock } from "./pageOps";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
+import { seedInboxSections } from "./sectionOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -507,6 +508,15 @@ export const railDropCustomize = migrations.define({
 	},
 });
 
+// Inbox's sidebar takes sections like Chat's: workspaces from before get its starting ones (Channels, Tags).
+export const inboxSections = migrations.define({
+	table: "workspaces",
+	batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		if (!row.resetting && !row.deleting) await seedInboxSections(ctx, row._id);
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -544,7 +554,26 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
 	internal.migrations.railDropCustomize,
+	internal.migrations.inboxSections,
+	internal.migrations.agentCustomerReplies,
 ];
+
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, and
+// `workspaces.publicAbilities` (schema.ts). Sending replies to customers without a check moved from the
+// Public role (one switch for the workspace) to each agent: a workspace that had it on keeps it, on every agent.
+export const agentCustomerReplies = migrations.define({
+	table: "workspaces",
+	batchSize: 20,
+	migrateOne: async (ctx, workspace) => {
+		if (!workspace.publicAbilities) return;
+		if (workspace.publicAbilities.some((a) => a.ability === "public.reply" && a.on)) {
+			for await (const agent of ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))) {
+				if (!agent.customerReplies) await ctx.db.patch(agent._id, { customerReplies: "send" });
+			}
+		}
+		await ctx.db.patch(workspace._id, { publicAbilities: undefined });
+	},
+});
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
 export const runAll = internalMutation({
