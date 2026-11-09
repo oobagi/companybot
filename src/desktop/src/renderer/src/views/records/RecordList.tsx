@@ -474,8 +474,8 @@ function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, f
 	const clamp = (px: number) => Math.round(Math.min(COLUMN_WIDTH.max, Math.max(COLUMN_WIDTH.min, px)));
 	const width = (f: TypeField) => (dragging?.key === f.key ? dragging.px : widths?.[f.key] ?? columnWidth(f));
 	return (
-		// Too wide for the column: it scrolls out to the screen's edges.
-		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-2">
+		// Too wide for the column: it scrolls out to the screen's edges. Ends 24px above the bottom, the gap above it and the page's side padding (`--pad`).
+		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-6">
 			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick.
 			    The cells draw the table's outline (`edge`), so the stuck header keeps its line and rounded corners. */}
 			<div className={`w-max min-w-full overflow-clip rounded-xl transition-opacity ${stale ? "opacity-60" : ""}`}>

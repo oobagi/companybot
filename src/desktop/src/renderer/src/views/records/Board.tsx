@@ -293,8 +293,8 @@ export function Board({
 		<div className="flex min-h-0 flex-1 flex-col gap-2">
 			<Notice>{error}</Notice>
 			{/* Lanes start at the column and scroll out to the screen's edges; all as tall as the longest, so each is a full-height drop target. */}
-			{/* Room above the columns (`-mt-2 pt-2`), so a lifted column's shadow isn't cut off by the scroll area; their headers stick where they start, and a white strip above each (`before:`) hides the cards scrolling past that room. */}
-			<div ref={scroller} className="bleed -mt-2 min-h-0 flex-1 overflow-y-auto pt-2 pb-2" onScroll={(e) => setUnder(e.currentTarget.scrollTop > 8)}>
+			{/* Room above the columns (`-mt-2 pt-2`), so a lifted column's shadow isn't cut off by the scroll area; their headers stick where they start, and a white strip above each (`before:`) hides the cards scrolling past that room. 24px below them (`pb-6`), like a table. */}
+			<div ref={scroller} className="bleed -mt-2 min-h-0 flex-1 overflow-y-auto pt-2 pb-6" onScroll={(e) => setUnder(e.currentTarget.scrollTop > 8)}>
 			<div ref={board} className="flex min-h-full w-max gap-3">
 				{lanes.map((lane) => (
 					<Lane
