@@ -122,4 +122,33 @@ http.route({
 	}),
 });
 
+/** Delivery receipts are separate from inbound messages: they never wake an agent or start a conversation. */
+http.route({
+	path: "/sms/status",
+	method: "POST",
+	handler: httpAction(async (ctx, request) => {
+		const body = await readCapped(request);
+		if (body === null) return new Response("Too big.", { status: 413 });
+		const url = new URL(request.url);
+		const params = Object.fromEntries(new URLSearchParams(body));
+		const signed = await verifyTwilio({ url: `${process.env.CONVEX_SITE_URL ?? ""}/sms/status${url.search}`, params, signature: request.headers.get("x-twilio-signature"), authToken: process.env.TWILIO_AUTH_TOKEN });
+		if (!signed || !process.env.TWILIO_ACCOUNT_SID || params.AccountSid !== process.env.TWILIO_ACCOUNT_SID) return new Response("Bad signature or account.", { status: 403 });
+		const messageId = url.searchParams.get("messageId");
+		const token = url.searchParams.get("token");
+		if (!messageId || !token || !/^(SM|MM)[0-9a-f]{32}$/i.test(params.MessageSid ?? "") || !params.From || !params.To || !params.MessageStatus) return new Response("Bad receipt.", { status: 400 });
+		await ctx.runMutation(internal.inbox.smsReceipt, { messageId, token, providerId: params.MessageSid!, from: params.From, to: params.To, state: params.MessageStatus, ...(params.ErrorCode && { errorCode: params.ErrorCode }) });
+		return new Response(null, { status: 204 });
+	}),
+});
+
+http.route({
+	path: "/phone/events", method: "POST",
+	handler: httpAction(async (ctx, request) => {
+		const body = await readCapped(request);
+		if (body === null) return new Response("Too big.", { status: 413 });
+		const ok = await ctx.runAction(internal.phoneProvider.event, { body, authorization: request.headers.get("authorization") ?? "" });
+		return new Response(null, { status: ok ? 204 : 403 });
+	}),
+});
+
 export default http;

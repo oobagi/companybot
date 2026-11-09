@@ -1,3 +1,4 @@
+import { CallButton, CallEntry } from "./Phone";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
@@ -83,13 +84,13 @@ import type { Participant } from "./chat/data";
 
 type Opened = NonNullable<FunctionReturnType<typeof api.inbox.get>>;
 
-const contactLabel = (c: { channel: "email" | "sms"; contact: string; contactName: string | null }) => c.contactName ?? (c.channel === "sms" ? formatPhone(c.contact) : c.contact);
-const ChannelIcon = ({ channel, className }: { channel: "email" | "sms"; className?: string }) => (channel === "email" ? <MailIcon className={className} /> : <TextMessageIcon className={className} />);
+const contactLabel = (c: { channel: "email" | "sms" | "call"; contact: string; contactName: string | null }) => c.contactName ?? (c.channel !== "email" ? formatPhone(c.contact) : c.contact);
+const ChannelIcon = ({ channel, className }: { channel: "email" | "sms" | "call"; className?: string }) => (channel === "email" ? <MailIcon className={className} /> : channel === "call" ? <PhoneIcon className={className} /> : <TextMessageIcon className={className} />);
 
 type Row = NonNullable<FunctionReturnType<typeof api.inbox.list>>[number];
 
 /** What Inbox's sidebar picks: a view of who's handling it, a channel, or something planned. */
-type Filter = "needs" | "mine" | "agent" | "all" | "email" | "sms" | (typeof planned)[number]["id"];
+type Filter = "needs" | "mine" | "agent" | "all" | "email" | "sms" | "call" | (typeof planned)[number]["id"];
 
 const views = [
 	{ id: "needs", label: "Needs you", icon: <HandIcon />, match: (c: Row) => !!c.needsStaff },
@@ -99,13 +100,13 @@ const views = [
 ] as const;
 
 const channels = [
+	{ id: "call", label: "Calls", icon: <PhoneIcon />, match: (c: Row) => c.channel === "call" },
 	{ id: "email", label: "Email", icon: <MailIcon />, match: (c: Row) => c.channel === "email" },
 	{ id: "sms", label: "Texts", icon: <TextMessageIcon />, match: (c: Row) => c.channel === "sms" },
 ] as const;
 
 /** Shown, greyed, so everyone can see what's coming. Picking one says what it will do. */
 const planned = [
-	{ id: "calls", label: "Calls", icon: <PhoneIcon />, text: "Your agents will answer calls and take messages. Recordings and transcripts will show up here." },
 	{ id: "whatsapp", label: "WhatsApp", icon: <WhatsappLogoIcon />, text: "Answer WhatsApp messages here, with your agents' help, like email and texts." },
 	{ id: "instagram", label: "Instagram", icon: <InstagramLogoIcon />, text: "Answer Instagram DMs here, with your agents' help." },
 	{ id: "messenger", label: "Messenger", icon: <MessengerLogoIcon />, text: "Answer Facebook Messenger chats here, with your agents' help." },
@@ -355,7 +356,8 @@ function Conversation({ c }: { c: Opened }) {
 					c={c}
 					them={them}
 					bar={
-						<TopBar title={<h1 className="min-w-0 truncate"><CustomerLink className="hover:underline">{them}</CustomerLink></h1>} description={c.channel === "email" ? "Email" : "Text"}>
+						<TopBar title={<h1 className="min-w-0 truncate"><CustomerLink className="hover:underline">{them}</CustomerLink></h1>} description={c.channel === "email" ? "Email" : c.channel === "call" ? "Calls" : "Text"}>
+							<CallButton agentId={c.agentId} to={c.channel === "email" ? undefined : c.contact} recordId={c.record?.id} />
 							<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
 								<SidebarIcon className="-scale-x-100" />
 							</button>
@@ -410,7 +412,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 			footer={
 				<div className="flex">
 					<div className="min-w-0 flex-1">
-						<ReplyBox conversation={c} answering={answering} picked={!!picked && answering?.id === picked} onSent={() => setPicked(undefined)} />
+						{c.channel === "call" ? <div className="flex items-center justify-center gap-3 p-4"><CallButton agentId={c.agentId} to={c.contact} /><span className={metadataClass}>Agent voice · Soon</span></div> : <ReplyBox conversation={c} answering={answering} picked={!!picked && answering?.id === picked} onSent={() => setPicked(undefined)} />}
 					</div>
 					{side && <div aria-hidden className="w-72 shrink-0" />}
 				</div>
@@ -434,6 +436,8 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 										<Line who={first.author} name="Someone on staff">
 											assigned this to <PersonPill who={first.assignedTo} />
 										</Line>
+									) : first.call ? (
+										<div className="max-w-sm"><Sender author={first.author} them={them} mine /><CallEntry call={first.call} /></div>
 									) : first.status === "draft" ? (
 										<Draft message={first} channel={c.channel} agent={c.agent} />
 									) : email ? (
@@ -491,7 +495,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 /** Who this is with and who's handling it: the customer, their address and record; who it's assigned to; and the address replies go from. */
 function Details({ conversation: c }: { conversation: Opened }) {
 	const them = contactLabel(c);
-	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
+	const address = c.channel !== "email" ? formatPhone(c.contact) : c.contact;
 	return (
 		<section aria-label="Details" className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm">
 			<div className="flex flex-col gap-1.5 text-neutral-600">
@@ -516,7 +520,7 @@ function Details({ conversation: c }: { conversation: Opened }) {
 			{c.from && (
 				<div className="flex flex-col gap-1 border-t border-neutral-100 pt-3">
 					<p className="text-xs font-medium text-neutral-500">Replies go from</p>
-					<p className="truncate text-neutral-600 select-text">{c.channel === "sms" ? formatPhone(c.from) : c.from}</p>
+					<p className="truncate text-neutral-600 select-text">{c.channel !== "email" ? formatPhone(c.from) : c.from}</p>
 				</div>
 			)}
 		</section>
@@ -548,9 +552,9 @@ function Assignee({ conversation: c }: { conversation: Opened }) {
 				{(close) => (
 					<>
 						{c.agent && (
-							<MenuItem onClick={() => (close(), c.mode !== "agent" && pick("agent"))}>
+							<MenuItem disabled={c.channel === "call"} onClick={() => (close(), c.mode !== "agent" && pick("agent"))}>
 								<Avatar name={c.agent.name} image={c.agent.image} agent size="sm" />
-								<span className="min-w-0 flex-1 truncate">{c.agent.name}</span>
+								<span className="min-w-0 flex-1 truncate">{c.agent.name}{c.channel === "call" ? " · Voice · Soon" : ""}</span>
 								{c.mode === "agent" && <CheckIcon className="shrink-0" />}
 							</MenuItem>
 						)}
@@ -615,10 +619,10 @@ const sideOf = (m: Message) => (m.direction === "in" ? "them" : m.direction === 
  * The conversation as groups: a run of messages from one sender, close in time, is one group (one name
  * over it, connected bubbles, one comment thread under it). Lines and drafts stand alone.
  */
-function itemsOf(messages: Message[], channel: "email" | "sms") {
+function itemsOf(messages: Message[], channel: "email" | "sms" | "call") {
 	const items: { messages: Message[] }[] = [];
 	// An email is a row of its own; texts from one sender run together.
-	const alone = (m: Message) => channel === "email" || m.direction === "event" || m.status === "draft";
+	const alone = (m: Message) => channel === "email" || !!m.call || m.direction === "event" || m.status === "draft";
 	for (const m of messages) {
 		const run = items.at(-1)?.messages;
 		const prev = run?.at(-1);
@@ -769,14 +773,14 @@ function CustomerLink({ children, className = "" }: { children: React.ReactNode;
 /** Who they are to you: name, their address or number, and the record they're linked to. */
 function CustomerCard({ conversation: c }: { conversation: Opened }) {
 	const them = contactLabel(c);
-	const address = c.channel === "sms" ? formatPhone(c.contact) : c.contact;
+	const address = c.channel !== "email" ? formatPhone(c.contact) : c.contact;
 	return (
 		<div className="flex flex-col gap-3 p-4">
 			<div className="flex items-center gap-3">
 				<Avatar name={them} />
 				<div className="min-w-0">
 					<p className="truncate font-semibold">{them}</p>
-					<p className="truncate text-neutral-500 select-text">{them === address ? (c.channel === "sms" ? "Texts" : "Emails") + " your agents" : address}</p>
+					<p className="truncate text-neutral-500 select-text">{them === address ? (c.channel === "sms" ? "Texts" : c.channel === "call" ? "Calls" : "Emails") + " your team" : address}</p>
 				</div>
 			</div>
 			<dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -789,7 +793,7 @@ function CustomerCard({ conversation: c }: { conversation: Opened }) {
 						Open record
 					</button>
 				) : (
-					<Soon trigger="Add to records" label="Add to records" text={`Save ${them} as a contact, with their ${c.channel === "sms" ? "number" : "address"} filled in.`} className={actionButton} />
+					<Soon trigger="Add to records" label="Add to records" text={`Save ${them} as a contact, with their ${c.channel !== "email" ? "number" : "address"} filled in.`} className={actionButton} />
 				)}
 			</div>
 		</div>
@@ -797,7 +801,7 @@ function CustomerCard({ conversation: c }: { conversation: Opened }) {
 }
 
 /** A run from one sender: their name and picture, then the messages, connected on the sender's side. */
-function Group({ messages, them, channel, subject }: { messages: Message[]; them: string; channel: "email" | "sms"; subject: string | null }) {
+function Group({ messages, them, channel, subject }: { messages: Message[]; them: string; channel: "email" | "sms" | "call"; subject: string | null }) {
 	const mine = messages[0]!.direction !== "in";
 	return (
 		<div className={`flex flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
@@ -846,7 +850,7 @@ function Sender({ author, them, mine }: { author: Participant | null; them?: str
  * One message, as a text app shows it: ours on the right, theirs on the left, the sender's name and
  * picture over the first of a run. Texts are bubbles (ours blue); emails are cards with their subject.
  */
-function MessageItem({ message: m, channel, subject, corners, last }: { message: Message; channel: "email" | "sms"; subject: string | null; corners: string; last: boolean }) {
+function MessageItem({ message: m, channel, subject, corners, last }: { message: Message; channel: "email" | "sms" | "call"; subject: string | null; corners: string; last: boolean }) {
 	const mine = m.direction !== "in";
 	const failed = m.status === "failed";
 	const body =
@@ -868,7 +872,11 @@ function MessageItem({ message: m, channel, subject, corners, last }: { message:
 	return (
 		<div className={`flex w-full flex-col ${mine ? "items-end" : "items-start"}`}>
 			{body}
-			{(failed || m.status === "sending") && <p className={`pt-1 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
+			{m.sms ? (
+				<p className={`pt-1 ${m.sms === "unknown" ? "text-xs text-amber-700" : failed ? "text-xs text-red-600" : metadataClass}`}>
+					{m.sms === "unknown" ? m.error : m.sms === "failed" ? m.error : m.sms === "delivered" ? "Delivered" : "Queued with phone company"}
+				</p>
+			) : (failed || m.status === "sending") && <p className={`pt-1 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
 			{!failed && m.status !== "sending" && last && forWho && (
 				<p className={`pt-1 ${metadataClass}`}>
 					For{" "}
@@ -882,7 +890,7 @@ function MessageItem({ message: m, channel, subject, corners, last }: { message:
 }
 
 /** The agent's reply, waiting because Public can't reply on its own: staff edit it, send it, or discard it. */
-function Draft({ message: m, channel, agent }: { message: Message; channel: "email" | "sms"; agent: Participant | null }) {
+function Draft({ message: m, channel, agent }: { message: Message; channel: "email" | "sms" | "call"; agent: Participant | null }) {
 	const send = useMutation(api.inbox.sendDraft);
 	const discard = useMutation(api.inbox.discardDraft);
 	const [text, setText] = useState(m.text);

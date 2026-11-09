@@ -5,11 +5,11 @@
 
 import type { PublicShared } from "./public-tools";
 
-export const inboxChannels = ["email", "sms"] as const;
+export const inboxChannels = ["email", "sms", "call"] as const;
 export type InboxChannel = (typeof inboxChannels)[number];
 
 /** How a conversation's channel reads in a sentence. */
-export const channelWords: Record<InboxChannel, string> = { email: "email", sms: "text" };
+export const channelWords: Record<InboxChannel, string> = { email: "email", sms: "text", call: "call" };
 
 /** Longest message kept: an email body past it is cut (and says so). A text is far shorter. */
 export const INBOX_TEXT_MAX = 20_000;

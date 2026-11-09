@@ -1,3 +1,4 @@
+import { Phone } from "./views/Phone";
 import { setFormDraftPerson } from "./ui";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
@@ -137,7 +138,7 @@ function Workspace() {
 function Opened() {
 	const me = useQuery(api.workspace.me);
 	if (!me?.access) return null;
-	return <LoadedArrangements userId={me.userId}><Shell email={me.email} access={me.access} workspace={me.workspace ?? ""} /></LoadedArrangements>;
+	return <LoadedArrangements userId={me.userId}><Phone key={`${me.userId}:${me.workspaceId}`} enabled={can(me.access, "inbox.use")}><Shell email={me.email} access={me.access} workspace={me.workspace ?? ""} /></Phone></LoadedArrangements>;
 }
 
 function Shell({ email, access, workspace }: { email: string; access: Access; workspace: string }) {

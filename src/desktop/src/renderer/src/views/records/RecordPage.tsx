@@ -1,3 +1,4 @@
+import { CallButton, CallEntry } from "../Phone";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { type FieldValue, NAME_KEY } from "@companybot/core/records";
@@ -64,6 +65,7 @@ export function RecordPage({ type, recordId, access }: { type: RecordType; recor
 				<div className="flex flex-col gap-1">
 					<Fields type={type} record={record} editable={canEdit && !record.archived} />
 					<About recordId={recordId} />
+					{can(access, "inbox.use") && !record.archived && <RecordCalls recordId={recordId} />}
 				</div>
 			}
 			body={body.page}
@@ -303,4 +305,9 @@ function RecordHistory({ open, onClose, type, recordId, pageId, canUndo, canRest
 	if (!open) return null;
 	const tabs = <Tabs tabs={[{ id: "properties", label: "Properties" }, { id: "body", label: "Page body" }]} value={tab} onChange={setTab} />;
 	return tab === "body" && pageId ? <PageHistory pageId={pageId} canRestore={canRestore} onClose={onClose} tabs={tabs} /> : <Modal title="History" size="xl" onClose={onClose}>{tabs}{tab === "properties" ? <History type={type} recordId={recordId} canUndo={canUndo} /> : <p className={descriptionClass}>No page edits yet.</p>}</Modal>;
+}
+
+function RecordCalls({ recordId }: { recordId: Id<"records"> }) {
+	const history = useQuery(api.calls.forRecord, { recordId });
+	return <section className="flex flex-col gap-2 py-3"><div className="flex flex-wrap gap-2">{history?.phones.map((phone) => <CallButton key={phone} recordId={recordId} to={phone}>Call {phone}</CallButton>)}</div>{history?.calls.map((c) => <button key={c.id} type="button" className={`${cardButton} text-left`} onClick={() => navigate("inbox", c.conversationId)}><span className={metadataClass}>{c.by ?? ""} · {timeAgo(c.at)}</span><CallEntry call={c} /></button>)}</section>;
 }

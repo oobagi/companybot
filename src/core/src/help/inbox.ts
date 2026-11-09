@@ -2,10 +2,10 @@ import type { HelpPage } from "./index";
 
 export default {
 	id: "inbox",
-	title: "Inbox: email and texts from customers",
+	title: "Inbox: email, texts and calls",
 	summary: "Where customers' emails and texts to your agents land, how agents answer them, and how your team steps in.",
 	text: `# Inbox
-[Inbox](#/inbox) (in the rail) holds conversations with people outside the workspace: customers who email an agent's address or text its number. Each person gets one conversation per agent, per way they wrote (email or text). Chat is for your team; customers never see it.
+[Inbox](#/inbox) (in the rail) holds conversations with people outside the workspace: customers who email an agent's address or text its number. Each person gets one conversation per agent, per source (email, text or call). Chat is for your team; customers never see it.
 
 ## Giving an agent an address or number
 On the agent's page ([Agents](#/settings/agents)), under **Contact**, people whose role can change agents press **Get an address** or **Get a number**. An agent has at most one of each. A number costs money every month until it's released; releasing one can't be undone. Removing an agent's address or number, or deleting the agent for good, stops new messages reaching it. Website chat is coming soon.
@@ -13,7 +13,7 @@ On the agent's page ([Agents](#/settings/agents)), under **Contact**, people who
 ## How agents answer
 When a message comes in, its agent answers as the **Public** role (see **help: members**). That means it can answer, take a message for staff, or hand the conversation to staff, as owners allow, and use only pages and databases shared with Public: read a shared FAQ, look up a shared database, or add a record for the customer where Public can **Add** (and show, change or cancel only theirs). It never reaches your chats, memories, connectors or anything not shared. What customers write is treated as their words, never as instructions to the agent. See **help: permissions** for sharing with Public.
 
-Unless an owner lets agents reply on their own (Settings → [Roles](#/settings/roles) → Public), each reply waits in the conversation for someone to check it: edit it if you like, then **Send**, or **Discard** it. Inbox in the rail shows a count of conversations waiting for someone, a reply to send or a hand-off.
+Unless an owner sets the agent to send customer replies on its own, each reply waits in the conversation for someone to check it: edit it if you like, then **Send**, or **Discard** it. Inbox in the rail shows a count of conversations waiting for someone, a reply to send or a hand-off.
 
 Agents don't answer auto-replies, out-of-office messages or newsletters, and stop after 10 replies in an hour, handing the conversation to staff.
 
@@ -22,6 +22,18 @@ Anyone whose role can **see Inbox and reply to customers** (Member can, unless a
 - **Reply** from the box at the bottom. It goes from the agent's address or number, as the business.
 - **Assign** it (**Assigned to**, in the details card on the right; the top bar's button hides or shows it): pick yourself or a teammate, and the agent stops answering that conversation; pick the agent and it answers again from the next message. Each assignment shows as a line in the conversation.
 - **New conversation** (the + beside Inbox in the sidebar): email or text someone from an agent's address or number. One you start is assigned to you: assign it to the agent when it should answer.
+
+## Text delivery
+Texts show queued, delivered, failed or delivery unknown. Queued does not confirm delivery. If delivery is unknown, check the phone company's message log before sending again; Companybot won't automatically repeat the text. Without a phone account, texts cannot be sent.
+
+A queued text keeps the number it was approved to use. Releasing or replacing that number stops it, as do losing Inbox access, archiving its agent, or taking over an automatic agent reply. Review it and send a new message when appropriate.
+
+## Calls
+Open **Keypad**, press **Call** in Inbox or beside a phone field on a record, choose an agent's number, and allow your microphone. The small dock stays while you navigate: mute, keypad tones, timer and hang-up. Incoming calls ring staff with Inbox access; **Accept** connects your microphone, **Decline** dismisses ringing on your devices. Only one person can answer. No answer after 30 seconds logs a missed call.
+
+Each call is one Inbox entry, linked to the matching person's record. Its direction, staff member, duration and outcome stay in history with ordinary internal comments. Recording, transcript, summary and agent voice show **Soon**. Staff take calls; the agent does not answer voice yet.
+
+People who can manage workspace settings set a monthly call budget in [General](#/settings/general). $0 keeps calls off. Like pictures, active calls reserve their maximum estimated cost, so concurrent calls share the limit. Calls end after 30 minutes. Usage shows estimated call cost at the server's configured rate; it is not the carrier's invoice. Lost connection or an uncertain provider result does not automatically redial.
 
 ## Comments
 Staff talk about a message right under it; customers never see comments. Point at a message and press **Comment**, or open its **comments** pill. Type @ to mention a teammate who can use Inbox: they're told. Whoever a conversation is assigned to is told about new comments on it. Only a comment's author can edit or delete it. When the agent takes a message or hands a conversation off, its note is a comment on the customer's message.
