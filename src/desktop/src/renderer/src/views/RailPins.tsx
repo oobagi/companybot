@@ -5,6 +5,7 @@ import type { OptimisticUpdate } from "convex/browser";
 import { useMutation, useQuery, useSettled, useWorkspace } from "../convex";
 import { ChannelIcon, ChatIcon, DatabaseIcon, DriveIcon, FolderIcon, HideIcon, HomeIcon, InboxIcon, PageIcon, PinIcon, PrivateIcon, RecordIcon, ShowIcon, SitesIcon, UnpinIcon } from "../icons";
 import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
+import { formatPhone } from "@companybot/core/inbox";
 import { type PinKey, RECENT_SHOWN, pathOf, setRailVia, splitPin, usePins, useRailVia } from "../pins";
 import { FileKindIcon } from "./drive/FileIcon";
 import { navigate } from "../router";
@@ -49,7 +50,10 @@ function useEntries(keys: PinKey[]) {
 	const records = useSettled(useQuery(api.records.titles, recordIds.length ? { recordIds } : "skip"));
 	const fileIds = keys.flatMap((k) => (k.startsWith("file:") ? [splitPin(k)[1]] : []));
 	const files = useQuery(api.driveFiles.titles, fileIds.length ? { ids: fileIds } : "skip");
-	const ready = !!chats && !!pages && !!types && (!recordIds.length || !!records) && (!fileIds.length || !!files);
+	const hasInbox = keys.some((k) => k.startsWith("inbox:"));
+	const conversations = useQuery(api.inbox.list, hasInbox ? {} : "skip");
+	// Without Inbox (null), its pins drop out like deleted things.
+	const ready = !!chats && !!pages && !!types && (!recordIds.length || !!records) && (!fileIds.length || !!files) && (!hasInbox || conversations !== undefined);
 	const resolve = (key: PinKey): Entry | undefined => {
 		const [kind, id] = splitPin(key);
 		const plain = { key, path: pathOf(key), unread: false, mentioned: false };
@@ -64,6 +68,11 @@ function useEntries(keys: PinKey[]) {
 		if (kind === "file") {
 			const file = files?.find((f) => f._id === id);
 			return file && { ...plain, label: file.name, icon: <FileKindIcon type={file.type} name={file.name} size={22} /> };
+		}
+		if (kind === "inbox") {
+			const c = conversations?.find((x) => x.id === id);
+			const name = c && (c.contactName ?? (c.channel === "sms" ? formatPhone(c.contact) : c.contact));
+			return c && name ? { ...plain, label: name, icon: <Avatar name={name} size="pair" />, unread: !!c.needsStaff, mentioned: false } : undefined;
 		}
 		if (kind === "db") {
 			const type = types?.find((t) => t.key === id);

@@ -236,6 +236,7 @@ function ConversationList({ openId }: { openId: string | undefined }) {
 function ConversationRow({ c, open }: { c: Row; open: boolean }) {
 	return (
 		<Item
+			pin={`inbox:${c.id}`}
 			icon={
 				<span className="relative flex">
 					<ChannelIcon channel={c.channel} />

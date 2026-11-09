@@ -89,7 +89,7 @@ export const inboxRowIds = ["needs", "mine", "agent", "all"];
 /** Inbox's built-in Channels group, like Chat's Direct messages: reordered within it, never deleted or moved out. */
 export const inboxChannelIds = ["email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat"];
 /** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
-export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
+export const isPinKey = (id: string) => /^(chat|page|file|db|rec|inbox):./.test(id);
 
 type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */

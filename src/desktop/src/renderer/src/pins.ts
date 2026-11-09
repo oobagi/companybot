@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useStoredIds } from "./arrangements";
 
-export type PinKind = "chat" | "page" | "file" | "db" | "rec";
+export type PinKind = "chat" | "page" | "file" | "db" | "rec" | "inbox";
 export type PinKey = `${PinKind}:${string}`;
 
 /** Recents the rail shows, of the `RECENT_KEPT` saved. */
@@ -25,6 +25,7 @@ export function pinOf(route: string[]): PinKey | undefined {
 	if (view === "chat") return `chat:${id}`;
 	if (view === "pages") return `page:${id}`;
 	if (view === "files") return `file:${id}`;
+	if (view === "inbox") return `inbox:${id}`;
 	if (view === "records") return recordId ? `rec:${recordId}` : `db:${id}`;
 	return undefined;
 }
@@ -41,6 +42,7 @@ export function pathOf(key: PinKey, typeKey?: string): string[] {
 	if (kind === "chat") return ["chat", id];
 	if (kind === "page") return ["pages", id];
 	if (kind === "file") return ["files", id];
+	if (kind === "inbox") return ["inbox", id];
 	if (kind === "rec") return ["records", typeKey ?? "", id];
 	return ["records", id];
 }
