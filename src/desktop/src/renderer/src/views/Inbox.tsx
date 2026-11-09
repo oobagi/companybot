@@ -31,6 +31,7 @@ import {
 	UserIcon,
 	WebChatIcon,
 	ChatIcon,
+	MoreIcon,
 	WhatsappLogoIcon,
 } from "../icons";
 import { navigate } from "../router";
@@ -61,6 +62,7 @@ import {
 	shortAgo,
 	labelButton,
 	smallIconButton,
+	quoteToggleButton,
 	surfaceButton,
 	useRun,
 } from "../ui";
@@ -635,6 +637,7 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 	const name = mine ? (m.author?.name ?? "Someone on staff") : them;
 	const forWho = m.author?.for;
 	const hover = "opacity-0 group-hover/email:opacity-100 focus-visible:opacity-100";
+	const [history, setHistory] = useState(false);
 	return (
 		<article className={`group/email relative flex flex-col ${open ? "pb-3" : ""}`}>
 			{/* Folded, one line: who, then a gray preview. Open, who and their address, with the email under it. */}
@@ -646,7 +649,9 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 					{open ? (
 						<span className={`min-w-0 truncate ${metadataClass}`}>
 							{mine ? `to ${them}` : contact}
+							{m.cc.length > 0 && `, also to ${m.cc.join(", ")}`}
 							{forWho && `, for ${forWho.name}`}
+							{m.delivery === "delivered" && " · Delivered"}
 						</span>
 					) : (
 						<span className="min-w-0 truncate text-neutral-500">{m.text.replace(/\s+/g, " ")}</span>
@@ -665,10 +670,55 @@ function EmailItem({ message: m, them, contact, open, onToggle, replying, onRepl
 				</span>
 			</span>
 			{/* Pulled up under the name, not under the picture. */}
-			{open && <p className="-mt-5 pl-12 break-words whitespace-pre-wrap select-text">{m.text}</p>}
+			{open && (
+				<div className="-mt-5 flex flex-col items-start gap-2 pl-12">
+					<LinkedText text={m.text} className="w-full" />
+					{/* The history their mail app quoted under it, folded like Gmail's. */}
+					{m.quoted && (
+						<>
+							<button type="button" aria-expanded={history} aria-label={history ? "Hide quoted text" : "Show quoted text"} title={history ? "Hide quoted text" : "Show quoted text"} className={quoteToggleButton} onClick={() => setHistory(!history)}>
+								<MoreIcon />
+							</button>
+							{/* The border marks it as quoted: their ">" marks go. */}
+							{history && <LinkedText text={m.quoted.replace(/^(> ?)+/gm, "")} className="w-full border-l-2 border-neutral-200 pl-3 text-neutral-500" />}
+						</>
+					)}
+				</div>
+			)}
 			{(failed || m.status === "sending") && <p className={`pt-1 pl-12 ${failed ? "text-xs text-red-600" : metadataClass}`}>{failed ? `Didn't send: ${m.error ?? "unknown error"}` : "Sending…"}</p>}
+			{m.delivery === "bounced" && <p className="pt-1 pl-12 text-xs text-red-600">Bounced: {m.error}</p>}
+			{m.delivery === "spam" && <p className="pt-1 pl-12 text-xs text-amber-700">They marked it as spam. Their mail app may hide what this address sends them.</p>}
 		</article>
 	);
+}
+
+// Web addresses and email addresses in what a customer wrote: "<https://…>", "[https://…]" and "(https://…)" too,
+// without the punctuation around them.
+const LINK = /\b(?:https?:\/\/|www\.)[^\s<>"]+|\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/gi;
+const TRAILING = /[.,;:!?'")\]>]+$/;
+
+/** Plain text (never their HTML), its links clickable: a bare web address shows as its site, the whole address on hover. */
+function LinkedText({ text, className = "" }: { text: string; className?: string }) {
+	const parts: React.ReactNode[] = [];
+	let last = 0;
+	for (const match of text.matchAll(LINK)) {
+		const raw = match[0];
+		const link = raw.replace(TRAILING, "");
+		const at = match.index;
+		parts.push(text.slice(last, at));
+		const email = !/^(https?:|www\.)/i.test(link);
+		const href = email ? `mailto:${link}` : /^www\./i.test(link) ? `https://${link}` : link;
+		let label = link;
+		if (!email) try { label = new URL(href).hostname.replace(/^www\./, ""); } catch { /* shown as written */ }
+		parts.push(
+			<a key={at} href={href} target="_blank" rel="noreferrer" title={email ? undefined : href} className="text-link hover:underline">
+				{label}
+			</a>,
+		);
+		last = at + link.length;
+	}
+	parts.push(text.slice(last));
+	return <p className={`break-words whitespace-pre-wrap ${className}`}>{parts}</p>;
 }
 
 /** A run from one sender: their name and picture, then the messages, connected on the sender's side. */
@@ -733,7 +783,9 @@ function MessageItem({ message: m, channel, subject, corners, last }: { message:
 				<p className="break-words whitespace-pre-wrap">{m.text}</p>
 			</div>
 		) : (
-			<div className={`max-w-[75%] rounded-2xl px-4 py-2.5 break-words whitespace-pre-wrap select-text ${corners} ${mine ? sentBubbleClass : "bg-neutral-100 text-neutral-900"}`}>{m.text}</div>
+			<div className={`max-w-[75%] rounded-2xl px-4 py-2.5 select-text ${corners} ${mine ? sentBubbleClass : "bg-neutral-100 text-neutral-900"}`}>
+				<LinkedText text={m.text} />
+			</div>
 		);
 	const forWho = m.author?.for;
 	return (

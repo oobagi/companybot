@@ -149,6 +149,12 @@ export const get = query({
 						direction: m.direction,
 						status: m.status,
 						text: m.text,
+						/** Theirs: the history their mail app quoted under it, shown folded. */
+						quoted: m.quoted ?? null,
+						/** Theirs: who else it went to. */
+						cc: m.cc ?? [],
+						/** Ours, once out: delivered, bounced (`error` says why) or marked as spam. */
+						delivery: m.delivery ?? null,
 						error: m.error ?? null,
 						/** Who wrote it on our side (someone on staff, or the agent, `for` the person it acted for); null for theirs. */
 						author,
@@ -360,6 +366,9 @@ export const receive = internalMutation({
 		fromName: v.optional(v.string()),
 		subject: v.optional(v.string()),
 		text: v.string(),
+		/** An email's quoted history, under `text` (core `splitQuoted`). */
+		quoted: v.optional(v.string()),
+		cc: v.optional(v.array(v.string())),
 		providerId: v.string(),
 		messageId: v.optional(v.string()),
 		automated: v.optional(v.boolean()),
@@ -405,6 +414,8 @@ export const receive = internalMutation({
 			providerId: args.providerId,
 			...(args.messageId && { messageId: args.messageId }),
 			...(args.unverified && { unverified: true as const }),
+			...(args.quoted && { quoted: clipText(args.quoted) }),
+			...(args.cc?.length && { cc: args.cc.slice(0, 20) }),
 		});
 		await linkRecord(ctx, c);
 		if (c.mode === "agent" && !agent.archived && !args.automated && !fromUs) await queueReply(ctx, c);
@@ -503,6 +514,19 @@ export const deliver = internalAction({
 		} catch (e) {
 			await fail(e instanceof Error ? e.message.slice(0, 300) : String(e));
 		}
+	},
+});
+
+/** What the provider saw after a sent email left (Resend's delivery events, http.ts): delivered, bounced (with why), or marked as spam by them. */
+export const delivered = internalMutation({
+	args: { providerId: v.string(), event: v.union(v.literal("delivered"), v.literal("bounced"), v.literal("spam")), reason: v.optional(v.string()) },
+	handler: async (ctx, { providerId, event, reason }) => {
+		const message = await ctx.db.query("inboxMessages").withIndex("by_provider", (q) => q.eq("providerId", providerId)).first();
+		if (!message || message.direction !== "out" || message.status !== "sent") return;
+		const why = reason?.trim().replace(/\.$/, "").slice(0, 300);
+		if (event === "bounced") await ctx.db.patch(message._id, { delivery: "bounced", error: `Their mail server didn't take it${why ? ` (${why})` : ""}. Check the address.` });
+		else if (event === "spam") await ctx.db.patch(message._id, { delivery: "spam" });
+		else if (!message.delivery) await ctx.db.patch(message._id, { delivery: "delivered" });
 	},
 });
 

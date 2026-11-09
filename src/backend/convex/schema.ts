@@ -473,6 +473,12 @@ export default defineSchema({
 		assignedTo: v.optional(v.union(v.literal("agent"), v.id("users"))),
 		/** An `in` email that failed its sender check (core `senderVerified`): its From may be forged, so it changes none of their records. */
 		unverified: v.optional(v.literal(true)),
+		/** An `in` email's history its sender's mail app quoted under it (core `splitQuoted`), shown folded; `text` is the new part. */
+		quoted: v.optional(v.string()),
+		/** An `in` email's other recipients (To and Cc), besides the agent's address. */
+		cc: v.optional(v.array(v.string())),
+		/** What became of a `sent` email (Resend's delivery events): delivered; bounced, `error` saying why; or they marked it as spam. */
+		delivery: v.optional(v.union(v.literal("delivered"), v.literal("bounced"), v.literal("spam"))),
 		error: v.optional(v.string()),
 	})
 		.index("by_conversation", ["conversationId"])

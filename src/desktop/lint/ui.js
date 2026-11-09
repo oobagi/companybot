@@ -33,6 +33,7 @@ const buttonClasses = new Set([
 	"titleBarButton",
 	"cornerCloseButton",
 	"smallIconButton",
+	"quoteToggleButton",
 	"bareIconButton",
 	"chevronButton",
 	"chipRemoveButton",

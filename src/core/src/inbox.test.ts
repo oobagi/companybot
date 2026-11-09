@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAutomated, newPart, normalizePhone, parseAddress, phoneKeys, publicTurnPrompt, replySubject, senderVerified, verifySvix, verifyTwilio } from "./inbox";
+import { isAutomated, splitQuoted, normalizePhone, parseAddress, phoneKeys, publicTurnPrompt, replySubject, senderVerified, verifySvix, verifyTwilio } from "./inbox";
 import { HAND_OFF_TOPICS_MAX, cleanTopics } from "./agent-config";
 import { NOTHING_SHARED, type PublicActs, publicTools } from "./public-tools";
 
@@ -53,10 +53,19 @@ describe("addresses and numbers", () => {
 });
 
 describe("email text", () => {
-	it("keeps only the new part of a reply", () => {
-		expect(newPart("Sounds good.\n\nOn Tue, Nov 4, 2026 at 9:12 AM Bob <b@x.com> wrote:\n> earlier")).toBe("Sounds good.");
-		expect(newPart("Thanks\n> quoted\nBye")).toBe("Thanks\nBye");
-		expect(newPart("> only quoted")).toBe("> only quoted");
+	it("splits a reply from the history it quotes", () => {
+		expect(splitQuoted("Sounds good.\n\nOn Tue, Nov 4, 2026 at 9:12 AM Bob <b@x.com> wrote:\n> earlier")).toEqual({ text: "Sounds good.", quoted: "On Tue, Nov 4, 2026 at 9:12 AM Bob <b@x.com> wrote:\n> earlier" });
+		// Wrapped over lines, and Outlook's header block.
+		expect(splitQuoted("Yes\r\nOn Tue, Nov 4, 2026 at 9:12 AM Bob\r\n<b@x.com> wrote:\r\n> earlier").text).toBe("Yes");
+		expect(splitQuoted("Yes\n\nFrom: Bob <b@x.com>\nSent: Tuesday, November 4, 2026 9:12 AM\nTo: us@x.com\nSubject: Hi\n\nearlier").text).toBe("Yes");
+		expect(splitQuoted("Thanks\n\n-----Original Message-----\nearlier").quoted).toBe("-----Original Message-----\nearlier");
+		// Answers between quoted lines stay; a run at the end goes.
+		expect(splitQuoted("Thanks\n> quoted\nBye\n\n> old\n> older")).toEqual({ text: "Thanks\n> quoted\nBye", quoted: "> old\n> older" });
+		// "On" with no date is just a sentence.
+		expect(splitQuoted("On it, I wrote: the plan").quoted).toBe("");
+		// All quote: nothing hidden.
+		expect(splitQuoted("> only quoted")).toEqual({ text: "> only quoted", quoted: "" });
+		expect(splitQuoted("Look \uFFFC here").text).toBe("Look  here");
 	});
 
 	it("spots mail no person wrote", () => {

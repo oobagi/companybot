@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { textOfHtml } from "../convex/channelProviders";
 import { type As, agentsOf, newTest, ownerAndMember, signIn } from "./helpers";
 
 // Inbox: an agent's address and number take messages from outside (signed webhooks only), which land as
@@ -20,8 +21,8 @@ async function hmac(hash: "SHA-1" | "SHA-256", key: Uint8Array, data: string) {
 }
 
 /** Resend's webhook as Svix signs it. */
-async function emailWebhook(t: ReturnType<typeof newTest>, data: Record<string, unknown>, { secret = SECRET_BYTES, id = crypto.randomUUID() } = {}) {
-	const body = JSON.stringify({ type: "email.received", created_at: new Date().toISOString(), data });
+async function emailWebhook(t: ReturnType<typeof newTest>, data: Record<string, unknown>, { secret = SECRET_BYTES, id = crypto.randomUUID(), type = "email.received" } = {}) {
+	const body = JSON.stringify({ type, created_at: new Date().toISOString(), data });
 	const timestamp = String(Math.floor(Date.now() / 1000));
 	const signature = `v1,${await hmac("SHA-256", bytes(secret), `${id}.${timestamp}.${body}`)}`;
 	return t.fetch("/email/inbound", { method: "POST", body, headers: { "svix-id": id, "svix-timestamp": timestamp, "svix-signature": signature } });
@@ -360,6 +361,31 @@ describe("staff in Inbox", () => {
 		expect(sent.headers).toMatchObject({ "In-Reply-To": "<m1@acme.com>", References: "<m1@acme.com>" });
 		expect((await inboxMessages(t)).find((m) => m._id === draft._id)!.status).toBe("sent");
 		expect((await conversations(t))[0]!.needsStaff).toBeUndefined();
+	});
+
+	it("keep an email's quoted history apart, who else it went to, and what happened to a reply after it left", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		stubProviders();
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address, "sam@acme.com"], cc: ["Lee <lee@acme.com>"], subject: "Roof", message_id: "<m1@acme.com>" });
+		const [received] = await inboxMessages(t);
+		expect(received).toMatchObject({ text: "Hi, can you quote a new roof?", quoted: "On Tue, Nov 4 Bob wrote:\n> old stuff", cc: ["sam@acme.com", "lee@acme.com"] });
+		const [c] = await conversations(t);
+		await t.mutation(internal.inboxAgent.act, { conversationId: c!._id, name: "reply", text: "Happy to help." });
+		const draft = (await inboxMessages(t)).find((m) => m.status === "draft")!;
+		vi.useFakeTimers();
+		await owner.mutation(api.inbox.sendDraft, { messageId: draft._id, text: "Happy to help." });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		const reply = async () => (await inboxMessages(t)).find((m) => m._id === draft._id)!;
+		await emailWebhook(t, { email_id: "sent-1" }, { type: "email.delivered" });
+		expect((await reply()).delivery).toBe("delivered");
+		await emailWebhook(t, { email_id: "sent-1", bounce: { message: "Mailbox does not exist." } }, { type: "email.bounced" });
+		expect(await reply()).toMatchObject({ delivery: "bounced", error: "Their mail server didn't take it (Mailbox does not exist). Check the address." });
+	});
+
+	it("read an HTML-only email's quotes as \">\" lines, so they fold like a text one's", () => {
+		expect(textOfHtml('<div>Sure &amp; thanks</div><blockquote type="cite">On Nov 4 Bob &lt;b@x.com&gt; wrote:<br><blockquote>older</blockquote></blockquote>')).toBe("Sure & thanks\n\n> On Nov 4 Bob <b@x.com> wrote:\n>\n> > older");
 	});
 
 	it("reply to an earlier email they pick, threaded on that one", async () => {

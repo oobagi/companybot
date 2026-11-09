@@ -1,4 +1,4 @@
-import { MAX_WEBHOOK_BYTES, isAutomated, newPart, parseAddress, senderVerified, verifySvix, verifyTwilio } from "@companybot/core";
+import { MAX_WEBHOOK_BYTES, isAutomated, parseAddress, splitQuoted, senderVerified, verifySvix, verifyTwilio } from "@companybot/core";
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -47,7 +47,9 @@ async function readCapped(request: Request) {
 /**
  * Email to agents' addresses (Resend's `email.received` webhook, signed by Svix with RESEND_WEBHOOK_SECRET).
  * A request whose signature doesn't check out is refused before anything is read or stored. The body is
- * fetched from Resend by the email's id; each of our addresses it went to gets it in Inbox (inbox.receive).
+ * fetched from Resend by the email's id; each of our addresses it went to gets it in Inbox (inbox.receive),
+ * its new part apart from the history it quotes. The same webhook brings what happened to emails we sent
+ * (`email.delivered`, `email.bounced`, `email.complained`: inbox.delivered), when it's set to send them.
  */
 http.route({
 	path: "/email/inbound",
@@ -58,13 +60,18 @@ http.route({
 		const header = (name: string) => request.headers.get(name);
 		const signed = await verifySvix({ id: header("svix-id"), timestamp: header("svix-timestamp"), signature: header("svix-signature"), body, secret: process.env.RESEND_WEBHOOK_SECRET });
 		if (!signed) return new Response("Bad signature.", { status: 401 });
-		let event: { type?: string; data?: { email_id?: string; from?: string; to?: string[]; cc?: string[]; subject?: string; message_id?: string } };
+		let event: { type?: string; data?: { email_id?: string; from?: string; to?: string[]; cc?: string[]; subject?: string; message_id?: string; bounce?: { message?: string } } };
 		try {
 			event = JSON.parse(body);
 		} catch {
 			return new Response("Bad body.", { status: 400 });
 		}
 		const data = event.data;
+		const outcome = ({ "email.delivered": "delivered", "email.bounced": "bounced", "email.complained": "spam" } as const)[event.type ?? ""];
+		if (outcome && data?.email_id) {
+			await ctx.runMutation(internal.inbox.delivered, { providerId: data.email_id, event: outcome, ...(data.bounce?.message && { reason: data.bounce.message }) });
+			return new Response("OK", { status: 200 });
+		}
 		if (event.type !== "email.received" || !data?.email_id || !data.from) return new Response("Ignored.", { status: 200 });
 		const from = parseAddress(data.from);
 		if (!from) return new Response("No sender.", { status: 200 });
@@ -73,19 +80,24 @@ http.route({
 		// A failed fetch answers 500, so Resend sends the webhook again.
 		const content = await provider.received(data.email_id);
 		const recipients = [...new Set([...(data.to ?? []), ...(data.cc ?? [])].flatMap((r) => parseAddress(r)?.address ?? []))];
-		for (const to of recipients)
+		const { text, quoted } = splitQuoted(content.text);
+		for (const to of recipients) {
+			const cc = recipients.filter((r) => r !== to);
 			await ctx.runMutation(internal.inbox.receive, {
 				kind: "email",
 				to,
 				from: from.address,
 				...(from.name && { fromName: from.name }),
 				...(data.subject && { subject: data.subject }),
-				text: newPart(content.text),
+				text,
+				...(quoted && { quoted }),
+				...(cc.length && { cc }),
 				providerId: `${data.email_id}:${to}`,
 				...(data.message_id && { messageId: data.message_id }),
 				automated: isAutomated(content.headers),
 				unverified: !senderVerified(content.headers, from.address),
 			});
+		}
 		return new Response("OK", { status: 200 });
 	}),
 });

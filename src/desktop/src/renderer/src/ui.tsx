@@ -536,6 +536,8 @@ export const inboxPill = "inline-flex h-6 items-center gap-1.5 rounded-full pr-2
 /** An Inbox pill under a message: "Comment", "2 comments". */
 export const commentPillButton = `${inboxPill} bg-neutral-100 text-neutral-600 hover:bg-neutral-200 hover:text-neutral-900 aria-expanded:bg-neutral-200`;
 /** A 24px icon beside a title (a DM's New chat). */
+/** "•••" under an email: shows or hides the history its sender's mail app quoted (Gmail's). */
+export const quoteToggleButton = "flex h-3.5 w-7 items-center justify-center rounded-sm bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900 aria-expanded:bg-neutral-200 [&>svg]:size-4";
 export const smallIconButton = "flex size-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
 /** An icon with no box of its own (remove a filter, remove a chip): grey, darker on hover. */
 export const bareIconButton = "text-neutral-400 hover:text-neutral-700";

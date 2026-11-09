@@ -93,22 +93,39 @@ export const replySubject = (subject: string | undefined) => {
 export const referencesFor = (earlier: readonly string[], answering: string | undefined) => [...new Set([...earlier, ...(answering ? [answering] : [])])].slice(-10);
 
 /**
- * The new part of an email: what's above "On … wrote:" and lines quoted with ">". Mail apps quote the whole
- * thread under each reply; the conversation already has it.
+ * An email split into what's new and the history under it that mail apps quote: from an "On … wrote:"
+ * line (wrapped over up to three lines), an Outlook "Original Message" or From/Sent/Subject block, or
+ * the run of ">" lines it ends with. Lines quoted between new ones (answers inline) stay. All quote and
+ * nothing new: it's kept whole, so nothing is hidden. Also drops U+FFFC, the gap Apple Mail leaves
+ * where a picture was.
  */
-export function newPart(text: string): string {
-	const lines = text.replace(/\r\n/g, "\n").split("\n");
-	const out: string[] = [];
+export function splitQuoted(raw: string): { text: string; quoted: string } {
+	const lines = raw.replace(/\r\n?/g, "\n").replace(/\uFFFC/g, "").split("\n");
+	const cut = quoteStart(lines);
+	const text = lines.slice(0, cut).join("\n").trim();
+	return text ? { text, quoted: lines.slice(cut).join("\n").trim() } : { text: lines.join("\n").trim(), quoted: "" };
+}
+
+function quoteStart(lines: string[]): number {
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i]!;
-		// "On Tue, Nov 4, 2026 at 9:12 AM Dana <dana@acme.com> wrote:" (sometimes wrapped over two lines).
-		if (/^On .+wrote:\s*$/.test(line) || (/^On .+/.test(line) && /wrote:\s*$/.test(lines[i + 1] ?? ""))) break;
-		if (/^-{2,}\s*Original Message\s*-{2,}/i.test(line) || /^_{10,}$/.test(line)) break;
-		if (line.startsWith(">")) continue;
-		out.push(line);
+		const line = lines[i]!.trim();
+		// "On Tue, Nov 4, 2026 at 9:12 AM Dana <dana@acme.com> wrote:", sometimes wrapped; it always has a date.
+		if (/^On\s/.test(line)) {
+			const joined = lines.slice(i, i + 3).map((l) => l.trim()).join(" ");
+			const end = joined.search(/wrote:/);
+			if (end > 0 && /\d/.test(joined.slice(0, end))) return i;
+		}
+		if (/^-{2,}\s*(Original|Forwarded) Message\s*-{2,}/i.test(line) || /^_{10,}$/.test(line)) return i;
+		// Outlook: "From: …" then Sent/Date and Subject/To within a few lines.
+		if (/^\*?From:\*?\s/.test(line)) {
+			const next = lines.slice(i + 1, i + 5).map((l) => l.trim().replace(/^\*/, ""));
+			if (next.some((l) => /^(Sent|Date):/.test(l)) && next.some((l) => /^(Subject|To):/.test(l))) return i;
+		}
 	}
-	const kept = out.join("\n").trim();
-	return kept || text.trim();
+	// A run of ">" lines (and blank ones) to the end.
+	let at = lines.length;
+	while (at > 0 && (lines[at - 1]!.startsWith(">") || !lines[at - 1]!.trim())) at--;
+	return lines.slice(at).some((l) => l.startsWith(">")) ? at : lines.length;
 }
 
 /**

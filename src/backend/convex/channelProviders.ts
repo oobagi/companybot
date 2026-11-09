@@ -81,9 +81,19 @@ function resend(key: string): EmailProvider {
 	};
 }
 
-/** An HTML-only email's words: tags dropped, entities for the common characters read. */
-export function textOfHtml(html: string) {
-	return html
+/**
+ * An HTML-only email's words: tags dropped, entities for the common characters read. What it quotes
+ * (`<blockquote>`, as iPhones send replies) becomes ">" lines, so it's split off like a text one's.
+ */
+export function textOfHtml(html: string): string {
+	let quoted = html;
+	// Innermost first, so a quote in a quote gets ">>".
+	for (let i = 0; i < 20; i++) {
+		const next = quoted.replace(/<blockquote[^>]*>((?:(?!<blockquote)[\s\S])*?)<\/blockquote>/i, (_, inner: string) => `<br>${textOfHtml(inner).split("\n").map((l) => `> ${l}`.trimEnd().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")).join("<br>")}<br>`);
+		if (next === quoted) break;
+		quoted = next;
+	}
+	return quoted
 		.replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
 		.replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, "\n")
 		.replace(/<[^>]+>/g, "")
