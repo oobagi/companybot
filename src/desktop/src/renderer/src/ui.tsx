@@ -551,6 +551,13 @@ export const timeRemoveButton = "rounded-md p-1 text-neutral-400 hover:bg-neutra
 export const tabCloseButton = "flex size-5 items-center justify-center rounded text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-900";
 /** The + after a list's view tabs: the same button as the toolbar's at the row's other end, level with the tab names. */
 export const tabAddButton = `${toolButton} mb-1.5`;
+/**
+ * Accept and Dismiss on a value AI suggests (records `FieldSuggestion`): small enough that the suggestion is
+ * exactly a value's height, so nothing moves when it's decided.
+ */
+const fieldSuggestionBox = `inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-sm ${disabledButtonClass}`;
+export const fieldSuggestionButton = `${fieldSuggestionBox} border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`;
+export const fieldSuggestionPrimaryButton = `${fieldSuggestionBox} border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700`;
 /** A suggested first message in an empty agent chat. */
 export const suggestionButton =
 	"rounded-xl border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-600 transition-colors hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400";

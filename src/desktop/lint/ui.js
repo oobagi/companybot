@@ -28,6 +28,8 @@ const buttonClasses = new Set([
 	"sendButton",
 	"actionButton",
 	"actionPrimaryButton",
+	"fieldSuggestionButton",
+	"fieldSuggestionPrimaryButton",
 	"heroButton",
 	"updateButton",
 	"titleBarButton",
