@@ -11,7 +11,7 @@ import { viewConfig } from "./recordValidators";
 import { writeSources } from "./replySources";
 
 // Shared database views. App and agent writes use the same validation and history.
-const VIEWS_MAX = 50;
+export const VIEWS_MAX = 50;
 type Config = Pick<Doc<"databaseViews">, "name" | "filters" | "sort" | "columns" | "layout" | "groupBy">;
 
 /** A database's saved views. Seeing them takes View in the database; changing them, Edit (`need`). */
@@ -19,6 +19,14 @@ export async function viewsOf(ctx: QueryCtx, member: Member, typeId: Id<"recordT
 	const type = await requireType(ctx, member, typeId, need);
 	if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 	return ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", typeId)).take(VIEWS_MAX);
+}
+
+/** A database's views in tab order (the `views` arrangement, then the rest oldest first): the first is the one it opens on. */
+export async function viewsInOrder(ctx: QueryCtx, member: Member, typeId: Id<"recordTypes">) {
+	const views = await viewsOf(ctx, member, typeId);
+	const ids = (await ctx.db.query("arrangements").withIndex("by_list", (q) => q.eq("workspaceId", member.workspaceId).eq("userId", undefined).eq("list", "views").eq("entityId", typeId)).unique())?.ids ?? [];
+	const rank = (id: string) => (ids.includes(id) ? ids.indexOf(id) : ids.length);
+	return views.sort((a, b) => rank(a._id) - rank(b._id));
 }
 
 export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Config, viewId?: Id<"databaseViews">, version?: number) {
@@ -68,8 +76,9 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 export async function deleteView(ctx: MutationCtx, who: Who, viewId: Id<"databaseViews">, version: number) {
 	checkPermission(who.member, "records.edit");
 	const view = requireInWorkspace(who.member, await ctx.db.get(viewId), "View");
-	await viewsOf(ctx, who.member, view.typeId, "edit");
+	const views = await viewsOf(ctx, who.member, view.typeId, "edit");
 	checkVersion(view.version, version);
+	if (views.length <= 1) throw new ConvexError("A database keeps at least one view. Add another before deleting this one.");
 	await ctx.db.delete(viewId);
 	await logChange(ctx, who, { typeId: view.typeId, subject: view.name, action: "view.deleted", changes: [{ key: "name", old: view.name }] });
 }

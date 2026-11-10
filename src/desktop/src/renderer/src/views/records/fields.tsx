@@ -5,11 +5,11 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { bareIconButton, compactControlClass, hintClass, linkButton, useDebounced, useSynced } from "../../ui";
+import { compactControlClass, hintClass, linkButton, useDebounced, useSynced } from "../../ui";
 import { MenuItem, Popover } from "../chat/common";
 import { useCurrency, useTypes } from "./data";
 import { type Refs, type TypeField, moneyInput, recordPath, valueText } from "./logic";
-import { AmountIcon, CalendarIcon, CaretUpDownIcon, CheckboxIcon, ChoiceIcon, CloseIcon, EmailIcon, LinkFieldIcon, NumberIcon, PhoneIcon, PrivateIcon, TextIcon, UserIcon, WebsiteIcon, fieldIconSet } from "../../icons";
+import { AmountIcon, CalendarIcon, CaretUpDownIcon, CheckIcon, CheckboxIcon, ChoiceIcon, EmailIcon, LinkFieldIcon, NumberIcon, PhoneIcon, PrivateIcon, TextIcon, UserIcon, WebsiteIcon, fieldIconSet } from "../../icons";
 
 // Showing and editing one field's value, for every kind. Edits save as you leave the
 // input (Enter, or clicking away); Escape puts it back.
@@ -31,13 +31,13 @@ export function ValueView({ field, value, refs }: { field: TypeField; value: Fie
 	return <span className="break-words whitespace-pre-wrap">{valueText(field, value, refs)}</span>;
 }
 
-function LinkChips({ field, ids, refs, onRemove }: { field: TypeField; ids: string[]; refs: Refs; onRemove?: (id: string) => void }) {
+function LinkChips({ field, ids, refs }: { field: TypeField; ids: string[]; refs: Refs }) {
 	const types = useTypes();
 	const key = types?.find((t) => t._id === field.linkType)?.key;
 	return (
 		<span className="flex flex-wrap gap-1.5">
 			{ids.map((id) => (
-				<Chip key={id} onRemove={onRemove && (() => onRemove(id))}>
+				<Chip key={id}>
 					{refs[id]?.locked ? (
 						// In a database you can't see: no name, nothing to open.
 						<span className="flex items-center gap-1 text-neutral-400" title="Only some roles can see this record">
@@ -90,24 +90,15 @@ export function ChoiceChips({ field, ids }: { field: TypeField; ids: string[] })
 }
 
 /** A value as a chip: a pick, a person, a linked record. `color`: a choice option's (`optionColors`). */
-export function Chip({ children, color, onRemove }: { children: React.ReactNode; color?: string; onRemove?: () => void }) {
-	return (
-		<span className={`flex max-w-full items-center gap-1 rounded-md px-1.5 text-sm leading-5 ${tintOf(color)}`}>
-			{children}
-			{onRemove && (
-				<button type="button" onClick={onRemove} className={bareIconButton} title="Remove" aria-label="Remove">
-					<CloseIcon />
-				</button>
-			)}
-		</span>
-	);
+export function Chip({ children, color }: { children: React.ReactNode; color?: string }) {
+	return <span className={`flex max-w-full items-center gap-1 rounded-md px-1.5 text-sm leading-5 ${tintOf(color)}`}>{children}</span>;
 }
 
 /**
  * An inline editor for one field. `onSave` gets what to send `records.update` for it:
  * the typed text (the server checks and normalizes it), ids, `{ amount, currency }`, or null to clear.
  * `oneLine` (a table cell) keeps it to one line: long text scrolls instead of wrapping, and an
- * amount leaves its currency to the record page.
+ * amount leaves its currency to the record page. `autoFocus`: a text value's box starts focused.
  */
 export function ValueEditor({
 	field,
@@ -115,12 +106,14 @@ export function ValueEditor({
 	refs,
 	onSave,
 	oneLine = false,
+	autoFocus = false,
 }: {
 	field: TypeField;
 	value: FieldValue | undefined;
 	refs: Refs;
 	onSave: (value: unknown) => void;
 	oneLine?: boolean;
+	autoFocus?: boolean;
 }) {
 	switch (field.kind) {
 		case "checkbox":
@@ -145,12 +138,12 @@ export function ValueEditor({
 		case "link":
 			return <PickEditor field={field} ids={value === undefined ? [] : [value].flat().map(String)} refs={refs} onSave={onSave} />;
 		default:
-			return <TextEditor field={field} value={value === undefined ? "" : String(value)} onSave={onSave} oneLine={oneLine} />;
+			return <TextEditor field={field} value={value === undefined ? "" : String(value)} onSave={onSave} oneLine={oneLine} autoFocus={autoFocus} />;
 	}
 }
 
 /** Text, number, email, phone and web address. Long text wraps onto more lines, unless `oneLine`. */
-function TextEditor({ field, value, onSave, oneLine }: { field: TypeField; value: string; onSave: (value: unknown) => void; oneLine: boolean }) {
+function TextEditor({ field, value, onSave, oneLine, autoFocus }: { field: TypeField; value: string; onSave: (value: unknown) => void; oneLine: boolean; autoFocus: boolean }) {
 	const [draft, setDraft] = useSynced(value);
 	const commit = () => draft.trim() !== value && onSave(draft.trim() || null);
 	const keys = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -167,7 +160,7 @@ function TextEditor({ field, value, onSave, oneLine }: { field: TypeField; value
 		onKeyDown: keys,
 		maxLength: TEXT_MAX,
 		placeholder: "—",
-		// Cut short with "…" in a table cell, until you click in.
+		autoFocus,
 		className: `${fieldEditClass} placeholder:text-neutral-400 ${oneLine ? "truncate" : ""}`,
 	};
 	if (field.kind === "text" && field.key !== "name" && !oneLine) {
@@ -237,38 +230,52 @@ function PickEditor({ field, ids, refs, onSave }: { field: TypeField; ids: strin
 				)
 			}
 			className={`${fieldEditClass} flex-wrap gap-1.5 text-left`}
-			panelClassName="flex w-64 flex-col gap-1 p-2"
+			panelClassName="flex w-64 flex-col gap-px p-1"
 		>
 			{(close) => {
-				const pick = (id: string) => (field.multiple ? save([...ids, id]) : (save([id]), close()));
-				return (
-					<>
-						{ids.length > 0 && (
-							<span className="flex flex-wrap gap-1.5 px-1 pb-1">
-								{field.kind === "link" ? (
-									<LinkChips field={field} ids={ids} refs={refs} onRemove={(id) => save(ids.filter((i) => i !== id))} />
-								) : (
-									ids.map((id) => <Chip key={id} color={color(id)} onRemove={() => save(ids.filter((i) => i !== id))}>{label(id)}</Chip>)
-								)}
-							</span>
-						)}
-						{field.kind === "link" ? (
-							// No database to pick from when it links to one you can't see (linksHidden).
-							field.linkType && <RecordSearch typeId={field.linkType} exclude={ids} onPick={pick} />
-						) : (
-							options
-								.filter((o) => !ids.includes(o.id))
-								.map((o) => (
-									<MenuItem key={o.id} onClick={() => pick(o.id)}>
-										{field.kind === "choice" ? <Chip color={o.color}><span className="truncate">{o.label}</span></Chip> : <span className="min-w-0 truncate">{o.label}</span>}
-									</MenuItem>
-								))
-						)}
-						{field.kind !== "link" && options.every((o) => ids.includes(o.id)) && <span className={`px-2 py-1 ${hintClass}`}>{options.length ? "All picked." : "No options yet."}</span>}
-					</>
-				);
+				// Clicking a picked one unpicks it; a one-value field closes once it's set.
+				const toggle = (id: string) => {
+					save(ids.includes(id) ? ids.filter((i) => i !== id) : field.multiple ? [...ids, id] : [id]);
+					if (!field.multiple) close();
+				};
+				if (field.kind === "link") {
+					return (
+						<>
+							{ids.map((id) => <Picked key={id} label={label(id)} onClick={() => toggle(id)} />)}
+							{/* No database to pick from when it links to one you can't see (linksHidden). */}
+							{field.linkType && <RecordSearch typeId={field.linkType} exclude={ids} onPick={toggle} />}
+						</>
+					);
+				}
+				// A removed option still set here stays listed, so it can be unpicked.
+				const all = [...options, ...ids.filter((id) => !options.some((o) => o.id === id)).map((id) => ({ id, label: label(id), color: color(id) }))];
+				return all.length ? <CheckList field={field} options={all} picked={ids} onToggle={toggle} /> : <span className={`px-2 py-1 ${hintClass}`}>No options yet.</span>;
 			}}
 		</Popover>
+	);
+}
+
+/**
+ * Options to pick from, each in its place, as the sort menu: picked ones carry a ✓, and clicking
+ * one picks or unpicks it. Choices show as their chips.
+ */
+export function CheckList({ field, options, picked, onToggle }: { field: TypeField; options: { id: string; label: string; color?: string }[]; picked: string[]; onToggle: (id: string) => void }) {
+	return options.map((o) => (
+		<MenuItem key={o.id} onClick={() => onToggle(o.id)}>
+			{field.kind === "choice" ? <Chip color={o.color}><span className="truncate">{o.label}</span></Chip> : <span className="min-w-0 truncate">{o.label}</span>}
+			<span className="flex-1" />
+			{picked.includes(o.id) && <CheckIcon className="shrink-0 text-neutral-500" />}
+		</MenuItem>
+	));
+}
+
+/** A picked record above a record search: its ✓ says it's picked; clicking unpicks it. */
+export function Picked({ label, onClick }: { label: string; onClick: () => void }) {
+	return (
+		<MenuItem onClick={onClick}>
+			<span className="min-w-0 flex-1 truncate">{label}</span>
+			<CheckIcon className="shrink-0 text-neutral-500" />
+		</MenuItem>
 	);
 }
 

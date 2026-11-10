@@ -570,6 +570,8 @@ export async function createType(ctx: MutationCtx, who: Who, input: { plural: st
 	const names = databaseNames(input.plural, input.name, types);
 	const typeId = await insertType(ctx, who.member, { key: keyOf(names.name, [...types.map((t) => t.key), "campaign"]), ...names });
 	await insertField(ctx, who.member, typeId, { key: NAME_KEY, label: "Name", kind: "text" }, 0);
+	// Every database has at least one view; the first in order is the one it opens on.
+	await ctx.db.insert("databaseViews", { workspaceId: who.member.workspaceId, typeId, name: "All", filters: [], columns: [NAME_KEY], version: 1 });
 	await logChange(ctx, who, { typeId, action: "database.created", changes: Object.entries(names).map(([key, value]) => ({ key, new: value })) });
 	return typeId;
 }

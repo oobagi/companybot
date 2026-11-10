@@ -60,9 +60,8 @@ it("needs sidebar.arrange to reorder shared lists; personal ones stay the member
 	const view = await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "One", columns: ["name"], filters: [] });
 	await setMemberSwitch(owner, "sidebar.arrange", false);
 	expect((await member.query(api.arrangements.get))?.writable).toBe(false);
-	for (const [list, command, entityId] of [["channels", to(other, general._id)], ["pages", to(page, null)], ["databases", to(type._id, null)], ["views", to(view, null), type._id], ["columns", add("name"), type._id]] as const)
+	for (const [list, command, entityId] of [["channels", to(other, general._id)], ["pages", to(page, null)], ["databases", to(type._id, null)], ["views", to(view, null), type._id]] as const)
 		await expect(change(member, list, command, entityId)).rejects.toThrow("rearrange shared sidebar lists");
-	await expect(member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } })).rejects.toThrow("rearrange shared sidebar lists");
 	await member.mutation(api.arrangements.migrate, { list: "channels", ids: [general._id] });
 	expect(await idsOf(owner, "channels")).toBeUndefined();
 	// The rail's order, pins, DM order and folds are the member's own.
@@ -75,11 +74,14 @@ it("needs sidebar.arrange to reorder shared lists; personal ones stay the member
 	await change(member, "folded", add("dms"));
 	await change(member, "channelFolds", add(general._id));
 	await change(member, "workspaces", add(ws));
+	await change(member, "databaseRows", to("due", "mine", ["mine"]));
 	// Tabs and pins mix in one order.
 	expect(await idsOf(member, "rail")).toEqual(["drive", `page:${page}`, "chat", `chat:${general._id}`, "file:one"]);
 	expect(await idsOf(member, "dms")).toEqual([dms[1], dms[0]]);
 	expect(await idsOf(member, "folded")).toEqual(["dms"]);
 	expect(await idsOf(member, "channelFolds")).toEqual([general._id]);
+	expect(await idsOf(member, "databaseRows")).toEqual(["due", "mine"]);
+	expect(await idsOf(owner, "databaseRows")).toBeUndefined();
 	expect(await idsOf(owner, "rail")).toBeUndefined();
 });
 
@@ -99,66 +101,20 @@ it("validates an imported page against the destination workspace, even when anot
 	expect(await idsOf(owner.in(ws), "pages", parent)).toBeUndefined();
 });
 
-it("imports only absent lists, resolves database keys once, and stores layout on the database", async () => {
+it("imports only absent lists, resolves database keys once, and drops the old All tab's columns and layout", async () => {
 	const { owner } = await ownerAndMember();
 	const type = (await owner.query(api.recordTypes.list))[0]!;
 	await owner.mutation(api.arrangements.migrate, { list: "rail", ids: ["drive", "chat"] });
 	await owner.mutation(api.arrangements.migrate, { list: "rail", ids: ["databases"] });
 	expect(await idsOf(owner, "rail")).toEqual(["drive", "chat"]);
-	await owner.mutation(api.arrangements.migrate, { list: "columns", databaseKey: type.key, ids: ["name"] });
 	await owner.mutation(api.arrangements.migrate, { list: "databases", ids: [type.key, "deleted"] });
-	expect(await idsOf(owner, "columns", type._id)).toEqual(["name"]);
 	expect(await idsOf(owner, "databases")).toEqual([type._id]);
-	await owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: type.key, display: { layout: "board" } });
-	await owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: type.key, display: { layout: "table" } });
-	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === type._id)?.display).toEqual({ layout: "board" });
-	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "table" } });
-	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === type._id)?.display).toEqual({ layout: "table" });
-	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board", groupBy: "missing" } })).rejects.toThrow("live choice field");
-});
-
-it("changes a database's shared layout only with Edit in it, and never to a board with nothing to group by", async () => {
-	const { t, owner, member } = await ownerAndMember();
-	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Notes" });
-	const displayOf = async () => (await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)?.display;
-	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId, display: { layout: "board" } })).rejects.toThrow("Add a choice field first");
-	await expect(owner.mutation(api.databaseViews.save, { typeId, name: "Cards", columns: ["name"], filters: [], layout: "board" })).rejects.toThrow("Add a choice field first");
-	expect(await displayOf()).toEqual({ layout: "table" });
-	// View is enough to open it, not to change what everyone's All tab shows.
-	await owner.mutation(api.recordTypes.setAccess, { typeId, access: [{ role: "everyone", level: "view" }] });
-	await expect(member.mutation(api.recordTypes.setDisplay, { typeId, display: { layout: "table" } })).rejects.toThrow("Only Owners can change Notes.");
-	expect((await member.query(api.recordTypes.list)).find((t) => t._id === typeId)).toMatchObject({ canSetDisplay: false });
-	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)).toMatchObject({ canSetDisplay: true });
-	// alpha.9's one-time import of an old local layout follows the same limits, skipping (not refusing) what can't apply.
-	const key = (await owner.query(api.recordTypes.list)).find((t) => t._id === typeId)!.key;
-	await expect(member.mutation(api.recordTypes.migrateDisplay, { databaseKey: key, display: { layout: "table" } })).resolves.toBeNull();
-	await expect(owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: key, display: { layout: "board" } })).resolves.toBeNull();
-	expect(await t.run(async (ctx) => (await ctx.db.get("recordTypes", typeId))!.display ?? "unset")).toBe("unset");
-	await owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: key, display: { layout: "table" } });
-	expect(await displayOf()).toEqual({ layout: "table" });
-});
-
-it("merges display changes so layout and grouping don't overwrite each other; imports that can't succeed are skipped", async () => {
-	const { owner, member } = await ownerAndMember();
-	const type = (await owner.query(api.recordTypes.list))[0]!;
-	const choice = type.fields.find((f) => f.kind === "choice" && !f.multiple)!;
-	const displayOf = async () => (await owner.query(api.recordTypes.list)).find((t) => t._id === type._id)?.display;
-	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { groupBy: choice.key } });
-	await member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "board" } });
-	expect(await displayOf()).toEqual({ layout: "board", groupBy: choice.key });
-	// Each drag names one column, so two people resizing different ones keep both.
-	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "name", px: 300 } } });
-	await member.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: choice.key, px: 200 } } });
-	expect(await displayOf()).toEqual({ layout: "board", groupBy: choice.key, widths: { name: 300, [choice.key]: 200 } });
-	await owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "name" } } });
-	expect((await displayOf())?.widths).toEqual({ [choice.key]: 200 });
-	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "name", px: 10 } } })).rejects.toThrow("64 to 800 pixels");
-	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { width: { field: "gone", px: 200 } } })).rejects.toThrow("still has");
-	await setMemberSwitch(owner, "sidebar.arrange", false);
-	const fresh = (await owner.query(api.recordTypes.list))[1]!;
-	await member.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board" } });
-	await owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: fresh.key, display: { layout: "board", groupBy: "gone" } });
-	expect((await owner.query(api.recordTypes.list)).find((t) => t._id === fresh._id)?.display).toEqual({ layout: "board" });
+	// COMPAT(0.1.0-alpha.11): delete with the stubs. All is a saved view now, so alpha.10 apps' All tab saves nothing.
+	await owner.mutation(api.arrangements.migrate, { list: "columns", databaseKey: type.key, ids: ["name"] });
+	await change(owner, "columns", add("name"), type._id);
+	expect(await idsOf(owner, "columns", type._id)).toBeUndefined();
+	await expect(owner.mutation(api.recordTypes.migrateDisplay, { databaseKey: type.key, display: { layout: "board" } })).resolves.toBeNull();
+	await expect(owner.mutation(api.recordTypes.setDisplay, { typeId: type._id, display: { layout: "table" } })).rejects.toThrow("Update Companybot");
 });
 
 it("refuses commands naming removed or foreign things, and drops dead or malformed fill and seed ids", async () => {
@@ -171,9 +127,10 @@ it("refuses commands naming removed or foreign things, and drops dead or malform
 	const gonePage = await owner.mutation(api.pages.create, { title: "Gone" });
 	await owner.mutation(api.trash.move, { kind: "page", id: gonePage });
 	const type = (await owner.query(api.recordTypes.list))[0]!;
+	await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "Kept", columns: ["name"], filters: [] });
 	const deletedView = await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "Gone", columns: ["name"], filters: [] });
 	await owner.mutation(api.databaseViews.remove, { viewId: deletedView, version: 1 });
-	const cases: [ArrangementList, string, string?][] = [["channels", gone], ["channels", foreign], ["pages", gonePage], ["views", deletedView, type._id], ["databases", "deleted"], ["columns", "deleted", type._id], ["folded", "deleted"], ["rail", "nope"], ["channelFolds", gone]];
+	const cases: [ArrangementList, string, string?][] = [["channels", gone], ["channels", foreign], ["pages", gonePage], ["views", deletedView, type._id], ["databases", "deleted"], ["folded", "deleted"], ["rail", "nope"], ["databaseRows", "nope"], ["channelFolds", gone]];
 	for (const [list, id, entityId] of cases) {
 		await expect(change(owner, list, add(id), entityId), `${list} ${id}`).rejects.toThrow("Not found.");
 		await expect(change(owner, list, to(id, null), entityId)).rejects.toThrow("Not found.");
@@ -182,8 +139,6 @@ it("refuses commands naming removed or foreign things, and drops dead or malform
 	await expect(change(owner, "channels", to(channel._id, gone))).rejects.toThrow("Not found.");
 	await change(owner, "channels", to(channel._id, null, ["not-an-id", gone, foreign]));
 	expect(await idsOf(owner, "channels")).toEqual([channel._id]);
-	await change(owner, "columns", { op: "remove", id: "status", seed: ["name", "status", "deleted"] }, type._id);
-	expect(await idsOf(owner, "columns", type._id)).toEqual(["name"]);
 });
 
 /** Owner and a Member; Office is a role only the owner holds. */
@@ -226,7 +181,7 @@ it("keeps hidden items' order when someone who sees fewer reorders", async () =>
 	expect(await idsOf(owner, "channels")).toEqual([pub, general._id, first, second]);
 });
 
-it("leaves out restricted pages, databases and their views and columns for people without View", async () => {
+it("leaves out restricted pages, databases and their views for people without View", async () => {
 	const { owner, member, officeOnly } = await withOffice();
 	const open = await owner.mutation(api.pages.create, { title: "Open" });
 	const later = await owner.mutation(api.pages.create, { title: "Later" });
@@ -240,17 +195,14 @@ it("leaves out restricted pages, databases and their views and columns for peopl
 	await change(owner, "pages", add(under), secret);
 	for (const id of [hidden!._id, shown!._id]) await change(owner, "databases", add(id));
 	await change(owner, "views", add(view), hidden!._id);
-	await change(owner, "columns", add("name"), hidden!._id);
 	expect(await idsOf(member, "pages")).toEqual([open, later]);
 	expect(await idsOf(member, "pages", secret)).toBeUndefined();
 	expect(await idsOf(member, "databases")).toEqual([shown!._id]);
 	expect(await idsOf(member, "views", hidden!._id)).toBeUndefined();
-	expect(await idsOf(member, "columns", hidden!._id)).toBeUndefined();
 	await expect(change(member, "pages", to(secret, null))).rejects.toThrow("Not found.");
 	await expect(change(member, "databases", to(shown!._id, hidden!._id))).rejects.toThrow("Not found.");
-	await expect(change(member, "columns", add("name"), hidden!._id)).rejects.toThrow("Arrangement not found.");
+	await expect(change(member, "views", add(view), hidden!._id)).rejects.toThrow("Arrangement not found.");
 	await expect(change(member, "pages", add(under), secret)).rejects.toThrow("Arrangement not found.");
-	await expect(member.mutation(api.recordTypes.setDisplay, { typeId: hidden!._id, display: { layout: "board" } })).rejects.toThrow();
 	// Their reorder keeps the hidden page in place.
 	await change(member, "pages", to(later, open));
 	expect(await idsOf(owner, "pages")).toEqual([later, open, secret]);
@@ -264,8 +216,7 @@ it("deletes entity arrangements when pages and databases are deleted forever", a
 	const view = await owner.mutation(api.databaseViews.save, { typeId: type._id, name: "One", columns: ["name"], filters: [] });
 	await change(owner, "pages", add(child), page);
 	await change(owner, "views", add(view), type._id);
-	await change(owner, "columns", add("name"), type._id);
-	expect(await t.run((ctx) => ctx.db.query("arrangements").collect())).toHaveLength(3);
+	expect(await t.run((ctx) => ctx.db.query("arrangements").collect())).toHaveLength(2);
 	vi.useFakeTimers();
 	for (const [kind, id] of [["page", page], ["database", type._id]] as const) {
 		await owner.mutation(api.trash.move, { kind, id });

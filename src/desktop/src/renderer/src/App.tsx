@@ -27,12 +27,13 @@ import { type PinKey, pinOf, usePins } from "./pins";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, AddMenu, ChannelsAdd, ChannelsNav, DmsNav, Item, NewSection, SectionGroup, SectionsNav, SidebarList } from "./views/chat/Sidebar";
-import type { DragProps } from "./sortable";
-import { type SectionId, useSections, useUnsectioned } from "./sections";
+import { AddButton, AddMenu, ChannelsAdd, ChannelsNav, DmsNav, Group, Item, NewSection, SectionGroup, SectionsNav, SidebarList } from "./views/chat/Sidebar";
+import { type DragProps, useDragStatic, useSortable } from "./sortable";
+import { type SectionId, itemsGroup, unsectionedList, useSections, useUnsectioned } from "./sections";
 import { DriveNav, PagesView } from "./views/Pages";
 import { FileView } from "./views/Files";
 import { DriveView } from "./views/drive/Views";
+import { DatabaseList, databaseLists } from "./views/records/Lists";
 import { ComingSoon } from "./views/ComingSoon";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
@@ -150,7 +151,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox, /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox, /records/<type>[/<record>], /databases/<list>, /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -170,10 +171,9 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	// The rail's tab on screen. Settings (Customize included) lights none.
 	const tab: AppTab | undefined = placing
 		? lastTab.current
-		: view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
+		: view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" || view === "databases" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
 	lastTab.current = tab;
 	const types = useTypes();
-	const [newDatabase, setNewDatabase] = useState(false);
 	const [newSection, setNewSection] = useState(false);
 	const sectionTab = tab === "chat" || tab === "drive" || tab === "databases" ? tab : undefined;
 	const addSection = can(access, "sidebar.arrange") ? { label: "New section", onClick: () => setNewSection(true) } : undefined;
@@ -258,7 +258,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										{tab ? (
 											<div className="flex items-center gap-1 pr-2">
 												<h1 className="min-w-0 flex-1 truncate px-2 py-1.25 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
-												{/* The + here adds to the rows right under the name (channels, databases) and adds sections; a section (Direct messages, All files, the ones people add) has its own on its header. */}
+												{/* The + here adds to the rows right under the name (channels) and adds sections; a section (Direct messages, All files, All databases, the ones people add) has its own on its header. */}
 												{tab === "chat" && (
 													<span className="no-drag flex">
 														<ChannelsAdd onOpen={open} onNewSection={addSection?.onClick} />
@@ -266,7 +266,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 												)}
 												{(tab === "databases" || tab === "drive") && (
 													<span className="no-drag flex">
-														<AddMenu label="New" actions={[...(tab === "databases" && can(access, "fields.edit") ? [{ label: "New database", onClick: () => setNewDatabase(true) }] : []), ...(addSection ? [addSection] : [])]} />
+														<AddMenu label="New" actions={addSection ? [addSection] : []} />
 													</span>
 												)}
 											</div>
@@ -301,14 +301,13 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										</>
 									)}
 									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} openView={view === "drive" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} openList={view === "databases" ? route[1] : undefined} canCreate={can(access, "fields.edit")} />}
 								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
 						</aside>
 					)}
 
-					{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
 					{newSection && sectionTab && <NewSection tab={sectionTab} onClose={() => setNewSection(false)} />}
 					<main className="flex min-w-0 flex-1 flex-col">
 						<Notice>{error}</Notice>
@@ -328,6 +327,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
 						{view === "files" && <FileView fileId={route[1]} />}
 						{view === "drive" && <DriveView id={route[1]} />}
+						{view === "databases" && <DatabaseList id={route[1]} />}
 						{(view === "home" || view === "inbox" || view === "sites") && <ComingSoon tab={view} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
@@ -338,26 +338,37 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 }
 
 const typeKeyOf = (t: { _id: string }) => t._id;
+const listKey = (l: { id: string }) => l.id;
 
 /**
- * Databases' sidebar: the databases in no section, in the workspace's order, then the sections people
+ * Databases' sidebar: Assigned to me and Due (`databaseLists`), then the databases in no section, in the workspace's order, then the sections people
  * add (`SectionsNav`). New ones come from the + by the tab's name, or a section's own +.
  */
 function DatabasesNav({
 	types,
 	openKey,
+	openList,
 	canCreate,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
+	/** The open list (`databaseLists`), on its screen. */
+	openList: string | undefined;
 	/** `fields.edit`: a section's + makes a database in it. */
 	canCreate: boolean;
 }) {
 	const { place } = useSections("databases");
 	const { sorted, drag } = useUnsectioned("databases", types, typeKeyOf);
+	// Assigned to me and Due, in your order (`databaseRows`); they drag only among themselves.
+	const lists = useSortable("databaseRows", databaseLists, listKey);
 	const byId = useMemo(() => new Map<string, RecordType>(types.map((t) => [t._id, t])), [types]);
 	const [editing, setEditing] = useState<RecordType>();
-	const [creatingIn, setCreatingIn] = useState<SectionId>();
+	// undefined: no dialog; null: in no section (All databases).
+	const [creatingIn, setCreatingIn] = useState<SectionId | null>();
+	const [folded, changeFolded] = useStoredIds("folded");
+	const collapsed = folded.includes("databases");
+	// Its header starts the unsectioned list, so a drop just under its title goes in while it's empty.
+	const allDatabases = useDragStatic(itemsGroup("databases"), { startOf: unsectionedList("databases") });
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
@@ -391,7 +402,22 @@ function DatabasesNav({
 	);
 	return (
 		<>
-			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((type) => row(type, drag(type._id)))}</div>}
+			<div className="flex flex-col gap-px">
+				{lists.sorted.map((l) => (
+					<Item key={l.id} drag={lists.drag(l.id)} icon={l.icon} label={l.label} active={openList === l.id} onClick={() => navigate("databases", l.id)}>
+						<span className="truncate">{l.label}</span>
+					</Item>
+				))}
+			</div>
+			<Group
+				title="All databases"
+				divider={allDatabases}
+				section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: "databases" }) }}
+				add={canCreate && <AddButton label="New database" onClick={() => setCreatingIn(null)} />}
+			>
+				{/* Folded, the open database stays. */}
+				{sorted.filter((type) => !collapsed || type.key === openKey).map((type) => row(type, drag(type._id)))}
+			</Group>
 			<SectionsNav tab="databases">
 				{(section, at) => (
 					<SectionGroup
@@ -408,7 +434,7 @@ function DatabasesNav({
 			</SectionsNav>
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
-			{creatingIn && <DatabaseDialog onCreated={(id) => place(id, creatingIn)} onClose={() => setCreatingIn(undefined)} />}
+			{creatingIn !== undefined && <DatabaseDialog onCreated={creatingIn ? (id) => place(id, creatingIn) : undefined} onClose={() => setCreatingIn(undefined)} />}
 			{dialog}
 		</>
 	);

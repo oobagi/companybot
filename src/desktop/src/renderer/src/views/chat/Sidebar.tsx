@@ -255,7 +255,7 @@ const dmKey = (d: { key: string }) => d.key;
 export type SectionProps = { collapsed: boolean; onToggle: () => void };
 
 /**
- * A sidebar section (Chat's Direct messages, Drive's All files, and the ones people add). With
+ * A sidebar section (Chat's Direct messages, Drive's All files, Databases' All databases, and the ones people add). With
  * `section`, click its title to fold it. `add` sits at the header's right end, showing on hover, then
  * `menu`'s ⋯ (also its right-click menu); `rename` puts Rename first in it and edits the title in place.
  * `drag` makes the header its handle among sections; `divider` makes the header a divider between drag
@@ -354,7 +354,7 @@ export function SectionsNav({ tab, children }: { tab: SectionTab; children: (sec
 }
 
 /** Where a deleted section's things go back to, by tab. */
-const homeOf: Record<SectionTab, string> = { chat: "Its channels move back above the sections.", drive: "What it holds moves back to All files.", databases: "Its databases move back above the sections." };
+const homeOf: Record<SectionTab, string> = { chat: "Its channels move back above the sections.", drive: "What it holds moves back to All files.", databases: "Its databases move back to All databases." };
 
 /**
  * One section people added: `rows` (the ids it holds that this tab draws, in order; `render` draws one

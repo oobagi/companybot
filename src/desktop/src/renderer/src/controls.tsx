@@ -18,8 +18,8 @@ export type Option<T extends string = string> = {
 	group?: string;
 };
 
-/** Long lists get a search box. */
-const SEARCH_FROM = 12;
+/** Long lists get a search box (Select, a view's Properties). */
+export const SEARCH_FROM = 12;
 
 /**
  * Pick one of `options`. `className` styles the button: compact by default; `inputClass` in

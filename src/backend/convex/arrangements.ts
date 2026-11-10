@@ -1,4 +1,4 @@
-import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, driveRowIds, extraIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
+import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, databaseRowIds, driveRowIds, extraIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { can } from "@companybot/core/permissions";
 import { ConvexError, getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,6 +16,12 @@ import { sectionsOf } from "./sectionOps";
 type Target = { list: ArrangementList; entityId?: string };
 type Place = { workspaceId?: Id<"workspaces">; userId?: Id<"users">; list: ArrangementList; entityId?: Id<"pages"> | Id<"recordTypes"> };
 const targetArgs = { list: arrangementList, entityId: v.optional(v.string()) };
+
+/**
+ * COMPAT(0.1.0-alpha.11): alpha.10 apps still keep their All tab's columns here. All is a saved view now
+ * (migrations.allView), so changes and imports of this list are dropped. Delete with `columns` in core `arrangementLists`.
+ */
+const COLUMNS = "columns";
 
 /** A page level's ids read one by one (siblings under one parent): at most this many, the rest dropped from what's returned. */
 export const PAGE_LEVEL_MAX = 500;
@@ -165,12 +171,6 @@ async function placeOf(ctx: QueryCtx, member: Member, target: Target, seen: View
 }
 const rowOf = (ctx: QueryCtx, place: Place) => ctx.db.query("arrangements").withIndex("by_list", (q) => q.eq("workspaceId", place.workspaceId).eq("userId", place.userId).eq("list", place.list).eq("entityId", place.entityId)).unique();
 
-const columnsOf = async (ctx: QueryCtx, target: Target) => {
-	const typeId = ctx.db.normalizeId("recordTypes", target.entityId!)!;
-	const fields = await ctx.db.query("recordFields").withIndex("by_type", (q) => q.eq("typeId", typeId)).collect();
-	return new Set(fields.filter((f) => !f.archived).map((f) => f.key));
-};
-
 /** Reads one doc, counting its size against a budget when there is one (the legacy import's). */
 type Read = <T extends "chats" | "pages" | "databaseViews" | "agents" | "driveFiles">(table: T, id: string) => Promise<Doc<T> | null>;
 const reader = (ctx: QueryCtx, budget?: { bytes: number }): Read => async (table, id) => {
@@ -184,7 +184,7 @@ const reader = (ctx: QueryCtx, budget?: { bytes: number }): Read => async (table
  * Whether one id is something live this list can hold and the person can see: one to three reads, so
  * only for the ids a command names (and the bounded import).
  */
-async function live(ctx: QueryCtx, member: Member, target: Target, id: string, seen: Viewer, columns?: Set<string>, read = reader(ctx)) {
+async function live(ctx: QueryCtx, member: Member, target: Target, id: string, seen: Viewer, read = reader(ctx)) {
 	switch (target.list) {
 		case "channels": case "channelFolds": {
 			// The shared resolver, with its own ~8 MiB budget (the import's included).
@@ -210,7 +210,6 @@ async function live(ctx: QueryCtx, member: Member, target: Target, id: string, s
 			const chat = await read("chats", id);
 			return !!(agent && !agent.archived && agent.workspaceId === member.workspaceId) || !!(chat && !chat.archived && chat.kind === "dm" && await canSee(ctx, chat, member));
 		}
-		case "columns": return (columns ?? await columnsOf(ctx, target)).has(id);
 		case "workspaces": {
 			const ws = ctx.db.normalizeId("workspaces", id);
 			return !!ws && !!await memberOf(ctx, member.userId, ws);
@@ -230,6 +229,7 @@ function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
 		// COMPAT(0.1.0-alpha.10): that app still draws a Customize tab and may move it; newer ones ignore the id.
 		case "rail": return railTabs.includes(id) || id === "customize" || isPinKey(id);
 		case "driveRows": return driveRowIds.includes(id);
+		case "databaseRows": return databaseRowIds.includes(id);
 		default: return true;
 	}
 }
@@ -289,18 +289,17 @@ export const change = mutation({
 
 /** `change`, for a mutation that moves something between lists (sidebarSections.place). */
 export async function changeArrangement(ctx: MutationCtx, member: Member, target: Target, command: ArrangementCommand, seen = viewer(ctx, member)) {
+	if (target.list === COLUMNS) return;
 	if (arrangementLists[target.list].scope === "shared") checkPermission(member, "sidebar.arrange");
 	const place = await placeOf(ctx, member, target, seen);
 	if (!place) throw new ConvexError("Arrangement not found.");
 	validate([command.id, ...extraIds(command)]);
-	const columns = target.list === "columns" ? await columnsOf(ctx, target) : undefined;
 	const shared = arrangementLists[target.list].scope === "shared";
 	// Personal lists drop stale ids with a plain remove; on shared ones a hidden id can't be touched at all.
 	const named = command.op === "move" && command.beforeId !== null ? [command.id, command.beforeId] : command.op === "remove" && !shared ? [] : [command.id];
-	for (const id of named) if (!(await live(ctx, member, target, id, seen, columns))) throw new ConvexError("Not found.");
+	for (const id of named) if (!(await live(ctx, member, target, id, seen))) throw new ConvexError("Not found.");
 	const keep = async (ids?: string[]) => {
 		if (!ids) return undefined;
-		if (columns) return ids.filter((id) => columns.has(id));
 		if (target.list === "views") { const views = await seen.views(target.entityId!); return ids.filter((id) => views.has(id)); }
 		return shared ? (await seen.filter(target.list, target.entityId, ids)) ?? [] : ids.filter((id) => shaped(ctx, target.list, id));
 	};
@@ -322,9 +321,9 @@ const IMPORT_BYTES_MAX = 8 * 1024 * 1024;
  */
 export const migrate = mutation({
 	args: { ...targetArgs, targetWorkspaceId: v.optional(v.string()), databaseKey: v.optional(v.string()), ids: v.array(v.string()) },
-	handler: async (ctx, { targetWorkspaceId, databaseKey, ids, ...target }) => {
+	handler: async (ctx, { targetWorkspaceId, databaseKey: _, ids, ...target }) => {
 		const userId = await requireUserId(ctx);
-		if (target.list === "recent") return;
+		if (target.list === "recent" || target.list === COLUMNS) return;
 		ids = [...new Set(ids)].slice(0, IMPORT_IDS_MAX);
 		let workspaceId = targetWorkspaceId ? ctx.db.normalizeId("workspaces", targetWorkspaceId) : ctx.workspaceId;
 		if (!targetWorkspaceId && target.list === "views" && target.entityId) {
@@ -333,11 +332,6 @@ export const migrate = mutation({
 		}
 		const member = workspaceId && await memberOf(ctx, userId, workspaceId);
 		if (!member || (arrangementLists[target.list].scope === "shared" && !can(member, "sidebar.arrange"))) return;
-		if (databaseKey && target.list === "columns") {
-			const type = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("key", databaseKey)).unique();
-			if (!type) return;
-			target.entityId = type._id;
-		}
 		const seen = viewer(ctx, member);
 		const place = await placeOf(ctx, member, target, seen);
 		// Never valid here (another workspace's page, a record's page, one they can't see): skip so the importer clears the key.
@@ -346,13 +340,12 @@ export const migrate = mutation({
 		if (target.list === "databases") ids = (await Promise.all(ids.map((key) => ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("key", key)).unique()))).flatMap((type) => type ? [type._id] : []);
 		validate(ids);
 		if (await rowOf(ctx, place)) return;
-		const columns = target.list === "columns" ? await columnsOf(ctx, target) : undefined;
 		const budget = { bytes: IMPORT_BYTES_MAX };
 		const read = reader(ctx, budget);
 		const kept: string[] = [];
 		for (const id of ids) {
 			if (budget.bytes <= 0) break;
-			if (await live(ctx, member, target, id, seen, columns, read)) kept.push(id);
+			if (await live(ctx, member, target, id, seen, read)) kept.push(id);
 		}
 		await write(ctx, place, null, kept);
 	},

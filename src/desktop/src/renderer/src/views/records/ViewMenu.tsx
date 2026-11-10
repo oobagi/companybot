@@ -1,6 +1,7 @@
 import { NAME_KEY } from "@companybot/core/records";
 import { useEffect, useRef, useState } from "react";
 import { ArchiveIcon, BoardIcon, CalendarIcon, CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, DatabaseIcon, DragHandleIcon, EditIcon, FormIcon, GalleryIcon, GroupIcon, HideIcon, MoreIcon, PlusIcon, PropertiesIcon, ShowIcon, TrashIcon } from "../../icons";
+import { SEARCH_FROM } from "../../controls";
 import { useDragList } from "../../sortable";
 import { MenuDivider, compactControlClass, linkButton, smallIconButton, toolButton } from "../../ui";
 import { MenuItem, Popover } from "../chat/common";
@@ -25,8 +26,8 @@ type Page = "main" | "layout" | "properties" | "group" | { field: string };
 
 /** Each part is there only for whoever may change it. */
 export type ViewMenuProps = {
-	/** A saved view, for whoever may edit it. */
-	view?: { name: string; onRename: (name: string) => void; onDuplicate: () => void; onDelete: () => void };
+	/** The open view, for whoever may edit it. No `onDelete` when it's the database's last one. */
+	view?: { name: string; onRename: (name: string) => void; onDuplicate: () => void; onDelete?: () => void };
 	layout?: { value: LayoutChoice; onChange: (layout: LayoutChoice) => void };
 	properties?: {
 		fields: TypeField[];
@@ -124,9 +125,11 @@ function MainPage({ view, layout, properties, group, onEditDatabase, close, onPa
 					<MenuItem onClick={() => (close(), view.onDuplicate())}>
 						<CopyIcon className="text-neutral-400" /> Duplicate view
 					</MenuItem>
-					<MenuItem danger onClick={() => (close(), view.onDelete())}>
-						<TrashIcon /> Delete view
-					</MenuItem>
+					{view.onDelete && (
+						<MenuItem danger onClick={() => (close(), view.onDelete?.())}>
+							<TrashIcon /> Delete view
+						</MenuItem>
+					)}
 				</>
 			)}
 		</>
@@ -163,7 +166,7 @@ function PropertiesPage({ properties, onNewField, close, onBack, onOpen }: ViewM
 			<div key={f.key} {...d} className={`flex items-center rounded-lg bg-white ${d?.className ?? ""}`}>
 				<MenuItem title={f.canEdit ? "Edit property" : undefined} onClick={() => f.canEdit && onOpen(f.key)}>
 					{/* Every row keeps the handle's room, so the names line up. */}
-					{on && !q ? <DragHandleIcon className="-mx-1 shrink-0 text-neutral-300" /> : <span className="-mx-1 w-4 shrink-0" />}
+					{on && !q ? <DragHandleIcon weight="bold" className="-mx-1 shrink-0 text-neutral-400" /> : <span className="-mx-1 w-4 shrink-0" />}
 					<FieldIcon field={f} />
 					<span className={`flex-1 truncate ${on ? "" : "text-neutral-500"}`}>{f.label}</span>
 				</MenuItem>
@@ -192,16 +195,18 @@ function PropertiesPage({ properties, onNewField, close, onBack, onOpen }: ViewM
 	return (
 		<>
 			<Back label="Properties" onBack={onBack} />
-			<input
-				autoFocus
-				type="search"
-				aria-label="Search for a property"
-				placeholder="Search for a property"
-				value={search}
-				onChange={(e) => setSearch(e.target.value)}
-				maxLength={100}
-				className={`${compactControlClass} m-1`}
-			/>
+			{/* Only a long list gets a search box, as in every picker (Select). */}
+			{fields.length >= SEARCH_FROM && (
+				<input
+					autoFocus
+					aria-label="Search properties"
+					placeholder="Search"
+					value={search}
+					onChange={(e) => setSearch(e.target.value)}
+					maxLength={100}
+					className={`${compactControlClass} m-1`}
+				/>
+			)}
 			{heading(`Shown on ${where}`, shown.length ? { label: "Hide all", onClick: () => onChange(columns.filter((k) => k === NAME_KEY)) } : undefined)}
 			{name && matches(name) && (
 				// Always shown, first: no eye, no handle.

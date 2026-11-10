@@ -24,7 +24,7 @@ export const permissions = {
 	"workspace.reset": { label: "reset the workspace", ownerOnly: true },
 	/** Make, rename and delete roles and choose their switches. Owner-only, so nobody can give themselves more than an owner chose. */
 	"roles.manage": { label: "change roles", ownerOnly: true },
-	/** Reorder shared sidebar lists (channels, page siblings, databases, view tabs, a database's All tab layout) and lay out the sidebar's sections. */
+	/** Reorder shared sidebar lists (channels, page siblings, databases, view tabs) and lay out the sidebar's sections. */
 	"sidebar.arrange": { label: "rearrange shared sidebar lists", member: true },
 	/** Invite and remove people and give them roles. Only owners give or take the Owner role, or remove an owner. */
 	"members.manage": { label: "invite and remove people and change their roles", member: false },

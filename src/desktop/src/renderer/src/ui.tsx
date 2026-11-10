@@ -326,6 +326,7 @@ export function Tabs<T extends string>({
 	value,
 	onChange,
 	drag,
+	onRename,
 	children,
 	end,
 }: {
@@ -334,6 +335,8 @@ export function Tabs<T extends string>({
 	onChange: (tab: T) => void;
 	/** From `useSortable(…, "x")`, for tabs that can be dragged into another order. */
 	drag?: (tab: T) => DragProps | undefined;
+	/** For tabs that rename in place, on a double-click or F2, like the sidebar's rows. */
+	onRename?: (tab: T, name: string) => Promise<unknown>;
 	/** Extra controls after the last tab. */
 	children?: React.ReactNode;
 	/** Controls at the row's far end, like a view's search and filters. They keep their place; the tabs scroll. */
@@ -341,6 +344,7 @@ export function Tabs<T extends string>({
 }) {
 	const tabClass = (open: boolean) =>
 		`max-w-full truncate border-b-2 px-3 py-2 text-sm ${open ? "border-neutral-900 font-medium" : "border-transparent text-neutral-500 hover:text-neutral-800"}`;
+	const [renaming, setRenaming] = useState<T>();
 	return (
 		<nav className="flex items-end gap-2 border-b border-neutral-200">
 			{/* -mb-px: the open tab's underline sits on the row's line. The tabs stay inside the box, which
@@ -349,10 +353,23 @@ export function Tabs<T extends string>({
 			{tabs.map((t) => {
 				const d = drag?.(t.id);
 				return (
-					<span key={t.id} {...d} className={`relative flex max-w-full ${d?.className ?? ""}`}>
-						<button type="button" onClick={() => onChange(t.id)} className={tabClass(t.id === value)}>
-							{t.label}
-						</button>
+					<span key={t.id} {...(renaming !== t.id && d)} className={`relative flex max-w-full ${d?.className ?? ""}`}>
+						{renaming === t.id && onRename ? (
+							// Looks like the tab it renames (size, weight, padding, underline), so nothing shifts; only a light border, with room around the text like the sidebar's, marks it.
+							<span className={tabClass(t.id === value)}>
+								<RenameInput value={t.label} onSave={(name) => onRename(t.id, name)} onDone={() => setRenaming(undefined)} className="-mx-2 -my-1 min-w-[4ch] px-2 py-1 [field-sizing:content]" />
+							</span>
+						) : (
+							<button
+								type="button"
+								onClick={() => onChange(t.id)}
+								onDoubleClick={onRename && (() => setRenaming(t.id))}
+								onKeyDown={onRename && ((e) => e.key === "F2" && (e.preventDefault(), setRenaming(t.id)))}
+								className={tabClass(t.id === value)}
+							>
+								{t.label}
+							</button>
+						)}
 					</span>
 				);
 			})}
