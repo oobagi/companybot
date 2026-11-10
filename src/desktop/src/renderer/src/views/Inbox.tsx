@@ -266,7 +266,7 @@ function ConversationList({ openId }: { openId: string | undefined }) {
 }
 
 /**
- * A conversation's Move to › submenu: into one of Inbox's sections (or a new one), or out of the one it's in,
+ * A conversation's Move to › submenu (one of Inbox's sections, or a new one) and Remove from its section,
  * so it shows in the sidebar. Sections are the workspace's, so only people who can arrange the sidebar
  * (`sidebar.arrange`) get it. `dialog` is the New section dialog, kept outside the menu so it outlives it.
  */
@@ -277,28 +277,31 @@ function useSectionMoves() {
 	const menu = (id: string) => {
 		if (!writable) return undefined;
 		const at = sections.find((s) => s.ids.includes(id));
+		// The submenu lists only where it can go; leaving its section is an action of its own, beside it.
 		return (close: () => void) => (
-			<SubMenu icon={<ArrowRightIcon />} label="Move to" close={close}>
-				{(done) => (
-					<>
-						{sections.map((s) => (
-							<MenuItem key={s._id} onClick={() => (done(), s !== at && place(id, s._id))}>
-								<span className="min-w-0 flex-1 truncate">{s.name}</span>
-								{s === at && <CheckIcon className="shrink-0" />}
+			<>
+				<SubMenu icon={<ArrowRightIcon />} label="Move to" close={close}>
+					{(done) => (
+						<>
+							{sections.map((s) => (
+								<MenuItem key={s._id} onClick={() => (done(), s !== at && place(id, s._id))}>
+									<span className="min-w-0 flex-1 truncate">{s.name}</span>
+									{s === at && <CheckIcon className="shrink-0" />}
+								</MenuItem>
+							))}
+							{!!sections.length && <div role="separator" className="my-1 border-t border-neutral-100" />}
+							<MenuItem onClick={() => (done(), setNaming(id))}>
+								<PlusIcon /> New section…
 							</MenuItem>
-						))}
-						{at && (
-							<MenuItem onClick={() => (done(), place(id, null))}>
-								<CloseIcon /> Remove from {at.name}
-							</MenuItem>
-						)}
-						{!!sections.length && <div role="separator" className="my-1 border-t border-neutral-100" />}
-						<MenuItem onClick={() => (done(), setNaming(id))}>
-							<PlusIcon /> New section…
-						</MenuItem>
-					</>
+						</>
+					)}
+				</SubMenu>
+				{at && (
+					<MenuItem onClick={() => (close(), place(id, null))}>
+						<CloseIcon /> Remove from {at.name}
+					</MenuItem>
 				)}
-			</SubMenu>
+			</>
 		);
 	};
 	return { menu, dialog };
