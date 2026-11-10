@@ -37,7 +37,7 @@ import { recordUsage } from "./usage";
 // until someone changes it). Customers can't steer it into other records or fields, and the agent answering
 // them never edits records. Costs are the workspace's, kind "fields".
 
-const describe = (ai: FieldAi | undefined) => (ai ? `${fieldAiTriggerLabels[ai.when]}, ${fieldAiModeLabels[ai.mode].label.toLowerCase()}: ${ai.instruction}` : "Off");
+const describe = (ai: FieldAi | undefined) => (ai ? `${fieldAiTriggerLabels[ai.when]}, if it has a value, ${fieldAiModeLabels[ai.mode].toLowerCase()}: ${ai.instruction}` : "Off");
 
 /** Turns AI on for a field (or off, with null), as the person editing it. Logged with the field's other changes. */
 export async function setFieldAi(ctx: MutationCtx, who: Who, fieldId: Id<"recordFields">, raw: { instruction: string; when: string; mode: string } | null, kind?: Doc<"recordFields">["kind"]) {
@@ -134,7 +134,7 @@ export const run = internalAction({
 
 /**
  * Writes what the run answered, field by field, by each field's mode as it is now: values checked like any input
- * (one that doesn't fit is skipped), "Suggest it" ones kept for someone to accept. Records the call's cost.
+ * (one that doesn't fit is skipped), "Suggest a change to accept" ones kept for someone to accept. Records the call's cost.
  */
 export const apply = internalMutation({
 	args: {

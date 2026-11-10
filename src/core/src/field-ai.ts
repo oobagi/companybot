@@ -24,11 +24,12 @@ export const fieldAiSoonTriggers = [{ id: "call", label: "A call ends" }] as con
  */
 export const fieldAiModes = ["empty", "append", "replace", "suggest"] as const;
 export type FieldAiMode = (typeof fieldAiModes)[number];
-export const fieldAiModeLabels: Record<FieldAiMode, { label: string; hint: string }> = {
-	empty: { label: "Only if empty", hint: "Fills it once, then leaves it alone." },
-	append: { label: "Add to it", hint: "Adds a new line under what's there." },
-	replace: { label: "Replace it", hint: "Writes over what's there." },
-	suggest: { label: "Suggest it", hint: "Someone accepts or dismisses each change." },
+/** Answers "If it has a value". */
+export const fieldAiModeLabels: Record<FieldAiMode, string> = {
+	empty: "Only fill it if empty",
+	append: "Add a line below it",
+	replace: "Replace it",
+	suggest: "Suggest a change to accept",
 };
 
 export interface FieldAi {
@@ -49,7 +50,7 @@ export const FIELD_AI_MODEL = defaultModel;
 /** Kinds it can fill: values it can read from what was said. Not people or linked records (it would have to read them). */
 export const fieldAiKinds: readonly FieldKind[] = ["text", "number", "currency", "date", "checkbox", "choice", "email", "phone", "url"];
 export const canFillWithAi = (kind: FieldKind) => fieldAiKinds.includes(kind);
-/** "Add to it" only makes sense for text. */
+/** "Add a line below it" only makes sense for text. */
 export const fieldAiModesFor = (kind: FieldKind): readonly FieldAiMode[] => (kind === "text" ? fieldAiModes : fieldAiModes.filter((m) => m !== "append"));
 
 /** A setting as saved: a real instruction, a known trigger, and a mode that fits the field; or why it isn't one. */

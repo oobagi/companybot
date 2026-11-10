@@ -1421,7 +1421,7 @@ export default defineSchema({
 		.index("by_type", ["typeId", "key"])
 		.index("by_type_kind", ["typeId", "kind"]),
 
-	// What AI would write into a field set to "Suggest it" (fieldAi.ts), for someone to accept or dismiss. One per record and field: a newer one replaces it.
+	// What AI would write into a field set to "Suggest a change to accept" (fieldAi.ts), for someone to accept or dismiss. One per record and field: a newer one replaces it.
 	fieldSuggestions: defineTable({
 		workspaceId: v.id("workspaces"),
 		recordId: v.id("records"),

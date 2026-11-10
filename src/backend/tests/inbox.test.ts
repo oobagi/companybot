@@ -546,7 +546,7 @@ describe("field AI", () => {
 		await expect(owner.mutation(api.fields.create, { typeId, label: "A", kind: "text", ai: { instruction: " ", when: "message", mode: "replace" } })).rejects.toThrow("Say what");
 		await expect(owner.mutation(api.fields.create, { typeId, label: "B", kind: "number", ai: { instruction: "x", when: "message", mode: "append" } })).rejects.toThrow("how it writes");
 		await expect(owner.mutation(api.fields.create, { typeId, label: "C", kind: "user", ai: { instruction: "x", when: "message", mode: "replace" } })).rejects.toThrow("can't fill");
-		// "Add to it" becomes "Replace it" when the field stops being text; a kind it can't fill turns it off.
+		// "Add a line below it" becomes "Replace it" when the field stops being text; a kind it can't fill turns it off.
 		const f = await owner.mutation(api.fields.create, { typeId, label: "D", kind: "text", ai: { instruction: "x", when: "quiet", mode: "append" } });
 		vi.useFakeTimers();
 		await owner.mutation(api.fields.update, { fieldId: f._id, kind: "number" });
@@ -577,7 +577,7 @@ describe("field AI", () => {
 			costUsd: 0.001,
 		});
 		const record = (await t.run((ctx) => ctx.db.get(recordId)))!;
-		// Only if empty: budget had a value, so it stays. Add to it, replace it. Email has no AI: untouched.
+		// Only fill it if empty: budget had a value, so it stays. Add a line below it, replace it. Email has no AI: untouched.
 		expect(record.values).toMatchObject({ [keys.notes]: "Wants a quote.\n\nAsked about gutters.", [keys.budget]: 500, [keys.source]: "A friend", email: "dana@acme.com" });
 		expect(Object.keys(record.ai ?? {}).sort()).toEqual([keys.notes, keys.source].sort());
 		const history = await t.run((ctx) => ctx.db.query("recordHistory").withIndex("by_record", (q) => q.eq("recordId", recordId)).collect());
@@ -585,7 +585,7 @@ describe("field AI", () => {
 		expect((await t.run((ctx) => ctx.db.get(c._id)))!.fillAt?.message).toBeUndefined();
 		expect((await t.run((ctx) => ctx.db.query("usage").collect())).some((u) => u.kind === "fields")).toBe(true);
 
-		// Suggest it: kept for someone to accept; accepting writes it, as them.
+		// Suggest a change to accept: kept for someone to accept; accepting writes it, as them.
 		const [suggestion] = (await owner.query(api.fieldAi.suggestions, { recordId }))!;
 		expect(suggestion).toMatchObject({ label: "Stage", value: "Won" });
 		await owner.mutation(api.fieldAi.decide, { id: suggestion!.id, accept: true });

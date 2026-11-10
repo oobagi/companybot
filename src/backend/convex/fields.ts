@@ -59,7 +59,7 @@ export const update = mutation({
 		const who = { member: await requireMember(ctx) };
 		const field = await ctx.db.get(fieldId);
 		if (!field) throw new ConvexError("Field not found.");
-		// A kind AI can't fill turns it off; one it can keeps it ("Add to it" becomes "Replace it" off text).
+		// A kind AI can't fill turns it off; one it can keeps it ("Add a line below it" becomes "Replace it" off text).
 		const next = kind ?? field.kind;
 		const kept = field.ai && kind && kind !== field.kind ? { ...field.ai, mode: field.ai.mode === "append" && next !== "text" ? ("replace" as const) : field.ai.mode } : field.ai;
 		const wanted = ai === undefined ? kept ?? null : ai;

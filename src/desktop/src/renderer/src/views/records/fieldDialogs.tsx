@@ -108,7 +108,7 @@ function FieldSettings({ draft, set, field, type }: { draft: Draft; set: (d: Par
 }
 
 /**
- * "AI fills this": what to write, when and how, read from each customer's Inbox conversation. Only kinds it can
+ * "Fill with AI": instructions, when it updates and what it does with a value already there, read from each customer's Inbox conversation. Only kinds it can
  * read from what was said. It runs on the customers database's records, so elsewhere it says how to get there.
  */
 function AiSettings({ draft, set, customers }: { draft: Draft; set: (d: Partial<Draft>) => void; customers: boolean }) {
@@ -119,26 +119,26 @@ function AiSettings({ draft, set, customers }: { draft: Draft; set: (d: Partial<
 	return (
 		<>
 			<Setting
-				label="AI fills this"
-				hint={customers ? "From each customer's Inbox conversation. Each run costs a little." : "Runs on your customers database, picked in Settings → Email and phone. This isn't it yet."}
+				label="Fill with AI"
+				hint={customers ? "AI keeps this field up to date from each customer's Inbox conversation. Each update is a small AI cost." : "Only works on your customers database. Pick it in Settings → Email and phone."}
 			>
 				<Toggle checked={draft.aiOn} onChange={(aiOn) => set({ aiOn })} />
 			</Setting>
 			{draft.aiOn && (
 				<>
-					<Setting label="What to write" hint="Tell the AI what goes here. It leaves the field alone when the conversation doesn't say." wide>
+					<Setting label="Instructions" hint="What goes in this field. AI leaves it alone when the conversation doesn't say." wide>
 						<textarea
-							aria-label="What to write"
+							aria-label="Instructions"
 							rows={2}
 							value={ai.instruction}
 							onChange={(e) => change({ instruction: e.target.value })}
-							placeholder={draft.kind === "text" ? "A one-line summary of what they asked for" : "Their budget, if they said it"}
+							placeholder={draft.kind === "text" ? "A one-line summary of what they asked for" : "Their budget"}
 							className={`${compactControlClass} w-full resize-none leading-relaxed`}
 						/>
 					</Setting>
-					<Setting label="When">
+					<Setting label="Update when">
 						<Select
-							label="When"
+							label="Update when"
 							className={wideControlClass}
 							value={ai.when}
 							options={[
@@ -148,12 +148,12 @@ function AiSettings({ draft, set, customers }: { draft: Draft; set: (d: Partial<
 							onChange={(when) => change({ when: when as FieldAi["when"] })}
 						/>
 					</Setting>
-					<Setting label="How">
+					<Setting label="If it has a value">
 						<Select
-							label="How"
+							label="If it has a value"
 							className={wideControlClass}
 							value={modes.includes(ai.mode) ? ai.mode : "replace"}
-							options={modes.map((m) => ({ value: m, label: fieldAiModeLabels[m].label, hint: fieldAiModeLabels[m].hint }))}
+							options={modes.map((m) => ({ value: m, label: fieldAiModeLabels[m] }))}
 							onChange={(mode) => change({ mode })}
 						/>
 					</Setting>

@@ -125,7 +125,7 @@ export const fieldInput = z.object({
 		})
 		.nullable()
 		.optional()
-		.describe("AI fills this field on the customers database's records from their Inbox conversations; null turns it off. Each run costs a little."),
+		.describe("Fill with AI: AI keeps this field up to date on the customers database's records from each customer's Inbox conversation; null turns it off. Each update is a small AI cost."),
 });
 export type FieldSaveInput = z.infer<typeof fieldInput>;
 

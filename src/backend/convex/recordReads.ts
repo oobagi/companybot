@@ -105,7 +105,7 @@ export async function linkingRecords(
 }
 
 /** Field and database settings in history, as people say them. */
-const settingLabels: Record<string, string> = { ai: "AI fills this", label: "Name", options: "Options", position: "Position", kind: "Kind", multiple: "Holds", linkType: "Links to", name: "Name", plural: "Plural" };
+const settingLabels: Record<string, string> = { ai: "Fill with AI", label: "Name", options: "Options", position: "Position", kind: "Kind", multiple: "Holds", linkType: "Links to", name: "Name", plural: "Plural" };
 
 /** History entries hold old and new values, so their pages are smaller than lists. */
 const HISTORY_PAGE_MAX = 20;
