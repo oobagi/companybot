@@ -105,17 +105,25 @@ export async function linkingRecords(
 }
 
 /** Field and database settings in history, as people say them. */
-const settingLabels: Record<string, string> = { label: "Name", options: "Options", position: "Position", kind: "Kind", multiple: "Holds", linkType: "Links to", name: "Name", plural: "Plural" };
+const settingLabels: Record<string, string> = { ai: "AI fills this", label: "Name", options: "Options", position: "Position", kind: "Kind", multiple: "Holds", linkType: "Links to", name: "Name", plural: "Plural" };
 
 /** History entries hold old and new values, so their pages are smaller than lists. */
 const HISTORY_PAGE_MAX = 20;
 
 /**
  * Who made a change, for history and Activity: a member's name, or someone outside an agent acted for as
- * Public ("(555) 123-4567 by text"), shown with the agent as "Front desk, for (555) 123-4567 by text".
+ * Public ("(555) 123-4567 by text"), shown with the agent as "Front desk, for (555) 123-4567 by text"; or AI
+ * filling fields from a conversation.
  */
-export const changedBy = (ctx: QueryCtx, e: Pick<Doc<"recordHistory">, "userId" | "contact">) =>
-	e.userId ? nameOf(ctx, e.userId) : Promise.resolve(e.contact ? outsiderWords(e.contact) : "Someone");
+export async function changedBy(ctx: QueryCtx, e: Pick<Doc<"recordHistory">, "userId" | "contact" | "ai">) {
+	if (e.userId) return nameOf(ctx, e.userId);
+	if (e.ai) {
+		// Field AI (fieldAi.ts): from which conversation.
+		const c = e.ai.conversationId && (await ctx.db.get(e.ai.conversationId));
+		return c ? `AI, from the conversation with ${c.contactName ?? outsiderWords(c.contact)}` : "AI, from a conversation";
+	}
+	return e.contact ? outsiderWords(e.contact) : "Someone";
+}
 
 /** History entries, display-ready, with names resolved once for the page. */
 export async function toEntries(ctx: QueryCtx, member: Member, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {

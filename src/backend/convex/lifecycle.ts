@@ -490,6 +490,11 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		record: { index: "by_record", eq: ["recordId"] },
 		field: { index: "by_field_at", eq: ["fieldId"] },
 	},
+	fieldSuggestions: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		record: { index: "by_record", eq: ["recordId"] },
+		field: { index: "by_field", eq: ["fieldId"] },
+	},
 	recordHistory: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		record: { index: "by_record", eq: ["recordId"] },

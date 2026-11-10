@@ -24,6 +24,7 @@ import { notify } from "./notifications";
 import { mutation, query } from "./functions";
 import { pointByAddress } from "./contactPoints";
 import { linkCustomer } from "./customers";
+import { scheduleFill } from "./fieldAi";
 import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { typeVisible } from "./recordOps";
 
@@ -397,6 +398,7 @@ export const receive = internalMutation({
 			...(args.cc?.length && { cc: args.cc.slice(0, 20) }),
 		});
 		await linkCustomer(ctx, c, isNew);
+		if (!args.automated && !fromUs) await scheduleFill(ctx, (await ctx.db.get(c._id))!);
 		const agent = await answeringAgent(ctx, c);
 		if (agent && !args.automated && !fromUs) await queueReply(ctx, c);
 		// Someone on staff answers this one: tell them (or, if it's nobody's, everyone who can).

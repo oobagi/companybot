@@ -1,3 +1,4 @@
+import { FIELD_AI_INSTRUCTION_MAX, fieldAiModes, fieldAiTriggers } from "./field-ai";
 import { z } from "zod";
 import { fieldIcons, fieldKinds, optionColors } from "./records";
 import { type ToolDef, defineTool, jsonOutput, resultText as text } from "./tools";
@@ -116,6 +117,15 @@ export const fieldInput = z.object({
 	multiple: z.boolean().optional().describe("Choice, user and link fields: holds several. Several → one keeps each record's first value."),
 	preview: z.boolean().optional().describe("With kind, multiple or linksTo on an existing field: say what the change would do (values converted, cleared, options made, views losing a filter) without changing anything. Preview first and tell the person."),
 	trash: z.boolean().optional().describe("true archives `field` (to Archive: records keep its values until it's gone for good); false restores it. On its own."),
+	ai: z
+		.strictObject({
+			instruction: z.string().max(FIELD_AI_INSTRUCTION_MAX).describe('What to write, e.g. "A two-line summary of the latest conversation"'),
+			when: z.enum(fieldAiTriggers).describe("message: after a customer writes; quiet: once their conversation has gone quiet"),
+			mode: z.enum(fieldAiModes).describe("empty: only if empty; append: add to it (text); replace: write over it; suggest: someone accepts each change"),
+		})
+		.nullable()
+		.optional()
+		.describe("AI fills this field on the customers database's records from their Inbox conversations; null turns it off. Each run costs a little."),
 });
 export type FieldSaveInput = z.infer<typeof fieldInput>;
 

@@ -518,3 +518,93 @@ describe("staff in Inbox", () => {
 		await expect(owner.mutation(api.inbox.reply, { id: c!._id, text: "x", answers: c!._id as never })).rejects.toThrow();
 	});
 });
+
+describe("field AI", () => {
+	/** A customers database with fields AI fills, a record, and its conversation (no model runs here: tests call the write step). */
+	async function setup() {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		stubProviders();
+		const typeId = await owner.mutation(api.recordTypes.create, { plural: "Clients" });
+		await owner.mutation(api.fields.create, { typeId, label: "Email", kind: "email" });
+		const notes = await owner.mutation(api.fields.create, { typeId, label: "Notes", kind: "text", ai: { instruction: "A line on what they asked", when: "message", mode: "append" } });
+		const budget = await owner.mutation(api.fields.create, { typeId, label: "Budget", kind: "number", ai: { instruction: "Their budget", when: "message", mode: "empty" } });
+		const source = await owner.mutation(api.fields.create, { typeId, label: "Source", kind: "text", ai: { instruction: "How they found us", when: "message", mode: "replace" } });
+		const stage = await owner.mutation(api.fields.create, { typeId, label: "Stage", kind: "choice", options: [{ label: "Lead" }, { label: "Won" }], ai: { instruction: "Where they are", when: "message", mode: "suggest" } });
+		const recordId = await owner.mutation(api.records.create, { typeId, values: { name: "Dana Ruiz", email: "dana@acme.com", notes: "Wants a quote.", budget: 500, source: "Google" } });
+		await owner.mutation(api.customers.set, { typeId, addNew: false });
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Hi" });
+		const c = (await t.run((ctx) => ctx.db.query("inboxConversations").collect()))[0]!;
+		return { t, owner, typeId, recordId: recordId as Id<"records">, c, keys: { notes: notes.key, budget: budget.key, source: source.key, stage: stage.key } };
+	}
+
+	it("checks the setting: an instruction, and a mode that fits the field", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		const typeId = await owner.mutation(api.recordTypes.create, { plural: "Clients" });
+		await expect(owner.mutation(api.fields.create, { typeId, label: "A", kind: "text", ai: { instruction: " ", when: "message", mode: "replace" } })).rejects.toThrow("Say what");
+		await expect(owner.mutation(api.fields.create, { typeId, label: "B", kind: "number", ai: { instruction: "x", when: "message", mode: "append" } })).rejects.toThrow("how it writes");
+		await expect(owner.mutation(api.fields.create, { typeId, label: "C", kind: "user", ai: { instruction: "x", when: "message", mode: "replace" } })).rejects.toThrow("can't fill");
+		// "Add to it" becomes "Replace it" when the field stops being text; a kind it can't fill turns it off.
+		const f = await owner.mutation(api.fields.create, { typeId, label: "D", kind: "text", ai: { instruction: "x", when: "quiet", mode: "append" } });
+		vi.useFakeTimers();
+		await owner.mutation(api.fields.update, { fieldId: f._id, kind: "number" });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect((await t.run((ctx) => ctx.db.get(f._id)))!.ai).toEqual({ instruction: "x", when: "quiet", mode: "replace" });
+		await owner.mutation(api.fields.update, { fieldId: f._id, kind: "user" });
+		expect((await t.run((ctx) => ctx.db.get(f._id)))!.ai).toBeUndefined();
+		const history = await t.run((ctx) => ctx.db.query("recordHistory").collect());
+		expect(history.some((h) => h.changes.some((ch) => ch.key === "ai" && ch.new === "Off"))).toBe(true);
+	});
+
+	it("schedules a run when a linked customer writes, and only for triggers with fields", async () => {
+		const { c } = await setup();
+		expect(c.fillAt?.message).toBeGreaterThan(Date.now());
+		expect(c.fillAt?.quiet).toBeUndefined();
+	});
+
+	it("writes each field by its mode, as AI, and suggests where it should", async () => {
+		const { t, owner, recordId, c, keys } = await setup();
+		const at = c.fillAt!.message!;
+		await t.mutation(internal.fieldAi.apply, {
+			conversationId: c._id,
+			when: "message",
+			at,
+			recordId,
+			values: { [keys.notes]: "Asked about gutters.", [keys.budget]: 900, [keys.source]: "A friend", [keys.stage]: "Won", email: "evil@x.com" },
+			model: "test",
+			costUsd: 0.001,
+		});
+		const record = (await t.run((ctx) => ctx.db.get(recordId)))!;
+		// Only if empty: budget had a value, so it stays. Add to it, replace it. Email has no AI: untouched.
+		expect(record.values).toMatchObject({ [keys.notes]: "Wants a quote.\n\nAsked about gutters.", [keys.budget]: 500, [keys.source]: "A friend", email: "dana@acme.com" });
+		expect(Object.keys(record.ai ?? {}).sort()).toEqual([keys.notes, keys.source].sort());
+		const history = await t.run((ctx) => ctx.db.query("recordHistory").withIndex("by_record", (q) => q.eq("recordId", recordId)).collect());
+		expect(history.at(-1)).toMatchObject({ ai: { conversationId: c._id } });
+		expect((await t.run((ctx) => ctx.db.get(c._id)))!.fillAt?.message).toBeUndefined();
+		expect((await t.run((ctx) => ctx.db.query("usage").collect())).some((u) => u.kind === "fields")).toBe(true);
+
+		// Suggest it: kept for someone to accept; accepting writes it, as them.
+		const [suggestion] = (await owner.query(api.fieldAi.suggestions, { recordId }))!;
+		expect(suggestion).toMatchObject({ label: "Stage", value: "Won" });
+		await owner.mutation(api.fieldAi.decide, { id: suggestion!.id, accept: true });
+		expect(await owner.query(api.fieldAi.suggestions, { recordId })).toEqual([]);
+		const after = (await t.run((ctx) => ctx.db.get(recordId)))!;
+		expect(after.values[keys.stage]).toBeTruthy();
+		expect(after.ai?.[keys.stage]).toBeUndefined();
+
+		// A person changing a value clears its AI mark.
+		await owner.mutation(api.records.update, { recordId, values: { [keys.source]: "Yelp" } });
+		expect((await t.run((ctx) => ctx.db.get(recordId)))!.ai?.[keys.source]).toBeUndefined();
+	});
+
+	it("skips values that don't fit, and runs a later message replaced", async () => {
+		const { t, recordId, c, keys } = await setup();
+		await t.mutation(internal.fieldAi.apply, { conversationId: c._id, when: "message", at: c.fillAt!.message!, recordId, values: { [keys.stage]: "Nope", [keys.source]: null }, model: "test", costUsd: 0 });
+		expect(await t.run((ctx) => ctx.db.query("fieldSuggestions").collect())).toEqual([]);
+		expect((await t.run((ctx) => ctx.db.get(recordId)))!.values[keys.source]).toBe("Google");
+		// A run whose time a later message moved finds nothing to do.
+		expect(await t.query(internal.fieldAi.context, { conversationId: c._id, when: "message", at: 1 })).toBeNull();
+	});
+});

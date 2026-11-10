@@ -1,4 +1,4 @@
-import { accessLevels, customerReplyModes, appEventIds, builtInRoles, fieldKinds, fileTypes, inboxChannels, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { accessLevels, customerReplyModes, appEventIds, builtInRoles, fieldAiModes, fieldAiTriggers, fieldKinds, fileTypes, inboxChannels, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
 import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
@@ -10,6 +10,8 @@ const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map(
 
 const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+/** AI that fills a field (core field-ai.ts): what to write, when it runs, and how it writes. */
+export const fieldAi = v.object({ instruction: v.string(), when: oneOf(fieldAiTriggers), mode: oneOf(fieldAiModes) });
 export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
@@ -414,6 +416,8 @@ export default defineSchema({
 		/** While the agent is answering (inboxAgent.ts): when it started. One at a time; a message meanwhile sets `replyAgain`. */
 		replyingSince: v.optional(v.number()),
 		replyAgain: v.optional(v.boolean()),
+		/** When AI next fills its record's fields (fieldAi.ts), per trigger: a later message moves it, so a burst is one run. */
+		fillAt: v.optional(v.object({ message: v.optional(v.number()), quiet: v.optional(v.number()) })),
 	})
 		.index("by_contact", ["workspaceId", "channel", "via", "contact"])
 		.index("by_workspace", ["workspaceId", "lastAt"])
@@ -1400,6 +1404,8 @@ export default defineSchema({
 		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
 		linkTypeId: v.optional(v.id("recordTypes")),
 		multiple: v.optional(v.boolean()),
+		/** AI fills it from the record's customer conversations (fieldAi.ts). */
+		ai: v.optional(fieldAi),
 		/**
 		 * Set while its kind, one/several or linked database is changing (fieldChanges.ts): values are
 		 * converting in the background, so the field and its values can't be edited until it's unset.
@@ -1414,6 +1420,19 @@ export default defineSchema({
 	})
 		.index("by_type", ["typeId", "key"])
 		.index("by_type_kind", ["typeId", "kind"]),
+
+	// What AI would write into a field set to "Suggest it" (fieldAi.ts), for someone to accept or dismiss. One per record and field: a newer one replaces it.
+	fieldSuggestions: defineTable({
+		workspaceId: v.id("workspaces"),
+		recordId: v.id("records"),
+		fieldId: v.id("recordFields"),
+		value: fieldValue,
+		conversationId: v.optional(v.id("inboxConversations")),
+		at: v.number(),
+	})
+		.index("by_record", ["recordId"])
+		.index("by_field", ["fieldId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	records: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -1437,6 +1456,8 @@ export default defineSchema({
 		updatedBy: v.optional(v.id("users")),
 		/** Set when an agent made the last change, acting for `updatedBy` (or for someone outside). */
 		updatedByAgent: v.optional(v.id("agents")),
+		/** Values AI wrote (fieldAi.ts), by field key: when, and from which conversation. A person's change to one drops it. */
+		ai: v.optional(v.record(v.string(), v.object({ at: v.number(), conversationId: v.optional(v.id("inboxConversations")) }))),
 	})
 		.index("by_type", ["typeId", "archived"])
 		/** A member's own records, newest first, for Add (they see only what they made). */
@@ -1595,6 +1616,8 @@ export default defineSchema({
 		/** Someone outside the workspace (lowercased email or E.164 phone) the agent acted for as Public. */
 		contact: v.optional(v.string()),
 		agentId: v.optional(v.id("agents")),
+		/** AI filled these fields (fieldAi.ts), from this conversation. No person or agent did. */
+		ai: v.optional(v.object({ conversationId: v.id("inboxConversations") })),
 		/** Set on an undo: the change it reversed. */
 		undoes: v.optional(v.id("recordHistory")),
 		/** Set once this change has been undone. */

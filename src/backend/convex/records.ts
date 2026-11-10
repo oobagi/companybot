@@ -82,6 +82,8 @@ export const get = query({
 		return {
 			...row!,
 			canEdit: level === "edit" || own,
+			/** Fields whose value AI wrote (fieldAi.ts), until someone changes it. */
+			aiFilled: Object.keys(record.ai ?? {}),
 			archived: await inTrash(ctx, record),
 			trash: await trashInfo(ctx, member, record._id),
 			type: { _id: type._id, key: type.key, name: type.name, plural: type.plural },

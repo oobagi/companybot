@@ -38,6 +38,7 @@ import type * as databaseViews from "../databaseViews.js";
 import type * as dictation from "../dictation.js";
 import type * as driveFiles from "../driveFiles.js";
 import type * as driveTools from "../driveTools.js";
+import type * as fieldAi from "../fieldAi.js";
 import type * as fieldChanges from "../fieldChanges.js";
 import type * as fields from "../fields.js";
 import type * as fileText from "../fileText.js";
@@ -136,6 +137,7 @@ declare const fullApi: ApiFromModules<{
   dictation: typeof dictation;
   driveFiles: typeof driveFiles;
   driveTools: typeof driveTools;
+  fieldAi: typeof fieldAi;
   fieldChanges: typeof fieldChanges;
   fields: typeof fields;
   fileText: typeof fileText;

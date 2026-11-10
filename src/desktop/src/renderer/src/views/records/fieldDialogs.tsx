@@ -1,6 +1,7 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { Checkbox, Select } from "../../controls";
+import { Checkbox, Select, Toggle } from "../../controls";
 import { type FieldKind, NAME_KEY, autoColor, fieldIcons, fieldKinds, optionColors } from "@companybot/core/records";
+import { type FieldAi, canFillWithAi, fieldAiModeLabels, fieldAiModesFor, fieldAiSoonTriggers, fieldAiTriggerLabels, fieldAiTriggers } from "@companybot/core/field-ai";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
@@ -21,8 +22,10 @@ const severalKinds: FieldKind[] = ["choice", "user", "link"];
 
 type Option = { id?: string; label: string; color?: string; retired?: boolean };
 
-/** What the form holds. Options are the field's live ones, plus any typed. */
-type Draft = { label: string; icon?: string; kind: FieldKind; options: Option[]; added: string; linkTypeId: string; multiple: boolean };
+/** What the form holds. Options are the field's live ones, plus any typed. `ai` is kept while it's off, so turning it back on restores it. */
+type Draft = { label: string; icon?: string; kind: FieldKind; options: Option[]; added: string; linkTypeId: string; multiple: boolean; aiOn: boolean; ai: FieldAi };
+
+const newAi: FieldAi = { instruction: "", when: "message", mode: "replace" };
 
 const draftOf = (field?: TypeField, kind: FieldKind = "text"): Draft => ({
 	label: field?.label ?? "",
@@ -32,7 +35,14 @@ const draftOf = (field?: TypeField, kind: FieldKind = "text"): Draft => ({
 	added: "",
 	linkTypeId: field?.linkType ?? "",
 	multiple: !!field?.multiple,
+	aiOn: !!field?.ai,
+	ai: field?.ai ?? newAi,
 });
+
+/** The AI setting to send: off, or on with a mode that fits the kind ("Add to it" is text's). */
+const aiOf = (d: Draft): FieldAi | null =>
+	d.aiOn && canFillWithAi(d.kind) ? { ...d.ai, mode: fieldAiModesFor(d.kind).includes(d.ai.mode) ? d.ai.mode : "replace" } : null;
+const sameAi = (a: FieldAi | null | undefined, b: FieldAi | null | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /** The options to send: the list, plus what's typed in New option (the server gives it the next color in turn). */
 const optionsOf = (draft: Draft) =>
@@ -43,7 +53,7 @@ const reshapes = (field: TypeField, d: Draft) =>
 	d.kind !== field.kind || (severalKinds.includes(d.kind) && d.multiple !== !!field.multiple) || (d.kind === "link" && d.linkTypeId !== (field.linkType ?? ""));
 
 /** Every setting a field has, in one place: Add field and Edit field both show these. */
-function FieldSettings({ draft, set, field }: { draft: Draft; set: (d: Partial<Draft>) => void; field?: TypeField }) {
+function FieldSettings({ draft, set, field, type }: { draft: Draft; set: (d: Partial<Draft>) => void; field?: TypeField; type?: RecordType }) {
 	const types = useTypes();
 	const wasChoice = field?.kind === "choice";
 	const retired = draft.kind === "choice" && wasChoice ? (field.options?.filter((o) => o.retired) ?? []) : [];
@@ -92,7 +102,64 @@ function FieldSettings({ draft, set, field }: { draft: Draft; set: (d: Partial<D
 					<Checkbox label="Holds several" checked={draft.multiple} onChange={(multiple) => set({ multiple })} />
 				</Setting>
 			)}
+			{field?.key !== NAME_KEY && <AiSettings draft={draft} set={set} customers={!!type?.customers} />}
 		</Settings>
+	);
+}
+
+/**
+ * "AI fills this": what to write, when and how, read from each customer's Inbox conversation. Only kinds it can
+ * read from what was said. It runs on the customers database's records, so elsewhere it says how to get there.
+ */
+function AiSettings({ draft, set, customers }: { draft: Draft; set: (d: Partial<Draft>) => void; customers: boolean }) {
+	if (!canFillWithAi(draft.kind)) return null;
+	const ai = draft.ai;
+	const change = (next: Partial<FieldAi>) => set({ ai: { ...ai, ...next } });
+	const modes = fieldAiModesFor(draft.kind);
+	return (
+		<>
+			<Setting
+				label="AI fills this"
+				hint={customers ? "From each customer's Inbox conversation. Each run costs a little." : "Runs on your customers database, picked in Settings → Email and phone. This isn't it yet."}
+			>
+				<Toggle checked={draft.aiOn} onChange={(aiOn) => set({ aiOn })} />
+			</Setting>
+			{draft.aiOn && (
+				<>
+					<Setting label="What to write" hint="Tell the AI what goes here. It leaves the field alone when the conversation doesn't say." wide>
+						<textarea
+							aria-label="What to write"
+							rows={2}
+							value={ai.instruction}
+							onChange={(e) => change({ instruction: e.target.value })}
+							placeholder={draft.kind === "text" ? "A one-line summary of what they asked for" : "Their budget, if they said it"}
+							className={`${compactControlClass} w-full resize-none leading-relaxed`}
+						/>
+					</Setting>
+					<Setting label="When">
+						<Select
+							label="When"
+							className={wideControlClass}
+							value={ai.when}
+							options={[
+								...fieldAiTriggers.map((w) => ({ value: w, label: fieldAiTriggerLabels[w] })),
+								...fieldAiSoonTriggers.map((w) => ({ value: w.id, label: w.label, hint: "Coming soon", disabled: true })),
+							]}
+							onChange={(when) => change({ when: when as FieldAi["when"] })}
+						/>
+					</Setting>
+					<Setting label="How">
+						<Select
+							label="How"
+							className={wideControlClass}
+							value={modes.includes(ai.mode) ? ai.mode : "replace"}
+							options={modes.map((m) => ({ value: m, label: fieldAiModeLabels[m].label, hint: fieldAiModeLabels[m].hint }))}
+							onChange={(mode) => change({ mode })}
+						/>
+					</Setting>
+				</>
+			)}
+		</>
 	);
 }
 
@@ -128,7 +195,7 @@ export function AddField({
 		<Modal title={`Add a field to ${type.plural.toLowerCase()}`} onClose={onClose}>
 			<Form onSubmit={() => submit()}>
 				<Notice>{error}</Notice>
-				<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} />
+				<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} type={type} />
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
 					<button type="submit" className={primaryButton}>Add field</button>
@@ -143,7 +210,7 @@ export function AddField({
  * in the background on Save, like Notion; only a change that loses something says so first. Undoable for
  * 30 days. Archive is in the menu (to Trash).
  */
-export function EditField({ field, onClose }: { field: TypeField; onClose: () => void }) {
+export function EditField({ field, type, onClose }: { field: TypeField; type: RecordType; onClose: () => void }) {
 	const update = useMutation(api.fields.update);
 	const remove = useMutation(api.trash.move);
 	const undo = useMutation(api.records.undo);
@@ -194,7 +261,7 @@ export function EditField({ field, onClose }: { field: TypeField; onClose: () =>
 						<p>{(changes?.running?.converted ?? 0).toLocaleString()} done so far. You can change this field again once it's finished.</p>
 					</div>
 				) : (
-					<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} field={field} />
+					<FieldSettings draft={draft} set={(d) => setDraft((prev) => ({ ...prev, ...d }))} field={field} type={type} />
 				)}
 				{preview && <ChangeWarning preview={preview} />}
 				{!converting && !reshaping && last && (

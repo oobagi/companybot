@@ -344,7 +344,7 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 				</Modal>
 			)}
 			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
-			{editingField && <EditField field={editingField} onClose={() => setEditingField(undefined)} />}
+			{editingField && <EditField field={editingField} type={type} onClose={() => setEditingField(undefined)} />}
 			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => (setColumns([...columns, key]), preview === "board" && (setPreview(undefined), change({ layout: "board", groupBy: key })))} onClose={() => setAddingField(undefined)} />}
 		</Page>
 	);

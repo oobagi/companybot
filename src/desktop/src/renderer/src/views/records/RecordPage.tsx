@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { ArchiveIcon, ChatIcon, DatabaseIcon, FollowUpIcon, HistoryIcon, LinkedIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
+import { ArchiveIcon, ChatIcon, DatabaseIcon, FollowUpIcon, HistoryIcon, LinkedIcon, PinIcon, PlusIcon, RestoreIcon, SparkleIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
 import { LoadMore, NotFound, Notice, Section, Tabs, cardButton, cardClass, compactButton, descriptionClass, labelButton, linkButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
@@ -16,6 +16,7 @@ import { PageView } from "../Pages";
 import { TrashNotice } from "../Trash";
 import { WakeupList } from "../Wakeups";
 import { AddField, EditField } from "./fieldDialogs";
+import { FieldSuggestion, type Suggestion } from "./FieldSuggestion";
 import { Chip, FieldIcon, ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
 
@@ -95,6 +96,7 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 	const [editing, setEditing] = useState<TypeField>();
 	// The name is the page's title, edited there like Notion's.
 	const live = type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[];
+	const suggestions = useQuery(api.fieldAi.suggestions, { recordId: record._id });
 	// Body-sized, like the page under it (Notion's properties read at the text's size).
 	return (
 		<section className="flex flex-col gap-1 text-base">
@@ -105,6 +107,7 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 						field={field}
 						record={record}
 						editable={editable}
+						suggestion={suggestions?.find((s) => s.fieldKey === field.key)}
 						onEditField={field.canEdit ? () => setEditing(field) : undefined}
 					/>
 				))}
@@ -117,15 +120,23 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 				)}
 			</div>
 			{adding && <AddField type={type} onClose={() => setAdding(false)} />}
-			{editing && <EditField field={editing} onClose={() => setEditing(undefined)} />}
+			{editing && <EditField field={editing} type={type} onClose={() => setEditing(undefined)} />}
 		</section>
 	);
 }
 
-function FieldRow({ field, record, editable, onEditField }: { field: TypeField; record: RecordDoc; editable: boolean; onEditField?: () => void }) {
+/** Marks a value AI wrote, until someone changes it. */
+const AiMark = () => (
+	<span title="Filled by AI from a conversation. It stops being marked once someone changes it." className="shrink-0 text-neutral-400">
+		<SparkleIcon />
+	</span>
+);
+
+function FieldRow({ field, record, editable, suggestion, onEditField }: { field: TypeField; record: RecordDoc; editable: boolean; suggestion?: Suggestion; onEditField?: () => void }) {
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
 	const value = record.values[field.key] as FieldValue | undefined;
+	const byAi = record.aiFilled.includes(field.key);
 	return (
 		<>
 			{/* The label opens the field's settings, for whoever may change them. */}
@@ -134,9 +145,10 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
 						<FieldIcon field={field} large /> <span className="truncate">{field.label}</span>
 						{field.changing && <span className={metadataClass}>Converting…</span>}
+						{byAi && <AiMark />}
 					</button>
 				) : (
-					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} large /> <span className="truncate">{field.label}</span></span>
+					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} large /> <span className="truncate">{field.label}</span>{byAi && <AiMark />}</span>
 				)}
 			</dt>
 			<dd className="flex min-w-0 flex-col">
@@ -150,6 +162,11 @@ function FieldRow({ field, record, editable, onEditField }: { field: TypeField; 
 				) : (
 					<span className="px-2 py-1">
 						<ValueView field={field} value={value} refs={record.refs} />
+					</span>
+				)}
+				{suggestion && (
+					<span className="mx-2 mb-1">
+						<FieldSuggestion suggestion={suggestion} editable={editable} />
 					</span>
 				)}
 				{error && <span className="px-2 pb-1 text-xs text-red-600">{error}</span>}

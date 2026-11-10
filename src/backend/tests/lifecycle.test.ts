@@ -177,6 +177,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const recordId = await ctx.db.insert("records", { workspaceId, typeId, title: "Roof", values: { name: "Roof" }, searchText: "roof", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("recordValues", { recordId, fieldId, str: "roof", at: now });
 		await ctx.db.insert("recordHistory", { workspaceId, typeId, recordId, action: "created", changes: [], userId: memberId });
+		await ctx.db.insert("fieldSuggestions", { workspaceId, recordId, fieldId, value: "Roof repair", conversationId, at: now });
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
 		const counts = { checked: 1, converted: 1, cleared: 0, partly: 0, examples: [] };
 		const changeId = await ctx.db.insert("fieldChanges", { workspaceId, typeId, fieldId, from: { kind: "text" }, to: { kind: "text" }, status: "done", doneThrough: now, counts, userId: memberId, updatedAt: now, keepUntil: now + 1 });

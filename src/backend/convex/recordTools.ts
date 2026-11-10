@@ -15,6 +15,7 @@ import {
 } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { setFieldAi } from "./fieldAi";
 import { type QueryCtx, internalMutation } from "./_generated/server";
 import { activityPage } from "./activity";
 import { deleteView, saveView, viewsOf } from "./databaseViews";
@@ -463,7 +464,7 @@ export const saveFieldFor = internalMutation({
 	handler: (ctx, { turnId, op, input }) => withReceipt(ctx, op, turnId, async () => {
 		const { member, who } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
-			const { type: typeName, field: name, label, kind, icon, options: rawOptions, linksTo, multiple, trash, position, preview } = fieldInput.parse(input);
+			const { type: typeName, field: name, label, kind, icon, options: rawOptions, linksTo, multiple, trash, position, preview, ai } = fieldInput.parse(input);
 			const options = rawOptions?.map((o) => typeof o === "string" ? { label: o } : o);
 			const type = await typeByKey(ctx, member, typeName);
 			let fieldId: Id<"recordFields">;
@@ -491,12 +492,14 @@ export const saveFieldFor = internalMutation({
 				const choiceEdit = options && !(shape && shape.options);
 				if (label !== undefined || icon !== undefined || position !== undefined || choiceEdit) await updateField(ctx, who, field._id, { label, icon, options: choiceEdit ? options : undefined, position });
 				if (shape) changed = await changeField(ctx, who, field._id, shape);
+				if (ai !== undefined) await setFieldAi(ctx, who, field._id, ai, shape ? shape.kind : undefined);
 				fieldId = field._id;
 			} else {
 				if (position !== undefined) throw new ConvexError("Create the field before moving it.");
 				if (!label || !kind) throw new ConvexError("Give the new field a label and a kind.");
 				const linkTypeId = linksTo ? (await typeByKey(ctx, member, linksTo))._id : undefined;
 				fieldId = (await createField(ctx, who, type._id, { label, kind, ...(icon && { icon }), options, linkTypeId, multiple }))._id;
+				if (ai) await setFieldAi(ctx, who, fieldId, ai);
 			}
 			const f = (await ctx.db.get(fieldId))!;
 			const out = { type: type.key, typePlural: type.plural, ...fieldOut(f, f.linkTypeId && (await ctx.db.get(f.linkTypeId))?.key) };

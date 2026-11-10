@@ -1,8 +1,10 @@
+import { canFillWithAi } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./functions";
 import { getMember, requireMember } from "./lib";
 import { changeField, changesOf, previewChange } from "./fieldChanges";
 import { createField, toField, typeVisible, updateField } from "./recordOps";
+import { fieldAiArg, setFieldAi } from "./fieldAi";
 import { fieldKind } from "./schema";
 
 // Fields on databases. Adding, changing and deleting any of them takes `fields.edit` and Edit in the
@@ -23,9 +25,13 @@ export const create = mutation({
 		options: v.optional(options),
 		linkTypeId: v.optional(v.id("recordTypes")),
 		multiple: v.optional(v.boolean()),
+		/** AI fills it (fieldAi.ts). */
+		ai: fieldAiArg,
 	},
-	handler: async (ctx, { typeId, ...input }) => {
-		const field = await createField(ctx, { member: await requireMember(ctx) }, typeId, input);
+	handler: async (ctx, { typeId, ai, ...input }) => {
+		const who = { member: await requireMember(ctx) };
+		const field = await createField(ctx, who, typeId, input);
+		if (ai) await setFieldAi(ctx, who, field._id, ai);
 		return { _id: field._id, ...toField(field) };
 	},
 });
@@ -46,11 +52,18 @@ export const update = mutation({
 		kind: v.optional(fieldKind),
 		multiple: v.optional(v.boolean()),
 		linkTypeId: v.optional(v.id("recordTypes")),
+		/** AI fills it (fieldAi.ts); null turns it off. Left out keeps it. */
+		ai: fieldAiArg,
 	},
-	handler: async (ctx, { fieldId, kind, multiple, linkTypeId, ...update }) => {
+	handler: async (ctx, { fieldId, kind, multiple, linkTypeId, ai, ...update }) => {
 		const who = { member: await requireMember(ctx) };
 		const field = await ctx.db.get(fieldId);
 		if (!field) throw new ConvexError("Field not found.");
+		// A kind AI can't fill turns it off; one it can keeps it ("Add to it" becomes "Replace it" off text).
+		const next = kind ?? field.kind;
+		const kept = field.ai && kind && kind !== field.kind ? { ...field.ai, mode: field.ai.mode === "append" && next !== "text" ? ("replace" as const) : field.ai.mode } : field.ai;
+		const wanted = ai === undefined ? kept ?? null : ai;
+		if (ai !== undefined || kept !== field.ai) await setFieldAi(ctx, who, fieldId, canFillWithAi(next) ? wanted : null, next);
 		// COMPAT(0.1.0-alpha.10): released apps send only label, options and position; what's left out keeps the field's setup.
 		const shape = { kind: kind ?? field.kind, multiple: multiple ?? !!field.multiple, linkTypeId: linkTypeId ?? field.linkTypeId };
 		const changes = shape.kind !== field.kind || shape.multiple !== !!field.multiple || (shape.kind === "link" && shape.linkTypeId !== field.linkTypeId);

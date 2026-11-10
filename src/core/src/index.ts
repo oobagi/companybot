@@ -23,6 +23,7 @@ export * from "./oauth";
 export * from "./permissions";
 export * from "./place-access";
 export * from "./records";
+export * from "./field-ai";
 export * from "./field-change";
 export * from "./router";
 export * from "./record-tools";

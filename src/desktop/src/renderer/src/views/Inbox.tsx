@@ -1,4 +1,5 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { FieldSuggestion } from "./records/FieldSuggestion";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
@@ -874,6 +875,7 @@ function CustomerCard({ conversation: c }: { conversation: Opened }) {
 				<dt className="text-neutral-500">Record</dt>
 				<dd className="min-w-0 truncate">{c.record ? c.record.title : "Not in your records"}</dd>
 			</dl>
+			{c.record && <Suggestions recordId={c.record.id as Id<"records">} />}
 			<div className="flex">
 				{c.record ? (
 					<button type="button" onClick={() => navigate(...recordPath(c.record!.typeKey, c.record!.id))} className={actionButton}>
@@ -883,6 +885,19 @@ function CustomerCard({ conversation: c }: { conversation: Opened }) {
 					<Soon trigger="Add to records" label="Add to records" text={`Save ${them} as a contact, with their ${c.channel === "sms" ? "number" : "address"} filled in.`} className={actionButton} />
 				)}
 			</div>
+		</div>
+	);
+}
+
+/** What AI suggests for their record's fields, to accept or dismiss here. */
+function Suggestions({ recordId }: { recordId: Id<"records"> }) {
+	const suggestions = useQuery(api.fieldAi.suggestions, { recordId });
+	if (!suggestions?.length) return null;
+	return (
+		<div className="flex flex-col gap-1">
+			{suggestions.map((s) => (
+				<FieldSuggestion key={s.id} suggestion={s} label editable />
+			))}
 		</div>
 	);
 }

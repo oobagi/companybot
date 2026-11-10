@@ -121,6 +121,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"contactPoints.setAgent": { agent: ["inbox.manage:set_answerer"] },
 	"contactPoints.retry": { agent: ["inbox.manage:add_address"] },
 	"customers.set": { agent: ["inbox.manage:set_customers"] },
+	"fieldAi.decide": { humanOnly: "A person reviews what AI suggested for a field: accepting or dismissing it is their call." },
 	"inbox.reply": { agent: ["inbox.manage:reply"] },
 	"inbox.start": { agent: ["inbox.manage:start"] },
 	"inbox.assign": { agent: ["inbox.manage:assign"] },

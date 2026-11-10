@@ -23,7 +23,7 @@ import { type AccessLevel, PUBLIC_ACCESS, canAddIn, reaches } from "@companybot/
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { type Member, type Outsider, type Who, type Writer, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
+import { type Member, type Outsider, type ValueWriter, type Who, type Writer, checkPermission, checkVersion, memberOf, memo, nameOf, requireInWorkspace } from "./lib";
 import { canAdd, reach, requireAccess } from "./placeAccess";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
@@ -126,6 +126,7 @@ export const toField = (f: Doc<"recordFields">): Field => ({
 	...(f.options && { options: f.options }),
 	...(f.linkTypeId && { linkType: f.linkTypeId }),
 	...(f.multiple && { multiple: true }),
+	...(f.ai && { ai: f.ai }),
 });
 
 /**
@@ -142,7 +143,8 @@ export function fieldsShown(ctx: QueryCtx, member: Member) {
 }
 
 /** Changes go through here, so this is where record automations will hook in (`fireEvent`). */
-export async function logChange(ctx: MutationCtx, who: Writer, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId" | "contact">) {
+export async function logChange(ctx: MutationCtx, who: ValueWriter, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId" | "contact" | "ai">) {
+	if ("ai" in who) return ctx.db.insert("recordHistory", { workspaceId: who.ai.workspaceId, ai: { conversationId: who.ai.conversationId }, ...entry });
 	if ("outsider" in who) {
 		const { workspaceId, contact, agentId } = who.outsider;
 		return ctx.db.insert("recordHistory", { workspaceId, contact, agentId, ...entry });
@@ -232,8 +234,8 @@ function requireSize(values: Values) {
 		throw new ConvexError(`This record is too big (over ${RECORD_MAX_BYTES / 1024} KB). Keep long text in a note or file instead.`);
 }
 
-const stamp = (who: Writer) =>
-	"outsider" in who ? { updatedAt: Date.now(), updatedBy: undefined, updatedByAgent: who.outsider.agentId } : { updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId };
+const stamp = (who: ValueWriter) =>
+	"ai" in who ? { updatedAt: Date.now(), updatedBy: undefined, updatedByAgent: undefined } : "outsider" in who ? { updatedAt: Date.now(), updatedBy: undefined, updatedByAgent: who.outsider.agentId } : { updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId };
 
 /** Returns the new record and its "created" history entry. Takes Edit or Add in its database. */
 export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
@@ -282,9 +284,9 @@ export async function updateRecord(ctx: MutationCtx, who: Who, recordId: Id<"rec
 }
 
 /** Stores `next` (null clears) and logs what changed. Returns the history entry, if anything changed. */
-async function applyValues(
+export async function applyValues(
 	ctx: MutationCtx,
-	who: Writer,
+	who: ValueWriter,
 	record: Doc<"records">,
 	fields: Doc<"recordFields">[],
 	next: Record<string, FieldValue | null>,
@@ -302,8 +304,14 @@ async function applyValues(
 	const title = values[NAME_KEY];
 	if (typeof title !== "string") throw new ConvexError("Every record needs a name.");
 	requireSize(values);
-	if (!("outsider" in who)) await writeSources(ctx, who.member, record.typeId);
-	await ctx.db.patch(record._id, { title, values, searchText: searchTextOf(fields.map(toField), values), ...stamp(who) });
+	if ("member" in who) await writeSources(ctx, who.member, record.typeId);
+	// Which values AI wrote: its own are marked, and anyone else's change to one drops the mark.
+	const ai = { ...record.ai };
+	for (const c of changes) {
+		if ("ai" in who && c.new !== undefined) ai[c.key] = { at: Date.now(), conversationId: who.ai.conversationId };
+		else delete ai[c.key];
+	}
+	await ctx.db.patch(record._id, { title, values, searchText: searchTextOf(fields.map(toField), values), ...stamp(who), ai: Object.keys(ai).length ? ai : undefined });
 	await writeIndex(ctx, { ...record, values }, fields, new Set(changes.map((c) => c.key)));
 	return logChange(ctx, who, { typeId: record.typeId, recordId: record._id, action: "updated", changes, ...(undoes && { undoes }) });
 }

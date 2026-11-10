@@ -38,6 +38,8 @@ export const list = query({
 					plural: t.plural,
 					version: t.version ?? 0,
 					display: t.display ?? { layout: "table" as const },
+					/** Inbox's customers database: its records are the people writing in (customers.ts). */
+					customers: !!t.customers,
 					...access,
 					canEdit: level === "edit" && can(member, "records.edit"),
 					/** Add: they create records and see and change only their own (records.list shows just those). */

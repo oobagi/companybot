@@ -5,6 +5,8 @@
  * See wiki/data.md.
  */
 
+import type { FieldAi } from "./field-ai";
+
 export const fieldKinds = [
 	"text",
 	"number",
@@ -106,6 +108,8 @@ export interface FieldConfig {
 export interface Field extends FieldConfig {
 	/** Where its value lives on a record (`values[key]`). Set once from the label; never changes. */
 	key: string;
+	/** AI fills it (field-ai.ts). */
+	ai?: FieldAi;
 }
 
 /** Every type has it. Its value is the record's title. */

@@ -108,8 +108,16 @@ export interface Outsider {
 	verified: boolean;
 }
 
-/** Who changes a record: a member (maybe through an agent), or someone outside through an agent. */
+/** AI filling fields (fieldAi.ts) from a conversation: nobody asked it to, a field's setting did. */
+export interface AiWriter {
+	workspaceId: Id<"workspaces">;
+	conversationId: Id<"inboxConversations">;
+}
+
+/** Who changes a record or puts something in Archive: a member (maybe through an agent), or someone outside through an agent. */
 export type Writer = Who | { outsider: Outsider };
+/** Who changes a record's values: a Writer, or AI filling fields. */
+export type ValueWriter = Writer | { ai: AiWriter };
 
 /**
  * Their membership in one workspace, read fresh, so role changes and removals apply right
