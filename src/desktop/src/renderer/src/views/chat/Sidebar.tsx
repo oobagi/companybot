@@ -454,14 +454,14 @@ export function SectionGroup({ tab, section, drag, first, rows, keep, render, ro
 	);
 }
 
-/** New section, from the + beside the tab's name: it goes after the tab's others, empty. */
-export function NewSection({ tab, onClose }: { tab: SectionTab; onClose: () => void }) {
+/** New section, from the + beside the tab's name (or a Move to menu): it goes after the tab's others. `onCreated` gets it, to move something into it. */
+export function NewSection({ tab, onClose, onCreated }: { tab: SectionTab; onClose: () => void; onCreated?: (id: Id<"sidebarSections">) => void }) {
 	const create = useMutation(api.sidebarSections.create);
 	const [name, setName] = useState("");
 	const { error, run } = useRun();
 	return (
 		<Modal title="New section" size="md" onClose={onClose}>
-			<Form onSubmit={() => run(create({ tab, name }), onClose)}>
+			<Form onSubmit={() => run(create({ tab, name }).then((id) => onCreated?.(id)), onClose)}>
 				<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder={tab === "chat" ? "e.g. Sales" : tab === "drive" ? "e.g. Clients" : tab === "inbox" ? "e.g. Priority" : "e.g. Pipeline"} className={fullControlClass} />
 				<Notice>{error}</Notice>
 				<DialogButtons>

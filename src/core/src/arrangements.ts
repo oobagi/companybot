@@ -69,7 +69,7 @@ export const builtInSections = ["dms", "files", "inboxChannels", "inboxTags"];
 /**
  * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
  * orders their items in no section: Chat's channels, Drive's top-level pages, folders and files, the
- * databases, Inbox's views (`inboxRowIds`). Each item is in at most one of its tab's sections.
+ * databases, Inbox's views (`inboxRowIds`; its sections hold conversations too). Each item is in at most one of its tab's sections.
  */
 export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases", inbox: "inbox" } as const;
 export type SectionTab = keyof typeof sectionTabs;

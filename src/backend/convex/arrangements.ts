@@ -82,11 +82,17 @@ export function viewer(ctx: QueryCtx, member: Member) {
 	/** A Drive row this person sees: a page, folder or file (a level's order and a section hold all three). */
 	const driveItem = (id: string) => (ctx.db.normalizeId("driveFiles", id) ? file(id) : page(id));
 	const sections = once(() => sectionsOf(ctx, member.workspaceId));
-	/** Whether a section can hold this and the person sees it: a channel, a database, a top-level page, folder or file, or an Inbox view. */
+	/** An Inbox conversation here, for someone who can use Inbox. */
+	const conversation = async (id: string) => {
+		const docId = can(member, "inbox.use") && ctx.db.normalizeId("inboxConversations", id);
+		const doc = docId ? await ctx.db.get(docId) : null;
+		return !!doc && doc.workspaceId === member.workspaceId;
+	};
+	/** Whether a section can hold this and the person sees it: a channel, a database, a top-level page, folder or file, or an Inbox view or conversation. */
 	const sectionItem = async (tab: SectionTab, id: string) => {
 		if (tab === "chat") return channel(id);
 		if (tab === "databases") return (await types()).has(id);
-		if (tab === "inbox") return inboxRowIds.includes(id);
+		if (tab === "inbox") return inboxRowIds.includes(id) || await conversation(id);
 		const doc = await driveItem(id);
 		return !!doc && !doc.parentId;
 	};

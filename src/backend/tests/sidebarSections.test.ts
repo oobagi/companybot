@@ -2,7 +2,7 @@ import type { SectionTab } from "@companybot/core/arrangements";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, upload } from "./helpers";
+import { type As, generalOf, ownerAndMember, setMemberSwitch, settle, upload, workspaceOf } from "./helpers";
 
 // Sidebar sections (sidebarSections.ts): shared by the workspace, changed with `sidebar.arrange`, folded
 // by anyone; each item in one of its tab's sections at most, cut to what each person sees.
@@ -163,4 +163,23 @@ it("moves Inbox's views within and between sections like any tab's, and keeps it
 	// Only with `sidebar.arrange`.
 	await setMemberSwitch(owner, "sidebar.arrange", false);
 	await expect(place(member, "inbox", "mine", mine)).rejects.toThrow();
+});
+
+it("holds Inbox conversations in its sections, for people who can use Inbox, and lets them out without listing them", async () => {
+	const { t, owner, member } = await ownerAndMember();
+	const workspaceId = await workspaceOf(owner);
+	const conversation = (): Promise<string> => t.run((ctx) => ctx.db.insert("inboxConversations", { workspaceId, channel: "email", via: "hello@co.test", contact: "dana@acme.com", mode: "staff", lastAt: Date.now(), preview: "Hi" }));
+	const [dana, lee] = [await conversation(), await conversation()];
+	const priority = await owner.mutation(api.sidebarSections.create, { tab: "inbox", name: "Priority" });
+	await place(owner, "inbox", dana, priority);
+	await place(owner, "inbox", lee, priority, dana);
+	expect(await sectionsOf(owner, "inbox")).toEqual([{ name: "Priority", ids: [lee, dana] }]);
+	// Out of its section, it just leaves: Inbox's rows in no section are only its views.
+	await place(owner, "inbox", lee, null, null, ["needs", "mine", "agent", "all"]);
+	expect(await sectionsOf(owner, "inbox")).toEqual([{ name: "Priority", ids: [dana] }]);
+	expect((await layout(owner)).rows.find((r) => r.list === "inbox")?.ids ?? []).not.toContain(lee);
+	// Someone who can't use Inbox doesn't see it there, and can't move it.
+	await setMemberSwitch(owner, "inbox.use", false);
+	expect(await sectionsOf(member, "inbox")).toEqual([{ name: "Priority", ids: [] }]);
+	await expect(place(member, "inbox", lee, priority)).rejects.toThrow();
 });

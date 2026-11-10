@@ -63,7 +63,7 @@ export const remove = mutation({
  * Puts one of a tab's things in a section, before `beforeId` (last when null), or with `sectionId`
  * null back among the things in none, in that list's order (`fill`: ids shown there but never saved,
  * as in `arrangements.change`). It leaves whichever section held it, so it's only ever in one. Drive's
- * files in no section go by name: they just leave their section.
+ * files in no section go by name, and Inbox's conversations aren't listed outside one: they just leave their section.
  */
 export const place = mutation({
 	args: { tab: sectionTab, id: v.string(), sectionId: v.union(v.id("sidebarSections"), v.null()), beforeId: v.union(v.string(), v.null()), fill: v.optional(v.array(v.string())) },
@@ -80,7 +80,7 @@ export const place = mutation({
 			const ids = applyCommand(target.ids, { op: "move", id, beforeId });
 			if (ids.length > SECTION_ITEMS_MAX) throw new ConvexError(`A section can hold ${SECTION_ITEMS_MAX} things.`);
 			await ctx.db.patch(target._id, { ids });
-		} else if (tab !== "drive" || ctx.db.normalizeId("pages", id)) {
+		} else if ((tab !== "drive" || ctx.db.normalizeId("pages", id)) && !(tab === "inbox" && ctx.db.normalizeId("inboxConversations", id))) {
 			await changeArrangement(ctx, member, { list: sectionTabs[tab] }, { op: "move", id, beforeId, fill }, seen);
 		}
 	},

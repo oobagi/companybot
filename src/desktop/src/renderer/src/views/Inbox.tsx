@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
-import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "../api";
 import { Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
@@ -34,8 +34,10 @@ import {
 	MoreIcon,
 	WhatsappLogoIcon,
 	WarningIcon,
+	ArrowRightIcon,
+	PlusIcon,
 } from "../icons";
-import { navigate } from "../router";
+import { navigate, useRoute } from "../router";
 import {
 	CountBadge,
 	EmptyState,
@@ -68,9 +70,9 @@ import {
 	useRun,
 } from "../ui";
 import { recordPath } from "./records/logic";
-import { Avatar, DialogButtons, MenuItem, Modal, Popover, clock, dayLabel } from "./chat/common";
-import { AddButton, AddMenu, Group as NavGroup, Item, SectionGroup, SectionsNav } from "./chat/Sidebar";
-import { useUnsectioned } from "../sections";
+import { Avatar, DialogButtons, MenuItem, Modal, Popover, SubMenu, clock, dayLabel } from "./chat/common";
+import { AddButton, AddMenu, Group as NavGroup, Item, NewSection, SectionGroup, SectionsNav } from "./chat/Sidebar";
+import { useSections, useUnsectioned } from "../sections";
 import { type DragProps, useSortable } from "../sortable";
 import { useStoredIds } from "../arrangements";
 import { Composer } from "./chat/Composer";
@@ -152,11 +154,16 @@ function useFilter() {
 /**
  * Inbox's sidebar, laid out like Chat's: the views of who's handling what (Needs you counts what waits
  * for staff) on top and in the sections people add, moving like Chat's channels; then the built-in
- * Channels and Tags groups, like Direct messages: they fold, Channels' rows reorder, and nobody deletes them. The conversations are in their own column (InboxView).
+ * Channels and Tags groups, like Direct messages: they fold, Channels' rows reorder, and nobody deletes them.
+ * Sections also hold conversations, moved there from a conversation's menu. The conversations are in their own column (InboxView).
  */
 export function InboxNav() {
 	const list = useQuery(api.inbox.list);
 	const [filter, pick] = useFilter();
+	const route = useRoute();
+	const openId = route[0] === "inbox" ? route[1] : undefined;
+	const byId = useMemo(() => new Map((list ?? []).map((c) => [c.id as string, c])), [list]);
+	const moves = useSectionMoves();
 	// The views move like Chat's channels, into sections people add; Channels and Tags are built in, like Direct messages.
 	const { sorted, drag } = useUnsectioned("inbox", views, rowKey);
 	const channelOrder = useSortable("inboxChannels", channelRows, rowKey);
@@ -179,6 +186,7 @@ export function InboxNav() {
 	};
 	return (
 		<>
+			{moves.dialog}
 			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((r) => row(r.id, drag(r.id)))}</div>}
 			<SectionsNav tab="inbox" builtIns={[
 				// Folded, only the picked row stays, like a folded section's.
@@ -195,7 +203,31 @@ export function InboxNav() {
 			]}>
 				{(section, at) => (
 					// Folded, the picked one stays.
-					<SectionGroup {...at} tab="inbox" section={section} rows={section.ids.filter((id) => id in filters)} keep={(id) => id === filter} render={(id, drag) => row(id, drag?.item)} />
+					<SectionGroup
+						{...at}
+						tab="inbox"
+						section={section}
+						rows={section.ids.filter((id) => id in filters || byId.has(id))}
+						keep={(id) => id === filter || id === openId}
+						render={(id, drag) => {
+							const c = byId.get(id);
+							if (!c) return row(id, drag?.item);
+							return (
+								<Item
+									key={id}
+									drag={drag?.item}
+									pin={`inbox:${id}`}
+									icon={<ChannelIcon channel={c.channel} />}
+									label={contactLabel(c)}
+									active={id === openId}
+									onClick={() => navigate("inbox", id)}
+									menu={moves.menu(id)}
+								>
+									<span className={`truncate ${c.needsStaff ? "font-semibold text-neutral-900" : ""}`}>{contactLabel(c)}</span>
+								</Item>
+							);
+						}}
+					/>
 				)}
 			</SectionsNav>
 		</>
@@ -233,11 +265,54 @@ function ConversationList({ openId }: { openId: string | undefined }) {
 	);
 }
 
-/** One waiting for staff is bold, with a dot on its icon. */
+/**
+ * A conversation's Move to › submenu: into one of Inbox's sections (or a new one), or out of the one it's in,
+ * so it shows in the sidebar. Sections are the workspace's, so only people who can arrange the sidebar
+ * (`sidebar.arrange`) get it. `dialog` is the New section dialog, kept outside the menu so it outlives it.
+ */
+function useSectionMoves() {
+	const { sections, place, writable } = useSections("inbox");
+	const [naming, setNaming] = useState<string>();
+	const dialog = naming && <NewSection tab="inbox" onClose={() => setNaming(undefined)} onCreated={(sectionId) => place(naming, sectionId)} />;
+	const menu = (id: string) => {
+		if (!writable) return undefined;
+		const at = sections.find((s) => s.ids.includes(id));
+		return (close: () => void) => (
+			<SubMenu icon={<ArrowRightIcon />} label="Move to" close={close}>
+				{(done) => (
+					<>
+						{sections.map((s) => (
+							<MenuItem key={s._id} onClick={() => (done(), s !== at && place(id, s._id))}>
+								<span className="min-w-0 flex-1 truncate">{s.name}</span>
+								{s === at && <CheckIcon className="shrink-0" />}
+							</MenuItem>
+						))}
+						{at && (
+							<MenuItem onClick={() => (done(), place(id, null))}>
+								<CloseIcon /> Remove from {at.name}
+							</MenuItem>
+						)}
+						{!!sections.length && <div role="separator" className="my-1 border-t border-neutral-100" />}
+						<MenuItem onClick={() => (done(), setNaming(id))}>
+							<PlusIcon /> New section…
+						</MenuItem>
+					</>
+				)}
+			</SubMenu>
+		);
+	};
+	return { menu, dialog };
+}
+
+/** One waiting for staff is bold, with a dot on its icon. Its menu moves it into a section of the sidebar. */
 function ConversationRow({ c, open }: { c: Row; open: boolean }) {
+	const moves = useSectionMoves();
 	return (
+		<>
+		{moves.dialog}
 		<Item
 			pin={`inbox:${c.id}`}
+			menu={moves.menu(c.id)}
 			// Hovered, its ⋯ takes the time's and the assignee's place.
 			swap
 			icon={
@@ -271,6 +346,7 @@ function ConversationRow({ c, open }: { c: Row; open: boolean }) {
 				</span>
 			</span>
 		</Item>
+		</>
 	);
 }
 

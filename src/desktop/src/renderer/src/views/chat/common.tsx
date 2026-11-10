@@ -1,6 +1,6 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
+import { CaretRightIcon, CloseIcon, MoreIcon, PlusIcon } from "../../icons";
 import { Notice, Scroll, ScrollUnder, dangerButton, iconButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
@@ -326,6 +326,7 @@ export function PopoverPanel({
 	returnFocus,
 	matchWidth,
 	trapFocus = true,
+	side = "bottom-start",
 	className = "w-72",
 	children,
 }: {
@@ -336,6 +337,8 @@ export function PopoverPanel({
 	returnFocus?: React.RefObject<HTMLElement | null>;
 	matchWidth?: boolean;
 	trapFocus?: boolean;
+	/** Where it opens from its target: below (the default), or beside it for a submenu. */
+	side?: "bottom-start" | "right-start";
 	className?: string;
 	children: React.ReactNode;
 }) {
@@ -356,7 +359,7 @@ export function PopoverPanel({
 		<MantinePopover
 			opened={opened}
 			{...plain}
-			position="bottom-start" offset={6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus && onTop} closeOnEscape={false}
+			position={side} offset={side === "right-start" ? { mainAxis: 6, crossAxis: -5 } : 6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus && onTop} closeOnEscape={false}
 			onDismiss={() => isTop() && onClose()}
 			middlewares={{
 				flip: true,
@@ -380,6 +383,47 @@ export function PopoverPanel({
 				{children}
 			</MantinePopover.Dropdown>
 		</MantinePopover>
+	);
+}
+
+/**
+ * A row in a popover menu that opens more rows beside it ("Move to ›"), on hover or click. `children`
+ * get the menu's `close`, so picking one closes both.
+ */
+export function SubMenu({ icon, label, close, children }: { icon: React.ReactNode; label: string; close: () => void; children: (close: () => void) => React.ReactNode }) {
+	const [opened, setOpened] = useState<"hover" | "click">();
+	const leaving = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const stay = () => clearTimeout(leaving.current);
+	// Moving from the row into the panel crosses a small gap: wait a moment before closing.
+	const leave = () => (stay(), (leaving.current = setTimeout(() => setOpened((o) => (o === "hover" ? undefined : o)), 150)));
+	useEffect(() => stay, []);
+	return (
+		<PopoverPanel
+			opened={!!opened}
+			onClose={() => setOpened(undefined)}
+			side="right-start"
+			trapFocus={opened === "click"}
+			className="w-52 p-1"
+			target={
+				<button
+					type="button"
+					aria-haspopup="menu"
+					aria-expanded={!!opened}
+					onClick={() => setOpened("click")}
+					onMouseEnter={() => (stay(), setOpened((o) => o ?? "hover"))}
+					onMouseLeave={leave}
+					className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100 ${opened ? "bg-neutral-100" : ""}`}
+				>
+					{icon}
+					<span className="min-w-0 flex-1 truncate">{label}</span>
+					<CaretRightIcon className="shrink-0 text-neutral-400" />
+				</button>
+			}
+		>
+			<div onMouseEnter={stay} onMouseLeave={leave}>
+				{children(close)}
+			</div>
+		</PopoverPanel>
 	);
 }
 

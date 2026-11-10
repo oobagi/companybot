@@ -24,6 +24,7 @@ Anyone whose role can **see Inbox and reply to customers** (Member can, unless a
 - **Reply** from the box at the bottom. It goes from the conversation's address or number, under your name.
 - **Assign** it (**Assigned to**, in the details card on the right; the top bar's button hides or shows it): pick yourself or a teammate, and agents stop answering that conversation; pick an agent and it answers from the next message. Each assignment shows as a line in the conversation.
 - **New conversation** (the + beside Inbox in the sidebar): email or text someone from one of the workspace's addresses or numbers (**From**). One you start is assigned to you: assign it to an agent when one should answer.
+- **Move to** (right-click a conversation, or its ⋯): put it in one of the sidebar's sections, or a new one, so it's a click away. Sections are the whole team's, like Chat's.
 
 ## Comments
 Staff talk about a message right under it; customers never see comments. Point at a message and press **Comment**, or open its **comments** pill. Type @ to mention a teammate who can use Inbox: they're told. Whoever a conversation is assigned to is told about new comments on it. Only a comment's author can edit or delete it. When the agent takes a message or hands a conversation off, its note is a comment on the customer's message.
