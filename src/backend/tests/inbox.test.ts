@@ -381,8 +381,8 @@ describe("shared addresses", () => {
 	});
 });
 
-describe("record matching", () => {
-	it("links a conversation to the record whose email or phone field matches", async () => {
+describe("customers", () => {
+	it("links a conversation to the record in the customers database whose email or phone field matches", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		stubProviders();
@@ -392,6 +392,11 @@ describe("record matching", () => {
 		await owner.mutation(api.records.create, { typeId, values: { name: "Someone else", email: "other@acme.com" } });
 		await owner.mutation(api.records.create, { typeId, values: { name: "Dana Ruiz", email: "Dana@Acme.com" } });
 		await owner.mutation(api.records.create, { typeId, values: { name: "Sam Lee", phone: "(512) 555-0199" } });
+		// A match in another database doesn't count: only the customers database's records are customers.
+		const otherId = await owner.mutation(api.recordTypes.create, { plural: "Vendors" });
+		await owner.mutation(api.fields.create, { typeId: otherId, label: "Email", kind: "email" });
+		await owner.mutation(api.records.create, { typeId: otherId, values: { name: "Stranger Inc", email: "stranger@else.com" } });
+		await owner.mutation(api.customers.set, { typeId, addNew: false });
 		const { address } = await withAddress(owner);
 		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Hi" });
 		await emailWebhook(t, { email_id: "e2", from: "stranger@else.com", to: [address], subject: "Hi" });
@@ -406,6 +411,47 @@ describe("record matching", () => {
 		expect(recordOf("dana@acme.com")).toBe("Dana Ruiz");
 		expect(recordOf("+15125550199")).toBe("Sam Lee");
 		expect(recordOf("stranger@else.com")).toBeNull();
+	});
+
+	it("links nothing without a customers database, and relinks every conversation when one is picked", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		stubProviders();
+		const typeId = await owner.mutation(api.recordTypes.create, { plural: "Clients" });
+		await owner.mutation(api.fields.create, { typeId, label: "Email", kind: "email" });
+		await owner.mutation(api.records.create, { typeId, values: { name: "Dana Ruiz", email: "dana@acme.com" } });
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "dana@acme.com", to: [address], subject: "Hi" });
+		const recordOf = async () => (await owner.query(api.inbox.list))![0]!.record?.title ?? null;
+		expect(await recordOf()).toBeNull();
+		vi.useFakeTimers();
+		await owner.mutation(api.customers.set, { typeId, addNew: false });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(await recordOf()).toBe("Dana Ruiz");
+		await owner.mutation(api.customers.set, { typeId: null, addNew: false });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(await recordOf()).toBeNull();
+	});
+
+	it("makes a record for someone new when the setting says so, from them, and finds it next time", async () => {
+		const t = newTest();
+		const owner = await signIn(t, "owner@co.com");
+		stubProviders();
+		const typeId = await owner.mutation(api.recordTypes.create, { plural: "Clients" });
+		await owner.mutation(api.fields.create, { typeId, label: "Email", kind: "email" });
+		await owner.mutation(api.customers.set, { typeId, addNew: true });
+		const { address } = await withAddress(owner);
+		await emailWebhook(t, { email_id: "e1", from: "Dana Ruiz <dana@acme.com>", to: [address], subject: "Hi" });
+		await emailWebhook(t, { email_id: "e2", from: "dana@acme.com", to: [address], subject: "Again" });
+		const records = await t.run((ctx) => ctx.db.query("records").withIndex("by_type", (q) => q.eq("typeId", typeId)).collect());
+		expect(records.map((r) => [r.title, r.values.email])).toEqual([["Dana Ruiz", "dana@acme.com"]]);
+		expect((await owner.query(api.inbox.list))![0]!.record?.title).toBe("Dana Ruiz");
+		const history = await t.run((ctx) => ctx.db.query("recordHistory").withIndex("by_record", (q) => q.eq("recordId", records[0]!._id)).collect());
+		expect(history).toMatchObject([{ action: "created", contact: "dana@acme.com" }]);
+		// Only Inbox setup changes it.
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		const member = await signIn(t, "member@co.com");
+		await expect(member.mutation(api.customers.set, { typeId: null, addNew: false })).rejects.toThrow();
 	});
 });
 

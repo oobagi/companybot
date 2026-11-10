@@ -66,7 +66,7 @@ const sections = [
 			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
 		],
 	},
-	{ title: "Customers", scope: "workspace", tabs: [{ id: "addresses", label: "Email and phone", description: "Where customers reach you, and which agent answers each", icon: <MailIcon /> }] },
+	{ title: "Customers", scope: "workspace", tabs: [{ id: "addresses", label: "Email and phone", description: "Where customers reach you, who answers, and their records", icon: <MailIcon /> }] },
 	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations")] },
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);

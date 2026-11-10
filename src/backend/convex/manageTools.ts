@@ -21,6 +21,7 @@ import { opArg } from "./schema";
 import { runningTurn } from "./turns";
 import { usageReport } from "./usage";
 import { POINTS_MAX, addPoint, removePoint, setPointAgent } from "./contactPoints";
+import { customersOf, setCustomers } from "./customers";
 import { replyAs, assignTo, startAs } from "./inbox";
 import { commentAs, commentsOf, editAs, removeAs } from "./inboxComments";
 import { cancelMemberInvite, imageSettings, inviteIn, inviteMember, removeWorkspaceMember, resendMemberInvite, updateWorkspaceSettings } from "./workspace";
@@ -349,6 +350,11 @@ export const runFor = internalMutation({
 						else await setPointAgent(ctx, member, point._id, r.agentId === null ? null : rowId(ctx, "agents", r.agentId));
 						return { done: r.action, address: point.address };
 					}
+					if (r.action === "customers") {
+						const type = await customersOf(ctx, member.workspaceId);
+						return type ? { databaseId: type._id, database: type.plural, addNew: !!type.customers?.addNew } : { databaseId: null };
+					}
+					if (r.action === "set_customers") return (await setCustomers(ctx, member, r.databaseId === null ? null : rowId(ctx, "recordTypes", r.databaseId), r.addNew), { done: r.action });
 					if (r.action === "start") return startAs(ctx, { member, agentId: turn.agentId }, r);
 					const who = { member, agentId: turn.agentId };
 					const mentions = (ids: string[] | undefined) => (ids ?? []).map((u) => rowId(ctx, "users", u));

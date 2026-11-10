@@ -33,6 +33,7 @@ import type * as contactPoints from "../contactPoints.js";
 import type * as crons from "../crons.js";
 import type * as crypto from "../crypto.js";
 import type * as customConnectors from "../customConnectors.js";
+import type * as customers from "../customers.js";
 import type * as databaseViews from "../databaseViews.js";
 import type * as dictation from "../dictation.js";
 import type * as driveFiles from "../driveFiles.js";
@@ -130,6 +131,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   crypto: typeof crypto;
   customConnectors: typeof customConnectors;
+  customers: typeof customers;
   databaseViews: typeof databaseViews;
   dictation: typeof dictation;
   driveFiles: typeof driveFiles;

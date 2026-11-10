@@ -4,7 +4,7 @@ import { type Access, can } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
-import { Select } from "../controls";
+import { Select, Toggle } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import { TrashIcon } from "../icons";
 import { navigate } from "../router";
@@ -52,12 +52,47 @@ export function AddressesTab({ access }: { access: Access }) {
 				))}
 				{!of("phone").length && <Empty offered={list.available.phone} kind="phone" />}
 			</Settings>
+			<CustomersSettings canEdit={canEdit} />
 			<Settings title="Website chat">
 				<Setting label="Chat on your website" hint="A chat box on your site, answered like email and texts.">
 					<span className={hintClass}>Coming soon</span>
 				</Setting>
 			</Settings>
 		</>
+	);
+}
+
+/**
+ * Which database's records are the customers: each conversation links to the record there with its email or
+ * phone, and new people can get one. None picked, nothing links (backend customers.ts).
+ */
+function CustomersSettings({ canEdit }: { canEdit: boolean }) {
+	const setting = useQuery(api.customers.get);
+	const set = useMutation(api.customers.set);
+	const { error, run } = useRun();
+	if (!setting) return null;
+	const picked = setting.database;
+	const missing = picked && [!picked.email && "Email", !picked.phone && "Phone"].filter(Boolean);
+	return (
+		<Settings title="Customer records" note="Each conversation links to the customer's record, matched by their email address or phone number. Agents and your team see it beside the conversation.">
+			<Setting
+				label="Customers database"
+				hint={picked ? (missing?.length ? `${picked.name} has no ${missing.join(" or ")} field, so ${missing.length > 1 ? "nobody" : missing[0] === "Email" ? "email senders" : "texters"} can be matched.` : undefined) : "None: conversations aren't linked to records."}
+			>
+				<Select
+					label="Customers database"
+					value={(picked?.id as string | undefined) ?? NOBODY}
+					options={[{ value: NOBODY, label: "None" }, ...setting.options.map((o) => ({ value: o.id as string, label: o.name }))]}
+					disabled={!canEdit}
+					onChange={(v) => run(set({ typeId: v === NOBODY ? null : (v as Id<"recordTypes">), addNew: picked?.addNew ?? false }))}
+					className={wideControlClass}
+				/>
+			</Setting>
+			<Setting label="Add new people to it" hint={picked ? `Someone who isn't in ${picked.name} yet gets a record when they first write.` : "Pick a customers database first."}>
+				<Toggle checked={!!picked?.addNew} disabled={!canEdit || !picked} onChange={(on) => picked && run(set({ typeId: picked.id, addNew: on }))} />
+			</Setting>
+			{error && <Notice>{error}</Notice>}
+		</Settings>
 	);
 }
 

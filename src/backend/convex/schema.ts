@@ -1373,6 +1373,8 @@ export default defineSchema({
 		updatedAt: v.number(),
 		/** Who can see and change it, its records and their pages. */
 		access,
+		/** Set on the one database Inbox's conversations link to (customers.ts); `addNew`: someone new writing in gets a record. */
+		customers: v.optional(v.object({ addNew: v.boolean() })),
 	}).index("by_workspace", ["workspaceId", "key"]),
 
 	// Named sorting, filtering and columns, shared with the workspace.

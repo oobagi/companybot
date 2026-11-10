@@ -1,16 +1,13 @@
 import {
-	type Field,
 	type InboxChannel,
 	INBOX_TEXT_MAX,
 	SMS_TEXT_MAX,
 	channelWords,
 	clipText,
 	cleanSubject,
-	indexEntries,
 	isEmail,
 	normalizeEmail,
 	normalizePhone,
-	phoneKeys,
 	referencesFor,
 	replySubject,
 	can,
@@ -26,12 +23,13 @@ import { commentsOf } from "./inboxComments";
 import { notify } from "./notifications";
 import { mutation, query } from "./functions";
 import { pointByAddress } from "./contactPoints";
+import { linkCustomer } from "./customers";
 import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { typeVisible } from "./recordOps";
 
 // Inbox: conversations with people outside the workspace, by email and text. The workspace's addresses
 // and numbers (contactPoints.ts) take messages in through webhooks (http.ts → `receive`), one conversation
-// per outside contact per address, linked to the record whose email or phone field matches. The agent
+// per outside contact per address, linked to its customer's record (customers.ts). The agent
 // picked on the address answers new ones as Public (inboxAgent.ts), or staff do when none is; staff with
 // inbox.use watch, reply, take over and assign them to any agent. Every reply goes out from the address
 // the conversation is with, under the name of whoever wrote it. wiki/architecture.md → Inbox.
@@ -300,7 +298,7 @@ export async function startAs(ctx: MutationCtx, who: Who, args: { from?: string;
 			lastAt: Date.now(),
 			preview: "",
 		}));
-	if (!existing) await linkRecord(ctx, (await ctx.db.get(id))!);
+	if (!existing) await linkCustomer(ctx, (await ctx.db.get(id))!, true);
 	return replyAs(ctx, who, (await ctx.db.get(id))!, args.text);
 }
 
@@ -330,41 +328,6 @@ export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversa
 
 const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, channel: InboxChannel, via: string, contact: string) =>
 	ctx.db.query("inboxConversations").withIndex("by_contact", (q) => q.eq("workspaceId", workspaceId).eq("channel", channel).eq("via", via).eq("contact", contact)).first();
-
-// ---- Record matching ----
-
-/**
- * The live record whose email field (for email) or phone field (for texts) holds this contact, if any: the
- * first found across the workspace's databases. One indexed lookup per field of that kind, so it stays small
- * however many records there are. Records index emails case-insensitively and phones as digits
- * (core records.ts `indexEntries`); a US number matches with or without its country code.
- */
-export async function matchRecord(ctx: QueryCtx, workspaceId: Id<"workspaces">, channel: InboxChannel, contact: string) {
-	const kind = channel === "email" ? "email" : "phone";
-	const keys = kind === "email" ? indexEntries({ kind } as Field, contact).flatMap((e) => ("str" in e && e.str ? [e.str] : [])) : phoneKeys(contact);
-	const types = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(200);
-	for (const type of types) {
-		if (type.archived) continue;
-		const fields = await ctx.db.query("recordFields").withIndex("by_type_kind", (q) => q.eq("typeId", type._id).eq("kind", kind)).take(20);
-		for (const field of fields) {
-			if (field.archived) continue;
-			for (const key of keys) {
-				const values = await ctx.db.query("recordValues").withIndex("by_field_str", (q) => q.eq("fieldId", field._id).eq("str", key)).take(5);
-				for (const value of values) {
-					const record = await ctx.db.get(value.recordId);
-					if (record && !record.archived) return record._id;
-				}
-			}
-		}
-	}
-	return null;
-}
-
-async function linkRecord(ctx: MutationCtx, c: Doc<"inboxConversations">) {
-	if (c.recordId) return;
-	const recordId = await matchRecord(ctx, c.workspaceId, c.channel, c.contact);
-	if (recordId) await ctx.db.patch(c._id, { recordId });
-}
 
 // ---- Incoming ----
 
@@ -433,7 +396,7 @@ export const receive = internalMutation({
 			...(args.quoted && { quoted: clipText(args.quoted) }),
 			...(args.cc?.length && { cc: args.cc.slice(0, 20) }),
 		});
-		await linkRecord(ctx, c);
+		await linkCustomer(ctx, c, isNew);
 		const agent = await answeringAgent(ctx, c);
 		if (agent && !args.automated && !fromUs) await queueReply(ctx, c);
 		// Someone on staff answers this one: tell them (or, if it's nobody's, everyone who can).

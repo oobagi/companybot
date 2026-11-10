@@ -120,6 +120,7 @@ export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = 
 	"contactPoints.remove": { agent: ["inbox.manage:remove_address"] },
 	"contactPoints.setAgent": { agent: ["inbox.manage:set_answerer"] },
 	"contactPoints.retry": { agent: ["inbox.manage:add_address"] },
+	"customers.set": { agent: ["inbox.manage:set_customers"] },
 	"inbox.reply": { agent: ["inbox.manage:reply"] },
 	"inbox.start": { agent: ["inbox.manage:start"] },
 	"inbox.assign": { agent: ["inbox.manage:assign"] },
