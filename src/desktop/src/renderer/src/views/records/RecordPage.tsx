@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { type FieldValue, NAME_KEY } from "@companybot/core/records";
 import type { FunctionReturnType } from "convex/server";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
@@ -16,6 +16,7 @@ import { PageView } from "../Pages";
 import { TrashNotice } from "../Trash";
 import { WakeupList } from "../Wakeups";
 import { AddField, EditField } from "./fieldDialogs";
+import { type DragProps, applyOrder, splitDrag, useDragList } from "../../sortable";
 import { FieldSuggestion, type Suggestion } from "./FieldSuggestion";
 import { Chip, FieldIcon, ValueEditor, ValueView } from "./fields";
 import { type Refs, type TypeField, actionLabels, recordPath, valueText, whoLabel } from "./logic";
@@ -95,13 +96,14 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<TypeField>();
 	// The name is the page's title, edited there like Notion's.
-	const live = type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[];
+	const live = useMemo(() => type.fields.filter((f) => !f.archived && f.key !== NAME_KEY) as TypeField[], [type.fields]);
 	const suggestions = useQuery(api.fieldAi.suggestions, { recordId: record._id });
+	const { shown, drag } = useFieldOrder(type, live);
 	// Body-sized, like the page under it (Notion's properties read at the text's size).
 	return (
 		<section className="flex flex-col gap-1 text-base">
-			<dl className="grid grid-cols-[10rem_1fr] items-start gap-x-4 gap-y-1">
-				{live.map((field) => (
+			<dl className="flex flex-col gap-1">
+				{shown.map((field) => (
 					<FieldRow
 						key={field._id}
 						field={field}
@@ -109,6 +111,7 @@ function Fields({ type, record, editable }: { type: RecordType; record: RecordDo
 						editable={editable}
 						suggestion={suggestions?.find((s) => s.fieldKey === field.key)}
 						onEditField={field.canEdit ? () => setEditing(field) : undefined}
+						drag={drag(field._id)}
 					/>
 				))}
 			</dl>
@@ -132,15 +135,41 @@ const AiMark = () => (
 	</span>
 );
 
-function FieldRow({ field, record, editable, suggestion, onEditField }: { field: TypeField; record: RecordDoc; editable: boolean; suggestion?: Suggestion; onEditField?: () => void }) {
+/**
+ * The fields' order, by dragging a field's name: the database's order, so it moves for everyone (its lists'
+ * column order too), like Notion's properties. Whoever may change its fields can. Shown in the new order at
+ * once, until the server's matches.
+ */
+function useFieldOrder(type: RecordType, live: TypeField[]) {
+	const update = useMutation(api.fields.update);
+	const [pending, setPending] = useState<string[]>();
+	const ids = live.map((f) => f._id).join();
+	useEffect(() => setPending((p) => (p?.join() === ids ? undefined : p)), [ids]);
+	const shown = useMemo(() => (pending ? applyOrder(pending, live, (f) => f._id) : live), [pending, live]);
+	const { item } = useDragList({
+		enabled: type.canManage,
+		onDrop: (from, index) => {
+			const order = shown.map((f) => f._id).filter((id) => id !== from.id);
+			order.splice(index, 0, from.id);
+			if (order.join() === shown.map((f) => f._id).join()) return;
+			setPending(order);
+			// Positions count Name, first.
+			update({ fieldId: from.id as Id<"recordFields">, position: index + 1 }).catch(() => setPending(undefined));
+		},
+	});
+	return { shown, drag: item };
+}
+
+function FieldRow({ field, record, editable, suggestion, onEditField, drag }: { field: TypeField; record: RecordDoc; editable: boolean; suggestion?: Suggestion; onEditField?: () => void; drag?: DragProps }) {
+	const { box, handle } = splitDrag(drag);
 	const update = useMutation(api.records.update);
 	const { error, run } = useRun();
 	const value = record.values[field.key] as FieldValue | undefined;
 	const byAi = record.aiFilled.includes(field.key);
 	return (
-		<>
-			{/* The label opens the field's settings, for whoever may change them. */}
-			<dt className="flex min-w-0 items-center py-1 text-neutral-500">
+		<div {...box} className={`grid grid-cols-[10rem_1fr] items-start gap-x-4 ${box.className}`}>
+			{/* The label opens the field's settings, for whoever may change them; dragging it moves the field. */}
+			<dt {...handle} className="flex min-w-0 items-center py-1 text-neutral-500">
 				{onEditField ? (
 					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
 						<FieldIcon field={field} large /> <span className="truncate">{field.label}</span>
@@ -169,7 +198,7 @@ function FieldRow({ field, record, editable, suggestion, onEditField }: { field:
 				)}
 				{error && <span className="px-2 pb-1 text-xs text-red-600">{error}</span>}
 			</dd>
-		</>
+		</div>
 	);
 }
 
