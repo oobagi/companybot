@@ -1,8 +1,8 @@
 import type { FunctionReturnType } from "convex/server";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
-import { SparkleIcon } from "../../icons";
-import { linkButton, useRun } from "../../ui";
+import { CheckIcon, CloseIcon, SparkleIcon } from "../../icons";
+import { actionButton, actionPrimaryButton, useRun } from "../../ui";
 
 // A value AI suggested for a field set to "Suggest it" (backend fieldAi.ts): what it would become, with
 // Accept and Dismiss for whoever may edit the record. On the record's page it takes the value's place until
@@ -15,7 +15,7 @@ export function FieldSuggestion({ suggestion, label, current, editable }: { sugg
 	const { error, run } = useRun();
 	return (
 		<span className="flex flex-col gap-0.5">
-			<span className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-sm">
+			<span className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 py-1 pr-1 pl-2">
 				<span className="text-neutral-400">
 					<SparkleIcon />
 				</span>
@@ -26,11 +26,11 @@ export function FieldSuggestion({ suggestion, label, current, editable }: { sugg
 				</span>
 				{editable && (
 					<>
-						<button type="button" onClick={() => run(decide({ id: suggestion.id, accept: false }))} className={linkButton}>
-							Dismiss
+						<button type="button" onClick={() => run(decide({ id: suggestion.id, accept: false }))} className={actionButton}>
+							<CloseIcon /> Dismiss
 						</button>
-						<button type="button" onClick={() => run(decide({ id: suggestion.id, accept: true }))} className={linkButton}>
-							Accept
+						<button type="button" onClick={() => run(decide({ id: suggestion.id, accept: true }))} className={actionPrimaryButton}>
+							<CheckIcon /> Accept
 						</button>
 					</>
 				)}
