@@ -145,14 +145,16 @@ function FieldRow({ field, record, editable, suggestion, onEditField }: { field:
 					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
 						<FieldIcon field={field} large /> <span className="truncate">{field.label}</span>
 						{field.changing && <span className={metadataClass}>Converting…</span>}
-						{byAi && <AiMark />}
 					</button>
 				) : (
-					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} large /> <span className="truncate">{field.label}</span>{byAi && <AiMark />}</span>
+					<span className="flex min-w-0 items-center gap-2 py-0.5"><FieldIcon field={field} large /> <span className="truncate">{field.label}</span></span>
 				)}
 			</dt>
-			<dd className="flex min-w-0 flex-col">
-				{editable && !field.changing ? (
+			<dd className="relative flex min-w-0 flex-col">
+				{/* A suggestion takes the value's place: someone accepts or dismisses it before editing. */}
+				{suggestion && editable ? (
+					<FieldSuggestion suggestion={suggestion} current={value === undefined ? undefined : <ValueView field={field} value={value} refs={record.refs} />} editable />
+				) : editable && !field.changing ? (
 					<ValueEditor
 						field={field}
 						value={value}
@@ -164,9 +166,9 @@ function FieldRow({ field, record, editable, suggestion, onEditField }: { field:
 						<ValueView field={field} value={value} refs={record.refs} />
 					</span>
 				)}
-				{suggestion && (
-					<span className="mx-2 mb-1">
-						<FieldSuggestion suggestion={suggestion} editable={editable} />
+				{byAi && !(suggestion && editable) && (
+					<span className="absolute top-2 right-2">
+						<AiMark />
 					</span>
 				)}
 				{error && <span className="px-2 pb-1 text-xs text-red-600">{error}</span>}
