@@ -4,6 +4,8 @@ import { openContentLink } from '@/features/chat/links';
 import { useAuthToken } from '@convex-dev/auth/react';
 import { useConvex, useConvexConnectionState, useQuery as useRawQuery } from 'convex/react';
 import { fetch as expoFetch } from 'expo/fetch';
+import { setStringAsync, StringFormat } from 'expo-clipboard';
+import type { RecoverySnapshot } from './editorRecovery';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { File } from 'expo-file-system';
@@ -11,7 +13,7 @@ import { validateImageFile } from '@/lib/imageFile';
 import { usePreventRemove } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, Platform, useWindowDimensions, View } from 'react-native';
-import { EmptyState, ErrorState, Loading } from '@/components/ui';
+import { Button, EditorSheet, EmptyState, ErrorState, Loading, Text } from '@/components/ui';
 import { DocumentToolbar } from './DocumentToolbar';
 import type { DocumentFormatting } from './formatting';
 import { useTheme } from '@/design';
@@ -51,6 +53,9 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   const snapshot = useRawQuery(api.pageSync.getSnapshot, { id: pageId });
   const version = useRawQuery(api.pageSync.latestVersion, { id: pageId });
   const [dirty, setDirty] = useState(false);
+  const latestDraft = useRef<RecoverySnapshot | null>(null);
+  const [recovery, setRecovery] = useState<RecoverySnapshot>();
+  const [reviewing, setReviewing] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
   const [error, setError] = useState<string>();
   const [references, setReferences] = useState<Record<string, Reference>>({});
@@ -65,7 +70,7 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   const imageBusy = upload.busy || !!image;
   const latestImageBusy = useRef(imageBusy);
   useLayoutEffect(() => { latestImageBusy.current = imageBusy; }, [imageBusy]);
-  useUnsavedDocument(pageId, dirty, imageBusy);
+  useUnsavedDocument(pageId, dirty || !!recovery, imageBusy);
   const archive = useMutation(api.trash.move);
   const addImage = useMutation(api.pages.addImage);
   const create = useMutation(api.pages.create);
@@ -78,10 +83,10 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   const token = useAuthToken();
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  usePreventRemove(dirty || imageBusy, ({ repeat }) => {
+  usePreventRemove(dirty || !!recovery || imageBusy, ({ repeat }) => {
     // Uploads can already be committed on the server; they are not discardable drafts.
     if (imageBusy) return;
-    void confirm({ title: 'Changes are still saving', body: 'Stay on this page until your changes sync. Leaving now may lose your latest edits.', action: 'Leave without saving', danger: true }).then((leave) => { if (leave && !latestImageBusy.current) { setDirty(false); repeat(); } });
+    void confirm({ title: 'Changes are still saving', body: recovery ? 'Leaving will discard the recovery copy of your unsaved draft. Review and copy it before leaving.' : 'Stay on this page until your changes sync. Leaving now may lose your latest edits.', action: 'Leave without saving', danger: true }).then((leave) => { if (leave && !latestImageBusy.current) { setDirty(false); repeat(); } });
   });
   const status = useCallback(async (unsaved: boolean, message: string | null) => {
     if (!mounted.current) return;
@@ -127,15 +132,17 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   return <View style={{ flex: 1, minHeight: 0 }}>
     {dialog}
     {actions.dialog}
+    {reviewing && recovery && <RecoveryPreview snapshot={recovery} identity={pageId} onClose={() => setReviewing(false)} />}
     {(error || upload.error) && <ErrorState message={error ?? upload.error!} onRetry={error ? () => setRetry(n => n + 1) : undefined} />}
     {referenceIds.map((id) => <PageReference key={id} id={id} onChange={setReference} />)}
-    <DocumentSurface onReadyChange={setEditorReady} onFormatting={async value => { if (mounted.current) setFormatting(value); }} onReloadSaved={async () => {
+    <DocumentSurface onRecoverySnapshot={async value => { latestDraft.current = value; }} onInterrupted={() => { if (latestDraft.current) setRecovery(latestDraft.current); }} onReviewDraft={recovery ? () => setReviewing(true) : undefined} onReadyChange={setEditorReady} onFormatting={async value => { if (mounted.current) setFormatting(value); }} onReloadSaved={async () => {
       if (upload.busy || actions.busy) return false;
-      const reload = await confirm({ title: 'Reload saved document?', body: 'Edits that were still saving may be lost. Any pending image will need to be added again.', action: 'Reload', danger: true });
+      const reload = await confirm({ title: 'Reload saved document?', body: recovery ? 'The recovery copy of your unsaved draft will be discarded. Copy it first if you need to keep it. Pending images must be added again.' : 'Edits that were still saving may be lost. Any pending image will need to be added again.', action: 'Reload', danger: true });
       if (!reload || !mounted.current) return false;
+      latestDraft.current = null; setRecovery(undefined); setReviewing(false);
       pendingImage.current = undefined; setImage(undefined); setCommand(undefined); setDirty(false); setError(undefined); setFormatting(undefined);
       return true;
-    }} protectedWork={dirty || imageBusy || actions.busy} payload={encodeDocumentPayload({ pageId, snapshot, latestVersion: version, retrySignal: `${connection.connectionCount}:${retry}`, editable, canCreatePage: standalone, command, dark: theme.dark, fontScale: documentFontScale(Platform.OS, fontScale), colors: theme.colors, image, references })} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage} onEditLink={actions.onEditLink}
+    }} protectedWork={dirty || !!recovery || imageBusy || actions.busy} payload={encodeDocumentPayload({ pageId, snapshot, latestVersion: version, retrySignal: `${connection.connectionCount}:${retry}`, editable, canCreatePage: standalone, command, dark: theme.dark, fontScale: documentFontScale(Platform.OS, fontScale), colors: theme.colors, image, references })} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage} onEditLink={actions.onEditLink}
       getSteps={(atVersion) => convex.query(api.pageSync.getSteps, { id: pageId, version: atVersion })}
       submitSteps={(args: Submit) => {
         if (!editable) return Promise.reject(new Error('This document is read only.'));
@@ -176,4 +183,23 @@ export function VersionDocument({ content, identity }: { content: string; identi
     onImageResult={async () => {}}
     onOpenLink={openContentLink}
     dom={{ style: { flex: 1, minHeight: 0 }, hideKeyboardAccessoryView: true, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} /></View>;
+}
+
+
+function RecoveryPreview({ snapshot, identity, onClose }: { snapshot: RecoverySnapshot; identity: string; onClose: () => void }) {
+  const task = useTask();
+  const [copied, setCopied] = useState(false);
+  const [previewHeight, setPreviewHeight] = useState(0);
+  return <EditorSheet title="Unsaved draft" scroll={false} onClose={onClose} busy={task.busy}>
+    <Text variant="supporting" tone="muted">This recovery copy may include changes that have already saved. Copy what you need before reloading the shared document.</Text>
+    <View style={{ flex: 1, minHeight: 0 }} onLayout={event => setPreviewHeight(event.nativeEvent.layout.height)}>
+      {previewHeight > 0 && <View style={{ height: previewHeight }}><VersionDocument content={snapshot.content} identity={`${identity}:recovery`} /></View>}
+    </View>
+    {task.error && <ErrorState message={task.error} />}
+    <Button label={copied ? 'Draft copied' : 'Copy draft'} loading={task.busy} onPress={() => void task.run(async () => {
+      const copied = await setStringAsync(snapshot.html || snapshot.text, { inputFormat: snapshot.html ? StringFormat.HTML : StringFormat.PLAIN_TEXT });
+      if (!copied) throw new Error('Could not copy the draft. Try again.');
+      setCopied(true);
+    })} />
+  </EditorSheet>;
 }

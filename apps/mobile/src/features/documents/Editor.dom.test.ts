@@ -7,6 +7,9 @@ import { palettes } from '@/design/tokens';
 import DocumentDOM from './Editor.dom';
 import { documentSchema, type PageEditor } from './schema';
 import { encodeDocumentPayload } from './domPayload';
+import { sendableSteps } from 'prosemirror-collab';
+import type { RecoverySnapshot } from './editorRecovery';
+import type { SubmitResult } from './transport';
 
 // Exercise the real BlockNote/Mantine mount: headless schema tests cannot catch
 // an editor disappearing when React detaches and reattaches its DOM view.
@@ -238,4 +241,63 @@ it.each([
   }
   expect(link.getAttribute('href')).toBe(href);
   expect(submit).not.toHaveBeenCalled();
+});
+
+
+it('copies each buffered edit before a held submit completes and clears recovery only after full sync', async () => {
+  vi.stubEnv('EXPO_DOM_HOST_OS', 'ios');
+  const source = BlockNoteEditor.create({ schema: documentSchema, initialContent: [
+    { type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'Saved', styles: { bold: true } }] },
+    { type: 'image', props: { url: 'https://example.com/recovery.png', caption: 'Recovery image' } },
+  ] });
+  const content = JSON.stringify(source._tiptapEditor.state.doc.toJSON());
+  source._tiptapEditor.destroy();
+  const create = vi.spyOn(BlockNoteEditor, 'create');
+  const snapshots = vi.fn(async (_snapshot: RecoverySnapshot | null) => {});
+  const acknowledge: ((result: SubmitResult) => void)[] = [];
+  const submit = vi.fn(() => new Promise<SubmitResult>(resolve => acknowledge.push(resolve)));
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root!.render(createElement(DocumentDOM, {
+    payload: encodeDocumentPayload({ pageId: 'recovery-page', snapshot: { content, version: 1 }, latestVersion: 1, editable: true, canCreatePage: false, dark: false, colors: palettes.light, references: {} }),
+    getSteps: async () => ({ steps: [], clientIds: [], version: 1 }), submitSteps: submit,
+    onBlockActions: async () => null, onCreatePage: async () => null, onReferences: async () => {}, onOpenLink: async () => {}, onRemovePages: async () => false,
+    onStatus: async () => {}, onImageResult: async () => {}, onRecoverySnapshot: snapshots,
+  })));
+  const editor = create.mock.results.at(-1)!.value as PageEditor;
+  const pm = editor._tiptapEditor;
+  await act(async () => { await vi.waitFor(() => expect(pm.isInitialized).toBe(true)); });
+  expect(snapshots).not.toHaveBeenCalled();
+  const append = async (text: string) => act(async () => {
+    let end = 0; pm.state.doc.descendants((node, position) => { if (node.isText) end = position + node.nodeSize; });
+    pm.view.dispatch(pm.state.tr.insertText(text, end));
+  });
+  await append(' first');
+  expect(submit).toHaveBeenCalledOnce();
+  expect(snapshots.mock.calls.at(-1)![0]!.text).toContain('Saved first');
+  await append(' second');
+  expect(submit).toHaveBeenCalledOnce(); // Later edits are still waiting inside the live DOM.
+  const latest = snapshots.mock.calls.at(-1)![0]!;
+  expect(latest.text).toContain('Saved first second');
+  expect(JSON.parse(latest.content)).toEqual(pm.state.doc.toJSON());
+  const copy = BlockNoteEditor.create({ schema: documentSchema, _headless: true });
+  try {
+    const restored = copy.tryParseHTMLToBlocks(latest.html);
+    expect(restored[0].type).toBe('heading');
+    expect(restored[0].props).toMatchObject({ level: 2 });
+    expect(restored[0].content).toEqual([{ type: 'text', text: 'Saved first second', styles: { bold: true } }]);
+    expect(restored[1].type).toBe('image');
+    expect(restored[1].props).toMatchObject({ url: 'https://example.com/recovery.png', caption: 'Recovery image' });
+  } finally { copy._tiptapEditor.destroy(); }
+  const beforeSelection = snapshots.mock.calls.length;
+  await act(async () => pm.view.dispatch(pm.state.tr.setSelection(pm.state.selection)));
+  expect(snapshots).toHaveBeenCalledTimes(beforeSelection);
+  expect(snapshots.mock.calls.every(([snapshot]) => snapshot !== null)).toBe(true);
+  await act(async () => acknowledge[0]({ status: 'synced' }));
+  expect(submit).toHaveBeenCalledTimes(2);
+  expect(sendableSteps(pm.state)).not.toBeNull();
+  expect(snapshots.mock.calls.every(([snapshot]) => snapshot !== null)).toBe(true);
+  await act(async () => acknowledge[1]({ status: 'synced' }));
+  expect(sendableSteps(pm.state)).toBeNull();
+  expect(snapshots).toHaveBeenLastCalledWith(null);
+  expect(snapshots.mock.calls.filter(([snapshot]) => snapshot === null)).toHaveLength(1);
 });

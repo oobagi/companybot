@@ -28,6 +28,7 @@ import { createDocumentCommandReceiver } from './commands';
 import { editDocumentLink, type LinkDraft } from './linkEditing';
 import { applyDocumentFormat, documentFormatting, type DocumentFormatting, type FormatCommand } from './formatting';
 import { decodeDocumentPayload } from './domPayload';
+import type { RecoverySnapshot } from './editorRecovery';
 
 type Props = EditorTransport & {
   dom?: DOMProps;
@@ -38,6 +39,7 @@ type Props = EditorTransport & {
   onOpenLink: (href: string) => Promise<void>;
   onRemovePages: (ids: string[]) => Promise<boolean>;
   onStatus: (dirty: boolean, error: string | null) => Promise<void>;
+  onRecoverySnapshot?: (snapshot: RecoverySnapshot | null) => Promise<void>;
   onFormatting?: (formatting: DocumentFormatting) => Promise<void>;
   onEditLink?: (draft: LinkDraft) => Promise<LinkDraft | null>;
   onImageResult: (request: number, dirty: boolean, error: string | null) => Promise<void>;
@@ -130,8 +132,19 @@ export default function DocumentDOM(wire: Props) {
       const joined = [...ids].sort().join(',');
       if (joined !== previousRefs) { previousRefs = joined; void notifications.send(() => latest.current.onReferences([...ids])); }
     };
-    const reportStatus = () => {
-      const dirty = !!sendableSteps(editor._tiptapEditor.state);
+    const reportStatus = (event?: { transaction: { docChanged: boolean } }) => {
+      const { state } = editor._tiptapEditor;
+      const dirty = !!sendableSteps(state);
+      // A pending submit can leave subsequent edits inside this process. Copy
+      // each changed draft across the bridge before a renderer crash can lose it.
+      if (latest.current.onRecoverySnapshot) {
+        if (dirty && (event?.transaction.docChanged || previousDirty !== true)) {
+          const snapshot = { content: JSON.stringify(state.doc.toJSON()), text: state.doc.textBetween(0, state.doc.content.size, '\n\n'), html: editor.blocksToFullHTML() };
+          void notifications.send(() => latest.current.onRecoverySnapshot!(snapshot));
+        } else if (!dirty && previousDirty === true) {
+          void notifications.send(() => latest.current.onRecoverySnapshot!(null));
+        }
+      }
       if (dirty === previousDirty) return;
       previousDirty = dirty;
       if (!dirty) setProblem(undefined);
