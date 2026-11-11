@@ -37,7 +37,8 @@
       ],
       "expo-notifications",
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      "./plugins/with-android-font-scale"
     ],
     "experiments": {
       "typedRoutes": true
