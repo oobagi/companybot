@@ -3,9 +3,20 @@ import type { HelpPage } from "./index";
 export default {
 	id: "connectors",
 	title: "Connectors",
-	summary: "Linking outside services, such as Gmail or Calendar, for agents to use.",
+	summary: "Connecting official services and custom MCP servers for agents to use.",
 	text: `# Connectors
 A connector links an outside service so agents can use it for you. They live in [Connectors](#/settings/connectors).
+
+## Official services
+The catalog includes **GitHub, Notion, Linear, Sentry, Atlassian (Jira and Confluence), Stripe, Slack, and Asana**. These connect directly to servers operated by those providers. Nothing is installed or connected automatically.
+
+Open a service, read its setup instructions, then **Install**. New catalog installs start **Owners only**; select other roles under **Who can use it** if needed. Each person connects their own provider account. Grant the connector to an agent in [Agents](#/settings/agents).
+
+- **GitHub** uses your personal access token. Limit it to the repositories and permissions you need; your organization may need to approve it.
+- **Notion, Linear, Sentry, Atlassian, and Stripe** open the provider's sign-in and consent page. The provider may require administrator approval. For Stripe, start with sandbox and read-only access.
+- **Slack and Asana** require an app you register with the provider first. Connect shows the redirect URL, provider setup instructions, and fields for your client ID and secret. The provider's issuer is fixed. Slack requests public-channel search and history, user lookup, posting, and reactions; it does not request private-channel or direct-message history.
+
+The provider's permissions and plan determine which tools you get. Saved credentials are not proof that every tool is usable. **Refresh list** on the connector's Actions section discovers its tools without asking an agent to run them. Connection errors are shown on its page. Connecting does not change your provider data.
 
 ## Adding your own (custom connectors)
 People whose role can install connectors add any service with an **MCP server**: **New connector** in the Connectors top bar. Fill in:

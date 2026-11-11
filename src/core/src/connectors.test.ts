@@ -118,6 +118,28 @@ describe("connectors", () => {
 		await session.close();
 		expect(server.closed).toBe(true);
 	});
+
+	it("discovers and calls tools beyond the first page", async () => {
+		const server = fakeMcpServer([{ name: "first" }, { name: "second" }], undefined, { size: 1 });
+		const session = await openConnector(notes, { transport: server });
+		try {
+			const second = session.tools.find(t => t.id === "notes.second");
+			expect(second).toBeDefined();
+			expect(await second!.execute({ text: "hello" }, ctx(owner))).toBe('second:{"text":"hello"}');
+		} finally { await session.close(); }
+	});
+
+	it("rejects a server that repeats its page cursor and closes the connection", async () => {
+		const server = fakeMcpServer([{ name: "first" }], undefined, { size: 1, repeatCursor: true });
+		await expect(openConnector(notes, { transport: server })).rejects.toThrow(/pagination/);
+		expect(server.closed).toBe(true);
+	});
+
+	it("bounds discovery even when a server keeps supplying fresh cursors", async () => {
+		const server = fakeMcpServer(Array.from({ length: 102 }, (_, i) => ({ name: `tool_${i}` })), undefined, { size: 1 });
+		await expect(openConnector(notes, { transport: server })).rejects.toThrow(/pagination/);
+		expect(server.closed).toBe(true);
+	});
 });
 
 describe("connector tool search", () => {

@@ -4,6 +4,7 @@ import type { JSONRPCMessage, MCPTransport } from "@ai-sdk/mcp";
 export function fakeMcpServer(
 	tools: { name: string; description?: string; readOnly?: boolean; destructive?: boolean }[],
 	onCall: (name: string, args: unknown) => string = (name, args) => `${name}:${JSON.stringify(args)}`,
+	pages?: { size: number; repeatCursor?: boolean },
 ): MCPTransport & { closed: boolean } {
 	const transport: MCPTransport & { closed: boolean } = {
 		closed: false,
@@ -23,8 +24,11 @@ export function fakeMcpServer(
 					serverInfo: { name: "fake", version: "1.0.0" },
 				});
 			} else if (message.method === "tools/list") {
+				const start = Number(params.cursor ?? 0);
+				const end = pages ? start + pages.size : tools.length;
 				reply({
-					tools: tools.map((t) => ({
+					...(pages?.repeatCursor ? { nextCursor: "0" } : end < tools.length ? { nextCursor: String(end) } : {}),
+					tools: tools.slice(start, end).map((t) => ({
 						name: t.name,
 						description: t.description,
 						inputSchema: { type: "object", properties: { text: { type: "string" } } },

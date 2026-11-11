@@ -109,6 +109,8 @@ export const list = query({
 					description: connector.description,
 					version: connector.version,
 					publisher: connector.publisher,
+					documentationUrl: connector.documentationUrl ?? null,
+					setup: connector.setup ?? null,
 					connection: connector.connection,
 					server: connector.mcp.url,
 					transport: connector.mcp.transport,

@@ -9,6 +9,27 @@ import "./connectorFixtures";
 afterEach(() => void vi.useRealTimers());
 
 describe("connectors", () => {
+	it("catalog installs start restricted and each allowed person connects their own provider account", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const catalog = (await owner.query(api.connectors.list)).filter(c => c.documentationUrl);
+		expect(catalog.length).toBeGreaterThan(0);
+		for (const connector of catalog) {
+			expect(connector).toMatchObject({ installed: false, connected: false, roles: ["owner"], connection: "personal" });
+			await owner.mutation(api.connectors.setInstalled, { connectorId: connector.id, installed: true });
+			expect((await member.query(api.connectors.list)).find(c => c.id === connector.id)?.canUse).toBe(false);
+		}
+		await owner.action(api.connectors.connect, { connectorId: "github", credentials: { type: "api_key", key: "owner-token" } });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "github", roles: ["member"] });
+		expect((await member.query(api.connectors.list)).find(c => c.id === "github")).toMatchObject({ canUse: true, connected: false });
+		await member.action(api.connectors.connect, { connectorId: "github", credentials: { type: "api_key", key: "member-token" } });
+		const workspaceId = await workspaceOf(owner);
+		const forTurn = (userId: typeof member.userId) => t.query(internal.connectors.forTurn, { userId, workspaceId, connectorIds: ["github"] });
+		const ownerConnections = await forTurn(owner.userId);
+		const memberConnections = await forTurn(member.userId);
+		expect(await decrypt(ownerConnections[0]!.credentials!)).toEqual({ type: "api_key", key: "owner-token" });
+		expect(await decrypt(memberConnections[0]!.credentials!)).toEqual({ type: "api_key", key: "member-token" });
+	});
+
 	it("stores registered OAuth app secrets only in encrypted flow and connection state", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const connector = defineConnector({ id: "registered-oauth", name: "Registered", description: "", version: "1", publisher: "Test", mcp: { url: "https://oauth.example.com/mcp", transport: "http" }, connection: "personal", auth: { type: "oauth" } });

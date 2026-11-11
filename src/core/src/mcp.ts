@@ -38,7 +38,17 @@ export async function openConnector(
 					},
 	});
 	try {
-		const { tools } = await client.listTools();
+		const tools: Awaited<ReturnType<typeof client.listTools>>["tools"] = [];
+		const cursors = new Set<string>();
+		let cursor: string | undefined;
+		do {
+			const page = await client.listTools(cursor === undefined ? {} : { params: { cursor } });
+			tools.push(...page.tools);
+			cursor = page.nextCursor;
+			// Fail visibly instead of silently truncating a catalog or following a broken server forever.
+			if (tools.length > 5_000 || cursor !== undefined && (cursors.has(cursor) || cursors.size >= 99)) throw new Error(`${connector.name}'s tool pagination exceeded its limit or repeated a cursor.`);
+			if (cursor !== undefined) cursors.add(cursor);
+		} while (cursor !== undefined);
 		return {
 			connector: { id: connector.id, name: connector.name },
 			instructions: client.instructions,

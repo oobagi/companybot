@@ -109,6 +109,12 @@ function fetchFor(connector: Connector, fetchFn?: typeof fetch) {
 
 /** Begins sign-in. Store `state` (encrypted) under `state.state` until the callback. */
 export async function startSignIn(connector: Connector, redirectUrl: string, fetchFn?: typeof fetch, registered?: RegisteredOAuthClient): Promise<{ url: string; state: OAuthState }> {
+	const registration = connector.auth.type === "oauth" ? connector.auth.registration : undefined;
+	if (registration) {
+		if (!registered) throw new Error(`${connector.name} requires your own registered app. Enter its client ID and secret in Connect.`);
+		if (registered.issuer.trim() !== registration.issuer) throw new Error(`Use ${connector.name}'s OAuth issuer: ${registration.issuer}`);
+		if (registration.secretRequired && !registered.clientSecret?.trim()) throw new Error(`${connector.name} requires the registered app's client secret.`);
+	}
 	let initial: OAuthState = {};
 	if (registered) {
 		const clientId = registered.clientId.trim();

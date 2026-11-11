@@ -6,7 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
-import { desktop, openLinkWhenReady } from "../../desktop";
+import { desktop, openLink, openLinkWhenReady } from "../../desktop";
 import { navigate } from "../../router";
 import { ConnectorIcon, EditIcon, TrashIcon } from "../../icons";
 import { EmptyState, Form, Loading, Notice, Section, Setting, Settings, actionPrimaryButton, barButton, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
@@ -50,8 +50,8 @@ export function ConnectorsTab({ access }: { access: Access }) {
 	);
 }
 
-/** Who made it: the catalog's publisher and version, or "Custom" for your workspace's own. */
-const metaOf = (p: ConnectorItem) => (p.custom ? "Custom" : `${p.publisher} · v${p.version}`);
+/** The publisher operates the server; the internal preset version is not their server version. */
+const metaOf = (p: ConnectorItem) => (p.custom ? "Custom" : `${p.publisher} · Official server`);
 
 function connectorStatus(p: ConnectorItem) {
 	if (!p.canUse) return "None of your roles can use it";
@@ -96,6 +96,8 @@ function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; c
 			{dialog}
 			{editing && <ConnectorSettingsDialog connector={connector} onClose={() => setEditing(false)} />}
 			<Notice>{error}</Notice>
+			{connector.setup && <p className="text-sm text-neutral-500">{connector.setup}</p>}
+			{connector.documentationUrl && <button type="button" className={compactButton} onClick={() => openLink(connector.documentationUrl!)}>Provider setup instructions</button>}
 			<Facts
 				rows={[
 					["Account", connector.connection === "personal" ? "Each person connects their own" : "One shared account for the workspace"],
@@ -175,7 +177,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 						className={actionPrimaryButton}
 						// Opens in the browser (a new tab, or from the desktop app the default browser). The
 						// app flips to Connected on its own once the sign-in finishes.
-						onClick={() => connector.custom ? setSigning(true) : run(openLinkWhenReady(startOAuth({ connectorId: connector.id })))}
+						onClick={() => connector.custom || connector.auth.type === "oauth" && connector.auth.registration ? setSigning(true) : run(openLinkWhenReady(startOAuth({ connectorId: connector.id })))}
 					>
 						Connect with {connector.name}
 					</button>
@@ -200,31 +202,35 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 /** App credentials stay in this dialog's memory and the backend's encrypted OAuth state, never a saved draft. */
 function ConnectOAuthDialog({ connector, onClose }: { connector: ConnectorItem; onClose: () => void }) {
 	const startOAuth = useAction(api.connectors.startOAuth);
-	const [registered, setRegistered] = useState(false);
+	const registration = connector.auth.type === "oauth" ? connector.auth.registration : undefined;
+	const [registered, setRegistered] = useState(!!registration);
 	const [clientId, setClientId] = useState("");
 	const [clientSecret, setClientSecret] = useState("");
-	const [issuer, setIssuer] = useState("");
+	const [issuer, setIssuer] = useState(registration?.issuer ?? "");
 	const { error, busy, run } = useRun();
 	return (
 		<Modal title={`Connect ${connector.name}`} onClose={onClose}>
 			<Form className="flex flex-col gap-3" onSubmit={() => run(openLinkWhenReady(startOAuth({ connectorId: connector.id, ...(registered && { client: { clientId, issuer, ...(clientSecret && { clientSecret }) } }) })), onClose)}>
 				<Settings>
-					<Setting label="App registration">
+					{!registration && <Setting label="App registration">
 						<Select label="App registration" className={wideControlClass} value={registered ? "registered" : "automatic"} options={[{ value: "automatic", label: "Register automatically" }, { value: "registered", label: "Use a registered app" }]} onChange={(value) => setRegistered(value === "registered")} />
-					</Setting>
+					</Setting>}
+					{registration && <p className="text-sm text-neutral-500">{connector.setup}</p>}
+					{registration && connector.documentationUrl && <button type="button" className={compactButton} onClick={() => openLink(connector.documentationUrl!)}>Provider setup instructions</button>}
 					{registered && <>
 						<Setting label="Redirect URL" hint="Register this exact URL with the provider before connecting.">
 							<input aria-label="Redirect URL" readOnly value={connector.oauthRedirectUrl ?? ""} className={wideControlClass} />
 						</Setting>
-						<Setting label="OAuth issuer" hint="The issuer URL published by the provider, for example https://slack.com. Credentials are bound to this issuer.">
-							<input aria-label="OAuth issuer" required type="url" spellCheck={false} value={issuer} onChange={(e) => setIssuer(e.target.value)} className={wideControlClass} />
+						<Setting label="OAuth issuer" hint="The issuer URL published by the provider. Credentials are bound to this issuer.">
+							<input aria-label="OAuth issuer" required readOnly={!!registration} type="url" spellCheck={false} value={issuer} onChange={(e) => setIssuer(e.target.value)} className={wideControlClass} />
 						</Setting>
 						<Setting label="Client ID">
 							<input aria-label="Client ID" required autoComplete="off" value={clientId} onChange={(e) => setClientId(e.target.value)} className={wideControlClass} />
 						</Setting>
-						<Setting label="Client secret" hint="Only if your provider requires it. Stored encrypted with this connection, never shown to other members.">
-							<input aria-label="Client secret" type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} className={wideControlClass} />
+						<Setting label="Client secret" hint={`${registration?.secretRequired ? "Required by this provider." : "Only if your provider requires it."} Stored encrypted with this connection, never shown to other members.`}>
+							<input aria-label="Client secret" required={registration?.secretRequired} type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} className={wideControlClass} />
 						</Setting>
+						{connector.auth.type === "oauth" && connector.auth.scopes?.length && <Setting label="Requested permissions"><p className="text-sm break-words">{connector.auth.scopes.join(", ")}</p></Setting>}
 					</>}
 				</Settings>
 				<Notice>{error}</Notice>
