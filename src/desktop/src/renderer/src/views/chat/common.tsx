@@ -1,6 +1,6 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
+import { CloseIcon, MoreIcon, PlusIcon, UserIcon } from "../../icons";
 import { Notice, Scroll, ScrollUnder, dangerButton, iconButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
@@ -40,7 +40,7 @@ export function Avatar({
 			title={name}
 			className={`flex items-center justify-center font-medium select-none ${shape} ${agent ? "bg-neutral-800 text-white" : "bg-neutral-200 text-neutral-600"}`}
 		>
-			{initials(name)}
+			{/[\p{L}\p{N}]/u.test(name) && !/^[\d\s()+.-]+$/.test(name) ? initials(name) : <UserIcon />}
 		</span>
 	);
 }

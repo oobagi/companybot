@@ -1,4 +1,5 @@
-import { CallButton, CallEntry } from "../Phone";
+import { formatPhone } from "@companybot/core/inbox";
+import { CallButton, CallIcon, callStatus } from "../Phone";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { type FieldValue, NAME_KEY } from "@companybot/core/records";
@@ -9,7 +10,7 @@ import { useMutation, usePaginatedQuery, useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { ArchiveIcon, ChatIcon, DatabaseIcon, FollowUpIcon, HistoryIcon, LinkedIcon, PinIcon, PlusIcon, RestoreIcon, UnpinIcon } from "../../icons";
 import { usePins } from "../../pins";
-import { LoadMore, NotFound, Notice, Section, Tabs, cardButton, cardClass, compactButton, descriptionClass, labelButton, linkButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
+import { LoadMore, NotFound, Notice, Section, Tabs, callRowButton, cardButton, cardClass, compactButton, descriptionClass, labelButton, linkButton, metadataClass, timeAgo, titleButton, useRun } from "../../ui";
 import { MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "../chat/common";
 import { type RecordType, useTypes } from "./data";
 import { PageHistory } from "../pages/PageHistory";
@@ -309,5 +310,31 @@ function RecordHistory({ open, onClose, type, recordId, pageId, canUndo, canRest
 
 function RecordCalls({ recordId }: { recordId: Id<"records"> }) {
 	const history = useQuery(api.calls.forRecord, { recordId });
-	return <section className="flex flex-col gap-2 py-3"><div className="flex flex-wrap gap-2">{history?.phones.map((phone) => <CallButton key={phone} recordId={recordId} to={phone}>Call {phone}</CallButton>)}</div>{history?.calls.map((c) => <button key={c.id} type="button" className={`${cardButton} text-left`} onClick={() => navigate("inbox", c.conversationId)}><span className={metadataClass}>{c.by ?? ""} · {timeAgo(c.at)}</span><CallEntry call={c} /></button>)}</section>;
+	if (!history || (!history.phones.length && !history.calls.length)) return null;
+	return (
+		<section aria-label="Calls" className="flex flex-col gap-1 py-3">
+			<div className="flex items-center gap-2 pb-1">
+				<h2 className="flex-1 text-sm font-medium text-neutral-500">Calls</h2>
+				{history.phones.map((phone) => (
+					<CallButton key={phone} recordId={recordId} to={phone}>
+						{history.phones.length > 1 ? formatPhone(phone) : "Call"}
+					</CallButton>
+				))}
+			</div>
+			{history.calls.length === 0 && <p className="py-2 text-sm text-neutral-400">No calls yet.</p>}
+			{history.calls.map((c) => (
+				<button key={c.id} type="button" className={callRowButton} onClick={() => navigate("inbox", c.conversationId)}>
+					<CallIcon call={c} size="sm" />
+					<span className="min-w-0 flex-1">
+						<span className="block text-sm text-neutral-900">{c.direction === "in" ? "Incoming call" : "Outgoing call"}</span>
+						<span className="block truncate text-xs text-neutral-500 tabular-nums">
+							{callStatus(c).text}
+							{c.by && ` · ${c.by}`}
+						</span>
+					</span>
+					<span className="shrink-0 text-xs text-neutral-400">{timeAgo(c.at)}</span>
+				</button>
+			))}
+		</section>
+	);
 }

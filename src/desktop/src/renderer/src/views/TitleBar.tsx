@@ -5,6 +5,7 @@ import { ArrowLeftIcon, ArrowRightIcon, BugIcon, DownloadIcon, HelpIcon, Sidebar
 import { MenuDivider, titleBarButton, useTip } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 import { NotificationTray } from "./Notifications";
+import { CallStatus } from "./Phone";
 
 const mod = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl+";
 const repo = "https://github.com/oobagi/companybot";
@@ -58,7 +59,10 @@ export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: 
 					<ArrowRightIcon />
 				</button>
 			</span>
-			<span className="ml-auto flex" {...tipFor("Notifications")}>
+			<span className="ml-auto flex">
+				<CallStatus />
+			</span>
+			<span className="flex" {...tipFor("Notifications")}>
 				<NotificationTray />
 			</span>
 			<span className="flex" {...tipFor("Help")}>

@@ -23,9 +23,20 @@ function createWindow() {
 
 	// Links go to the browser, never into the app window, and only web links at
 	// that: a reply could contain any URL, and file: or app schemes stay shut.
-	win.webContents.setWindowOpenHandler(({ url }) => {
+	win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+		// The phone popped out (views/Phone.tsx): a blank window the app draws into, kept on top.
+		if (frameName === "companybot-phone" && url === "about:blank")
+			return {
+				action: "allow",
+				overrideBrowserWindowOptions: { width: 300, height: 560, minWidth: 280, minHeight: 440, title: "Phone", alwaysOnTop: true, fullscreenable: false, backgroundColor: "#ffffff", autoHideMenuBar: true },
+			};
 		openOutside(url);
 		return { action: "deny" };
+	});
+	// The phone's window gets the same rules: links go to the browser, nothing navigates inside it.
+	win.webContents.on("did-create-window", (child) => {
+		child.webContents.setWindowOpenHandler(({ url }) => (openOutside(url), { action: "deny" }));
+		child.webContents.on("will-navigate", (event, url) => (event.preventDefault(), openOutside(url)));
 	});
 	win.webContents.on("will-navigate", (event, url) => {
 		event.preventDefault();

@@ -525,6 +525,32 @@ export const updateButton = "rounded-lg bg-neutral-900 px-3 py-2 text-left text-
 /** The title bar's 24px icons (sidebar, back, forward, help): greyed out while disabled. */
 export const titleBarButton =
 	"no-drag flex size-7 items-center justify-center rounded-md text-lg text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
+/** The phone's round controls, as a phone shows them: decline a ringing call. */
+export const declineButton = "flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-lg text-white hover:bg-red-600";
+/** Answer a ringing call. */
+export const answerButton = "flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-lg text-white hover:bg-emerald-600 disabled:opacity-40";
+/** A key on the dialer's keypad. */
+export const dialKeyButton = "flex size-15 flex-col items-center justify-center rounded-full bg-neutral-100 text-neutral-900 transition-colors hover:bg-neutral-200 active:bg-neutral-300";
+/** Deletes the dialer's last digit. */
+export const dialDeleteButton = "flex size-9 shrink-0 items-center justify-center rounded-full text-xl text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900 disabled:invisible";
+/** The dialer's big green Call. */
+export const placeCallButton = "flex size-16 items-center justify-center rounded-full bg-emerald-500 text-2xl text-white hover:bg-emerald-600 disabled:bg-neutral-200 disabled:text-neutral-400";
+/** The dialer's big red Hang up. */
+export const hangUpButton = "flex size-16 items-center justify-center rounded-full bg-red-500 text-2xl text-white hover:bg-red-600";
+/** The title bar's call controls (mute, keypad): small and round on the dark call pill. */
+export const callBarButton = "no-drag flex size-6 items-center justify-center rounded-full text-sm hover:bg-white/15 disabled:opacity-40 aria-pressed:bg-white aria-pressed:text-neutral-900";
+/** The call pill's hang up. */
+export const callBarHangUpButton = "no-drag flex size-6 items-center justify-center rounded-full bg-red-500 text-sm hover:bg-red-600";
+/** The phone panel's round tools under a call (Mute, Keypad): an icon in a circle with its name under it. */
+export const phoneToolButton = "flex w-16 flex-col items-center gap-1.5 text-xs text-neutral-600 disabled:opacity-40 [&>svg]:box-content [&>svg]:size-6 [&>svg]:rounded-full [&>svg]:bg-neutral-100 [&>svg]:p-3.5 hover:[&>svg]:bg-neutral-200 aria-pressed:[&>svg]:bg-neutral-900 aria-pressed:[&>svg]:text-white";
+/** The phone panel's caller: their picture and name, opening the conversation. */
+export const phoneCallerButton = "flex flex-col items-center gap-3 rounded-2xl px-4 py-2 hover:bg-neutral-50";
+/** The call pill's name: opens the conversation. */
+export const callBarNameButton = "max-w-40 truncate pl-1 font-medium hover:underline max-sm:hidden";
+/** A call conversation's green Call, where a composer's Send would be. */
+export const roundCallButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-neutral-200 disabled:text-neutral-400";
+/** A call in a record's call history. */
+export const callRowButton = "-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-neutral-100";
 /** A small round × in a card's corner (a pending file, a link preview). */
 export const cornerCloseButton = "flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900";
 /**

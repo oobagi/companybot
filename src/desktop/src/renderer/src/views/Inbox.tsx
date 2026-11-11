@@ -357,7 +357,7 @@ function Conversation({ c }: { c: Opened }) {
 					them={them}
 					bar={
 						<TopBar title={<h1 className="min-w-0 truncate"><CustomerLink className="hover:underline">{them}</CustomerLink></h1>} description={c.channel === "email" ? "Email" : c.channel === "call" ? "Calls" : "Text"}>
-							<CallButton agentId={c.agentId} to={c.channel === "email" ? undefined : c.contact} recordId={c.record?.id} />
+							{c.channel !== "call" && <CallButton agentId={c.agentId} to={c.channel === "email" ? undefined : c.contact} recordId={c.record?.id} />}
 							<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
 								<SidebarIcon className="-scale-x-100" />
 							</button>
@@ -412,7 +412,9 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 			footer={
 				<div className="flex">
 					<div className="min-w-0 flex-1">
-						{c.channel === "call" ? <div className="flex items-center justify-center gap-3 p-4"><CallButton agentId={c.agentId} to={c.contact} /><span className={metadataClass}>Agent voice · Soon</span></div> : <ReplyBox conversation={c} answering={answering} picked={!!picked && answering?.id === picked} onSent={() => setPicked(undefined)} />}
+						{c.channel === "call" ? (
+							<CallBar conversation={c} them={them} />
+						) : <ReplyBox conversation={c} answering={answering} picked={!!picked && answering?.id === picked} onSent={() => setPicked(undefined)} />}
 					</div>
 					{side && <div aria-hidden className="w-72 shrink-0" />}
 				</div>
@@ -437,7 +439,10 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 											assigned this to <PersonPill who={first.assignedTo} />
 										</Line>
 									) : first.call ? (
-										<div className="max-w-sm"><Sender author={first.author} them={them} mine /><CallEntry call={first.call} /></div>
+										<div className={`flex flex-col ${first.direction === "in" ? "items-start" : "items-end"}`}>
+											<Sender author={first.direction === "in" ? null : first.author} them={them} mine={first.direction !== "in"} />
+											<CallEntry call={first.call} answeredBy={first.direction === "in" ? first.author?.name : null} />
+										</div>
 									) : first.status === "draft" ? (
 										<Draft message={first} channel={c.channel} agent={c.agent} />
 									) : email ? (
@@ -979,6 +984,26 @@ function ReplyBox({ conversation: c, answering, picked, onSent }: { conversation
 						}
 					/>
 				</div>
+			</div>
+		</div>
+	);
+}
+
+/**
+ * A call conversation's footer, in the composer's place and shape: who you'd call, and a green phone
+ * where Send would be. The agent answering calls itself is coming soon.
+ */
+function CallBar({ conversation: c, them }: { conversation: Opened; them: string }) {
+	const number = formatPhone(c.contact);
+	return (
+		<div className={`${conversationColumn} px-5 pt-4 pb-7`}>
+			<div className="flex w-full items-center gap-2 rounded-3xl border border-neutral-200 bg-white p-2 shadow-xs">
+				<Soon trigger={<AgentIcon />} label="Agent answers calls" text={`${c.agentName} will answer and make calls in its own voice, and hand them to your team when needed.`} />
+				<p className="min-w-0 flex-1 truncate text-neutral-500">
+					Call {them}
+					{them !== number && <span className="text-neutral-400"> · {number}</span>}
+				</p>
+				<CallButton agentId={c.agentId} to={c.contact} round />
 			</div>
 		</div>
 	);
