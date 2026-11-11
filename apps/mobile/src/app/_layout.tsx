@@ -7,13 +7,14 @@ import { ThemeProvider, useTheme } from '@/design';
 import { EmptyState, ErrorState, Loading, Screen } from '@/components/ui';
 import { NotificationsProvider } from '@/lib/notifications/NotificationsProvider';
 import { UnsavedWorkProvider } from '@/lib/UnsavedWork';
+import { SessionLinks } from '@/features/session/SessionLinks';
 import { tokenStorage } from '@/lib/tokenStorage';
 import { backendConfigured, convexUrl } from '@/lib/config';
 
 const client = backendConfigured ? new ConvexReactClient(convexUrl!, { unsavedChangesWarning: false }) : null;
 
 export default function RootLayout() {
-  return <SafeAreaProvider><ThemeProvider><StatusBar style="auto" />{client ? <ConvexAuthProvider client={client} storage={tokenStorage} shouldHandleCode={false}><UnsavedWorkProvider><NotificationsProvider><SessionRoutes /></NotificationsProvider></UnsavedWorkProvider></ConvexAuthProvider> : <Screen edges={['top', 'left', 'right', 'bottom']}><EmptyState title="Connect Companybot" description="Set EXPO_PUBLIC_CONVEX_URL in apps/mobile/.env.local to your Convex deployment, then restart Expo." /></Screen>}</ThemeProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><ThemeProvider><StatusBar style="auto" />{client ? <ConvexAuthProvider client={client} storage={tokenStorage} shouldHandleCode={false}><SessionLinks><UnsavedWorkProvider><NotificationsProvider><SessionRoutes /></NotificationsProvider></UnsavedWorkProvider></SessionLinks></ConvexAuthProvider> : <Screen edges={['top', 'left', 'right', 'bottom']}><EmptyState title="Connect Companybot" description="Set EXPO_PUBLIC_CONVEX_URL in apps/mobile/.env.local to your Convex deployment, then restart Expo." /></Screen>}</ThemeProvider></SafeAreaProvider>;
 }
 
 function SessionRoutes() {
