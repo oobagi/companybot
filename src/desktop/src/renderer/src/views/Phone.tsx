@@ -81,8 +81,19 @@ function asTyped(raw: string) {
 	const local = `(${a}${a!.length === 3 ? ")" : ""}${b ? ` ${b}` : ""}${c ? `-${c}` : ""}`;
 	return country ? `${country.startsWith("+") ? country : `+${country}`} ${local}` : local;
 }
-/** The number's size in the dialer: big while it fits, smaller as it grows, so it's never cut off. */
-const numberSize = (shown: string) => (shown.length <= 10 ? "text-3xl" : shown.length <= 14 ? "text-2xl" : shown.length <= 18 ? "text-xl" : "text-base");
+/** Shrinks the dialer's number until it fits its field, so it's never cut off. Re-measures every render. */
+function useFitText() {
+	const ref = useRef<HTMLInputElement>(null);
+	useLayoutEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		for (const px of [30, 26, 22, 18, 15]) {
+			el.style.fontSize = `${px}px`;
+			if (el.scrollWidth <= el.clientWidth) break;
+		}
+	});
+	return ref;
+}
 const nameOf = (call: { name: string; contact: string }) => (call.name === call.contact ? formatPhone(call.contact) : call.name);
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 const since = (at: number | null) => (at === null ? 0 : Math.max(0, Math.floor((Date.now() - at) / 1000)));
@@ -511,6 +522,7 @@ function PhonePanel(props: {
 	const [keypad, setKeypad] = useState(false);
 	const [sent, setSent] = useState("");
 	const [picking, setPicking] = useState(false);
+	const numberRef = useFitText();
 	useTick(mine?.state === "connected");
 	useEffect(() => setKeypad(false), [mine?.id]);
 	const errorLine = error && <p className="px-6 text-center text-sm text-red-600">{error}</p>;
@@ -630,7 +642,7 @@ function PhonePanel(props: {
 				</div>
 			)}
 			<div className="relative flex w-full items-center">
-				<input aria-label="Phone number" type="tel" autoFocus placeholder="Enter a number" value={asTyped(props.digits)} onChange={(e) => props.onDigits(e.target.value.replace(/[^\d+*#]/g, ""))} className={`h-12 min-w-0 flex-1 bg-transparent text-center font-light tabular-nums outline-none placeholder:text-lg placeholder:text-neutral-300 px-9 ${numberSize(asTyped(props.digits))}`} />
+				<input ref={numberRef} aria-label="Phone number" type="tel" autoFocus placeholder="Enter a number" value={asTyped(props.digits)} onChange={(e) => props.onDigits(e.target.value.replace(/[^\d+*#]/g, ""))} className="h-12 min-w-0 flex-1 bg-transparent px-9 text-center font-light tabular-nums outline-none placeholder:text-lg placeholder:text-neutral-300" />
 				<button type="button" aria-label="Delete" title="Delete" disabled={!props.digits} className={`absolute right-0 ${dialDeleteButton}`} onClick={() => props.onDigits(props.digits.slice(0, -1))}>
 					<BackspaceIcon />
 				</button>
