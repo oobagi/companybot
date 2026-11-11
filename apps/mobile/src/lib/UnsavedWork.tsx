@@ -8,7 +8,7 @@ export function UnsavedWorkProvider({ children }: { children: ReactNode }) {
   const { confirm, dialog } = useConfirm();
   const mark = pending.mark;
   const confirmDiscard = useCallback(() => pending.confirmDiscard(
-    () => confirm({ title: 'Unsaved changes', body: 'Some edits have not been saved yet. Continuing will discard those changes.', action: 'Discard changes', danger: true }),
+    () => confirm({ title: 'Unsaved changes', body: 'Unsaved form edits will be discarded. Any document recovery copies already saved on this device will remain available.', action: 'Discard changes', danger: true }),
     () => confirm({ title: 'Please wait', body: 'An operation is still in progress. Let it finish before switching workspaces.', action: 'OK' }),
   ), [confirm, pending]);
   return <Context.Provider value={{ mark, confirmDiscard }}>{children}{dialog}</Context.Provider>;
