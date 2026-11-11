@@ -8,6 +8,7 @@ import { conversationWith, linkRecord, recordShown } from "./inbox";
 import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { requireRecord } from "./recordOps";
 import { recordUsage } from "./usage";
+import { callContact, callData } from "./callData";
 
 // Calls use the Inbox's conversation, message, comments and record link. Only media crosses LiveKit.
 // Like image generation, admission holds the maximum cost against a monthly budget, then settles usage.
@@ -15,24 +16,58 @@ export const CALL_SECONDS = 30 * 60;
 const RING_MS = 30_000;
 const HOLD_MINUTES = 31; // Include ringing and provider rounding.
 type Message = Doc<"inboxMessages">;
-type Call = NonNullable<Message["call"]>;
+type Outcome = "completed" | "missed" | "no-answer" | "declined" | "failed";
+const outcomeArg = v.union(v.literal("completed"), v.literal("missed"), v.literal("no-answer"), v.literal("declined"), v.literal("failed"));
 export const voiceReady = () => !!(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET && process.env.LIVEKIT_SIP_INBOUND_TRUNK && process.env.LIVEKIT_SIP_OUTBOUND_TRUNK && process.env.TWILIO_ACCOUNT_SID && rate() > 0);
 const rate = () => { const n = Number(process.env.PHONE_RATE_USD_PER_MINUTE); return Number.isFinite(n) && n > 0 ? n : 0; };
 const live = (ctx: QueryCtx, workspaceId: Id<"workspaces">) => ctx.db.query("inboxMessages").withIndex("by_live_call", (q) => q.eq("workspaceId", workspaceId).eq("call.active", true)).take(11);
 const inRoom = (ctx: QueryCtx, room: string) => ctx.db.query("inboxMessages").withIndex("by_call_room", (q) => q.eq("call.room", room)).first();
-const shown = (m: Message) => ({ id: m._id, conversationId: m.conversationId, direction: m.direction, state: m.call!.state, connectedAt: m.call!.connectedAt ?? null, endedAt: m.call!.endedAt ?? null, at: m._creationTime });
+const shown = (m: Message) => ({ id: m._id, conversationId: m.conversationId, ...callData(m), at: m._creationTime });
 
 async function phonesOf(ctx: QueryCtx, record: Doc<"records">) {
 	const fields = await ctx.db.query("recordFields").withIndex("by_type_kind", (q) => q.eq("typeId", record.typeId).eq("kind", "phone")).take(20);
 	return [...new Set(fields.filter((f) => !f.archived).flatMap((f) => { const value = record.values[f.key]; return (Array.isArray(value) ? value : [value]).flatMap((v) => typeof v === "string" ? normalizePhone(v) ?? [] : []); }))];
 }
 
-async function budget(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+async function allowance(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	const workspace = await liveWorkspace(ctx, workspaceId);
-	const spent = await ctx.db.query("usage").withIndex("by_month_kind", (q) => q.eq("workspaceId", workspaceId).eq("month", usageMonth(Date.now())).eq("kind", "phone")).collect();
+	const month = usageMonth(Date.now());
+	const spent = await ctx.db.query("usage").withIndex("by_month_kind", (q) => q.eq("workspaceId", workspaceId).eq("month", month).eq("kind", "phone")).collect();
 	const active = await live(ctx, workspaceId);
-	return !!workspace && active.length < 10 && rate() > 0 && Math.round((spent.reduce((n, r) => n + r.costUsd, 0) + active.reduce((n, m) => n + m.call!.rateUsd * HOLD_MINUTES, 0) + rate() * HOLD_MINUTES) * 1e6) <= Math.round((workspace.phoneBudgetUsd ?? 0) * 1e6);
+	const budgetUsd = workspace?.phoneBudgetUsd ?? 0;
+	const spentThisMonthUsd = spent.reduce((n, r) => n + r.costUsd, 0);
+	const reservedUsd = active.reduce((n, m) => n + m.call!.rateUsd * HOLD_MINUTES, 0);
+	const requiredUsd = rate() * HOLD_MINUTES;
+	const configured = voiceReady();
+	const reasonCode = !configured ? "not_configured" as const
+		: budgetUsd <= 0 ? "budget_off" as const
+		: active.length >= 10 ? "call_limit" as const
+		: Math.round((spentThisMonthUsd + reservedUsd + requiredUsd) * 1e6) > Math.round(budgetUsd * 1e6) ? "budget_exceeded" as const : null;
+	const reason = reasonCode === "not_configured" ? "Calling is not set up yet."
+		: reasonCode === "budget_off" ? "Calling is off. Ask an owner to set a call budget."
+		: reasonCode === "call_limit" ? "Too many calls are active. Try again shortly."
+		: reasonCode === "budget_exceeded" ? "The call budget cannot cover another call. Ask an owner to increase it." : null;
+	return { budgetUsd, spentThisMonthUsd, reservedUsd, requiredUsd, month, monthLabel: new Date(`${month}-01T00:00:00Z`).toLocaleString("en-US", { month: "long", timeZone: "UTC" }), configured, canCall: !!workspace && reasonCode === null, reasonCode, reason, active };
 }
+
+/** Admission and the UI use the same allowance, including this month's spend and concurrent holds. */
+export const readiness = query({
+	args: {},
+	handler: async (ctx) => {
+		const member = await getMember(ctx);
+		if (!member || !can(member, "inbox.use")) return null;
+		const { active, ...result } = await allowance(ctx, member.workspaceId);
+		if (!result.canCall) return result;
+		if (active.some((m) => m.call?.userId === member.userId)) return { ...result, canCall: false, reasonCode: "already_on_call" as const, reason: "Finish your current call first." };
+		const points = await ctx.db.query("contactPoints").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId)).take(100);
+		for (const point of points) {
+			if (point.kind !== "phone" || point.status !== "active") continue;
+			const agent = await ctx.db.get(point.agentId);
+			if (agent && !agent.archived) return result;
+		}
+		return { ...result, canCall: false, reasonCode: "no_number" as const, reason: "Add an active phone number to make calls." };
+	},
+});
 
 async function allowed(ctx: QueryCtx, m: Message) {
 	const c = await ctx.db.get(m.conversationId);
@@ -58,6 +93,7 @@ async function make(ctx: MutationCtx, point: Doc<"contactPoints">, to: string, d
 		c = (await ctx.db.get(id))!;
 		await linkRecord(ctx, c);
 	}
+	if (recordId && c.recordId !== recordId) await ctx.db.patch(c._id, { recordId });
 	const id = await ctx.db.insert("inboxMessages", { workspaceId: point.workspaceId, conversationId: c._id, direction, status: "sent", text: direction === "in" ? "Incoming call" : "Outgoing call", ...(who && { authorUserId: who.member.userId, ...(who.agentId && { authorAgentId: who.agentId }) }), call: { room, pointId: point._id, from: point.address, active: true, state: "ringing", declined: [], rateUsd: rate(), ...(who && { userId: who.member.userId, memberId: who.member.id }) } });
 	await ctx.db.patch(c._id, { lastAt: Date.now(), preview: direction === "in" ? "Incoming call" : "Outgoing call" });
 	await ctx.scheduler.runAfter(10_000, internal.calls.watch, { id, room });
@@ -67,18 +103,20 @@ async function make(ctx: MutationCtx, point: Doc<"contactPoints">, to: string, d
 export async function startCall(ctx: MutationCtx, who: Who, args: { agentId: Id<"agents">; to: string; recordId?: Id<"records"> }) {
 	checkPermission(who.member, "inbox.use");
 	await requireLiveAgent(ctx, who.member, args.agentId);
-	if (!voiceReady()) throw new ConvexError("Calling isn't set up on this server.");
+	if (!voiceReady()) throw new ConvexError("Calling is not set up yet.");
 	const to = normalizePhone(args.to);
 	if (!to) throw new ConvexError("Include the phone number's country code.");
 	if (args.recordId) {
 		const record = await requireRecord(ctx, who.member, args.recordId);
 		if (record.archived) throw new ConvexError("That record is archived.");
-		if (!(await phonesOf(ctx, record)).includes(to)) throw new ConvexError("Choose a phone number on this person's record, or use the Keypad for a different person.");
+		if (!(await phonesOf(ctx, record)).includes(to)) throw new ConvexError("Choose a number from this record, or use the Keypad.");
 	}
 	const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", args.agentId).eq("kind", "phone")).first();
-	if (point?.status !== "active" || point.address === to) throw new ConvexError("Choose an agent with an active number and a different number to call.");
+	if (point?.status !== "active") throw new ConvexError("This agent needs an active phone number.");
+	if (point.address === to) throw new ConvexError("Choose a different number to call.");
 	if ((await live(ctx, who.member.workspaceId)).some((m) => m.call?.userId === who.member.userId)) throw new ConvexError("Finish your current call first.");
-	if (!(await budget(ctx, who.member.workspaceId))) throw new ConvexError("The monthly call budget cannot cover this call. An owner can change it in General settings.");
+	const admission = await allowance(ctx, who.member.workspaceId);
+	if (!admission.canCall) throw new ConvexError(admission.reason ?? "Calling is unavailable. Try again shortly.");
 	return make(ctx, point, to, "out", `cb-call-${crypto.randomUUID()}`, who, args.recordId);
 }
 
@@ -99,7 +137,7 @@ export const current = query({
 			if (!(await allowed(ctx, m))) continue;
 			const c = await ctx.db.get(m.conversationId);
 			const record = c && await recordShown(ctx, member, c.recordId);
-			if (c) calls.push({ ...shown(m), mine: m.call!.userId === member.userId, contact: c.contact, name: c.contactName ?? record?.title ?? c.contact, agentId: c.agentId });
+			if (c) calls.push({ ...shown(m), mine: m.call!.userId === member.userId, contact: c.contact, ...callContact(c, record ?? null), name: callContact(c, record ?? null).displayName, agentId: c.agentId });
 		}
 		return { available: voiceReady(), calls };
 	},
@@ -126,9 +164,10 @@ export const forRecord = query({
 	handler: async (ctx, { recordId }) => {
 		const member = await requirePermission(ctx, "inbox.use");
 		const record = await requireRecord(ctx, member, recordId);
+		const contactRecord = await recordShown(ctx, member, recordId);
 		const cs = await ctx.db.query("inboxConversations").withIndex("by_record", (q) => q.eq("recordId", recordId)).take(20);
 		const rows = (await Promise.all(cs.filter((c) => c.channel === "call").map((c) => ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").take(20)))).flat();
-		return { phones: await phonesOf(ctx, record), calls: await Promise.all(rows.filter((m) => m.call).sort((a, b) => b._creationTime - a._creationTime).slice(0, 20).map(async (m) => ({ ...shown(m), by: m.call?.userId ? await nameOf(ctx, m.call.userId) : null }))) };
+		return { phones: await phonesOf(ctx, record), calls: await Promise.all(rows.filter((m) => m.call).sort((a, b) => b._creationTime - a._creationTime).slice(0, 20).map(async (m) => ({ ...shown(m), ...callContact(cs.find((c) => c._id === m.conversationId)!, contactRecord), by: m.call?.userId ? await nameOf(ctx, m.call.userId) : null }))) };
 	},
 });
 
@@ -201,15 +240,15 @@ export const watch = internalMutation({
 			return;
 		}
 		const age = Date.now() - m._creationTime;
-		if (!(await allowed(ctx, m)) || age >= CALL_SECONDS * 1000 || (!m.call.connectedAt && age >= RING_MS)) return stop(ctx, m);
+		if (!(await allowed(ctx, m)) || age >= CALL_SECONDS * 1000 || (m.call.connectedAt === undefined && age >= RING_MS)) return stop(ctx, m);
 		await ctx.scheduler.runAfter(10_000, internal.calls.watch, { id, room });
 	},
 });
 
-async function finish(ctx: MutationCtx, m: Message, uncertain = false) {
+async function finish(ctx: MutationCtx, m: Message, uncertain = false, outcome?: Outcome) {
 	if (!m.call?.active) return;
 	const now = Date.now();
-	const state = uncertain ? "unknown" : m.call.connectedAt !== undefined ? "completed" : m.direction === "in" ? "missed" : "failed";
+	const state = uncertain ? "unknown" : m.call.connectedAt !== undefined ? "completed" : outcome ?? (m.direction === "in" ? "missed" : m.call.dispatched ? "no-answer" : "failed");
 	await ctx.db.patch(m._id, { call: { ...m.call, active: false, state, endedAt: now } });
 	const c = await ctx.db.get(m.conversationId);
 	if (c && await liveWorkspace(ctx, m.workspaceId)) {
@@ -219,8 +258,8 @@ async function finish(ctx: MutationCtx, m: Message, uncertain = false) {
 }
 
 export const closed = internalMutation({
-	args: { id: v.id("inboxMessages"), uncertain: v.optional(v.boolean()) },
-	handler: async (ctx, { id, uncertain }) => { const m = await ctx.db.get(id); if (m) await finish(ctx, m, uncertain); },
+	args: { id: v.id("inboxMessages"), uncertain: v.optional(v.boolean()), outcome: v.optional(outcomeArg) },
+	handler: async (ctx, { id, uncertain, outcome }) => { const m = await ctx.db.get(id); if (m) await finish(ctx, m, uncertain, outcome); },
 });
 
 export const connected = internalMutation({
@@ -229,23 +268,23 @@ export const connected = internalMutation({
 		const m = await ctx.db.get(id);
 		if (!m?.call?.active) return false;
 		if (!(await allowed(ctx, m)) || m.call.state === "ending") { await stop(ctx, m); return false; }
-		if (!m.call.connectedAt) await ctx.db.patch(id, { call: { ...m.call, state: "connected", connectedAt: Date.now() } });
+		if (m.call.connectedAt === undefined) await ctx.db.patch(id, { call: { ...m.call, state: "connected", connectedAt: Date.now() } });
 		return true;
 	},
 });
 
 /** Only phoneProvider passes verified LiveKit events here. Unknown rooms/numbers are closed. */
 export const event = internalMutation({
-	args: { event: v.string(), room: v.string(), identity: v.string(), sip: v.boolean(), attributes: v.record(v.string(), v.string()) },
-	handler: async (ctx, { event, room, identity, sip, attributes }) => {
+	args: { event: v.string(), room: v.string(), identity: v.string(), sip: v.boolean(), attributes: v.record(v.string(), v.string()), disconnectReason: v.optional(v.string()) },
+	handler: async (ctx, { event, room, identity, sip, attributes, disconnectReason }) => {
 		let m = await inRoom(ctx, room);
-		if (!m && (event === "participant_joined" || event === "participant_connection_aborted") && sip) {
+		if (!m && ["participant_joined", "participant_connection_aborted", "participant_left"].includes(event) && sip) {
 			const to = normalizePhone(attributes["sip.trunkPhoneNumber"] ?? "");
 			const from = normalizePhone(attributes["sip.phoneNumber"] ?? "");
 			const point = to && await ctx.db.query("contactPoints").withIndex("by_address", (q) => q.eq("kind", "phone").eq("address", to)).first();
 			const agent = point && await ctx.db.get(point.agentId);
 			if (!voiceReady() || attributes["sip.trunkID"] !== process.env.LIVEKIT_SIP_INBOUND_TRUNK || attributes["sip.twilio.accountSid"] !== process.env.TWILIO_ACCOUNT_SID || !point || point.status !== "active" || !from || !agent || agent.archived || !(await liveWorkspace(ctx, point.workspaceId))) return void await ctx.scheduler.runAfter(0, internal.phoneProvider.close, { room });
-			const admitted = await budget(ctx, point.workspaceId);
+			const admitted = (await allowance(ctx, point.workspaceId)).canCall;
 			const id = await make(ctx, point, from, "in", room);
 			m = await ctx.db.get(id);
 			if (!admitted && m) {
@@ -253,9 +292,13 @@ export const event = internalMutation({
 				return void await ctx.scheduler.runAfter(0, internal.phoneProvider.close, { room });
 			}
 		}
-		if (!m?.call?.active) return;
-		if (event === "room_finished" || event === "participant_connection_aborted" || (event === "participant_left" && (sip || identity === `staff-${m.call.userId}`))) {
-			await finish(ctx, m);
+		if (!m?.call?.active) {
+			if (m?.call && event === "participant_joined") await ctx.scheduler.runAfter(0, internal.phoneProvider.close, { room });
+			return;
+		}
+		if (event === "room_finished" || (["participant_connection_aborted", "participant_left"].includes(event) && (sip || identity === `staff-${m.call.userId}`))) {
+			const outcome = !sip || m.direction === "in" ? undefined : disconnectReason === "USER_REJECTED" ? "declined" : disconnectReason === "USER_UNAVAILABLE" ? "no-answer" : disconnectReason === "SIP_TRUNK_FAILURE" ? "failed" : undefined;
+			await finish(ctx, m, false, outcome);
 			await ctx.scheduler.runAfter(0, internal.phoneProvider.close, { room });
 		}
 	},

@@ -17,6 +17,58 @@ General settings has one monthly call budget, default **$0 (off)**, using the pi
 
 Unpredictable room names and 60-second staff tokens reach only the claimed room, microphone and DTMF data. Signed `/phone/events` callbacks require the dedicated inbound trunk, Twilio account and active number. Repeated events update the same entry. Existing Inbox cascades erase history; the watchdog retains the exact room name to close even after its row is erased. No recording/storage objects exist yet.
 
+## Backend contract for the phone UI
+
+`calls.readiness({})` uses the same admission calculation as `calls.start`. It returns `null` without `inbox.use`, otherwise:
+
+```ts
+{
+  configured: boolean;
+  canCall: boolean;
+  reasonCode: "not_configured" | "budget_off" | "budget_exceeded"
+    | "call_limit" | "already_on_call" | "no_number" | null;
+  reason: string | null;
+  budgetUsd: number;
+  spentThisMonthUsd: number;
+  reservedUsd: number;
+  requiredUsd: number;
+  month: string;       // UTC YYYY-MM
+  monthLabel: string;  // English month name, such as November
+}
+```
+
+Disable Call while loading, when readiness is null, or when `canCall` is false. Show `reason` beside the control. `configured` means the deployment has voice credentials, both trunks and a positive rate; it does not mean a workspace has a budget or an active number, and it is not a provider health check. `reservedUsd` holds active calls separately from settled `spentThisMonthUsd`; `requiredUsd` is the allowance needed for one more call. Settings can show `$X used in <monthLabel>` using `spentThisMonthUsd`. Budget admission still runs atomically on the server, because another caller can reserve money after the query returns. Select an active number from `calls.numbers` and validate the destination before starting. Refresh the subscription at the UTC month boundary; time passing alone does not invalidate a Convex query.
+
+`calls.start` and media setup throw short string `ConvexError` data. The renderer must display the string in `error.data`, with a short fallback for unexpected failures. Rendering `String(error)`, `error.message` or the whole exception can include Convex's diagnostic wrapper and stack trace. That renderer wiring is outside this backend change.
+
+Every call object in `calls.current().calls`, `calls.forRecord().calls` and `inbox.get().messages[].call` includes:
+
+```ts
+{
+  direction: "in" | "out";
+  status: "completed" | "missed" | "no-answer" | "declined" | "failed"
+    | "in-progress" | "ringing";
+  startedAt: number;
+  answeredAt: number | null;
+  endedAt: number | null;
+  duration: number | null;
+  active: boolean;
+  ending: boolean;
+  number: string;
+  formattedNumber: string;
+  recordName: string | null;
+  displayName: string;
+}
+```
+
+Timestamps are Unix milliseconds. `duration` is whole connected seconds, null if the call never connected. During a live call it is a query snapshot: tick a local timer from `answeredAt`, and freeze it at `endedAt`. `ending` marks a requested hangup while provider cleanup finishes. `status` is for cards; the older `state` and `connectedAt` fields remain available. An uncertain provider result has `status: "failed"` and `state: "unknown"`, conservatively spends its full hold, and is never retried automatically. Message-level `status` still describes Inbox delivery; use the nested `call.status` for a call card.
+
+`number` is the contact's E.164 number. `formattedNumber` uses the shared phone formatter, such as `(415) 555-0142` for US/Canada; other countries retain E.164. `recordName` is the currently visible linked record's name or null. `displayName` is that name, otherwise the formatted number. The same helper supplies call conversation fields on `inbox.list` and `inbox.get`; those additional fields exist for call conversations only. Their existing `contactName` now also returns `displayName` for calls, and `calls.current().calls[].name` is the same alias. Record renames update every surface; hidden or archived records fall back to the number instead of leaking a saved name. `contact` remains the raw address for existing clients. Do not construct a caller label from `Call <number>` or stale `contactName` data stored in the row.
+
+Signed LiveKit disconnect reasons distinguish declined, unanswered and failed outbound calls. Known SIP rejection responses settle the estimated attempt once; only uncertain responses spend the full hold. A caller leaving before the join webhook still creates one missed entry. Duplicate or late joins cannot revive a finished entry and request room cleanup. A participant abort closes only the caller or the claimed staff connection, not an unrelated participant. The watchdog closes unanswered calls after 30 seconds and connected calls at the duration limit if end webhooks never arrive. Decline remains personal, so teammates can still answer; no staff pickup ends as missed.
+
+Regenerate backend types from the repo root with `pnpm exec convex codegen` against this checkout's local deployment. Do not hand-sort `_generated/api.d.ts`. A second generation should leave it unchanged. No shared deployment or real provider is needed for tests; `pnpm -C src/backend test` mocks provider requests.
+
 ## Night Owl references
 
 Behavior only, no copied visuals or Supabase routing tables:
