@@ -28,14 +28,14 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root | undefined;
 let host: HTMLDivElement;
 let actions: ReturnType<typeof useDocumentActions>;
-function Harness({ available, create }: { available: boolean; create: (title: string) => Promise<string> }) {
-  const current = useDocumentActions({ editable: true, available, canCreate: true, create });
+function Harness({ available, editable, create }: { available: boolean; editable: boolean; create: (title: string) => Promise<string> }) {
+  const current = useDocumentActions({ editable, available, canCreate: true, create });
   useEffect(() => { actions = current; }, [current]);
   return current.dialog;
 }
 async function setup(create = vi.fn(async () => 'child-id')) {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  const render = async (available: boolean) => { await act(async () => root!.render(createElement(Harness, { available, create }))); };
+  const render = async (available: boolean, editable = true) => { await act(async () => root!.render(createElement(Harness, { available, editable, create }))); };
   await render(true);
   return { create, render };
 }
@@ -80,7 +80,7 @@ it('retains an interrupted sub-page title without creating a child', async () =>
   expect(reply).toHaveBeenCalledWith(null);
 });
 
-it('reports a child already committed during interruption and prevents duplicate creation', async () => {
+it.each(['renderer', 'edit access'])('reports a child committed during %s loss without duplicate creation', async interruption => {
   let finish!: (value: string) => void;
   const create = vi.fn(() => new Promise<string>(resolve => { finish = resolve; }));
   const { render } = await setup(create);
@@ -88,7 +88,8 @@ it('reports a child already committed during interruption and prevents duplicate
   await act(async () => { void actions.onCreatePage().then(reply); });
   await fill('Title', 'Committed child');
   await act(async () => button('Create').click());
-  await render(false);
+  await render(interruption !== 'renderer', interruption !== 'edit access');
+  if (interruption === 'edit access') await render(true, true);
   await act(async () => finish('child-id'));
   expect(host.textContent).toContain('Your sub-page was created');
   expect(button('Create')).toBeUndefined();
@@ -121,4 +122,54 @@ it('returns a committed child to a live editor after sheet dismissal', async () 
   await act(async () => button('Create').click());
   expect(create).toHaveBeenCalledWith('Child page');
   expect(reply).toHaveBeenCalledWith('child-id');
+});
+
+
+it('preserves a link draft when edit access is revoked and permits explicit discard', async () => {
+  const { render } = await setup();
+  const reply = vi.fn();
+  await act(async () => { void actions.onEditLink({ url: '', text: '' }).then(reply); });
+  await fill('Link', 'https://example.com/unsaved');
+  await fill('Text', 'Keep this draft');
+  await render(true, false);
+  expect(host.querySelector<HTMLInputElement>('[aria-label="Link"]')?.value).toBe('https://example.com/unsaved');
+  expect(host.querySelector<HTMLInputElement>('[aria-label="Text"]')?.value).toBe('Keep this draft');
+  expect(button('Done').disabled).toBe(true);
+  await act(async () => button('Done').click());
+  await act(async () => button('Cancel').click());
+  expect(reply).not.toHaveBeenCalled();
+  expect(await actions.onCreatePage()).toBeNull();
+  expect(await actions.onEditLink({ url: '', text: '' })).toBeNull();
+  await render(true, true);
+  expect(button('Done').disabled).toBe(true);
+  fixture.discard = true;
+  await act(async () => button('Cancel').click());
+  expect(reply).toHaveBeenCalledWith(null);
+});
+
+it('retains an interrupted sub-page draft without resuming its aborted action after access returns', async () => {
+  const { render, create } = await setup();
+  const reply = vi.fn();
+  await act(async () => { void actions.onCreatePage().then(reply); });
+  await fill('Title', 'Keep my title');
+  await render(true, false);
+  expect(host.querySelector<HTMLInputElement>('[aria-label="Title"]')?.value).toBe('Keep my title');
+  expect(button('Create').disabled).toBe(true);
+  await act(async () => button('Create').click());
+  expect(create).not.toHaveBeenCalled();
+  expect(reply).not.toHaveBeenCalled();
+  await render(true, true);
+  expect(button('Create').disabled).toBe(true);
+  expect(host.querySelector<HTMLInputElement>('[aria-label="Title"]')?.value).toBe('Keep my title');
+  await act(async () => button('Create').click());
+  expect(create).not.toHaveBeenCalled();
+  fixture.discard = true;
+  await act(async () => button('Cancel').click());
+  expect(reply).toHaveBeenCalledWith(null);
+  const freshReply = vi.fn();
+  await act(async () => { void actions.onCreatePage().then(freshReply); });
+  await fill('Title', 'New action');
+  await act(async () => button('Create').click());
+  expect(create).toHaveBeenCalledExactlyOnceWith('New action');
+  expect(freshReply).toHaveBeenCalledWith('child-id');
 });
