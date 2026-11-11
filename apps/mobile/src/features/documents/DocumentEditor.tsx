@@ -1,19 +1,19 @@
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
-import { imageError, imageHeadBytes, imageMaxBytes, imageTypes } from '@companybot/core/images';
+import { imageMaxBytes, imageMaxMb, imageTypes } from '@companybot/core/images';
 import { openContentLink } from '@/features/chat/links';
 import { useAuthToken } from '@convex-dev/auth/react';
 import { useConvex, useConvexConnectionState, useQuery as useRawQuery } from 'convex/react';
 import { fetch as expoFetch } from 'expo/fetch';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import { File } from 'expo-file-system';
+import { validateImageFile } from '@/lib/imageFile';
 import { usePreventRemove } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, Platform, useWindowDimensions, View } from 'react-native';
 import { EmptyState, ErrorState, Loading } from '@/components/ui';
-import { ContentToolbar } from '@/components/ui/ContentToolbar';
-import PhotoIcon from '@expo/material-symbols/image.xml';
-import PageIcon from '@expo/material-symbols/note_add.xml';
-import BlocksIcon from '@expo/material-symbols/more_horiz.xml';
+import { DocumentToolbar } from './DocumentToolbar';
+import type { DocumentFormatting } from './formatting';
 import { useTheme } from '@/design';
 import { api, errorMessage } from '@/lib/api';
 import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
@@ -58,6 +58,7 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   const [image, setImage] = useState<{ url: string; request: number }>();
   const pendingImage = useRef<number | undefined>(undefined);
   const [command, setCommand] = useState<DocumentCommand>();
+  const [formatting, setFormatting] = useState<DocumentFormatting>();
   const sendCommand = (kind: DocumentCommand['kind']) => setCommand(previous => ({ kind, request: (previous?.request ?? 0) + 1 }));
   const { confirm, dialog } = useDocumentConfirm();
   const upload = useTask();
@@ -102,17 +103,18 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
     for (const child of children) await archive({ kind: 'page', id: child!._id });
     return true;
   };
-  const pickImage = () => upload.run(async () => {
+  const pickImage = (source: 'photos' | 'files') => upload.run(async () => {
     if (!endpoint || !token || !workspace) throw new Error('Still connecting. Try again in a moment.');
-    const picked = await DocumentPicker.getDocumentAsync({ type: [...imageTypes], copyToCacheDirectory: true, multiple: false });
+    const picked = source === 'photos'
+      ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible })
+      : await DocumentPicker.getDocumentAsync({ type: [...imageTypes], copyToCacheDirectory: true, multiple: false });
     if (picked.canceled) return;
     const asset = picked.assets[0];
     if (!asset) return;
-    if ((asset.size ?? 0) > imageMaxBytes) throw new Error('Pick an image under 2 MB.');
+    if ((('fileSize' in asset ? asset.fileSize : 'size' in asset ? asset.size : undefined) ?? 0) > imageMaxBytes) throw new Error(`Pick an image under ${imageMaxMb} MB.`);
     const file = Platform.OS === 'web' ? asset.file : new File(asset.uri);
     if (!file) throw new Error('The selected image could not be read.');
-    const invalid = imageError(new Uint8Array(await file.slice(0, imageHeadBytes).arrayBuffer()), file.size);
-    if (invalid) throw new Error(invalid);
+    await validateImageFile(file);
     const response = await expoFetch(`${endpoint}?workspaceId=${encodeURIComponent(workspace.id)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: file });
     const result = await response.json() as { storageId?: Id<'_storage'>; error?: string };
     if (!response.ok || !result.storageId) throw new Error(result.error ?? 'The image upload failed. Try again.');
@@ -127,7 +129,13 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
     {actions.dialog}
     {(error || upload.error) && <ErrorState message={error ?? upload.error!} onRetry={error ? () => setRetry(n => n + 1) : undefined} />}
     {referenceIds.map((id) => <PageReference key={id} id={id} onChange={setReference} />)}
-    <DocumentSurface onReadyChange={setEditorReady} protectedWork={dirty || imageBusy || actions.busy} payload={encodeDocumentPayload({ pageId, snapshot, latestVersion: version, retrySignal: `${connection.connectionCount}:${retry}`, editable, canCreatePage: standalone, command, dark: theme.dark, fontScale: documentFontScale(Platform.OS, fontScale), colors: theme.colors, image, references })} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage}
+    <DocumentSurface onReadyChange={setEditorReady} onFormatting={async value => { if (mounted.current) setFormatting(value); }} onReloadSaved={async () => {
+      if (upload.busy || actions.busy) return false;
+      const reload = await confirm({ title: 'Reload saved document?', body: 'Edits that were still saving may be lost. Any pending image will need to be added again.', action: 'Reload', danger: true });
+      if (!reload || !mounted.current) return false;
+      pendingImage.current = undefined; setImage(undefined); setCommand(undefined); setDirty(false); setError(undefined); setFormatting(undefined);
+      return true;
+    }} protectedWork={dirty || imageBusy || actions.busy} payload={encodeDocumentPayload({ pageId, snapshot, latestVersion: version, retrySignal: `${connection.connectionCount}:${retry}`, editable, canCreatePage: standalone, command, dark: theme.dark, fontScale: documentFontScale(Platform.OS, fontScale), colors: theme.colors, image, references })} onBlockActions={actions.onBlockActions} onCreatePage={actions.onCreatePage} onEditLink={actions.onEditLink}
       getSteps={(atVersion) => convex.query(api.pageSync.getSteps, { id: pageId, version: atVersion })}
       submitSteps={(args: Submit) => {
         if (!editable) return Promise.reject(new Error('This document is read only.'));
@@ -144,11 +152,7 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
         await openContentLink(href).catch((e: unknown) => setError(errorMessage(e)));
       }}
       dom={{ style: { flex: 1, minHeight: 0 }, hideKeyboardAccessoryView: true, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} />
-    {editable && <ContentToolbar accessibilityLabel="Document editing" status={upload.busy ? 'Uploading image…' : image ? 'Adding image…' : dirty ? 'Saving changes…' : undefined} busy={!editorReady || imageBusy || actions.busy} actions={[
-      { id: 'blocks', label: 'Block actions', icon: { ios: 'ellipsis', android: BlocksIcon }, onPress: () => sendCommand('blocks') },
-      { id: 'image', label: 'Add image', icon: { ios: 'photo', android: PhotoIcon }, onPress: () => void pickImage() },
-      ...(standalone ? [{ id: 'page', label: 'New sub-page', icon: { ios: 'doc.badge.plus' as const, android: PageIcon }, onPress: () => sendCommand('page') }] : []),
-    ]} />}
+    {editable && <DocumentToolbar formatting={formatting} busy={!editorReady || imageBusy || actions.busy} status={upload.busy ? 'Uploading image…' : image ? 'Adding image…' : dirty ? 'Saving changes…' : undefined} canCreate={standalone} onCommand={sendCommand} onImage={source => void pickImage(source)} />}
   </View>;
 }
 

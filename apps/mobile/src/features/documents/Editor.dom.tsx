@@ -9,7 +9,8 @@ import '@blocknote/core/style.css';
 import '@blocknote/react/style.css';
 import '@mantine/core/styles.css';
 import '@blocknote/mantine/blocknoteStyles.css';
-import { linkedPageId, linkedRecordId, pageHref, validPageHref } from '@companybot/core/page-links';
+import { pageHref, validPageHref } from '@companybot/core/page-links';
+import { normalizeDocumentLink, unsupportedDocumentLink } from './documentLink';
 import { sendableSteps } from 'prosemirror-collab';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createImageInsertion } from './imageInsertion';
@@ -24,6 +25,8 @@ import { documentSchema as schema, PageBlockActions, References } from './schema
 import { applyBlockAction, blockTarget, createPageAtBlock, installPageRemovalGuard, type BlockAction, type BlockTarget } from './blockActions';
 import { createBridgeNotifications } from './bridgeNotifications';
 import { createDocumentCommandReceiver } from './commands';
+import { editDocumentLink, type LinkDraft } from './linkEditing';
+import { applyDocumentFormat, documentFormatting, type DocumentFormatting, type FormatCommand } from './formatting';
 import { decodeDocumentPayload } from './domPayload';
 
 type Props = EditorTransport & {
@@ -35,6 +38,8 @@ type Props = EditorTransport & {
   onOpenLink: (href: string) => Promise<void>;
   onRemovePages: (ids: string[]) => Promise<boolean>;
   onStatus: (dirty: boolean, error: string | null) => Promise<void>;
+  onFormatting?: (formatting: DocumentFormatting) => Promise<void>;
+  onEditLink?: (draft: LinkDraft) => Promise<LinkDraft | null>;
   onImageResult: (request: number, dirty: boolean, error: string | null) => Promise<void>;
 };
 
@@ -59,7 +64,7 @@ export default function DocumentDOM(wire: Props) {
   useEffect(() => { latest.current = props; }, [props]);
   const [problem, setProblem] = useState<string>();
   const [actionProblem, setActionProblem] = useState<string>();
-  const [receiveCommand] = useState(createDocumentCommandReceiver);
+  const [receiveCommand] = useState(() => createDocumentCommandReceiver(data.command?.request));
   const [notifications] = useState(() => createBridgeNotifications(error => setActionProblem(error instanceof Error ? error.message : String(error))));
   useEffect(() => notifications.retain(), [notifications]);
   const action = useRef<AbortController | null>(null);
@@ -109,6 +114,15 @@ export default function DocumentDOM(wire: Props) {
     if (!editor) return;
     let previousRefs = '';
     let previousDirty: boolean | undefined;
+    let previousFormatting = '';
+    const reportFormatting = () => {
+      if (!latest.current.onFormatting) return;
+      const formatting = documentFormatting(editor);
+      const signature = JSON.stringify(formatting);
+      if (signature === previousFormatting) return;
+      previousFormatting = signature;
+      void notifications.send(() => latest.current.onFormatting!(formatting));
+    };
     let referenceTimer: ReturnType<typeof setTimeout> | undefined;
     const reportReferences = () => {
       const ids = new Set<string>();
@@ -127,8 +141,9 @@ export default function DocumentDOM(wire: Props) {
     const off = editor.onChange(() => { clearTimeout(referenceTimer); referenceTimer = setTimeout(reportReferences, 150); });
     // Acknowledgements can change collab state without changing the document.
     editor._tiptapEditor.on('transaction', reportStatus);
-    reportReferences(); reportStatus();
-    return () => { clearTimeout(referenceTimer); off(); editor._tiptapEditor.off('transaction', reportStatus); };
+    editor._tiptapEditor.on('transaction', reportFormatting);
+    reportReferences(); reportStatus(); reportFormatting();
+    return () => { clearTimeout(referenceTimer); off(); editor._tiptapEditor.off('transaction', reportStatus); editor._tiptapEditor.off('transaction', reportFormatting); };
   }, [editor, notifications]);
   useEffect(() => {
     if (!editor || !props.editable) return;
@@ -163,7 +178,18 @@ export default function DocumentDOM(wire: Props) {
     if (!editor) return;
     receiveCommand(props.command, props.editable, kind => {
       // ProseMirror retains the DOM selection when focus moves to the native toolbar.
-      void perform(editor.getTextCursorPosition().block.id, kind === 'page');
+      try {
+        if (kind === 'link') {
+          if (action.current || !latest.current.onEditLink) return;
+          const controller = new AbortController(); action.current = controller;
+          setActionProblem(undefined);
+          void editDocumentLink(editor, draft => latest.current.onEditLink!(draft), controller.signal)
+            .catch(error => { if (!controller.signal.aborted) setActionProblem(error instanceof Error ? error.message : String(error)); })
+            .finally(() => { if (action.current === controller) action.current = null; });
+        } else if (kind === 'blocks' || kind === 'page') void perform(editor.getTextCursorPosition().block.id, kind === 'page');
+        else if (kind.startsWith('action:')) applyBlockAction(editor, editor.getTextCursorPosition().block.id, kind.slice(7) as Exclude<BlockAction, 'page'>);
+        else applyDocumentFormat(editor, kind as FormatCommand);
+      } catch (error) { setActionProblem(error instanceof Error ? error.message : String(error)); }
     });
   }, [editor, perform, props.command, props.editable, receiveCommand]);
   if (!editor) return <p role="status">This document is unavailable.</p>;
@@ -177,12 +203,14 @@ export default function DocumentDOM(wire: Props) {
         const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
         if (!anchor) return;
         event.preventDefault(); event.stopPropagation();
-        const href = anchor.getAttribute('href') ?? '';
-        if (linkedPageId(href) || linkedRecordId(href) || /^(https?:|mailto:|tel:)/i.test(href)) void notifications.send(() => latest.current.onOpenLink(href));
+        const href = normalizeDocumentLink(anchor.getAttribute('href') ?? '');
+        if (!href) { setActionProblem(unsupportedDocumentLink); return; }
+        setActionProblem(undefined);
+        void notifications.send(() => latest.current.onOpenLink(href));
       }}>
       {problem && <p role="alert">Your changes have not synced: {problem}</p>}
       {actionProblem && <p role="alert">{actionProblem}</p>}
-      <BlockNoteView editor={editor} editable={props.editable} theme={props.dark ? 'dark' : 'light'} sideMenu={false} slashMenu={false} filePanel={false}>
+      <BlockNoteView formattingToolbar={!native} editor={editor} editable={props.editable} theme={props.dark ? 'dark' : 'light'} sideMenu={false} slashMenu={false} filePanel={false}>
         <SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
           ...getDefaultReactSlashMenuItems(editor).filter((item) => !(['image', 'video', 'audio', 'file'] as const).some((type) => item.title === editor.dictionary.slash_menu[type].title)),
           ...(props.canCreatePage ? [{ title: 'Page', subtext: 'Add a page inside', aliases: ['page', 'subpage'], group: 'Pages', onItemClick: () => { void perform(editor.getTextCursorPosition().block.id, true); } }] : []),

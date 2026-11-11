@@ -6,10 +6,12 @@ import DocumentDOM from './Editor.dom';
 import { editorStartup } from './editorStartup';
 
 /** Keeps a failed WebView retryable without replacing an editor holding a draft. */
-export function DocumentSurface({ protectedWork = false, onReadyChange, ...props }: ComponentProps<typeof DocumentDOM> & { protectedWork?: boolean; onReadyChange?: (ready: boolean) => void }) {
+export function DocumentSurface({ protectedWork = false, onReadyChange, onReloadSaved, ...props }: ComponentProps<typeof DocumentDOM> & { protectedWork?: boolean; onReadyChange?: (ready: boolean) => void; onReloadSaved?: () => Promise<boolean> }) {
   const theme = useTheme();
   const [startup, dispatch] = useReducer(editorStartup, { attempt: 0, phase: 'opening' });
   const attempt = useRef(startup.attempt);
+  const interrupted = useRef(false);
+  const recovering = useRef(false);
   useLayoutEffect(() => { attempt.current = startup.attempt; }, [startup.attempt]);
   useEffect(() => { onReadyChange?.(startup.phase === 'ready'); }, [onReadyChange, startup.phase]);
   useEffect(() => {
@@ -18,15 +20,31 @@ export function DocumentSurface({ protectedWork = false, onReadyChange, ...props
     const timer = setTimeout(() => dispatch({ type: 'failed', attempt: startup.attempt, error: 'The editor did not finish opening. Check your connection and try again.' }), __DEV__ ? 60_000 : 15_000);
     return () => clearTimeout(timer);
   }, [startup.attempt, startup.phase]);
+  const processLost = () => {
+    if (attempt.current !== startup.attempt) return;
+    // Override Expo's automatic reload: pending commands/uploads must not replay,
+    // and a new editor must start from the current saved snapshot.
+    interrupted.current = true;
+    dispatch({ type: 'interrupted', attempt: startup.attempt, error: 'The editor closed unexpectedly. Reload the saved document to continue. Changes that were still saving may be missing.' });
+  };
+  const retry = async () => {
+    if (recovering.current) return;
+    recovering.current = true;
+    try {
+      if (protectedWork && !(startup.phase === 'interrupted' && await onReloadSaved?.())) return;
+      interrupted.current = false;
+      dispatch({ type: 'retry', protectedWork: false });
+    } finally { recovering.current = false; }
+  };
   return <View style={{ flex: 1, minHeight: 0 }}>
-    <DocumentDOM key={startup.attempt} {...props} onStatus={async (dirty, error) => {
-      if (attempt.current !== startup.attempt) return;
+    <DocumentDOM key={startup.attempt} {...props} dom={{ ...props.dom, onContentProcessDidTerminate: processLost, onRenderProcessGone: processLost }} onStatus={async (dirty, error) => {
+      if (attempt.current !== startup.attempt || interrupted.current) return;
       dispatch(error && !dirty ? { type: 'failed', attempt: startup.attempt, error } : { type: 'ready', attempt: startup.attempt });
       if (startup.phase !== 'ready' && error && !dirty) return;
       await props.onStatus(dirty, error);
     }} />
     {startup.phase !== 'ready' && <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.colors.background }}>
-      {startup.phase === 'failed' ? <ErrorState message={startup.error!} onRetry={protectedWork ? undefined : () => dispatch({ type: 'retry', protectedWork })} /> : <Loading label="Opening editor…" />}
+      {startup.phase !== 'opening' ? <ErrorState layout="screen" message={startup.error!} onRetry={protectedWork && !(startup.phase === 'interrupted' && onReloadSaved) ? undefined : () => { void retry(); }} /> : <Loading label="Opening editor…" />}
     </View>}
   </View>;
 }

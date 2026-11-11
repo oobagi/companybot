@@ -19,3 +19,15 @@ it('applies accessibility scale once when Android WebView already owns text zoom
   expect(documentFontScale('ios', 1.6)).toBe(1.6);
   expect(documentFontScale('web', 1.6)).toBe(1.6);
 });
+
+it('disables an initialized editor after process loss without silently discarding protected work', () => {
+  const ready: EditorStartup = { attempt: 2, phase: 'ready' };
+  const lost = editorStartup(ready, { type: 'interrupted', attempt: 2, error: 'Process terminated' });
+  expect(lost.phase).toBe('interrupted');
+  expect(editorStartup(lost, { type: 'ready', attempt: 2 })).toBe(lost);
+  expect(editorStartup(lost, { type: 'retry', protectedWork: true })).toBe(lost);
+  const retried = editorStartup(lost, { type: 'retry', protectedWork: false });
+  expect(retried).toEqual({ attempt: 3, phase: 'opening' });
+  expect(editorStartup(retried, { type: 'interrupted', attempt: 2, error: 'Obsolete process' })).toBe(retried);
+  expect(editorStartup(retried, { type: 'ready', attempt: 3 }).phase).toBe('ready');
+});

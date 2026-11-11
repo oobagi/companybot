@@ -1,7 +1,8 @@
 import type { BlockAction, BlockTarget } from './blockActions';
+import type { LinkDraft } from './linkEditing';
 
-export type ActionRequest = { kind: 'block'; target: BlockTarget } | { kind: 'create' };
-export type ActionReply = BlockAction | { pageId: string } | null;
+export type ActionRequest = { kind: 'block'; target: BlockTarget } | { kind: 'create' } | { kind: 'link'; draft: LinkDraft };
+export type ActionReply = BlockAction | { pageId: string } | LinkDraft | null;
 export type PendingAction = { request: ActionRequest; finish: (reply: ActionReply) => void };
 
 /** A native presentation owns exactly one DOM request; unmount always releases its promise. */

@@ -7,7 +7,9 @@ import type { ButtonProps } from '../Button';
 export function NativeButton({ label, variant = 'primary', loading = false, disabled, leading, style, onPress, accessibilityLabel, accessibilityHint, accessibilityState, testID }: ButtonProps) {
   const { colors, dark, spacing, sizes, typography } = useTheme();
   const inactive = !!disabled || loading;
-  const color = variant === 'primary' ? colors.onPrimary : variant === 'danger' ? colors.danger : colors.text;
+  // Explicit child colors bypass Material's disabled foreground. Keep them readable
+  // against the system's disabled fill, including while a request is loading.
+  const color = inactive ? colors.muted : variant === 'primary' ? colors.onPrimary : variant === 'danger' ? colors.danger : colors.text;
   const Control = variant === 'primary' ? Button : variant === 'ghost' ? TextButton : OutlinedButton;
   const description = [accessibilityLabel ?? label, accessibilityState?.selected && 'Selected', (loading || accessibilityState?.busy) && 'In progress', accessibilityHint].filter(Boolean).join('. ');
   return <Host matchContents colorScheme={dark ? 'dark' : 'light'} seedColor={colors.primary} style={[{ flexShrink: 1, minHeight: sizes.touch, maxWidth: '100%' }, style]}>

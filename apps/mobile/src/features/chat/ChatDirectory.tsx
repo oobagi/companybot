@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Switch, View } from 'react-native';
 import { ChannelIcon, PrivateChannelIcon } from '@/design/icons';
 import { useTheme } from '@/design';
-import { Avatar, Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Text } from '@/components/ui';
+import { Avatar, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
@@ -68,11 +68,23 @@ function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (id: Id<
   const [query, setQuery] = useState('');
   const task = useTask();
   const people = [...(team?.members.filter((p) => !p.isYou).map((p) => ({ id: p.userId, name: p.name || p.email, image: p.image, agent: false })) ?? []), ...(chats?.agents.map((a) => ({ id: a._id, name: a.name, image: a.image, agent: true })) ?? [])];
-  return <Dialog title="New message" onClose={onClose} busy={task.busy}><Field label="Find people or agents" value={query} onChangeText={setQuery} />
-    {people.filter((p) => p.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map((p) => <ListRow key={p.id} title={p.name} leading={<Avatar name={p.name} image={p.image} agent={p.agent} />} selected={selected.includes(p.id)} trailing={<Text>{selected.includes(p.id) ? 'Selected' : p.agent ? 'Bot' : ''}</Text>} onPress={() => setSelected((ids) => ids.includes(p.id) ? ids.filter((id) => id !== p.id) : [...ids, p.id])} />)}
+  const loading = chats === undefined || team === undefined;
+  const matches = people.filter(person => person.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const recipients = people.filter(person => selected.includes(person.id));
+  const start = () => void task.run(async () => {
+    if (loading || !recipients.length) return;
+    const id = await open({ userIds: recipients.filter(person => !person.agent).map(person => person.id as Id<'users'>), agentIds: recipients.filter(person => person.agent).map(person => person.id as Id<'agents'>) });
+    onClose(); onOpen(id);
+  });
+  return <EditorSheet title="New message" onClose={onClose} busy={task.busy} scroll={false} submit={{ label: 'Start', disabled: loading || !recipients.length, onPress: start }}>
+    <Field label="Find people or agents" value={query} onChangeText={setQuery} editable={!task.busy} autoCapitalize="none" />
     {task.error && <ErrorState message={task.error} />}
-    <Button label="Open conversation" disabled={!selected.length} loading={task.busy} onPress={() => void task.run(async () => { const id = await open({ userIds: people.filter((p) => !p.agent && selected.includes(p.id)).map((p) => p.id as Id<'users'>), agentIds: people.filter((p) => p.agent && selected.includes(p.id)).map((p) => p.id as Id<'agents'>) }); onClose(); onOpen(id); })} />
-  </Dialog>;
+    {loading ? <Loading label="Loading people…" /> : <ScreenList data={matches} keyExtractor={person => person.id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+      ListEmptyComponent={<EmptyState title={people.length ? 'No matches' : 'No teammates available'} description={people.length ? 'Try another name.' : 'Invite a teammate or add an agent to start a conversation.'} />}
+      renderItem={({ item: person }) => <ListRow title={person.name} leading={<Avatar name={person.name} image={person.image} agent={person.agent} />} selected={selected.includes(person.id)} disabled={task.busy}
+        trailing={selected.includes(person.id) ? <Text accessibilityElementsHidden importantForAccessibility="no-hide-descendants">✓</Text> : undefined}
+        onPress={() => setSelected(ids => ids.includes(person.id) ? ids.filter(id => id !== person.id) : [...ids, person.id])} />} />}
+  </EditorSheet>;
 }
 
 function NewChannel({ onClose, onOpen }: { onClose: () => void; onOpen: (id: Id<'chats'>) => void }) {

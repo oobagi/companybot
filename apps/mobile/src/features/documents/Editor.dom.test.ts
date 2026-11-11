@@ -91,3 +91,53 @@ it.each([false, true])('opens desktop record references from a document (editabl
   expect(host.querySelector('[contenteditable]')?.textContent).toContain('Customer record');
   expect(submit).not.toHaveBeenCalled();
 });
+
+it('reports native selection state and runs only formatting commands delivered after mount', async () => {
+  vi.stubEnv('EXPO_DOM_HOST_OS', 'ios');
+  const source = BlockNoteEditor.create({ schema: documentSchema, initialContent: [{ type: 'paragraph', content: 'Native formatting target' }] });
+  const content = JSON.stringify(source._tiptapEditor.state.doc.toJSON());
+  source._tiptapEditor.destroy();
+  const formatting = vi.fn(async () => {});
+  const render = (request: number, editable = true) => createElement(DocumentDOM, {
+    payload: encodeDocumentPayload({ pageId: 'format-page', snapshot: { content, version: 1 }, latestVersion: 1, editable, canCreatePage: false, dark: false, colors: palettes.light, references: {}, command: { request, kind: 'text:heading2' } }),
+    getSteps: async () => ({ steps: [], clientIds: [], version: 1 }), submitSteps: async () => ({ status: 'synced' as const }),
+    onBlockActions: async () => null, onCreatePage: async () => null, onReferences: async () => {}, onOpenLink: async () => {}, onRemovePages: async () => false,
+    onStatus: async () => {}, onImageResult: async () => {}, onFormatting: formatting,
+  });
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root!.render(render(1)));
+  expect(host.querySelector('h2')).toBeNull();
+  expect(formatting).toHaveBeenCalledWith(expect.objectContaining({ text: 'paragraph', canFormat: true }));
+  await act(async () => root!.render(render(2)));
+  expect(host.querySelector('h2')?.textContent).toBe('Native formatting target');
+  expect(formatting).toHaveBeenCalledWith(expect.objectContaining({ text: 'heading2' }));
+  expect(document.querySelector('.bn-mobile-formatting-toolbar')).toBeNull();
+});
+
+it.each([
+  ['example.com', 'https://example.com/'],
+  ['ftp://example.com', null],
+] as const)('handles a stored %s link without rewriting the document', async (href, destination) => {
+  const source = BlockNoteEditor.create({ schema: documentSchema, initialContent: [{ type: 'paragraph', content: [{ type: 'link', href, content: 'Saved link' }] }] });
+  const content = JSON.stringify(source._tiptapEditor.state.doc.toJSON());
+  source._tiptapEditor.destroy();
+  const open = vi.fn(async () => {});
+  const submit = vi.fn(async () => { throw new Error('Unexpected write'); });
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root!.render(createElement(DocumentDOM, {
+    payload: encodeDocumentPayload({ pageId: 'legacy-links', snapshot: { content, version: 1 }, latestVersion: 1, editable: false, canCreatePage: false, dark: false, colors: palettes.light, references: {} }),
+    getSteps: async () => ({ steps: [], clientIds: [], version: 1 }), submitSteps: submit,
+    onBlockActions: async () => null, onCreatePage: async () => null, onReferences: async () => {}, onOpenLink: open,
+    onRemovePages: async () => false, onStatus: async () => {}, onImageResult: async () => {},
+  })));
+  const link = host.querySelector<HTMLAnchorElement>('a[href]')!;
+  expect(link.getAttribute('href')).toBe(href);
+  await act(async () => link.click());
+  if (destination) expect(open).toHaveBeenCalledExactlyOnceWith(destination);
+  else {
+    expect(open).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('not supported');
+  }
+  expect(link.getAttribute('href')).toBe(href);
+  expect(submit).not.toHaveBeenCalled();
+});

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { normalizeDocumentLink, unsupportedDocumentLink } from './documentLink';
+import type { LinkDraft } from './linkEditing';
 import { Button, EditorSheet, ErrorState, Field, ListRow, Text } from '@/components/ui';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
@@ -20,9 +22,14 @@ export function useDocumentActions({ editable, canCreate, create }: { editable: 
     onCreatePage: async (): Promise<string | null> => {
       if (!editable || !canCreate) return null;
       const reply = await requests.request({ kind: 'create' });
-      return reply && typeof reply === 'object' ? reply.pageId : null;
+      return reply && typeof reply === 'object' && 'pageId' in reply ? reply.pageId : null;
     },
-    dialog: pending ? pending.request.kind === 'block' ? <BlockActions pending={pending} canCreate={canCreate} /> : <CreateChild pending={pending} create={create} /> : null,
+    onEditLink: async (draft: LinkDraft): Promise<LinkDraft | null> => {
+      if (!editable || typeof draft?.url !== 'string' || typeof draft?.text !== 'string') return null;
+      const reply = await requests.request({ kind: 'link', draft });
+      return reply && typeof reply === 'object' && 'url' in reply ? reply : null;
+    },
+    dialog: pending ? pending.request.kind === 'block' ? <BlockActions pending={pending} canCreate={canCreate} /> : pending.request.kind === 'link' ? <EditLink pending={pending} /> : <CreateChild pending={pending} create={create} /> : null,
   };
 }
 
@@ -54,5 +61,27 @@ function CreateChild({ pending, create }: { pending: PendingAction; create: (tit
     <Field label="Title" value={title} onChangeText={setTitle} editable={!task.busy} maxLength={500} autoFocus placeholder="Untitled" />
     {task.error && <ErrorState message={task.error} />}
     <Button label="Create page" loading={task.busy} onPress={() => void task.run(async () => { const pageId = await create(title.trim() || 'Untitled'); setClosing({ value: { pageId } }); })} />
+  </EditorSheet>;
+}
+
+
+function EditLink({ pending }: { pending: PendingAction }) {
+  if (pending.request.kind !== 'link') return null;
+  return <LinkForm initial={pending.request.draft} finish={pending.finish} />;
+}
+
+function LinkForm({ initial, finish }: { initial: LinkDraft; finish: PendingAction['finish'] }) {
+  const [url, setUrl] = useState(initial.url);
+  const [text, setText] = useState(initial.text);
+  const [closing, setClosing] = useState<{ value: LinkDraft | null }>();
+  const normalizedUrl = normalizeDocumentLink(url);
+  const close = (value: LinkDraft | null) => setClosing({ value });
+  const guard = useDraftGuard({ dirty: url !== initial.url || text !== initial.text, busy: !!closing, onClose: () => close(null) });
+  return <EditorSheet title={initial.url ? 'Edit link' : 'Add link'} size="content" open={!closing} busy={!!closing} dismissible={guard.dismissible} onClose={() => void guard.close()} onDismiss={() => finish(closing?.value ?? null)} submit={{ disabled: !normalizedUrl, onPress: () => { if (normalizedUrl) { guard.complete(); close({ url: normalizedUrl, text }); } } }}>
+    {guard.dialog}
+    <Field label="Text" value={text} onChangeText={setText} editable={!closing} placeholder="Use the link address" maxLength={10000} />
+    <Field label="Link" value={url} onChangeText={setUrl} editable={!closing} autoFocus keyboardType="url" autoCapitalize="none" autoCorrect={false} placeholder="https://example.com" maxLength={4000} />
+    {!!url.trim() && !normalizedUrl && <Text tone="danger" accessibilityRole="alert">{unsupportedDocumentLink}</Text>}
+    {initial.url && <Button label="Remove link" variant="danger" disabled={!!closing} onPress={() => { guard.complete(); close({ url: '', text: initial.text }); }} />}
   </EditorSheet>;
 }

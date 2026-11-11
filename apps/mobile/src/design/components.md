@@ -19,7 +19,7 @@ Build and inspect the components before composing feature screens. The developme
 | `ChoicePicker` | Selected value with deliberate selection | Native menu for short choices; searchable selection for long/multiple choices; row or compact presentation |
 | `Field` | Labeled text entry inside an editor | Native TextInput, focus, keyboard semantics, hint and validation |
 | `EditorSheet` | A single explicit editing task | Native sheet, header, keyboard and dismissal behavior |
-| `ContentToolbar` | Editing actions at the bottom of a bounded content area | Compact native icon controls inside `FloatingBar`; accessible status; no domain imports |
+| `ContentToolbar` / `ContentToolbarFrame` | Editing actions at the bottom of a bounded content area | Compact native icon controls inside `FloatingBar`; accessible status; no domain imports. The frame also accepts domain-owned native menus |
 | `FloatingBar` | A floating control surface | Native iOS glass where available; plain bordered fallback. No color/shape variants |
 | `HeaderMenu` / `NavigationHeader` | Navigation actions, search and creation | Native toolbar buttons, icons and menus; caller-supplied data and callbacks |
 | `EmptyState` / `Loading` / `ErrorState` | Feedback | Centered screen state or explicitly inline feedback |
@@ -44,6 +44,7 @@ Before migrating a screen, prove its necessary components in the gallery. Valida
 - **Settings or properties:** `Screen nativeScroll padded={false}` + `SettingsList`. Display values and open an `EditorSheet` from an intentional row or Edit action.
 - **Form:** `EditorSheet` + `Field` / `ChoicePicker` / `DateInput`. Pass `submit` for a Cancel/title/Done header; do not duplicate that commit action in the body. The feature owns draft state, validation and submission. `useDraftGuard` owns dismissal protection. The native sheet owns keyboard avoidance; its RN scroller must not add another automatic keyboard inset. iOS picker labels use SwiftUI text constrained to the measured host width, allowing natural height and multiline values at accessibility sizes.
 - **Bounded editor:** `Screen padded={false}` + a flex body + `ContentToolbar`. The body owns editing and the toolbar receives actions/status. Native toolbars show up to three direct actions and put the rest in a native overflow menu; busy/disabled actions cannot dispatch through either path.
+- **Document editing:** `DocumentToolbar` composes `ContentToolbarFrame` with three native menus for formatting, insertion and block actions. Selection and document mutations stay inside the DOM editor; no duplicate web formatting bar appears on native. Link editing uses `EditorSheet` with Cancel/Done and draft protection.
 - **Feedback:** `EmptyState`, `Loading` or `ErrorState layout="screen"` fills the remaining body. Use `layout="inline"` inside populated content. `FeedbackExample.tsx` exercises static, scrolling and virtualized containers with the same component.
 
 The gallery keeps demonstration state local. Its eleven examples cover these recipes plus typography, button hierarchy, independent row/menu targets, long forms, busy/disabled controls, pending messages and appearance switching. New feature screens should be compositions of these examples, with only domain-specific content added.
