@@ -32,6 +32,12 @@ For a custom OAuth connector, **Connect** lets you register automatically or **U
 
 MCP access does not install a Slack bot in Companybot. Slack's official MCP server also requires a suitable registered Slack app and scopes. A server still needs to support the transport and OAuth flow Companybot uses.
 
+## Outside apps using Companybot
+[API access](#/settings/api) creates a personal token for this workspace and shows its API and MCP addresses. Your role needs permission to create tokens. Read scopes start selected; write scopes authorize changes without asking each time. Tokens default to 30 days, can last up to 90, and can be revoked there. They follow your current permissions. The inbound MCP endpoint uses a manually configured bearer token; it does not offer browser OAuth sign-in. API chat posts are labeled and do not wake agents or automations.
+
+## Returned files
+MCP results can include images, audio, embedded resources and resource links. Open the call in Activity to view an image, play audio, or open a file. Only the person the agent acted for can open returned files, subject to current chat and source permissions. Vision-enabled models can inspect images; audio and other binary files are available to you with a note that the model cannot interpret them. Links are not fetched automatically. Large or invalid results show an error instead of silently discarding content.
+
 ## How they work
 - People whose role can install connectors pick which roles can use each one (owners always can).
 - A connector uses either **one shared account** for the workspace (someone who can install connectors sets it) or **each person's own account** (everyone connects theirs with **Connect** on its page; an agent uses the account of the person it is helping).

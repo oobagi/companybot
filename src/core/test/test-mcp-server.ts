@@ -3,7 +3,7 @@ import type { JSONRPCMessage, MCPTransport } from "@ai-sdk/mcp";
 /** A tiny in-memory MCP server for tests: lists the given tools and echoes calls. */
 export function fakeMcpServer(
 	tools: { name: string; description?: string; readOnly?: boolean; destructive?: boolean }[],
-	onCall: (name: string, args: unknown) => string = (name, args) => `${name}:${JSON.stringify(args)}`,
+	onCall: (name: string, args: unknown) => string | Record<string, unknown> = (name, args) => `${name}:${JSON.stringify(args)}`,
 	pages?: { size: number; repeatCursor?: boolean },
 ): MCPTransport & { closed: boolean } {
 	const transport: MCPTransport & { closed: boolean } = {
@@ -36,7 +36,8 @@ export function fakeMcpServer(
 					})),
 				});
 			} else if (message.method === "tools/call") {
-				reply({ content: [{ type: "text", text: onCall(params.name, params.arguments) }] });
+				const result = onCall(params.name, params.arguments);
+				reply(typeof result === "string" ? { content: [{ type: "text", text: result }] } : result);
 			} else {
 				queueMicrotask(() =>
 					transport.onmessage?.({

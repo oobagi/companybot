@@ -464,7 +464,7 @@ export const turnContext = internalMutation({
 		const parent = threadParent && await readReply(ctx, member, threadParent) ? threadParent : null;
 		// What the person wrote, the only links web.fetch opens before searching: this turn's messages,
 		// the thread's parent, and after an approval the message that started it (it's before the window).
-		const own = (m: Doc<"chatMessages"> | null | undefined | false): m is Doc<"chatMessages"> => !!m && !m.deleted && m.authorUserId === member.userId;
+		const own = (m: Doc<"chatMessages"> | null | undefined | false): m is Doc<"chatMessages"> => !!m && !m.deleted && !m.external && m.authorUserId === member.userId;
 		const origin = approval && turn.triggerId && (await ctx.db.get(turn.triggerId));
 		const asked = [...recent, parent, origin].filter(own).map((m) => m.text);
 		/** A thread's first turn starts with its parent. */
@@ -769,7 +769,7 @@ async function steerable(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	if (turn.status !== "running" || turn.stopping || turn.wakeupId || !turn.replyId) return false;
 	if (Date.now() - (turn.startedAt ?? turn._creationTime) >= STALE_TURN_MS) return false;
 	const trigger = turn.triggerId && (await ctx.db.get(turn.triggerId));
-	return !trigger?.automation;
+	return !trigger?.automation && !trigger?.external;
 }
 
 /**

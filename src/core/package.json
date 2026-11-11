@@ -36,7 +36,9 @@
     "./safe-fetch": "./src/safe-fetch.ts",
     "./connectors": "./src/connectors.ts",
     "./link-preview": "./src/link-preview.ts",
-    "./invite-email": "./src/invite-email.ts"
+    "./invite-email": "./src/invite-email.ts",
+    "./integration-api": "./src/integration-api.ts",
+    "./mcp-content": "./src/mcp-content.ts"
   },
   "scripts": {
     "test": "vitest run",

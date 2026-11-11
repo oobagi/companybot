@@ -7,7 +7,10 @@ import { upload as uploadFile } from "./files";
 import { upload, uploadOptions } from "./images";
 import { callback } from "./oauth";
 
+import { handle as integrationHttp } from "./integrationHttp";
 const http = httpRouter();
+for (const method of ["GET", "POST", "OPTIONS", "DELETE"] as const) http.route({ path: "/mcp", method, handler: integrationHttp });
+for (const method of ["GET", "POST", "OPTIONS"] as const) http.route({ pathPrefix: "/api/v1/", method, handler: integrationHttp });
 auth.addHttpRoutes(http);
 http.route({ path: "/oauth/callback", method: "GET", handler: callback });
 /** Pictures from the app (images.ts), signed in. */

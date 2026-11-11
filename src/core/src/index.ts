@@ -46,3 +46,5 @@ export * from "./wakeups";
 export * from "./manage-tools";
 export * from "./typing";
 export * from "./onboarding";
+export * from "./integration-api";
+export * from "./mcp-content";

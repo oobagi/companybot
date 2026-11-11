@@ -8,6 +8,10 @@
  * @module
  */
 
+import type * as integrationTokens from "../integrationTokens.js";
+import type * as integrationOps from "../integrationOps.js";
+import type * as integrationHttp from "../integrationHttp.js";
+import type * as connectorArtifacts from "../connectorArtifacts.js";
 import type * as activity from "../activity.js";
 import type * as agent from "../agent.js";
 import type * as agents from "../agents.js";
@@ -98,6 +102,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  connectorArtifacts: typeof connectorArtifacts;
+  integrationTokens: typeof integrationTokens;
+  integrationOps: typeof integrationOps;
+  integrationHttp: typeof integrationHttp;
+
   activity: typeof activity;
   agent: typeof agent;
   agents: typeof agents;

@@ -13,6 +13,7 @@ import { navigate } from "../router";
 import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, compactDangerButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
+import { ApiAccess } from "./ApiAccess";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
@@ -65,7 +66,7 @@ const sections = [
 			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
 		],
 	},
-	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations")] },
+	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations"), { id: "api", label: "API access", icon: <PermissionsIcon /> }] },
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
 type SettingsTab = (typeof settingsTabs)[number]["id"];
@@ -94,6 +95,7 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 			{tab === "roles" && <RolesTab access={access} />}
 			{tab === "memory" && <MemoryTab access={access} />}
 			{tab === "activity" && <ActivityTab />}
+			{tab === "api" && <ApiAccess access={access} />}
 			{tab === "usage" && <UsageTab />}
 			{tab === "permissions" && (
 				<>

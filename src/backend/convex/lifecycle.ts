@@ -143,6 +143,18 @@ async function leaveErased(ctx: MutationCtx, row: Doc<"members">) {
 }
 
 export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
+	connectorArtifacts: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+		childOf: { table: "agentTurns", index: "by_turn", field: "turnId" },
+		files: ["storageId"],
+	},
+	integrationTokens: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+	},
 	// ---- Convex Auth ----
 	users: {
 		keep: "Never deleted: ~20 tables point at people. Erasing an account (workspace.eraseAccount) scrubs it at once to `{ erasedAt }`, so they show as a former member and a sign-in from before acts as nobody.",

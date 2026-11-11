@@ -116,3 +116,7 @@ Custom MCP tools ask by default even when their server claims they are read-only
 - **MCP tool hints:** clients usually auto-approve read-only tools and confirm destructive ones, but hints aren't guarantees; unlabeled tools should be treated as destructive. [Speakeasy](https://www.speakeasy.com/docs/mcp/build/gram-functions/tool-annotations)
 
 What we take: Android's ask-when-used and keep-working-on-deny (one held call never stops an automation's run), OAuth's per-action grants that carry over, Claude Code's strictest-wins order and owner locks, Lindy's per-action toggle and "loosen as trust builds," MCP's untrusted hints, and Muse's in-chat prompts with plainer "always" wording. We skip "for this session" because Companybot has no sessions (one continuous conversation per agent).
+
+## External API tokens
+
+`integrations.manage` allows issuing personal, expiring workspace API tokens and is off for Members by default. Tokens start with read scopes; selected write scopes authorize immediate API operations under current role/place permissions. They do not use agent approval cards. Removing the role switch, membership or token ends access immediately, including on retries. See [External API and MCP](integrations.md).

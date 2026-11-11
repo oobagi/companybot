@@ -239,6 +239,16 @@ const automationDefinition = v.object({
 });
 
 export default defineSchema({
+	connectorArtifacts: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"), turnId: v.id("agentTurns"),
+		replyId: v.id("chatMessages"), callId: v.string(), storageId: v.id("_storage"), mimeType: v.string(),
+	}).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]).index("by_turn", ["turnId"]),
+	integrationTokens: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"),
+		name: v.string(), hash: v.string(), prefix: v.string(), scopes: v.array(v.string()), expiresAt: v.number(),
+		lastUsedAt: v.optional(v.number()), lastOperation: v.optional(v.string()), windowAt: v.optional(v.number()), requests: v.optional(v.number()),
+		receipts: v.array(v.object({ key: v.string(), operation: v.string(), fingerprint: v.string(), at: v.number(), result: v.any() })),
+	}).index("by_hash", ["hash"]).index("by_workspace", ["workspaceId", "userId"]).index("by_user", ["userId", "workspaceId"]),
 	...authTables,
 	// Convex Auth's, plus `erasedAt`.
 	users: defineTable({
@@ -664,6 +674,7 @@ export default defineSchema({
 	// A message in a chat's main timeline, or in a thread (threadId = the parent message).
 	// Written by a person (authorUserId) or an agent (authorAgentId), never both.
 	chatMessages: defineTable({
+		external: v.optional(v.string()),
 		/** Restricted sources, checked live for every viewer. Records use their database. */
 		usedPlaces,
 		sharedBy: v.optional(v.id("users")),
