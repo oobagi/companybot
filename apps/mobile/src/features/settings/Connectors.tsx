@@ -1,3 +1,4 @@
+import { useTheme } from '@/design';
 import { can } from '@companybot/core/permissions';
 import type { FunctionReturnType } from 'convex/server';
 import * as WebBrowser from 'expo-web-browser';
@@ -17,6 +18,7 @@ type Task = ReturnType<typeof useTask>;
 const connectionStatus = (connector: Connector) => !connector.installed ? 'Not installed' : !connector.canUse ? 'Restricted' : connector.auth.type === 'none' ? 'Ready' : connector.error ? 'Needs attention' : connector.connected ? 'Connected' : 'Not connected';
 
 export default function Connectors() {
+  const { sizes } = useTheme();
   const connectors = useQuery(api.connectors.list);
   const me = useQuery(api.workspace.me);
   const { itemId } = useLocalSearchParams<{ itemId?: string }>();
@@ -27,7 +29,7 @@ export default function Connectors() {
   const visible = connectors?.filter(connector => !query || `${connector.name} ${connector.description}`.toLocaleLowerCase().includes(query));
   return <>
     <NavigationHeader search={{ placeholder: 'Search connectors', value: search, onChange: setSearch }} />
-    <Screen nativeScroll padded={false}><ScreenList data={visible ?? []} keyExtractor={connector => connector.id} ItemSeparatorComponent={Divider}
+    <Screen nativeScroll padded={false}><ScreenList contentContainerStyle={{ paddingHorizontal: sizes.gutter }} data={visible ?? []} keyExtractor={connector => connector.id} ItemSeparatorComponent={Divider}
       renderItem={({ item: connector }) => <ListRow title={connector.name} description={connector.description} trailing={<Badge label={connectionStatus(connector)} tone={connector.error && connector.canUse ? 'warning' : 'default'} />} onPress={() => router.push({ pathname: '/settings/[section]', params: { section: 'connectors', itemId: connector.id } })} />}
       ListEmptyComponent={!connectors ? <Loading /> : <EmptyState title={query ? 'No matching connectors' : 'No connectors available'} description={query ? 'Try another service name or description.' : 'Services appear here when they are available.'} />} />
     </Screen>

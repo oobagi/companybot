@@ -1,3 +1,4 @@
+import { useTheme } from '@/design';
 import { useState } from 'react';
 import { can } from '@companybot/core/permissions';
 import type { FunctionReturnType } from 'convex/server';
@@ -12,6 +13,7 @@ import { RoleChoices, Roles, roleNames, type WorkspaceRole } from './Roles';
 
 type Member = NonNullable<FunctionReturnType<typeof api.workspace.team>>['members'][number];
 export default function Members() {
+  const { sizes } = useTheme();
   const team = useQuery(api.workspace.team); const me = useQuery(api.workspace.me); const roles = useQuery(api.roles.list);
   const resend = useMutation(api.workspace.resendInvite); const cancel = useMutation(api.workspace.cancelInvite);
   const task = useTask();
@@ -24,7 +26,7 @@ export default function Members() {
   const selected = team.members.find(member => member.id === editing);
   return <>
     <NavigationHeader action={allowed ? { label: 'Invite a teammate', onPress: () => setEditing('invite'), disabled: task.busy } : undefined} menu={[{ label: 'Roles and permissions', onPress: () => setEditing('roles') }]} />
-    <Screen nativeScroll padded={false}><ScreenList data={team.members} keyExtractor={member => member.id}
+    <Screen nativeScroll padded={false}><ScreenList contentContainerStyle={{ paddingHorizontal: sizes.gutter }} data={team.members} keyExtractor={member => member.id}
     ListHeaderComponent={task.error ? <ErrorState message={task.error} /> : undefined}
     renderItem={({ item }) => <ListRow title={`${item.name}${item.isYou ? ' (you)' : ''}`} description={`${item.email} · ${roleNames(item.roles, roles)}`} leading={<Avatar name={item.name} image={item.image} />} onPress={canEditMember(item) ? () => setEditing(item.id) : undefined} />}
     ListFooterComponent={team.invites.length ? <Stack><Text variant="label" tone="muted">Pending invitations</Text>{team.invites.map(invite => <ListRow key={invite.id} title={invite.email} description={`Invited as ${roleNames(invite.roles, roles)}`} trailing={allowed ? <ActionMenu label={`Invitation actions for ${invite.email}`} actions={[

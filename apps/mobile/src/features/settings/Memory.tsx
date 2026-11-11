@@ -1,3 +1,4 @@
+import { useTheme } from '@/design';
 import { can } from '@companybot/core/permissions';
 import { useState } from 'react';
 import type { FunctionReturnType } from 'convex/server';
@@ -11,6 +12,7 @@ import { NavigationHeader } from '@/components/navigation/NavigationHeader';
 
 type MemoryRow = FunctionReturnType<typeof api.memory.list>[number];
 export default function Memory() {
+  const { sizes } = useTheme();
   const memories = useQuery(api.memory.list);
   const me = useQuery(api.workspace.me);
   const teamAllowed = !!me?.access && can(me.access, 'memory.team.write');
@@ -52,7 +54,7 @@ export default function Memory() {
   return <>
     <NavigationHeader search={{ placeholder: 'Search memories', value: search, onChange: setSearch }} action={{ label: 'New memory', onPress: startNew, disabled: unavailable || !agents.length }} />
     <Screen nativeScroll padded={false}>
-      <ScreenList data={filtered} keyExtractor={memory => memory.id} ItemSeparatorComponent={Divider}
+      <ScreenList contentContainerStyle={{ paddingHorizontal: sizes.gutter }} data={filtered} keyExtractor={memory => memory.id} ItemSeparatorComponent={Divider}
         ListEmptyComponent={<EmptyState title={query ? 'No matching memories' : 'No memories yet'} description={query ? 'Try another search or clear your filter.' : agents.length ? 'Agents remember useful context here. Personal memories are visible only to you.' : 'Create an agent before adding memories.'} action={query ? <Button label="Clear search" variant="secondary" onPress={() => setSearch('')} /> : undefined} />}
         renderItem={({ item }) => <ListRow title={item.content} selectable description={`${agents.find(agent => agent._id === item.agentId)?.name ?? 'Agent'} · ${item.scope === 'personal' ? 'Personal' : 'Team'} · Updated by ${item.updatedByName}`}
           trailing={item.canEdit ? <ActionMenu label="Memory actions" actions={[

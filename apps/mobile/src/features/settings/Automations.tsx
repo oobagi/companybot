@@ -30,17 +30,17 @@ export default function Automations() {
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
   const task = useTask();
-  const { spacing } = useTheme();
+  const { spacing, sizes } = useTheme();
   const item = items?.find(a => a.id === itemId);
   if (itemId) return !items ? <Screen><Loading /></Screen> : item ? <AutomationDetail key={item.id} automation={item} /> : <Screen><EmptyState title="Automation unavailable" description="It may have been removed or you may no longer have access." /></Screen>;
   const query = search.trim().toLocaleLowerCase();
   const active = items?.filter(a => !a.trash && (!query || `${a.name} ${a.trigger} ${a.agentName ?? ''}`.toLocaleLowerCase().includes(query)));
   return <>
     <NavigationHeader search={{ placeholder: 'Search automations', value: search, onChange: setSearch }} action={me?.access ? { label: 'New automation', disabled: task.busy, onPress: () => { task.clear(); setCreating(true); } } : undefined} />
-    <Screen nativeScroll padded={false}><ScreenList data={active ?? []} keyExtractor={a => a.id} ItemSeparatorComponent={Divider}
+    <Screen nativeScroll padded={false}><ScreenList contentContainerStyle={{ paddingHorizontal: sizes.gutter }} data={active ?? []} keyExtractor={a => a.id} ItemSeparatorComponent={Divider}
       renderItem={({ item: a }) => <ListRow title={a.name} description={`${a.trigger} · ${a.agentName ?? 'No agent'}`} trailing={<Badge label={a.enabled ? 'Running' : 'Paused'} tone={a.enabled ? 'success' : 'default'} />} onPress={() => router.push({ pathname: '/settings/[section]', params: { section: 'automations', itemId: a.id } })} />}
       ListEmptyComponent={!items ? <Loading /> : <EmptyState layout={wakeups?.length ? 'inline' : 'screen'} title={query ? 'No matching automations' : 'No automations yet'} description={query ? 'Try another name, schedule or agent.' : 'Have an agent handle routine work on a schedule or event.'} />}
-      ListFooterComponent={wakeups?.length ? <Stack style={{ padding: spacing.lg }}><PendingWakeups /></Stack> : undefined} />
+      ListFooterComponent={wakeups?.length ? <Stack style={{ paddingVertical: spacing.lg }}><PendingWakeups /></Stack> : undefined} />
     </Screen>
     {creating && <AutomationEditor task={task} onClose={() => setCreating(false)} />}
   </>;
@@ -115,7 +115,13 @@ function AutomationEditor({ automation: a, task, onClose }: { automation?: Autom
   const dirty = (!a && (agentId !== '' || audience !== 'creator' || !!channelId || timeZone !== initialTimeZone)) || JSON.stringify(config) !== JSON.stringify(baseline);
   const selectedAgent = agentId || agents?.[0]?._id;
   const guard = useDraftGuard({ dirty: editable && dirty, busy: task.busy, onClose, description: 'Your unsaved automation changes will be discarded.' });
-  return <EditorSheet title={a?.name ?? 'New automation'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()}>{guard.dialog}
+  const unavailable = !editable || (!a && audience !== 'creator' && !teamAllowed) || !!customAutomationError(config) || conflict || (!!a && !dirty) || (!a && !selectedAgent);
+  const submit = () => { if (!unavailable) void task.run(async () => {
+      if (a && base !== undefined) await save({ automationId: a.id, config, expectedVersion: base });
+      else if (selectedAgent) await create({ config, agentId: selectedAgent as Id<'agents'>, audience, channelId: audience === 'channel' ? channelId : undefined, timeZone });
+      guard.complete(); onClose();
+    }); };
+  return <EditorSheet title={a?.name ?? 'New automation'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()} submit={editable ? { label: a ? 'Done' : 'Create', disabled: unavailable, onPress: submit } : undefined}>{guard.dialog}
     {task.error && <ErrorState message={task.error} />}
     {conflict && <Card><Text>This automation changed. Reload the latest version before saving.</Text><Button label="Reload latest" variant="secondary" disabled={task.busy} onPress={() => { const latest = cleanConfig(a); setConfig(latest); setBaseline(latest); setBase(a.custom?.version); }} /></Card>}
     <AutomationFields value={config} onChange={setConfig} channels={channels} timeZone={a?.timeZone ?? timeZone} disabled={!editable || task.busy} />
@@ -124,11 +130,7 @@ function AutomationEditor({ automation: a, task, onClose }: { automation?: Autom
       <AudiencePicker value={audience} channelId={channelId} channels={channels.filter(c => c.canPost)} allowTeam={teamAllowed} allowCreator disabled={task.busy} onChange={(next, id) => { setAudience(next); setChannelId(id); }} />
       <Field editable={!task.busy} label="Time zone" value={timeZone} onChangeText={setTimeZone} autoCapitalize="none" autoCorrect={false} hint="An IANA time zone, such as America/Los_Angeles." />
     </>}
-    {editable && <Button label={a ? 'Save automation' : 'Create automation'} loading={task.busy} disabled={(!a && audience !== 'creator' && !teamAllowed) || !!customAutomationError(config) || conflict || (!!a && !dirty) || (!a && !selectedAgent)} onPress={() => void task.run(async () => {
-      if (a && base !== undefined) await save({ automationId: a.id, config, expectedVersion: base });
-      else if (selectedAgent) await create({ config, agentId: selectedAgent as Id<'agents'>, audience, channelId: audience === 'channel' ? channelId : undefined, timeZone });
-      guard.complete(); onClose();
-    })} />}
+
   </EditorSheet>;
 }
 
