@@ -5,8 +5,10 @@ import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { ActionMenu, Button, ConfirmSheet, Divider, EmptyState, ErrorState, ListRow, Loading, Screen, ScreenList } from '@/components/ui';
 import { NavigationHeader } from '@/components/navigation/NavigationHeader';
+import { useTheme } from '@/design';
 
 export default function Archive() {
+  const { sizes } = useTheme();
   const [search, setSearch] = useState('');
   const rows = usePaginatedQuery(api.trash.list, { search: search.trim() || undefined }, { initialNumItems: 30 });
   const me = useQuery(api.workspace.me);
@@ -26,7 +28,7 @@ export default function Archive() {
   return <>
     <NavigationHeader search={{ placeholder: 'Search Archive', value: search, onChange: setSearch }} />
     <Screen nativeScroll padded={false}>
-      <ScreenList data={rows.results} keyExtractor={item => item._id} ItemSeparatorComponent={Divider}
+      <ScreenList data={rows.results} keyExtractor={item => item._id} ItemSeparatorComponent={Divider} contentContainerStyle={{ paddingHorizontal: sizes.gutter }}
         ListHeaderComponent={task.error && !deleting ? <ErrorState message={task.error} layout="inline" /> : undefined}
         renderItem={({ item }) => <ListRow title={item.name} description={`${item.kind} · Archived by ${item.user} · ${new Date(item.at).toLocaleDateString()}${item.hasChildren ? ' · Includes sub-pages' : ''}`}
           trailing={item.canRestore || canDelete ? <ActionMenu label={`Actions for ${item.name}`} actions={[

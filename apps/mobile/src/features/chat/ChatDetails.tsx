@@ -26,7 +26,7 @@ export function ChatDetails({ chatId }: { chatId: Id<'chats'> }) {
   return <Details key={chatId} chat={chat} />;
 }
 function Details({ chat }: { chat: Chat }) {
-  const { spacing } = useTheme();
+  const { spacing, sizes } = useTheme();
   const team = useQuery(api.workspace.team);
   const chats = useQuery(api.chats.list);
   const add = useMutation(api.chats.addMembers);
@@ -57,7 +57,7 @@ function Details({ chat }: { chat: Chat }) {
   ];
   const identity = chat.agentId ? chat.members.find(member => member.id === chat.agentId)
     : chat.kind === 'dm' && chat.members.length === 2 && chats ? chat.members.find(member => member.id !== chats.me) : undefined;
-  const details = <Stack style={{ padding: spacing.md }}>
+  const details = <Stack style={{ paddingVertical: spacing.lg }}>
     <Stack horizontal gap="md">
       <Avatar name={chatTitle(chat)} image={identity?.image} agent={!!chat.agentId} size="lg" />
       <Text variant="heading" accessibilityRole="header" style={{ flex: 1 }}>{chatTitle(chat)}</Text>
@@ -88,17 +88,18 @@ function Details({ chat }: { chat: Chat }) {
     <Screen nativeScroll padded={false}>
       {guard.dialog}
       <ScreenList data={chat.members} keyExtractor={member => member.id} ListHeaderComponent={details}
-        contentContainerStyle={{ paddingHorizontal: spacing.xs, paddingBottom: spacing.lg }}
+        contentContainerStyle={{ paddingHorizontal: sizes.gutter, paddingBottom: spacing.lg }}
         renderItem={({ item: member }) => <ListRow title={member.name} description={member.type === 'agent' ? 'Bot' : undefined} leading={<Avatar name={member.name} image={member.image} agent={member.type === 'agent'} />} disclosure onPress={() => setProfile(member)} disabled={task.busy} />}
         ListEmptyComponent={<EmptyState layout="inline" title="No members" />} />
     </Screen>
     {editing && <ConversationEditor chat={chat} onClose={() => setEditing(false)} />}
     {accessOpen && chat.access && <AccessSheet access={chat.access} editLabel="Post" requireEveryone={chat.isDefault} description={chat.private ? 'This private channel is also limited to its invited members.' : undefined} onSave={chat.canManage && !chat.trash ? entries => setAccess({ chatId: chat._id, access: entries ?? [] }) : undefined} onClose={() => setAccessOpen(false)} />}
     {profile && <Profile who={profile} onClose={() => setProfile(undefined)} />}
-    {adding && <EditorSheet busy={task.busy} title="Add members" onClose={() => setAdding(false)}>
+    {adding && <EditorSheet busy={task.busy} title="Add members" scroll={false} onClose={() => setAdding(false)}>
       {task.error && <ErrorState message={task.error} />}
-      {!team || !chats ? <Loading /> : candidates.map(person => <ListRow key={person.id} title={person.name} leading={<Avatar name={person.name} image={person.image} agent={person.agent} />} disabled={task.busy || !!chat.trash} onPress={() => void task.run(() => add({ chatId: chat._id, userIds: person.agent ? [] : [person.id as Id<'users'>], agentIds: person.agent ? [person.id as Id<'agents'>] : [] }))} />)}
-      {team && chats && !candidates.length && <EmptyState title="Everyone is here" />}
+      {!team || !chats ? <Loading /> : <ScreenList data={candidates} keyExtractor={person => person.id}
+        ListEmptyComponent={<EmptyState title="Everyone is here" description="All available teammates and agents are already members." />}
+        renderItem={({ item: person }) => <ListRow title={person.name} leading={<Avatar name={person.name} image={person.image} agent={person.agent} />} disabled={task.busy || !!chat.trash} onPress={() => void task.run(() => add({ chatId: chat._id, userIds: person.agent ? [] : [person.id as Id<'users'>], agentIds: person.agent ? [person.id as Id<'agents'>] : [] }))} />} />}
     </EditorSheet>}
     {confirm && <ConfirmSheet busy={task.busy} title={confirm.title} message={confirm.text} confirmLabel={confirm.action} destructive error={task.error} onClose={() => setConfirm(undefined)} onConfirm={() => void task.run(async () => { await confirm.run(); setConfirm(undefined); })} />}
   </>;

@@ -56,11 +56,11 @@ function CreateChild({ pending, create }: { pending: PendingAction; create: (tit
   const [closing, setClosing] = useState<{ value: ActionReply }>();
   const task = useTask();
   const guard = useDraftGuard({ dirty: !!title, busy: task.busy || !!closing, onClose: () => setClosing({ value: null }) });
-  return <EditorSheet title="New sub-page" size="content" open={!closing} busy={task.busy || !!closing} dismissible={guard.dismissible} onClose={() => void guard.close()} onDismiss={() => pending.finish(closing?.value ?? null)}>
+  const submit = () => void task.run(async () => { const pageId = await create(title.trim() || 'Untitled'); guard.complete(); setClosing({ value: { pageId } }); });
+  return <EditorSheet title="New sub-page" size="content" open={!closing} busy={task.busy || !!closing} dismissible={guard.dismissible} onClose={() => void guard.close()} onDismiss={() => pending.finish(closing?.value ?? null)} submit={{ label: 'Create', onPress: submit }}>
     {guard.dialog}
     <Field label="Title" value={title} onChangeText={setTitle} editable={!task.busy} maxLength={500} autoFocus placeholder="Untitled" />
     {task.error && <ErrorState message={task.error} />}
-    <Button label="Create page" loading={task.busy} onPress={() => void task.run(async () => { const pageId = await create(title.trim() || 'Untitled'); setClosing({ value: { pageId } }); })} />
   </EditorSheet>;
 }
 

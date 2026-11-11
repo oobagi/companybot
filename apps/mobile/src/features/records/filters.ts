@@ -1,8 +1,40 @@
 import { minorDigits, minorToDecimal, normalizeValue, type Field } from '@companybot/core/records';
-import type { ViewConfig } from './model';
+import { valueText, type ViewConfig } from './model';
 
 export type Condition = ViewConfig['filters'][number];
 export type FilterDraft = { field: string; op: 'eq' | 'in' | 'range' | 'empty' | 'notEmpty'; value: string; values: string[]; lower: string; lowerOp: 'gt' | 'gte'; upper: string; upperOp: 'lt' | 'lte' };
+
+/** Conditions as people read them, without exposing stored ids or query operators. */
+export function filterDescription(field: Field | undefined, condition: Condition, currency = 'USD'): string {
+  if (!field) return 'Field unavailable';
+  if (condition.empty !== undefined) return field.kind === 'checkbox'
+    ? condition.empty ? 'Is unchecked' : 'Is checked'
+    : condition.empty ? 'Is empty' : 'Is not empty';
+  const references = (count: number) => `${count} ${field.kind === 'user' ? count === 1 ? 'person' : 'people' : count === 1 ? 'record' : 'records'}`;
+  const shown = (value: unknown): string => {
+    if (field.kind === 'choice') {
+      const option = field.options?.find(option => option.id === value);
+      return option ? valueText(field, option.id, {}) : 'Unavailable option';
+    }
+    try {
+      const normalized = normalizeValue({ ...field, multiple: false }, field.kind === 'currency' ? filterValueInput(value) : value, 'filter', currency);
+      if ('error' in normalized) return 'Unavailable value';
+      return valueText(field, normalized.value, {});
+    } catch { return 'Unavailable value'; }
+  };
+  if (condition.in) return field.kind === 'user' || field.kind === 'link'
+    ? `Is any of ${references(condition.in.length)}`
+    : `Is any of ${condition.in.map(shown).join(', ')}`;
+  if (condition.eq !== undefined) {
+    if (field.kind === 'checkbox') return condition.eq === true ? 'Is checked' : 'Is unchecked';
+    return `Is ${field.kind === 'user' || field.kind === 'link' ? references(1) : shown(condition.eq)}`;
+  }
+  const bounds = ([['gt', field.kind === 'date' ? 'After' : 'More than'], ['gte', field.kind === 'date' ? 'On or after' : 'At least'], ['lt', field.kind === 'date' ? 'Before' : 'Less than'], ['lte', field.kind === 'date' ? 'On or before' : 'At most']] as const)
+    .filter(([operator]) => condition[operator] !== undefined)
+    .map(([operator, label]) => `${label} ${shown(condition[operator])}`);
+  return bounds.map((bound, index) => index ? bound[0].toLowerCase() + bound.slice(1) : bound).join(' and ') || 'Choose a condition';
+}
+
 export function filterValueInput(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'object' && 'minor' in value && typeof value.minor === 'number' && 'currency' in value && typeof value.currency === 'string') return `${value.currency} ${minorToDecimal(value.minor, minorDigits(value.currency))}`;

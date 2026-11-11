@@ -210,7 +210,7 @@ export default function DocumentDOM(wire: Props) {
       }}>
       {problem && <p role="alert">Your changes have not synced: {problem}</p>}
       {actionProblem && <p role="alert">{actionProblem}</p>}
-      <BlockNoteView formattingToolbar={!native} editor={editor} editable={props.editable} theme={props.dark ? 'dark' : 'light'} sideMenu={false} slashMenu={false} filePanel={false}>
+      <BlockNoteView formattingToolbar={!native} linkToolbar={!native} editor={editor} editable={props.editable} theme={props.dark ? 'dark' : 'light'} sideMenu={false} slashMenu={false} filePanel={false}>
         <SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems([
           ...getDefaultReactSlashMenuItems(editor).filter((item) => !(['image', 'video', 'audio', 'file'] as const).some((type) => item.title === editor.dictionary.slash_menu[type].title)),
           ...(props.canCreatePage ? [{ title: 'Page', subtext: 'Add a page inside', aliases: ['page', 'subpage'], group: 'Pages', onItemClick: () => { void perform(editor.getTextCursorPosition().block.id, true); } }] : []),

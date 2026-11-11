@@ -23,7 +23,9 @@ export function AccessSheet({ access, onSave, onClose, editLabel = 'Edit', follo
   const addable = [{ id: EVERYONE, name: 'Everyone' }, ...(roles ?? []).filter(role => role.builtIn !== 'owner')].filter(role => !draft.some(entry => entry.role === role.id));
   const editable = !!onSave && !task.busy && !stale && !inherit;
   const pendingInheritance = inherit && following === false;
-  return <EditorSheet title="Who can access" onClose={() => void guard.close()} busy={task.busy} dismissible={guard.dismissible}>
+  const canSave = !!onSave && roles !== undefined && dirty && !stale;
+  const save = () => { if (canSave && onSave) void task.run(async () => { await onSave(inherit ? null : draft); guard.complete(); onClose(); }); };
+  return <EditorSheet title="Who can access" onClose={() => void guard.close()} busy={task.busy} dismissible={guard.dismissible} submit={onSave ? { disabled: !canSave, onPress: save } : undefined}>
     {guard.dialog}
     {description && <Text tone="muted">{description}</Text>}
     {task.error && <ErrorState message={task.error} />}
@@ -34,7 +36,6 @@ export function AccessSheet({ access, onSave, onClose, editLabel = 'Edit', follo
       <ListRow title="Owners" description={`Always ${editLabel.toLowerCase()}`} />
       {!pendingInheritance && !draft.length && <Text tone="muted">Only owners can see it.</Text>}
       {editable && addable.length > 0 && <ChoicePicker label="Add a role" value="" allowEmpty emptyLabel="Choose a role" options={addable.map(role => ({ value: role.id, label: role.name }))} onChange={value => { if (typeof value === 'string' && value && addable.some(role => role.id === value)) setDraft(previous => [...previous, { role: value, level: 'view' }]); }} />}
-      {onSave && <Button label="Save access" loading={task.busy} disabled={!dirty || stale} onPress={() => void task.run(async () => { await onSave(inherit ? null : draft); onClose(); })} />}
     </>}
   </EditorSheet>;
 }

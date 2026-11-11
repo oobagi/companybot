@@ -1,12 +1,11 @@
 import { router } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable } from 'react-native';
-import { Avatar, Badge, Button, ErrorState, Loading, Stack, Text } from '@/components/ui';
+import { Avatar, Badge, Button, EditorSheet, ErrorState, Loading, Stack, Text } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
-import { Dialog } from './Dialog';
 import type { Message } from './types';
 
 type Participant = Message['author'];
@@ -30,7 +29,7 @@ export function Profile({ who, onClose }: { who: Participant; onClose: () => voi
   const loaded = shown.type === 'user' ? team !== undefined : chats !== undefined;
   const gone = loaded && !person && !agent;
   const localTime = person?.timeZone ? new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: person.timeZone }) : null;
-  return <Dialog busy={task.busy} title="Profile" onClose={onClose}><Stack horizontal><Avatar name={shown.name} image={shown.image} agent={shown.type === 'agent'} size="lg" /><Stack style={{ flex: 1 }}><Text variant="heading">{shown.name}</Text>{shown.type === 'agent' && <Badge label="Bot" />}</Stack></Stack>
+  return <EditorSheet size="content" busy={task.busy} title="Profile" onClose={onClose}><Stack horizontal><Avatar name={shown.name} image={shown.image} agent={shown.type === 'agent'} size="lg" /><Stack style={{ flex: 1 }}><Text variant="heading">{shown.name}</Text>{shown.type === 'agent' && <Badge label="Bot" />}</Stack></Stack>
     {!loaded && <Loading layout="inline" />}
     {person && <><Text selectable>{person.email}</Text><Text tone="muted">{roles?.filter(role => person.roles.includes(role.id)).map(role => role.name).join(', ') || 'Workspace member'}{person.isYou ? ' · You' : ''}</Text>{localTime && <Text tone="muted">{localTime} · {person.timeZone}</Text>}</>}
     {agent?.description && <Text>{agent.description}</Text>}
@@ -41,5 +40,5 @@ export function Profile({ who, onClose }: { who: Participant; onClose: () => voi
       const chatId = await openDm(shown.type === 'user' ? { userIds: [shown.id], agentIds: [] } : { userIds: [], agentIds: [shown.id] });
       onClose(); router.push({ pathname: '/chat/[chatId]', params: { chatId } });
     })} />}
-  </Dialog>;
+  </EditorSheet>;
 }

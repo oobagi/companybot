@@ -17,6 +17,7 @@ Build and inspect the components before composing feature screens. The developme
 | `SettingsList` / `SettingsGroup` / `SettingsRow` | Settings, properties, disclosure and toggle rows | Shared React Native flex rows, one scroll owner, native symbols and switches; transparent groups without cards or separators |
 | `ListRow` | Custom directory/content row | Simple flex layout; independent accessory outside its navigation press target |
 | `ChoicePicker` | Selected value with deliberate selection | Native menu for short choices; searchable selection for long/multiple choices; row or compact presentation |
+| `MonthPicker` | Calendar-month filter | One Period row opens a Cancel/Done sheet; month/year changes remain local until committed |
 | `Field` | Labeled text entry inside an editor | Native TextInput, focus, keyboard semantics, hint and validation |
 | `EditorSheet` | A single explicit editing task | Native sheet, header, keyboard and dismissal behavior |
 | `ContentToolbar` / `ContentToolbarFrame` | Editing actions at the bottom of a bounded content area | Compact native icon controls inside `FloatingBar`; accessible status; no domain imports. The frame also accepts domain-owned native menus |

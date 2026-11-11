@@ -1,31 +1,40 @@
-import { Host, Column, Row, Picker, Spacer, Text as NativeText } from '@expo/ui';
-import { useTheme } from '@/design';
+import { useState } from 'react';
+import { ChoicePicker, EditorSheet } from './EditorSheet';
+import { ListRow } from './ListRow';
+import { useConfirm } from './useConfirm';
+
+const periodLabel = (value: string) => new Date(`${value}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 /** Calendar months, not timestamps: selecting a period must not shift with the device's zone. */
 export function MonthPicker({ value, onChange }: { value: string; onChange: (month: string) => void }) {
-  const { colors, spacing, dark } = useTheme();
-  const [year, month] = value.split('-').map(Number);
+  const [open, setOpen] = useState(false);
+  return <><ListRow title="Period" value={periodLabel(value)} disclosure onPress={() => setOpen(true)} />
+    {open && <PeriodEditor value={value} onChange={onChange} onClose={() => setOpen(false)} />}
+  </>;
+}
+
+function PeriodEditor({ value, onChange, onClose }: { value: string; onChange: (month: string) => void; onClose: () => void }) {
+  const [initial] = useState(value);
+  const [year, setYear] = useState(() => value.split('-')[0]);
+  const [month, setMonth] = useState(() => value.split('-')[1]);
+  const { confirm, dialog } = useConfirm();
+  const draft = `${year}-${month}`;
+  const dirty = draft !== initial;
   const months = Array.from({ length: 12 }, (_, index) => ({
-    value: index + 1,
+    value: String(index + 1).padStart(2, '0'),
     label: new Date(2000, index, 1).toLocaleDateString(undefined, { month: 'long' }),
   }));
-  const lastYear = Math.max(new Date().getFullYear(), year);
-  const years = Array.from({ length: lastYear - 1970 + 1 }, (_, index) => lastYear - index);
-  const select = (nextYear: number, nextMonth: number) => onChange(`${nextYear}-${String(nextMonth).padStart(2, '0')}`);
-  return <Host matchContents={{ vertical: true }} style={{ width: '100%' }} colorScheme={dark ? 'dark' : 'light'} seedColor={colors.link} ignoreSafeArea="all">
-    <Column spacing={spacing.md}>
-      <Row alignment="center" spacing={spacing.md}>
-        <NativeText textStyle={{ color: colors.text }}>Month</NativeText><Spacer flexible />
-        <Picker selectedValue={month} onValueChange={next => select(year, next)} testID="usage-month">
-          {months.map(item => <Picker.Item key={item.value} value={item.value} label={item.label} />)}
-        </Picker>
-      </Row>
-      <Row alignment="center" spacing={spacing.md}>
-        <NativeText textStyle={{ color: colors.text }}>Year</NativeText><Spacer flexible />
-        <Picker selectedValue={year} onValueChange={next => select(next, month)} testID="usage-year">
-          {years.map(item => <Picker.Item key={item} value={item} label={String(item)} />)}
-        </Picker>
-      </Row>
-    </Column>
-  </Host>;
+  const lastYear = Math.max(new Date().getFullYear(), Number(initial.split('-')[0]));
+  const years = Array.from({ length: lastYear - 1970 + 1 }, (_, index) => {
+    const label = String(lastYear - index);
+    return { value: label, label };
+  });
+  const close = async () => {
+    if (!dirty || await confirm({ title: 'Discard period changes?', body: 'The current usage period will stay selected.', action: 'Discard', danger: true })) onClose();
+  };
+  return <EditorSheet title="Usage period" size="content" dismissible={!dirty} onClose={() => void close()} submit={{ onPress: () => { onChange(draft); onClose(); } }}>
+    {dialog}
+    <ChoicePicker label="Month" value={month} options={months} onChange={next => { if (typeof next === 'string') setMonth(next); }} />
+    <ChoicePicker label="Year" value={year} options={years} onChange={next => { if (typeof next === 'string') setYear(next); }} />
+  </EditorSheet>;
 }
