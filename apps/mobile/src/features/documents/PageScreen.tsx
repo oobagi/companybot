@@ -3,7 +3,7 @@ import { HeaderMenu } from '@/components/navigation/HeaderMenu';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { router, Stack as RouterStack } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import Add from '@expo/material-symbols/add.xml';
 import { Badge, Button, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, Text } from '@/components/ui';
 import { useTheme } from '@/design';
@@ -60,13 +60,15 @@ export function PageScreen({ pageId }: { pageId: string }) {
     });
     else if (action === 'history' || action === 'access' || action === 'children' || action === 'rename' || action === 'move' || action === 'create' || action === 'organize') setPanel(action);
   };
-  return <Screen keyboard={page.kind !== 'folder'} nativeScroll={page.kind === 'folder'} padded={page.kind !== 'folder'} contentStyle={{ gap: theme.spacing.sm }}>
+  return <Screen keyboard={page.kind !== 'folder'} nativeScroll={page.kind === 'folder'} padded={false}>
     <RouterStack.Screen options={{ title: page.recordId ? 'Notes' : page.title || 'Untitled' }} />
     <HeaderMenu label="Page actions" actions={actions.map(action => ({ ...action, disabled: action.disabled || task.busy }))} onAction={perform} />
-    {pin.error && <ErrorState message={pin.error} />}
     {dialog}
-    {page.archived && <Badge label="Archived · read only" tone="warning" />}
-    {task.error && <ErrorState message={task.error} />}
+    {(pin.error || page.archived || task.error) && <View style={{ paddingHorizontal: theme.sizes.gutter, paddingVertical: theme.spacing.sm, gap: theme.spacing.sm }}>
+      {pin.error && <ErrorState message={pin.error} />}
+      {page.archived && <Badge label="Archived · read only" tone="warning" />}
+      {task.error && <ErrorState message={task.error} />}
+    </View>}
     {page.kind === 'folder' ? <PageChildren parentId={page._id} /> : <DocumentEditor pageId={page._id} editable={page.canEdit} />}
     {panel === 'organize' && <PageOrganizer parentId={page._id} onClose={() => setPanel(undefined)} />}
     {panel === 'access' && <AccessSheet access={page.access} following={page.parentId && !page.recordId ? page.ownAccess === null : undefined} description={page.recordId ? 'This page follows its database. Change access in the database’s menu.' : undefined} onSave={page.canManageAccess && !page.archived ? entries => setAccess({ pageId: page._id, access: entries }) : undefined} onClose={() => setPanel(undefined)} />}

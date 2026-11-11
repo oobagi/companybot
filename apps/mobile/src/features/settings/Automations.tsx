@@ -1,12 +1,13 @@
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { can } from '@companybot/core/permissions';
-import { customAutomationError, scheduleCron, type CustomAutomationConfig, type AutomationAudience } from '@companybot/core/automations';
+import { customAutomationError, isValidTimeZone, CUSTOM_NAME_MAX, CUSTOM_PROMPT_MAX, scheduleCron, type CustomAutomationConfig, type AutomationAudience } from '@companybot/core/automations';
 import { DEFAULT_CRON } from '@companybot/core/schedules';
 import type { FunctionReturnType } from 'convex/server';
 import * as Clipboard from 'expo-clipboard';
 import { useState } from 'react';
+import { Alert, Platform } from 'react-native';
 import { router, Stack as RouterStack, useLocalSearchParams } from 'expo-router';
-import { Badge, Button, Card, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, SettingsList, ListRow, Loading, Screen, ScreenList, Stack, Text, Divider, useConfirm } from '@/components/ui';
+import { Badge, Button, Section, ChoicePicker, EditorSheet, EmptyState, ErrorState, Field, SettingsList, ListRow, Loading, Screen, ScreenList, Stack, Text, Divider, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
@@ -62,7 +63,7 @@ function AutomationDetail({ automation: a }: { automation: Automation }) {
   const open = (next: DetailMode) => { if (!task.busy) { task.clear(); setNotice(undefined); setMode(next); } };
   const actions = [
     ...(editable && a.custom ? [{ id: 'edit', title: 'Edit configuration', icon: 'pencil' as const }] : []),
-    ...(editable ? [{ id: 'pause', title: a.enabled ? 'Pause automation' : 'Resume automation' }, { id: 'run', title: 'Run now' }, { id: 'archive', title: 'Archive automation', destructive: true }] : []),
+    ...(editable ? [{ id: 'pause', title: a.enabled ? 'Pause automation' : 'Resume automation', icon: a.enabled ? 'pause' as const : 'play' as const }, { id: 'run', title: 'Run now', icon: 'play' as const }, { id: 'archive', title: 'Archive automation', icon: 'archivebox' as const, destructive: true }] : []),
   ].map(action => ({ ...action, disabled: task.busy || !!mode }));
   return <>
     <RouterStack.Screen options={{ title: a.name }} />
@@ -86,13 +87,13 @@ function AutomationDetail({ automation: a }: { automation: Automation }) {
           { id: 'audience', title: 'Runs for', value: a.runsFor ?? 'Subscribers', onPress: editable ? () => open('audience') : undefined, disabled: task.busy },
           { id: 'prompt', title: 'Prompt', value: 'Read prompt', onPress: () => open('prompt'), disabled: task.busy },
         ] },
-        ...(a.description || a.details ? [{ id: 'about', title: 'About', rows: [{ id: 'description', title: a.description || a.name, subtitle: a.details || undefined }] }] : []),
+        ...((a.description && a.description !== a.trigger) || a.details ? [{ id: 'about', title: 'About', rows: [{ id: 'description', title: a.description || a.name, subtitle: a.details || undefined }] }] : []),
         ...(!a.trash && a.audience === 'subscribers' ? [{ id: 'subscription', footer: consent.body, rows: [{ id: 'subscribed', kind: 'toggle' as const, title: 'Run for me', value: a.subscribed, disabled: task.busy, onValueChange: (on: boolean) => void task.run(async () => { if (on && !await askEnable()) return; await subscribe({ automationId: a.id, on }); }) }] }] : []),
         ...(a.webhookUrl && !a.trash ? [{ id: 'webhook', rows: [{ id: 'webhook', title: 'Webhook URL', value: 'View and copy', onPress: () => open('webhook'), disabled: task.busy }] }] : []),
         { id: 'activity', title: 'Activity', footer: editable ? `Run now sends one run just to you${a.scheduled ? '.' : ', using sample event data.'}` : undefined, rows: [{ id: 'last-run', title: a.lastRunAt ? `Last ran ${new Date(a.lastRunAt).toLocaleString()}` : 'Has not run yet', subtitle: a.lastResult ?? undefined }] },
       ]} />
     </Screen>
-    {mode === 'configuration' && editable && a.custom && <AutomationEditor automation={a} task={task} onClose={() => setMode(undefined)} />}
+    {mode === 'configuration' && a.custom && <AutomationEditor automation={a} task={task} onClose={() => setMode(undefined)} />}
     {mode && mode !== 'configuration' && <AutomationSettingSheet automation={a} mode={mode} task={task} onClose={() => setMode(undefined)} />}
   </>;
 }
@@ -102,6 +103,7 @@ function AutomationEditor({ automation: a, task, onClose }: { automation?: Autom
   const [baseline, setBaseline] = useState(() => cleanConfig(a));
   const [config, setConfig] = useState(baseline);
   const [base, setBase] = useState(a?.custom?.version);
+  const [attemptedSave, setAttemptedSave] = useState(false);
   const [agentId, setAgentId] = useState('');
   const [audience, setAudience] = useState<AutomationAudience>('creator');
   const [channelId, setChannelId] = useState<Id<'chats'>>();
@@ -110,27 +112,41 @@ function AutomationEditor({ automation: a, task, onClose }: { automation?: Autom
   const agents = useQuery(api.agents.list)?.filter((agent) => !agent.archived);
   const channels = useQuery(api.chats.list)?.channels ?? [];
   const create = useMutation(api.automations.create); const save = useMutation(api.automations.save);
-  const editable = !a || (a.canEdit && !!a.custom && !a.trash);
+  const editable = !!me?.access && (!a || (a.canEdit && !!a.custom && !a.trash));
   const conflict = !!a?.custom && a.custom.version !== base;
   const dirty = (!a && (agentId !== '' || audience !== 'creator' || !!channelId || timeZone !== initialTimeZone)) || JSON.stringify(config) !== JSON.stringify(baseline);
   const selectedAgent = agentId || agents?.[0]?._id;
-  const guard = useDraftGuard({ dirty: editable && dirty, busy: task.busy, onClose, description: 'Your unsaved automation changes will be discarded.' });
-  const unavailable = !editable || (!a && audience !== 'creator' && !teamAllowed) || !!customAutomationError(config) || conflict || (!!a && !dirty) || (!a && !selectedAgent);
-  const submit = () => { if (!unavailable) void task.run(async () => {
+  const guard = useDraftGuard({ dirty, busy: task.busy, onClose, description: 'Your unsaved automation changes will be discarded.' });
+  const problem = customAutomationError(config)
+    ?? (!a && (!timeZone || !isValidTimeZone(timeZone)) ? 'Choose a valid time zone, such as America/Los_Angeles.' : null)
+    ?? (!a && !agents?.some(agent => agent._id === selectedAgent) ? 'Choose an available agent.' : null)
+    ?? (!a && audience === 'channel' && !channels.some(channel => channel._id === channelId && channel.canPost) ? 'Choose a channel you can post in.' : null);
+  const unavailable = !editable || task.busy || (!a && audience !== 'creator' && !teamAllowed) || conflict || (!!a && !dirty);
+  const submit = () => {
+    if (unavailable) return;
+    setAttemptedSave(true);
+    if (problem) {
+      if (Platform.OS !== 'web') Alert.alert('Check automation details', problem);
+      return;
+    }
+    void task.run(async () => {
       if (a && base !== undefined) await save({ automationId: a.id, config, expectedVersion: base });
       else if (selectedAgent) await create({ config, agentId: selectedAgent as Id<'agents'>, audience, channelId: audience === 'channel' ? channelId : undefined, timeZone });
       guard.complete(); onClose();
-    }); };
-  return <EditorSheet title={a?.name ?? 'New automation'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()} submit={editable ? { label: a ? 'Done' : 'Create', disabled: unavailable, onPress: submit } : undefined}>{guard.dialog}
+    });
+  };
+  return <EditorSheet title={a ? 'Edit automation' : 'New automation'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()} submit={editable ? { label: a ? 'Done' : 'Create', disabled: unavailable, onPress: submit } : undefined}>{guard.dialog}
     {task.error && <ErrorState message={task.error} />}
-    {conflict && <Card><Text>This automation changed. Reload the latest version before saving.</Text><Button label="Reload latest" variant="secondary" disabled={task.busy} onPress={() => { const latest = cleanConfig(a); setConfig(latest); setBaseline(latest); setBase(a.custom?.version); }} /></Card>}
-    <AutomationFields value={config} onChange={setConfig} channels={channels} timeZone={a?.timeZone ?? timeZone} disabled={!editable || task.busy} />
-    {!a && <>
-      <ChoicePicker disabled={task.busy} label="Agent" value={selectedAgent ?? ''} options={(agents ?? []).map((agent) => ({ value: agent._id, label: agent.name }))} onChange={(value) => setAgentId(String(value))} />
-      <AudiencePicker value={audience} channelId={channelId} channels={channels.filter(c => c.canPost)} allowTeam={teamAllowed} allowCreator disabled={task.busy} onChange={(next, id) => { setAudience(next); setChannelId(id); }} />
-      <Field editable={!task.busy} label="Time zone" value={timeZone} onChangeText={setTimeZone} autoCapitalize="none" autoCorrect={false} hint="An IANA time zone, such as America/Los_Angeles." />
-    </>}
-
+    {editable && attemptedSave && problem && <ErrorState message={problem} />}
+    {conflict && <Stack gap="sm"><Text>This automation changed while you were editing. Reload it before saving.</Text><Button label="Reload latest" variant="secondary" disabled={task.busy} onPress={() => { const latest = cleanConfig(a); setConfig(latest); setBaseline(latest); setBase(a.custom?.version); setAttemptedSave(false); }} /></Stack>}
+    {!editable && <Text tone="muted">This automation is now read only. Your draft is kept until you close it.</Text>}
+    {!a && audience !== 'creator' && !teamAllowed && <Text tone="muted">You can no longer create team automations. Choose Just the creator to keep this automation personal.</Text>}
+    <AutomationFields key={base ?? 'new'} value={config} onChange={setConfig} channels={channels} timeZone={a?.timeZone ?? timeZone} disabled={!editable || task.busy} />
+    {!a && <Section title="Runs">
+      <ChoicePicker disabled={!editable || task.busy} label="Agent" value={selectedAgent ?? ''} options={(agents ?? []).map((agent) => ({ value: agent._id, label: agent.name }))} onChange={(value) => setAgentId(String(value))} />
+      <AudiencePicker value={audience} channelId={channelId} channels={channels.filter(c => c.canPost)} allowTeam={teamAllowed} allowCreator disabled={!editable || task.busy} onChange={(next, id) => { setAudience(next); setChannelId(id); }} />
+      <Field editable={editable && !task.busy} label="Time zone" value={timeZone} onChangeText={setTimeZone} autoCapitalize="none" autoCorrect={false} hint="An IANA time zone, such as America/Los_Angeles." />
+    </Section>}
   </EditorSheet>;
 }
 
@@ -138,7 +154,11 @@ function AutomationFields({ value, onChange, channels, timeZone, disabled }: { v
   const trigger = value.trigger;
   const changeTrigger = (next: CustomAutomationConfig['trigger']) => onChange({ ...value, trigger: next });
   return <>
-    <Field label="Name" value={value.name} onChangeText={(name) => onChange({ ...value, name })} editable={!disabled} />
+    <Section title="Task"><Stack>
+      <Field label="Name" value={value.name} onChangeText={(name) => onChange({ ...value, name })} editable={!disabled} maxLength={CUSTOM_NAME_MAX} />
+      <Field label="What to ask the agent" value={value.prompt} onChangeText={(prompt) => onChange({ ...value, prompt })} multiline editable={!disabled} maxLength={CUSTOM_PROMPT_MAX} style={{ minHeight: 160 }} hint="Sent on each run, as the person the automation runs for." />
+    </Stack></Section>
+    <Section title="Trigger">
     <ChoicePicker label="When" value={trigger.type} disabled={disabled} options={[{ value: 'schedule', label: 'On a schedule' }, { value: 'event', label: 'When something happens here' }, { value: 'webhook', label: 'When another app sends a webhook' }]} onChange={(type) => {
       if (type === 'schedule') changeTrigger({ type, cron: DEFAULT_CRON });
       else if (type === 'event') changeTrigger({ type, event: 'member.joined' });
@@ -150,7 +170,7 @@ function AutomationFields({ value, onChange, channels, timeZone, disabled }: { v
       else if (event === 'message.posted' && channels[0]) changeTrigger({ type: 'event', event, channelId: channels[0]._id });
     }} />{trigger.event === 'message.posted' && <ChoicePicker label="Watch channel" value={trigger.channelId} disabled={disabled} options={[...channels.map((channel) => ({ value: channel._id, label: `#${channel.title}` })), ...(!channels.some((channel) => channel._id === trigger.channelId) ? [{ value: trigger.channelId, label: 'Current channel (not accessible)' }] : [])]} onChange={(id) => { if (id) changeTrigger({ ...trigger, channelId: String(id) }); }} />}</>}
     {trigger.type === 'webhook' && <Text tone="muted">After saving, copy the webhook URL into the other app. Its event data goes to the agent with your prompt.</Text>}
-    <Field label="What to ask the agent" value={value.prompt} onChangeText={(prompt) => onChange({ ...value, prompt })} multiline editable={!disabled} style={{ minHeight: 160 }} hint="Sent on each run, as the person the automation runs for." />
+    </Section>
   </>;
 }
 

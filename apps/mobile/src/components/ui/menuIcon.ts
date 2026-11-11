@@ -18,6 +18,8 @@ import Tag from '@expo/material-symbols/tag.xml';
 import Widgets from '@expo/material-symbols/widgets.xml';
 import People from '@expo/material-symbols/group.xml';
 import Photo from '@expo/material-symbols/photo.xml';
+import Pause from '@expo/material-symbols/pause.xml';
+import Play from '@expo/material-symbols/play_arrow.xml';
 
 const androidIcons = {
   'info.circle': Info,
@@ -40,6 +42,8 @@ const androidIcons = {
   'square.grid.2x2': Widgets,
   'person.2': People,
   photo: Photo,
+  pause: Pause,
+  play: Play,
 };
 
 /** Expo menus accept SF names on iOS and image assets on Android. */

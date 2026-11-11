@@ -8,7 +8,8 @@ html, body, #root { margin: 0; min-height: 100%; width: 100%; }
 .mobile-document.native-document { min-height: 0; }
 body:has(.native-document) { overflow: hidden; }
 .bn-mantine { --bn-font-family: system-ui, sans-serif; }
-.mobile-document .bn-editor { color: var(--page-text); background: var(--page-background); padding: var(--space-md) var(--space-lg) var(--space-footer); font-size: var(--body-size); line-height: var(--body-leading); }
+.mobile-document .bn-editor { color: var(--page-text); background: var(--page-background); padding: var(--space-md) var(--page-gutter) var(--space-footer); font-size: var(--body-size); line-height: var(--body-leading); }
+.mobile-document > p[role="alert"] { margin: var(--space-md) var(--page-gutter); }
 .mobile-document .bn-block-outer { line-height: inherit; }
 .mobile-document .bn-block-content[data-content-type="table"] { max-width: 100%; overflow-x: auto; }
 .mobile-document .bn-inline-content a { color: var(--page-link); }

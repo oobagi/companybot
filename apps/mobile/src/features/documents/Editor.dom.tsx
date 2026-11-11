@@ -1,7 +1,7 @@
 'use dom';
 
 import { BlockNoteEditor, docToBlocks, filterSuggestionItems } from '@blocknote/core';
-import { getDefaultReactSlashMenuItems, SuggestionMenuController } from '@blocknote/react';
+import { getDefaultReactSlashMenuItems, SuggestionMenuController, useVirtualKeyboard } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { MantineProvider } from '@mantine/core';
 // Metro does not reliably preserve the skin's nested package CSS imports.
@@ -21,7 +21,7 @@ import { createSyncTransport, type EditorTransport } from './transport';
 import { createEditorLifetime } from './lifetime';
 import { documentSyncExtension } from './sync';
 import './editor.css';
-import { documentSchema as schema, PageBlockActions, References } from './schema';
+import { documentSchema as schema, PageBlockActions, References, type PageEditor } from './schema';
 import { applyBlockAction, blockTarget, createPageAtBlock, installPageRemovalGuard, type BlockAction, type BlockTarget } from './blockActions';
 import { createBridgeNotifications } from './bridgeNotifications';
 import { createDocumentCommandReceiver } from './commands';
@@ -198,7 +198,7 @@ export default function DocumentDOM(wire: Props) {
   // root. BlockNote's fallback provider disables those, assuming its CSS loader
   // resolved the nested mantineStyles.css import instead.
   return <MantineProvider forceColorScheme={props.dark ? 'dark' : 'light'} theme={{ fontFamily: 'system-ui, sans-serif', fontSizes: { xs: `${typography.caption.fontSize * fontScale}px`, sm: `${typography.supporting.fontSize * fontScale}px`, md: `${typography.body.fontSize * fontScale}px` } }}><References.Provider value={props.references}><PageBlockActions.Provider value={props.editable ? id => { void perform(id); } : null}>
-    <div className={`mobile-document${native ? ' native-document bn-scroll-container' : ''}`} style={{ color: props.colors.text, background: props.colors.background, '--page-text': props.colors.text, '--page-background': props.colors.background, '--page-border': props.colors.border, '--page-link': props.colors.link, '--space-sm': `${spacing.sm}px`, '--space-md': `${spacing.md}px`, '--space-lg': `${spacing.lg}px`, '--space-footer': `${spacing.xxxl}px`, '--radius-md': `${radii.md}px`, '--touch': `${sizes.touch}px`, '--body-size': `${typography.body.fontSize * fontScale}px`, '--body-leading': typography.body.lineHeight / typography.body.fontSize, '--caption-size': `${typography.caption.fontSize * fontScale}px` } as React.CSSProperties}
+    <div className={`mobile-document${native ? ' native-document bn-scroll-container' : ''}`} style={{ color: props.colors.text, background: props.colors.background, '--page-text': props.colors.text, '--page-background': props.colors.background, '--page-border': props.colors.border, '--page-link': props.colors.link, '--page-gutter': `${sizes.gutter}px`, '--space-sm': `${spacing.sm}px`, '--space-md': `${spacing.md}px`, '--space-lg': `${spacing.lg}px`, '--space-footer': `${spacing.xxxl}px`, '--radius-md': `${radii.md}px`, '--touch': `${sizes.touch}px`, '--body-size': `${typography.body.fontSize * fontScale}px`, '--body-leading': typography.body.lineHeight / typography.body.fontSize, '--caption-size': `${typography.caption.fontSize * fontScale}px` } as React.CSSProperties}
       onClickCapture={(event) => {
         const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
         if (!anchor) return;
@@ -208,6 +208,7 @@ export default function DocumentDOM(wire: Props) {
         setActionProblem(undefined);
         void notifications.send(() => latest.current.onOpenLink(href));
       }}>
+      {native && <NativeViewport editor={editor} />}
       {problem && <p role="alert">Your changes have not synced: {problem}</p>}
       {actionProblem && <p role="alert">{actionProblem}</p>}
       <BlockNoteView formattingToolbar={!native} linkToolbar={!native} editor={editor} editable={props.editable} theme={props.dark ? 'dark' : 'light'} sideMenu={false} slashMenu={false} filePanel={false}>
@@ -218,4 +219,39 @@ export default function DocumentDOM(wire: Props) {
       </BlockNoteView>
     </div>
   </PageBlockActions.Provider></References.Provider></MantineProvider>;
+}
+
+/** The native toolbar replaces BlockNote's UI, but its scroll frame still needs viewport tracking. */
+function NativeViewport({ editor }: { editor: PageEditor }) {
+  useVirtualKeyboard();
+  useLayoutEffect(() => {
+    const viewport = window.visualViewport;
+    const layoutHeight = () => (viewport?.height ?? window.innerHeight) * (viewport?.scale ?? 1);
+    let height = layoutHeight();
+    let frame: number | undefined;
+    const resize = () => {
+      const next = layoutHeight();
+      if (next === height) return;
+      const shrinking = next < height;
+      height = next;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = undefined;
+      const pm = editor._tiptapEditor;
+      if (!shrinking || pm.isDestroyed || !editor.isEditable || !pm.view.hasFocus()) return;
+      // The publisher above updates the scroll frame first. Reveal the existing
+      // caret after that layout without waiting for a keystroke to scroll it.
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        if (!pm.isDestroyed && editor.isEditable && pm.view.hasFocus()) pm.commands.scrollIntoView();
+      });
+    };
+    viewport?.addEventListener('resize', resize);
+    window.addEventListener('resize', resize);
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      viewport?.removeEventListener('resize', resize);
+      window.removeEventListener('resize', resize);
+    };
+  }, [editor]);
+  return null;
 }
