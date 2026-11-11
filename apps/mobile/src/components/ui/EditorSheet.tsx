@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
-import { Platform, Pressable, ScrollView, Switch, View, useWindowDimensions } from 'react-native';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { Keyboard, Platform, Pressable, ScrollView, Switch, View, useWindowDimensions } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { BottomSheet } from '@expo/ui/community/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,13 +19,23 @@ export function EditorSheet({ title, children, onClose, onDismiss, open = true, 
   const { colors, spacing } = useTheme();
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [keyboardTop, setKeyboardTop] = useState(() => Platform.OS === 'android' ? Keyboard.metrics()?.screenY : undefined);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const shown = Keyboard.addListener('keyboardDidShow', event => setKeyboardTop(event.endCoordinates.screenY));
+    const hidden = Keyboard.addListener('keyboardDidHide', () => setKeyboardTop(undefined));
+    return () => { shown.remove(); hidden.remove(); };
+  }, []);
+  // Android's content-sized RNHostView measures beyond the keyboard-reduced dialog.
+  // Bound the scroll viewport without remounting the sheet or adding keyboard padding.
+  const visibleHeight = Math.min(height, keyboardTop ?? height);
   const header = <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}><SheetHeader title={title} onClose={onClose} busy={busy} submit={submit} /></View>;
   // The native sheet owns keyboard avoidance. RN automatic keyboard insets would
   // also scroll a focused field while the sheet moves, pushing it behind the header.
   // Native onClose fires after dismissal. Guarded drafts must use the Close button so their
   // confirmation runs while the sheet is still visible, and cancelling keeps their edits intact.
   return <BottomSheet index={open ? 0 : -1} snapPoints={size === 'large' ? ['90%'] : undefined} enableDynamicSizing={size === 'content'} enablePanDownToClose={dismissible && !busy} backgroundStyle={{ backgroundColor: colors.background }} onClose={() => { if (!busy) onClose(); }} onDismiss={onDismiss}><SheetContext.Provider value={{ busy }}>
-    {size === 'content' ? <View style={{ maxHeight: Math.max(0, height - insets.top - insets.bottom - spacing.xl) }}>{header}
+    {size === 'content' ? <View style={{ maxHeight: Math.max(0, visibleHeight - insets.top - insets.bottom - spacing.xl) }}>{header}
       {scroll ? <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} nestedScrollEnabled keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets={false} automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ padding: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl }}><Stack>{children}</Stack></ScrollView>
         : <Stack style={{ padding: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl }}>{children}</Stack>}
     </View> : <Screen padded={false} edges={['left', 'right', 'bottom']}>
