@@ -59,6 +59,56 @@ it('still confirms page deletion when a paste also inserts a block without an ID
   dispose();
 });
 
+it.each([false, true])('preserves an approved replacement across server archive and other edits: %s', async serverChanges => {
+  const value = editor();
+  value.insertBlocks([{ id: 'child-block', type: 'page', props: { pageId: 'child' } }], 'b', 'after');
+  let answer!: (confirmed: boolean) => void;
+  const fail = vi.fn();
+  const dispose = installPageRemovalGuard(value, () => new Promise(resolve => { answer = resolve; }), fail);
+  const pm = value._tiptapEditor;
+  const location = () => {
+    let from = 0; let size = 0;
+    pm.state.doc.descendants((node, pos) => { if (node.attrs.id === 'child-block') { from = pos; size = node.nodeSize; } });
+    return { from, size };
+  };
+  const { from, size } = location();
+  const paragraph = (id: string | null, text: string) => pm.schema.nodes.blockContainer.create({ id }, pm.schema.nodes.paragraph.create(null, pm.schema.text(text)));
+  const replacement = pm.state.tr.replaceWith(from, from + size, paragraph(null, 'Pasted paragraph'));
+  // A second step exercises mapping inside the deferred edit itself.
+  replacement.insertText('!', from + 2 + 'Pasted paragraph'.length);
+  pm.view.dispatch(replacement);
+  await Promise.resolve();
+  if (serverChanges) {
+    pm.view.dispatch(pm.state.tr.insert(1, paragraph('remote', 'Collaborator text')).setMeta('addToHistory', false));
+    const current = location();
+    // Archiving the child removes its parent block via pageSync before confirmation returns.
+    pm.view.dispatch(pm.state.tr.delete(current.from, current.from + current.size).setMeta('addToHistory', false));
+  }
+  answer(true);
+  await vi.waitFor(() => expect(pm.state.doc.textContent).toContain('Pasted paragraph!'));
+  expect(value.getBlock('child-block')).toBeUndefined();
+  expect(pm.state.doc.textContent).toContain('BeforeAfter');
+  if (serverChanges) expect(value.getBlock('remote')?.content).toEqual([{ type: 'text', text: 'Collaborator text', styles: {} }]);
+  expect(fail).not.toHaveBeenCalled();
+  dispose();
+});
+
+it('does not remove a newly added child page under an older deletion approval', async () => {
+  const value = editor();
+  value.insertBlocks([{ id: 'parent', type: 'paragraph', content: 'Parent', children: [{ id: 'child-block', type: 'page', props: { pageId: 'child' } }] }], 'b', 'after');
+  let answer!: (confirmed: boolean) => void;
+  const fail = vi.fn();
+  const dispose = installPageRemovalGuard(value, () => new Promise(resolve => { answer = resolve; }), fail);
+  applyBlockAction(value, 'parent', 'delete');
+  await Promise.resolve();
+  value.insertBlocks([{ id: 'new-child', type: 'page', props: { pageId: 'new-page' } }], 'child-block', 'after');
+  answer(true);
+  await vi.waitFor(() => expect(fail).toHaveBeenCalledOnce());
+  expect(value.getBlock('parent')).toBeDefined();
+  expect(value.getBlock('new-child')).toBeDefined();
+  dispose();
+});
+
 it('consumes native commands once and creates at the captured cursor despite later selection changes', async () => {
   const value = editor();
   value.setTextCursorPosition('a', 'end');

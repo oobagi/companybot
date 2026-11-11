@@ -1,4 +1,5 @@
 import type { PageEditor } from './schema';
+import type { Transaction } from '@tiptap/pm/state';
 
 export type BlockAction = 'up' | 'down' | 'indent' | 'outdent' | 'before' | 'after' | 'delete' | 'page';
 export type BlockTarget = { id: string; type: string; up: boolean; down: boolean; indent: boolean; outdent: boolean };
@@ -41,6 +42,7 @@ export function installPageRemovalGuard(editor: PageEditor, confirm: (ids: strin
   let active = true;
   let approved = false;
   let asking = false;
+  let stopTracking = () => {};
   const off = editor.onBeforeChange(({ tr }) => {
     if (approved || !tr.docChanged || tr.getMeta('addToHistory') === false || tr.getMeta('rebased') !== undefined) return;
     // This runs before BlockNote assigns IDs to newly typed/pasted blocks.
@@ -50,39 +52,56 @@ export function installPageRemovalGuard(editor: PageEditor, confirm: (ids: strin
     tr.doc.descendants(node => {
       if (node.type.name === 'blockContainer' && typeof node.attrs.id === 'string') retained.add(node.attrs.id);
     });
-    const deleted: string[] = [];
     const pageIds: string[] = [];
     tr.before.descendants(node => {
       if (node.type.name !== 'blockContainer' || typeof node.attrs.id !== 'string' || retained.has(node.attrs.id)) return;
-      deleted.push(node.attrs.id);
       if (node.firstChild?.type.name === 'page') pageIds.push(node.firstChild.attrs.pageId);
     });
     if (!pageIds.length) return;
     if (!asking) {
       asking = true;
+      // The server archives child pages by removing their blocks too. Keep the
+      // entire requested edit and map it over accepted changes while asking.
+      const mapping = tr.mapping.invert();
+      const track = ({ transaction, appendedTransactions = [] }: { transaction: Transaction; appendedTransactions?: Transaction[] }) => {
+        for (const change of [transaction, ...appendedTransactions]) mapping.appendMapping(change.mapping);
+      };
+      editor._tiptapEditor.on('transaction', track);
+      stopTracking = () => editor._tiptapEditor.off('transaction', track);
       queueMicrotask(() => {
-        if (!active) { asking = false; return; }
+        if (!active) { stopTracking(); asking = false; return; }
         void confirm(pageIds).then(confirmed => {
-          if (!confirmed || !active || editor._tiptapEditor.isDestroyed) return;
+          if (!confirmed || !active || editor._tiptapEditor.isDestroyed || !editor.isEditable) return;
+          stopTracking();
+          const next = editor._tiptapEditor.state.tr;
+          // Like collaborative rebasing: map each step from its original input
+          // through intervening changes and the steps already replayed here.
+          for (let index = 0, from = tr.steps.length; index < tr.steps.length; index++, from--) {
+            const step = tr.steps[index].map(mapping.slice(from));
+            if (!step || next.maybeStep(step).failed) throw new Error('The document changed while confirming. Your replacement was not applied. Retry the edit; any pages already archived remain in Archive.');
+            mapping.appendMap(step.getMap(), from - 1);
+          }
+          // Never let rebasing turn approval for one page into removal of another.
+          const remaining = new Set<string>();
+          next.doc.descendants(node => { if (node.type.name === 'page') remaining.add(node.attrs.pageId); });
+          next.before.descendants(node => {
+            if (node.type.name === 'page' && !remaining.has(node.attrs.pageId) && !pageIds.includes(node.attrs.pageId)) {
+              throw new Error('Another page was added while confirming. Retry the edit to review which pages will be archived.');
+            }
+          });
+          next.setSelection(tr.selection.map(next.doc, mapping));
+          if (tr.storedMarksSet) next.setStoredMarks(tr.storedMarks);
           approved = true;
           try {
-            const remaining = new Set(deleted.filter(id => editor.getBlock(id)));
-            // Removing a parent already removes its descendants. BlockNote rejects
-            // a second descendant id after it has removed that whole subtree.
-            const roots = [...remaining].filter(id => {
-              let parent = editor.getParentBlock(id);
-              while (parent) { if (remaining.has(parent.id)) return false; parent = editor.getParentBlock(parent.id); }
-              return true;
-            });
-            if (roots.length) editor.removeBlocks(roots);
+            editor._tiptapEditor.view.dispatch(next.scrollIntoView());
           }
           finally { approved = false; }
-        }).catch(error => { if (active) fail(error); }).finally(() => { asking = false; });
+        }).catch(error => { if (active) fail(error); }).finally(() => { stopTracking(); asking = false; });
       });
     }
     return false;
   });
-  return () => { active = false; off(); };
+  return () => { active = false; stopTracking(); off(); };
 }
 
 function findPage(editor: PageEditor, pageId: string) {
