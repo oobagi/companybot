@@ -63,31 +63,56 @@ export function FieldForm({ database, field, onClose }: { database: Database; fi
   const move = useMutation(api.trash.move);
   const task = useTask();
   const draft = JSON.stringify({ label, kind, multiple, linkType, options, optionText, position });
-  const [baseline] = useState(draft);
+  const [baseline, setBaseline] = useState(draft);
+  const [schema, setSchema] = useState(() => field && fieldSchema(field));
+  const liveDatabase = types?.find(item => item._id === database._id);
+  const liveField = field && liveDatabase?.fields.find(item => item._id === field._id);
+  const stale = !!field && types !== undefined && (!liveField || liveField.archived || fieldSchema(liveField) !== schema);
+  const allowed = !!liveDatabase?.canManage && (!field || !!liveField?.canEdit);
+  const converting = !!liveField?.changing;
+  const unavailable = types === undefined || !allowed || stale || converting;
+  const disabled = task.busy || unavailable;
   const guard = useDraftGuard({ dirty: draft !== baseline, busy: task.busy, onClose });
   const submit = () => void task.run(async () => {
+    if (unavailable || !label.trim() || (kind === 'link' && !linkType)) return;
     const choices = kind === 'choice' ? choiceOptionsForSave(label, options, optionText) : undefined;
     if (field) await update({ fieldId: field._id as Id<'recordFields'>, label: label.trim(), options: choices, position });
     else await create({ typeId: database._id, label: label.trim(), kind, options: choices, ...(kind === 'link' ? { linkTypeId: linkType as Id<'recordTypes'> } : {}), ...(['choice', 'user', 'link'].includes(kind) ? { multiple } : {}) });
     guard.complete(); onClose();
   });
-  return <EditorSheet title={field ? 'Edit field' : 'Add field'} onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy} submit={{ label: field ? 'Done' : 'Add', disabled: !label.trim() || (kind === 'link' && !linkType), onPress: submit }}>
+  const reload = () => {
+    if (!liveField || liveField.archived || task.busy) return;
+    const latest = { label: liveField.label, kind: liveField.kind, multiple: liveField.multiple ?? false, linkType: ('linkType' in liveField ? liveField.linkType : undefined) ?? '', options: liveField.options?.map(option => ({ ...option })) ?? [], optionText: '', position: undefined };
+    setLabel(latest.label); setKind(latest.kind); setMultiple(latest.multiple); setLinkType(latest.linkType); setOptions(latest.options); setOptionText(''); setPosition(undefined);
+    setBaseline(JSON.stringify(latest)); setSchema(fieldSchema(liveField)); task.clear();
+  };
+  return <EditorSheet title={field ? 'Edit field' : 'Add field'} onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy} submit={{ label: field ? 'Done' : 'Add', disabled: unavailable || !label.trim() || (kind === 'link' && !linkType), onPress: submit }}>
     {guard.dialog}{confirmation.dialog}
     {task.error && <ErrorState message={task.error} />}
-    <Field label="Label" value={label} onChangeText={setLabel} editable={!task.busy} maxLength={60} />
-    {!field && <ChoicePicker label="Type" value={kind} onChange={v => { if (typeof v === 'string' && v) setKind(v as FieldKind); }} options={fieldKinds.map(value => ({ value, label: value === 'link' ? 'Link to record' : value === 'user' ? 'Person' : value[0].toUpperCase() + value.slice(1) }))} />}
+    {stale && <ErrorState message={liveField && !liveField.archived ? 'This field changed while you were editing. Reload its current settings before saving.' : 'This field is no longer available. Your draft has been kept.'} />}
+    {stale && liveField && !liveField.archived && <Button label="Reload latest" variant="secondary" disabled={task.busy || converting || !allowed} onPress={reload} />}
+    {types !== undefined && !allowed && <Text tone="muted">You can no longer manage this field. Your draft has been kept.</Text>}
+    {converting && <Text tone="muted">This field is converting its values. Editing will be available when it finishes.</Text>}
+    <Field label="Label" value={label} onChangeText={setLabel} editable={!disabled} maxLength={60} />
+    {!field && <ChoicePicker label="Type" disabled={disabled} value={kind} onChange={v => { if (typeof v === 'string' && v) setKind(v as FieldKind); }} options={fieldKinds.map(value => ({ value, label: value === 'link' ? 'Link to record' : value === 'user' ? 'Person' : value[0].toUpperCase() + value.slice(1) }))} />}
     {kind === 'choice' && <Stack gap="sm">
-      {options.filter(o => !o.retired).map((option, index) => <Stack key={option.id || index} gap="xs"><Field label={`Option ${index + 1}`} value={option.label} editable={!task.busy} onChangeText={text => setOptions(options.map(o => o === option ? { ...o, label: text } : o))} /><Button label={`Remove ${option.label || 'option'}`} variant="ghost" disabled={task.busy} onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: true } : o))} /></Stack>)}
-      <Field label="New option" value={optionText} onChangeText={setOptionText} editable={!task.busy} />
-      <Button label="Add option" variant="secondary" disabled={!optionText.trim() || task.busy} onPress={() => { setOptions([...options, { id: '', label: optionText.trim() }]); setOptionText(''); }} />
-      {options.some(o => o.retired) && <Stack gap="sm"><Text tone="muted" variant="caption">Removed options stay visible on existing records. Restore an option to make it selectable again.</Text>{options.filter(o => o.retired).map((option, index) => <Button key={option.id || index} label={`Restore ${option.label}`} variant="secondary" disabled={task.busy} onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: false } : o))} />)}</Stack>}
+      {options.filter(o => !o.retired).map((option, index) => <Stack key={option.id || index} gap="xs"><Field label={`Option ${index + 1}`} value={option.label} editable={!disabled} onChangeText={text => setOptions(options.map(o => o === option ? { ...o, label: text } : o))} /><Button label={`Remove ${option.label || 'option'}`} variant="ghost" disabled={disabled} onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: true } : o))} /></Stack>)}
+      <Field label="New option" value={optionText} onChangeText={setOptionText} editable={!disabled} />
+      <Button label="Add option" variant="secondary" disabled={!optionText.trim() || disabled} onPress={() => { setOptions([...options, { id: '', label: optionText.trim() }]); setOptionText(''); }} />
+      {options.some(o => o.retired) && <Stack gap="sm"><Text tone="muted" variant="caption">Removed options stay visible on existing records. Restore an option to make it selectable again.</Text>{options.filter(o => o.retired).map((option, index) => <Button key={option.id || index} label={`Restore ${option.label}`} variant="secondary" disabled={disabled} onPress={() => setOptions(options.map(o => o === option ? { ...o, retired: false } : o))} />)}</Stack>}
     </Stack>}
-    {!field && kind === 'link' && <ChoicePicker label="Linked database" options={(types ?? []).map(t => ({ value: t._id, label: t.plural }))} value={linkType} onChange={v => { if (typeof v === 'string') setLinkType(v); }} />}
-    {!field && ['choice', 'user', 'link'].includes(kind) && <ChoicePicker label="Values" value={multiple ? 'many' : 'one'} onChange={v => setMultiple(v === 'many')} options={[{ value: 'one', label: 'One value' }, { value: 'many', label: 'Multiple values' }]} />}
-    {field && field.key !== 'name' && database.canManage && <ChoicePicker label="Field position" value={String(position ?? database.fields.filter(f => !f.archived).findIndex(f => f._id === field._id))} options={database.fields.filter(f => !f.archived).slice(1).map((f, index) => ({ value: String(index + 1), label: `${index + 2} · ${f.label}` }))} onChange={value => { if (typeof value === 'string' && value) setPosition(Number(value)); }} />}
-    {field && field.key !== 'name' && <Button label="Archive field" variant="secondary" disabled={task.busy} onPress={() => void task.run(async () => {
+    {!field && kind === 'link' && <ChoicePicker label="Linked database" disabled={disabled} options={(types ?? []).map(t => ({ value: t._id, label: t.plural }))} value={linkType} onChange={v => { if (typeof v === 'string') setLinkType(v); }} />}
+    {!field && ['choice', 'user', 'link'].includes(kind) && <ChoicePicker label="Values" disabled={disabled} value={multiple ? 'many' : 'one'} onChange={v => setMultiple(v === 'many')} options={[{ value: 'one', label: 'One value' }, { value: 'many', label: 'Multiple values' }]} />}
+    {field && field.key !== 'name' && database.canManage && <ChoicePicker label="Field position" disabled={disabled} value={String(position ?? database.fields.filter(f => !f.archived).findIndex(f => f._id === field._id))} options={database.fields.filter(f => !f.archived).slice(1).map((f, index) => ({ value: String(index + 1), label: `${index + 2} · ${f.label}` }))} onChange={value => { if (typeof value === 'string' && value) setPosition(Number(value)); }} />}
+    {field && field.key !== 'name' && <Button label="Archive field" variant="secondary" disabled={disabled} onPress={() => void task.run(async () => {
+      if (unavailable) return;
       if (!await confirmation.confirm({ title: 'Archive field?', body: 'Stored values are kept and will return when the field is restored. Unsaved field changes will be discarded.', action: 'Archive', danger: true })) return;
       await move({ kind: 'field', id: field._id }); guard.complete(); onClose();
     })} />}
   </EditorSheet>;
+}
+
+/** Fields have no mutation version; block full-option saves after an observed schema change. */
+function fieldSchema(field: TypeField) {
+  return JSON.stringify({ label: field.label, kind: field.kind, multiple: !!field.multiple, linkType: field.linkType ?? '', options: field.options ?? [] });
 }

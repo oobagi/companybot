@@ -94,20 +94,23 @@ function DatabaseContent({ database }: { database: Database }) {
     {mode === 'organize' && <ReorderSheet title="Organize views" list="views" entityId={database._id} items={(views ?? []).map(view => ({ _id: view._id, title: view.name }))} currentId={current?._id} loading={views === undefined} onClose={() => setMode(undefined)} />}
     {mode === 'database' && database.canManage && <DatabaseForm database={database} onClose={() => setMode(undefined)} />}
     {mode === 'access' && <AccessSheet access={database.access} onSave={database.canManage ? entries => setAccess({ typeId: database._id, access: entries ?? [] }) : undefined} onClose={() => setMode(undefined)} />}
-    {mode === 'field' && database.canManage && <FieldForm database={database} onClose={() => setMode(undefined)} />}
+    {mode === 'field' && <FieldForm database={database} onClose={() => setMode(undefined)} />}
     {mode === 'create' && editable && <CreateRecord database={database} onClose={() => setMode(undefined)} />}
   </Screen>;
 }
 
 function CreateRecord({ database, onClose }: { database: Database; onClose: () => void }) {
   const [name, setName] = useState('');
+  const [created, setCreated] = useState<Id<'records'>>();
   const create = useMutation(api.records.create);
   const task = useTask();
-  const guard = useDraftGuard({ dirty: !!name, busy: task.busy, onClose });
-  return <EditorSheet title={`New ${database.name.toLowerCase()}`} dismissible={guard.dismissible} onClose={() => void guard.close()} busy={task.busy}>
+  const busy = task.busy || !!created;
+  const guard = useDraftGuard({ dirty: !!name, busy, onClose });
+  return <EditorSheet title={`New ${database.name.toLowerCase()}`} size="content" open={!created} dismissible={guard.dismissible} onClose={() => void guard.close()} busy={busy}
+    onDismiss={() => { if (created) { guard.complete(); onClose(); router.push(`/record/${created}`); } }}
+    submit={{ label: 'Create', disabled: !name.trim(), onPress: () => { if (!busy && name.trim()) void task.run(async () => setCreated(await create({ typeId: database._id, values: { name: name.trim() } }))); } }}>
     {guard.dialog}
     {task.error && <ErrorState message={task.error} />}
-    <Field label="Name" value={name} onChangeText={setName} editable={!task.busy} autoFocus />
-    <Button label="Create" disabled={!name.trim()} loading={task.busy} onPress={() => void task.run(async () => { const id = await create({ typeId: database._id as Id<'recordTypes'>, values: { name: name.trim() } }); guard.complete(); onClose(); router.push(`/record/${id}`); })} />
+    <Field label="Name" value={name} onChangeText={setName} editable={!busy} autoFocus />
   </EditorSheet>;
 }

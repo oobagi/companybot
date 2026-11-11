@@ -3,6 +3,7 @@ export { Button, IconButton, type ButtonProps, type IconButtonProps } from './Bu
 export { Screen, ScreenList, Stack, Card, Divider, Section, type ScreenProps, type ScreenListProps } from './Layout';
 export { Field, type FieldProps } from './Field';
 export { ListRow, type ListRowProps } from './ListRow';
+export { PropertyRow } from './PropertyRow';
 export { Avatar, Badge, type AvatarProps } from './Avatar';
 export { EmptyState, Loading, ErrorState } from './Feedback';
 export { EditorSheet, ChoicePicker, ConfirmSheet } from './EditorSheet';

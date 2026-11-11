@@ -7,7 +7,7 @@ import More from '@expo/material-symbols/more_horiz.xml';
 import History from '@expo/material-symbols/history.xml';
 import { ThemeProvider, useTheme } from '@/design';
 import { HeaderMenu } from '@/components/navigation/HeaderMenu';
-import { ActionMenu, Avatar, Button, ChoicePicker, EditorSheet, Field, ListRow, Screen, Section, Stack, Text } from '@/components/ui';
+import { ActionMenu, Avatar, Button, ChoicePicker, EditorSheet, Field, ListRow, PropertyRow, Screen, Section, Stack, Text } from '@/components/ui';
 import { SettingsList } from '@/components/ui/SettingsList';
 import { ContentToolbar } from '@/components/ui/ContentToolbar';
 import { DateInput } from '@/components/ui/native-controls/DateInput';
@@ -95,6 +95,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
         <ListRow title="Read-only content can still be copied." description="Press and hold the text to select it." selectable />
         <ListRow title="Separate menu target" description="The menu does not open this row" onPress={() => setNotice('Opened row')} trailing={<ActionMenu label="Item actions" actions={[{ id: 'pin', title: 'Pin', icon: 'pin' }]} onAction={() => setNotice('Menu selected')} />} />
       </View></Section>
+      <Section title="Record properties"><Stack gap="none"><PropertyRow label="Status" value="In progress" onPress={() => setNotice('Edit status')} /><PropertyRow label="A longer property label" value="A longer value should remain readable and wrap at larger text sizes." /><PropertyRow label="Managed value" value="Read only" disabled onPress={() => {}} /></Stack></Section>
       <Section title="Button hierarchy"><Stack horizontal style={{ flexWrap: 'wrap' }}><Button label="Save" onPress={() => setNotice('Save selected')} /><Button label="Cancel" variant="ghost" onPress={() => setNotice('Cancel selected')} /><Button label="Unavailable" disabled /><Button label="Saving" loading /><Button label="Delete" variant="danger" onPress={() => setNotice('Delete selected')} /></Stack></Section>
       {!!notice && <Text tone="muted">{notice}</Text>}
     </>}

@@ -8,13 +8,14 @@ Build and inspect the components before composing feature screens. The developme
 - `sizes.gutter` is the 20pt content edge. `Screen` supplies it by default; standalone `ScreenList` callers supply it once. `SettingsList` supplies it internally. `ListRow` and `SettingsRow` share vertical padding and a 32pt leading slot without adding another horizontal inset. Section headings align to the content edge. `Field` uses a neutral outline and the same input/body typography.
 - `Screen` owns the bounded flex viewport and safe-area policy. Choose one scroll owner: `Screen scroll`, `ScreenList`, or `SettingsList` (which uses `ScreenList`). Never nest these scrollers. A bounded DOM editor opts out of both UIKit and legacy automatic native content insets. It imports the editor core and React styles explicitly; do not rely on the skin’s nested CSS imports through Metro.
 - `Stack` is a simple row/column with token spacing. `Section` groups ordinary content; `Card` is for independently meaningful content, not a wrapper around every row.
-- Router owns titles, back buttons and navigation actions. Do not repeat the title in the body or add a strip of utility buttons.
+- Router owns titles, back buttons and navigation actions. Avoid duplicated title labels and strips of utility buttons. Entity pages may show a wrapping, selectable title in the body when a compact header would truncate the full name.
 
 ## Screen building blocks
 
 | Component | Purpose | Ownership |
 | --- | --- | --- |
-| `SettingsList` / `SettingsGroup` / `SettingsRow` | Settings, properties, disclosure and toggle rows | Shared React Native flex rows, one scroll owner, native symbols and switches; transparent groups without cards or separators |
+| `SettingsList` / `SettingsGroup` / `SettingsRow` | Settings, disclosure and toggle rows | Shared React Native flex rows, one scroll owner, native symbols and switches; transparent groups without cards or separators |
+| `PropertyRow` | Record values and before/after history | Muted label and body-sized value; stacks at larger text sizes, selectable read-only values and explicit editing targets |
 | `ListRow` | Custom directory/content row | Simple flex layout; independent accessory outside its navigation press target |
 | `ChoicePicker` | Selected value with deliberate selection | Native menu for short choices; searchable selection for long/multiple choices; row or compact presentation |
 | `MonthPicker` | Calendar-month filter | One Period row opens a Cancel/Done sheet; month/year changes remain local until committed |
