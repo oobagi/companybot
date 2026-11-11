@@ -12,7 +12,7 @@ export function Avatar({ name, image, agent = false, size = 'md' }: AvatarProps)
   if (image && broken !== image) return <Image source={{ uri: image }} accessibilityLabel={name} style={shape} onError={() => setBroken(image)} resizeMode="cover" />;
   const initials = name.trim().split(/\s+/).slice(0, 2).map((part) => Array.from(part)[0] ?? '').join('').toUpperCase() || '?';
   return <View accessibilityLabel={name} accessible style={[shape, { alignItems: 'center', justifyContent: 'center', backgroundColor: agent ? colors.primary : colors.pressed }]}>
-    <Text variant={size === 'lg' ? 'heading' : 'caption'} style={{ color: agent ? colors.onPrimary : colors.text }} maxFontSizeMultiplier={1.5}>{initials}</Text>
+    <Text variant={size === 'lg' ? 'heading' : 'caption'} style={{ color: agent ? colors.onPrimary : colors.text }} allowFontScaling={false}>{initials}</Text>
   </View>;
 }
 
