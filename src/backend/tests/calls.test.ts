@@ -31,23 +31,25 @@ async function fixture(budget = 20) {
 	await owner.mutation(api.workspace.updateSettings, { name: settings.name, expectedVersion: settings.version, phoneBudgetUsd: budget });
 	const requests: { path: string; body: Record<string, unknown> }[] = [];
 	let failDial = false;
+	let sipCode: number | undefined;
 	vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
 		const request = input instanceof Request ? input : new Request(String(input), init);
 		const path = new URL(request.url).pathname;
 		const body = JSON.parse(await request.text()) as Record<string, unknown>;
 		requests.push({ path, body });
 		if (path.endsWith("/CreateSIPParticipant")) {
+			if (sipCode) return Response.json({ code: "unavailable", msg: "SIP call failed", meta: { sip_status_code: String(sipCode) } }, { status: 503 });
 			if (failDial) throw new Error("Connection lost after create");
 			return Response.json({ participantIdentity: "caller", roomName: body.roomName, sipCallId: "SCtest" });
 		}
 		if (path.endsWith("/DeleteRoom")) return Response.json({});
 		throw new Error(`Unexpected provider request ${path}`);
 	});
-	return { t, owner, member, workspaceId, agentId: companybot._id, requests, loseDialResponse: () => { failDial = true; } };
+	return { t, owner, member, workspaceId, agentId: companybot._id, requests, loseDialResponse: () => { failDial = true; }, rejectDial: (code: number) => { sipCode = code; } };
 }
 
-async function event(t: Test, kind: string, room: string, { sip = true, identity = "caller", attributes = {}, secret = SECRET }: { sip?: boolean; identity?: string; attributes?: Record<string, string>; secret?: string } = {}) {
-	const body = JSON.stringify({ event: kind, id: crypto.randomUUID(), room: { name: room }, participant: { identity, kind: sip ? "SIP" : "STANDARD", attributes: { "sip.trunkID": "STin", "sip.trunkPhoneNumber": FROM, "sip.phoneNumber": TO, "sip.twilio.accountSid": "ACphone", ...attributes } } });
+async function event(t: Test, kind: string, room: string, { sip = true, identity = "caller", attributes = {}, secret = SECRET, disconnectReason }: { sip?: boolean; identity?: string; attributes?: Record<string, string>; secret?: string; disconnectReason?: string } = {}) {
+	const body = JSON.stringify({ event: kind, id: crypto.randomUUID(), room: { name: room }, participant: { identity, ...(disconnectReason && { disconnectReason }), kind: sip ? "SIP" : "STANDARD", attributes: { "sip.trunkID": "STin", "sip.trunkPhoneNumber": FROM, "sip.phoneNumber": TO, "sip.twilio.accountSid": "ACphone", ...attributes } } });
 	const token = new AccessToken(KEY, secret, { ttl: 60 });
 	token.sha256 = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)))));
 	return t.fetch("/phone/events", { method: "POST", body, headers: { authorization: await token.toJwt() } });
@@ -254,5 +256,151 @@ describe("staff calls in Inbox", () => {
 		expect(result).toHaveProperty("callId");
 		expect(requests).toHaveLength(0);
 		expect((await owner.query(api.calls.current))!.calls).toHaveLength(1);
+	});
+
+	it("reports why calling is unavailable and returns only a short budget error", async () => {
+		const { t, owner, member, agentId, requests } = await fixture(0);
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ budgetUsd: 0, spentThisMonthUsd: 0, configured: true, canCall: false, reasonCode: "budget_off" });
+		const error = await owner.mutation(api.calls.start, { agentId, to: TO }).catch((e: unknown) => e);
+		expect(error).toHaveProperty("data", expect.any(String));
+		expect(String((error as { data: string }).data).length).toBeLessThan(100);
+		expect(await owner.query(api.inbox.list)).toHaveLength(0);
+		expect(requests).toHaveLength(0);
+		vi.stubEnv("LIVEKIT_API_KEY", "");
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ configured: false, canCall: false, reasonCode: "not_configured" });
+		const role = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!;
+		await owner.mutation(api.roles.setPermission, { id: role.id, permission: "inbox.use", on: false });
+		expect(await member.query(api.calls.readiness)).toBeNull();
+		expect(await t.run((ctx) => ctx.db.query("usage").collect())).toHaveLength(0);
+	});
+
+	it("counts only this workspace's phone spend in the UTC month and includes active holds", async () => {
+		vi.setSystemTime(new Date("2026-11-30T23:59:00Z"));
+		const { t, owner, member, workspaceId, agentId } = await fixture(2.17);
+		const outsider = await signIn(t, "outside-spend@phone.test");
+		const otherWorkspace = await workspaceOf(outsider);
+		await t.run(async (ctx) => {
+			await ctx.db.insert("usage", { workspaceId, month: "2026-11", kind: "phone", costUsd: 0.62 });
+			await ctx.db.insert("usage", { workspaceId, month: "2026-10", kind: "phone", costUsd: 100 });
+			await ctx.db.insert("usage", { workspaceId, month: "2026-11", kind: "image", costUsd: 100 });
+			await ctx.db.insert("usage", { workspaceId: otherWorkspace, month: "2026-11", kind: "phone", costUsd: 100 });
+		});
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ canCall: true, month: "2026-11", monthLabel: "November", spentThisMonthUsd: 0.62, reservedUsd: 0, requiredUsd: 1.55 });
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		expect(await member.query(api.calls.readiness)).toMatchObject({ canCall: false, reasonCode: "budget_exceeded", reservedUsd: 1.55 });
+		await t.mutation(internal.calls.closed, { id });
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ canCall: true, reservedUsd: 0, spentThisMonthUsd: 0.62 });
+		vi.setSystemTime(new Date("2026-12-01T00:01:00Z"));
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ month: "2026-12", monthLabel: "December", spentThisMonthUsd: 0 });
+	});
+
+	it("reports a current call and a missing active number before another call starts", async () => {
+		const { t, owner, agentId } = await fixture();
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ canCall: false, reasonCode: "already_on_call" });
+		await t.mutation(internal.calls.closed, { id });
+		await owner.mutation(api.contactPoints.remove, { agentId, kind: "phone" });
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ configured: true, canCall: false, reasonCode: "no_number" });
+	});
+
+	it("uses the visible record name everywhere and updates it when the record changes", async () => {
+		const { t, owner, member, agentId } = await fixture();
+		const typeId = await owner.mutation(api.recordTypes.create, { plural: "People" });
+		await owner.mutation(api.fields.create, { typeId, label: "Phone", kind: "phone" });
+		const recordId = await owner.mutation(api.records.create, { typeId, values: { name: "Dan Whitaker", phone: TO } });
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO, recordId });
+		const conversationId = (await row(t, id))!.conversationId;
+		// Old provider labels must not override a live record name or leak it after access changes.
+		await t.run((ctx) => ctx.db.patch(conversationId, { contactName: "Old caller label" }));
+		for (const name of ["Dan Whitaker", "Daniel Whitaker"]) {
+			await owner.mutation(api.records.update, { recordId, values: { name } });
+			const expected = { displayName: name, recordName: name, number: TO, formattedNumber: "(512) 555-0199" };
+			expect((await owner.query(api.inbox.list))![0]).toMatchObject({ ...expected, contactName: name });
+			const conversation = (await owner.query(api.inbox.get, { id: conversationId }))!;
+			expect(conversation).toMatchObject({ ...expected, contactName: name });
+			expect(conversation.messages[0]!.call).toMatchObject(expected);
+			expect((await owner.query(api.calls.current))!.calls[0]).toMatchObject({ ...expected, name });
+			expect((await owner.query(api.calls.forRecord, { recordId })).calls[0]).toMatchObject(expected);
+		}
+		await owner.mutation(api.recordTypes.setAccess, { typeId, access: [] });
+		const fallback = { displayName: "(512) 555-0199", recordName: null, number: TO };
+		expect((await member.query(api.inbox.list))![0]).toMatchObject({ ...fallback, contactName: fallback.displayName });
+		expect((await member.query(api.inbox.get, { id: conversationId }))!.messages[0]!.call).toMatchObject(fallback);
+		await expect(member.query(api.calls.forRecord, { recordId })).rejects.toThrow();
+	});
+
+	it("uses a formatted number for an unmatched caller and keeps missed duration null", async () => {
+		const { t, owner } = await fixture();
+		await event(t, "participant_joined", "cb-call-never-answered");
+		const call = (await owner.query(api.calls.current))!.calls[0]!;
+		expect(call).toMatchObject({ displayName: "(512) 555-0199", name: "(512) 555-0199", recordName: null, number: TO, status: "ringing", answeredAt: null, duration: null, endedAt: null });
+		const endedAt = Date.now() + 5_000;
+		vi.setSystemTime(endedAt);
+		await event(t, "participant_left", "cb-call-never-answered");
+		const card = (await owner.query(api.inbox.get, { id: call.conversationId }))!.messages[0]!.call!;
+		expect(card).toMatchObject({ status: "missed", direction: "in", answeredAt: null, duration: null, active: false });
+		expect(card.endedAt).toBe(endedAt);
+		await event(t, "participant_joined", "cb-call-never-answered");
+		expect((await owner.query(api.calls.current))!.calls).toHaveLength(0);
+		expect((await owner.query(api.inbox.get, { id: call.conversationId }))!.messages).toHaveLength(1);
+	});
+
+	it("measures connected time from answer and keeps it stable after completion", async () => {
+		const { t, owner, agentId } = await fixture();
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		const startedAt = (await row(t, id))!._creationTime;
+		const clock = Date.now();
+		vi.setSystemTime(clock + 5_000);
+		await t.action(internal.phoneProvider.dial, { id });
+		const call = (await owner.query(api.calls.current))!.calls[0]!;
+		expect(call).toMatchObject({ status: "in-progress", startedAt, answeredAt: clock + 5_000, endedAt: null, duration: 0 });
+		vi.setSystemTime(clock + 17_000);
+		await event(t, "participant_left", (await row(t, id))!.call!.room);
+		vi.setSystemTime(clock + 90_000);
+		const card = (await owner.query(api.inbox.get, { id: call.conversationId }))!.messages[0]!.call!;
+		expect(card).toMatchObject({ status: "completed", answeredAt: clock + 5_000, endedAt: clock + 17_000, duration: 12 });
+	});
+
+	it.each([[486, "declined"], [603, "declined"], [408, "no-answer"], [480, "no-answer"], [503, "failed"]] as const)("keeps a known SIP %i outcome as %s instead of charging an uncertain hold", async (code, status) => {
+		const { t, owner, agentId, rejectDial } = await fixture();
+		rejectDial(code);
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		await t.action(internal.phoneProvider.dial, { id });
+		const m = (await row(t, id))!;
+		expect(m.call).toMatchObject({ active: false, state: status });
+		expect((await owner.query(api.inbox.get, { id: m.conversationId }))!.messages[0]!.call).toMatchObject({ status, answeredAt: null, duration: null });
+		expect((await owner.query(api.calls.readiness))!.spentThisMonthUsd).toBe(0.05);
+	});
+
+	it.each([["USER_REJECTED", "declined"], ["USER_UNAVAILABLE", "no-answer"], ["SIP_TRUNK_FAILURE", "failed"]] as const)("handles a signed %s disconnect as %s", async (disconnectReason, status) => {
+		const { t, owner, agentId } = await fixture();
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		await t.mutation(internal.calls.claimDial, { id });
+		const room = (await row(t, id))!.call!.room;
+		await event(t, "participant_connection_aborted", room, { disconnectReason });
+		await event(t, "room_finished", room);
+		expect((await row(t, id))!.call).toMatchObject({ active: false, state: status });
+		expect(await owner.query(api.calls.readiness)).toMatchObject({ reservedUsd: 0, spentThisMonthUsd: 0.05 });
+	});
+
+	it("records an early caller hangup even if the join webhook never arrives", async () => {
+		const { t, owner } = await fixture();
+		await event(t, "participant_left", "cb-call-end-before-join");
+		expect((await owner.query(api.calls.current))!.calls).toHaveLength(0);
+		const c = (await owner.query(api.inbox.list))![0]!;
+		expect((await owner.query(api.inbox.get, { id: c.id }))!.messages[0]!.call).toMatchObject({ status: "missed", duration: null, active: false });
+		await event(t, "participant_joined", "cb-call-end-before-join");
+		expect((await owner.query(api.calls.current))!.calls).toHaveLength(0);
+	});
+
+	it("ignores an unrelated participant abort and times out an unanswered outbound call", async () => {
+		const { t, owner, agentId } = await fixture();
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		const room = (await row(t, id))!.call!.room;
+		await t.mutation(internal.calls.claimDial, { id });
+		await event(t, "participant_connection_aborted", room, { sip: false, identity: "someone-else" });
+		expect((await row(t, id))!.call!.active).toBe(true);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect((await row(t, id))!.call).toMatchObject({ active: false, state: "no-answer" });
 	});
 });

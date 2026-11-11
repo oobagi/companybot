@@ -22,6 +22,7 @@ import { type MutationCtx, type QueryCtx, internalAction, internalMutation, inte
 import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, SmsRejectedError, smsProvider, smsStatusUrl } from "./channelProviders";
 import { namer } from "./chatOps";
+import { callContact, callData } from "./callData";
 import { commentsOf } from "./inboxComments";
 import { notify } from "./notifications";
 import { mutation, query } from "./functions";
@@ -55,7 +56,7 @@ async function requireConversation(ctx: QueryCtx, member: Member, id: Id<"inboxC
 /** The record linked to a conversation, as this person may see it: its title and where it opens, or nothing. */
 export async function recordShown(ctx: QueryCtx, member: Member, recordId: Id<"records"> | undefined, visible = typeVisible(ctx, member)) {
 	const record = recordId && (await ctx.db.get(recordId));
-	if (!record || record.archived || !(await visible(record.typeId))) return null;
+	if (!record || record.workspaceId !== member.workspaceId || record.archived || !(await visible(record.typeId))) return null;
 	const type = await ctx.db.get(record.typeId);
 	return type && !type.archived ? { id: record._id, title: record.title, typeKey: type.key } : null;
 }
@@ -75,6 +76,8 @@ export const list = query({
 		return Promise.all(
 			rows.map(async (c) => {
 				if (!names.has(c.agentId)) names.set(c.agentId, await agentName(ctx, c.agentId));
+				const record = await recordShown(ctx, member, c.recordId, visible);
+				const contact = c.channel === "call" ? callContact(c, record) : null;
 				return {
 					/** Who answers it, with their picture: its agent, or who on staff it's assigned to. */
 					assignee: c.mode === "agent" ? await people.agent(c.agentId) : c.takenBy ? await people.user(c.takenBy) : null,
@@ -83,7 +86,8 @@ export const list = query({
 					agentName: names.get(c.agentId)!,
 					channel: c.channel,
 					contact: c.contact,
-					contactName: c.contactName ?? null,
+					contactName: contact?.displayName ?? c.contactName ?? null,
+					...(contact && { displayName: contact.displayName, number: contact.number, formattedNumber: contact.formattedNumber, recordName: contact.recordName }),
 					subject: c.subject ?? null,
 					mode: c.mode,
 					/** Assigned to you, on staff. */
@@ -91,7 +95,7 @@ export const list = query({
 					needsStaff: c.needsStaff ?? null,
 					lastAt: c.lastAt,
 					preview: c.preview,
-					record: await recordShown(ctx, member, c.recordId, visible),
+					record,
 				};
 			}),
 		);
@@ -123,6 +127,8 @@ export const get = query({
 		const names = namer(ctx, { images: true });
 		const comments = await commentsOf(ctx, { member }, id, names);
 		const point = await ctx.db.query("contactPoints").withIndex("by_agent", (q) => q.eq("agentId", c.agentId).eq("kind", kindOf(c.channel))).first();
+		const record = await recordShown(ctx, member, c.recordId);
+		const contact = c.channel === "call" ? callContact(c, record) : null;
 		return {
 			id: c._id,
 			agentId: c.agentId,
@@ -130,7 +136,8 @@ export const get = query({
 			agent: await names.agent(c.agentId),
 			channel: c.channel,
 			contact: c.contact,
-			contactName: c.contactName ?? null,
+			contactName: contact?.displayName ?? c.contactName ?? null,
+			...(contact && { displayName: contact.displayName, number: contact.number, formattedNumber: contact.formattedNumber, recordName: contact.recordName }),
 			subject: c.subject ?? null,
 			mode: c.mode,
 			/** Who has it, while staff do: a person, with their picture. */
@@ -139,7 +146,7 @@ export const get = query({
 			replying: !!c.replyingSince && Date.now() - c.replyingSince < REPLY_STALE_MS,
 			/** The agent's address or number it goes from; null once removed (replies can't go out). */
 			from: point?.status === "active" ? point.address : null,
-			record: await recordShown(ctx, member, c.recordId),
+			record,
 			messages: await Promise.all(
 				messages.map(async (m) => {
 					const author = m.authorAgentId || m.authorUserId ? await names.of({ authorAgentId: m.authorAgentId, authorUserId: m.authorAgentId ? undefined : m.authorUserId, actingFor: m.authorAgentId ? m.authorUserId : undefined }) : null;
@@ -148,7 +155,7 @@ export const get = query({
 						at: m._creationTime,
 						direction: m.direction,
 						status: m.status,
-						call: m.call ? { direction: m.direction, state: m.call.state, connectedAt: m.call.connectedAt ?? null, endedAt: m.call.endedAt ?? null } : null,
+						call: m.call ? { ...callData(m), ...callContact(c, record) } : null,
 						sms: m.sms?.state ?? null,
 						text: m.text,
 						/** Theirs: the history their mail app quoted under it, shown folded. */

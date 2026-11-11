@@ -480,7 +480,7 @@ export default defineSchema({
 			pointId: v.id("contactPoints"),
 			from: v.string(),
 			active: v.boolean(),
-			state: v.union(v.literal("ringing"), v.literal("connected"), v.literal("ending"), v.literal("completed"), v.literal("missed"), v.literal("failed"), v.literal("unknown")),
+			state: v.union(v.literal("ringing"), v.literal("connected"), v.literal("ending"), v.literal("completed"), v.literal("missed"), v.literal("no-answer"), v.literal("declined"), v.literal("failed"), v.literal("unknown")),
 			userId: v.optional(v.id("users")),
 			memberId: v.optional(v.id("members")),
 			declined: v.array(v.id("users")),

@@ -1,6 +1,6 @@
 "use node";
 
-import { AccessToken, RoomServiceClient, SipClient, TrackSource, WebhookReceiver } from "livekit-server-sdk";
+import { AccessToken, RoomServiceClient, SipClient, SipCallError, TrackSource, WebhookReceiver } from "livekit-server-sdk";
 import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
@@ -9,7 +9,7 @@ import { action } from "./functions";
 // One media adapter. No voice agent, worker, second phone history, or keys in the renderer.
 const config = () => {
 	const { LIVEKIT_URL: url, LIVEKIT_API_KEY: key, LIVEKIT_API_SECRET: secret } = process.env;
-	if (!url || !key || !secret) throw new ConvexError("Calling isn't set up on this server.");
+	if (!url || !key || !secret) throw new ConvexError("Calling is not set up yet.");
 	return { url, key, secret };
 };
 
@@ -33,9 +33,11 @@ export const dial = internalAction({
 			const c = config();
 			await new SipClient(c.url, c.key, c.secret).createSipParticipant(process.env.LIVEKIT_SIP_OUTBOUND_TRUNK!, target.to, target.room, { fromNumber: target.from, participantIdentity: "caller", ringingTimeout: 30, maxCallDuration: 1800, playDialtone: true, waitUntilAnswered: true });
 			if (!(await ctx.runMutation(internal.calls.connected, { id }))) await ctx.runAction(internal.phoneProvider.close, { room: target.room, id });
-		} catch {
-			// A lost create response may already have called. Close the exact room; never redial.
-			await ctx.runMutation(internal.calls.closed, { id, uncertain: true });
+		} catch (error) {
+			// A SIP rejection is known. A lost response may already have called; never redial.
+			const code = error instanceof SipCallError ? error.sipStatusCode : undefined;
+			const outcome = code === 486 || code === 603 ? "declined" as const : code === 408 || code === 480 ? "no-answer" as const : code && code >= 300 ? "failed" as const : undefined;
+			await ctx.runMutation(internal.calls.closed, { id, ...(outcome ? { outcome } : { uncertain: true }) });
 			await ctx.runAction(internal.phoneProvider.close, { room: target.room });
 		}
 	},
@@ -69,7 +71,7 @@ export const event = internalAction({
 		const room = event.room?.name;
 		if (!room?.startsWith("cb-call-")) return true;
 		const p = event.participant;
-		await ctx.runMutation(internal.calls.event, { event: event.event, room, identity: p?.identity ?? "", sip: p?.kind === 3, attributes: p?.attributes ?? {} });
+		await ctx.runMutation(internal.calls.event, { event: event.event, room, identity: p?.identity ?? "", sip: p?.kind === 3, attributes: p?.attributes ?? {}, disconnectReason: (p?.toJson() as { disconnectReason?: string } | undefined)?.disconnectReason ?? "" });
 		return true;
 	},
 });
