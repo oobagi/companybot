@@ -526,9 +526,9 @@ export const updateButton = "rounded-lg bg-neutral-900 px-3 py-2 text-left text-
 export const titleBarButton =
 	"no-drag flex size-7 items-center justify-center rounded-md text-lg text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900 disabled:text-neutral-300 disabled:hover:bg-transparent";
 /** The phone's round controls, as a phone shows them: decline a ringing call. */
-export const declineButton = "flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-lg text-white hover:bg-red-600";
+export const declineButton = "flex size-14 shrink-0 items-center justify-center rounded-full bg-red-500 text-2xl text-white hover:bg-red-600";
 /** Answer a ringing call. */
-export const answerButton = "flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-lg text-white hover:bg-emerald-600 disabled:opacity-40";
+export const answerButton = "flex size-14 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-2xl text-white hover:bg-emerald-600 disabled:opacity-40";
 /** A key on the dialer's keypad. */
 export const dialKeyButton = "flex size-15 flex-col items-center justify-center rounded-full bg-neutral-100 text-neutral-900 transition-colors hover:bg-neutral-200 active:bg-neutral-300";
 /** Deletes the dialer's last digit. */
