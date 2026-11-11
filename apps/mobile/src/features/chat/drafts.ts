@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { errorMessage } from '@/lib/api';
 import { deserializeDraft, emptyDraft, serializeDraft, type Draft } from './draftStorage';
 import { deliverDraft } from './sendDraft';
 export type { DraftFile } from './draftStorage';
@@ -32,10 +33,16 @@ export const sendChatDraft = (key: string, send: (draft: Draft) => Promise<unkno
 
 export function useChatDraft(key: string) {
   const draft = useSyncExternalStore(subscribe, () => readDraft(key), () => empty);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (readDraft(key).ready || loading.has(key)) return;
     loading.add(key);
-    void AsyncStorage.getItem(key).then((raw) => { drafts.set(key, deserializeDraft(raw, Date.now())); }, () => { drafts.set(key, { ...readDraft(key), ready: true }); }).finally(() => { loading.delete(key); publish(); });
-  }, [key]);
-  return draft;
+    drafts.set(key, { ...readDraft(key), loadError: undefined });
+    publish();
+    void AsyncStorage.getItem(key).then((raw) => { drafts.set(key, deserializeDraft(raw, Date.now())); }, error => {
+      // An unread draft may still exist on disk. Never enable edits that would overwrite it.
+      drafts.set(key, { ...readDraft(key), ready: false, loadError: errorMessage(error) });
+    }).finally(() => { loading.delete(key); publish(); });
+  }, [key, attempt]);
+  return { ...draft, retryLoad: () => setAttempt(value => value + 1) };
 }

@@ -100,6 +100,7 @@ export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?:
   return <View style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.xs }}>
     {!busy && <ComposerAttachments files={draft.files.map(file => ({ key: file.key, name: file.name, ready: !!file.file, error: file.error }))} onRemove={removeFile} />}
     <ComposerDetails issues={[
+      ...(draft.loadError ? [{ label: 'Draft unavailable', message: `Your saved draft could not be read. Retry before composing a message. ${draft.loadError}`, onRetry: draft.retryLoad }] : []),
       ...(draft.sendError ? [{ label: 'Message not sent', message: `Your draft and attachments are kept. ${draft.sendError}` }] : []),
       ...(fileError ? [{ label: 'Attachment issue', message: fileError }] : []),
       ...(dictation.error ? [{ label: 'Dictation issue', message: dictation.error }] : []),
