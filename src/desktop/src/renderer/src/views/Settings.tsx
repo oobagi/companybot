@@ -305,6 +305,8 @@ function GeneralForm({
 		const { imageBudget, phoneBudget, threadHours, ...rest } = value;
 		run(save({ ...rest, imageBudgetUsd: Number(imageBudget || 0), phoneBudgetUsd: Number(phoneBudget || 0), threadHours: Number(threadHours), expectedVersion: draft.base }), () => (draft.discard(), setConfirming(false)));
 	};
+	const calls = useQuery(api.calls.readiness, {});
+	const callsSpent = calls ? ` ${formatUsd(calls.spentThisMonthUsd)} used in ${calls.monthLabel}.` : "";
 	const spent = settings.imageSpentUsd === null ? "" : ` ${formatUsd(settings.imageSpentUsd)} used in ${monthLabel(usageMonth(Date.now()))}.`;
 	const currencyChanged = value.currency !== settings.currency;
 	const ownerOnly = canManage ? undefined : "Your roles can't change workspace settings.";
@@ -376,7 +378,7 @@ function GeneralForm({
 					/>
 				</Setting>
 			</Settings>
-			<Settings title="Calls"><Setting label="Monthly budget" hint="Estimated call spend in US dollars. $0 turns calling off. Each call reserves up to 31 minutes before connecting."><input aria-label="Monthly call budget" className={wideControlClass} disabled={!canManage} inputMode="decimal" value={value.phoneBudget} onChange={(e) => draft.set({ ...value, phoneBudget: e.target.value.replace(/[^\d.]/g, "") })} /></Setting></Settings>
+			<Settings title="Calls"><Setting label="Monthly budget" hint={`Estimated call spend in US dollars. $0 turns calling off.${callsSpent}`}><input aria-label="Monthly call budget" className={wideControlClass} disabled={!canManage} inputMode="decimal" value={value.phoneBudget} onChange={(e) => draft.set({ ...value, phoneBudget: e.target.value.replace(/[^\d.]/g, "") })} /></Setting></Settings>
 			{canManage && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => (currencyChanged && settings.hasAmounts ? setConfirming(true) : submit())} />}
 			{canManage && confirming && (
 				<Confirm title="Change currency?" action="Change currency" onConfirm={submit} onClose={() => setConfirming(false)}>

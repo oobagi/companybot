@@ -105,6 +105,7 @@ function useTick(on: boolean) {
 export function Phone({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
 	const current = useQuery(api.calls.current, enabled ? {} : "skip");
 	const numbers = useQuery(api.calls.numbers, enabled ? {} : "skip");
+	const readiness = useQuery(api.calls.readiness, enabled ? {} : "skip");
 	const start = useMutation(api.calls.start);
 	const joinRoom = useAction(api.phoneProvider.join);
 	const ready = useMutation(api.calls.ready);
@@ -295,7 +296,8 @@ export function Phone({ enabled, children }: { enabled: boolean; children: React
 		},
 		unblockAudio: () => void session.current?.room.startAudio(),
 	};
-	const blocked = !current?.available ? "Calling isn't set up yet. Ask whoever runs Companybot to connect a phone provider." : !numbers?.length ? "Give an agent a phone number to call from. Open Agents, then Contact." : null;
+	// Whether a call can start, from the same check the server runs (budget, setup, a number); empty while it loads.
+	const blocked = readiness === undefined ? "" : readiness?.canCall ? null : (readiness?.reason ?? "You can't make calls here.");
 	return (
 		<PhoneContext.Provider value={enabled ? phone : null}>
 			{children}
@@ -634,7 +636,7 @@ function PhonePanel(props: {
 				</button>
 			</div>
 			<Keypad onKey={(d) => props.onDigits(props.digits + d)} />
-			<button type="submit" aria-label="Call" title="Call" disabled={phone.busy || !!props.blocked || !props.digits.trim()} className={placeCallButton}>
+			<button type="submit" aria-label="Call" title="Call" disabled={phone.busy || props.blocked !== null || !props.digits.trim()} className={placeCallButton}>
 				<PhoneIcon weight="fill" />
 			</button>
 			{(error || props.blocked) && <p className={`text-center text-sm ${error ? "text-red-600" : "text-neutral-500"}`}>{error || props.blocked}</p>}
@@ -696,6 +698,8 @@ export function callStatus(call: CallInfo, answeredBy?: string | null) {
 						? `${answeredBy && call.direction === "in" ? `Answered by ${answeredBy}` : "Answered"} · ${clock(seconds)}`
 						: call.state === "failed"
 							? "Didn't go through"
+							: call.state === "declined"
+								? "Declined"
 							: call.state === "unknown"
 								? "Ended"
 								: call.direction === "in" ? "Missed" : "No answer";
