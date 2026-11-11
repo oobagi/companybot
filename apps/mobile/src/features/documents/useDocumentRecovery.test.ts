@@ -84,10 +84,39 @@ it('does not mount an editor after a failed load and allows a retry', async () =
   fixture.load.mockRejectedValueOnce(new Error('unreadable'));
   await render();
   expect(current.ready).toBe(false);
-  expect(current.error).toContain('could not be opened');
+  expect(current.error).toContain('could not be read');
   await act(async () => current.reload());
   expect(current.ready).toBe(true);
   expect(current.error).toBeUndefined();
+});
+
+it('opens the saved document deliberately after a failed load without deleting old owners', async () => {
+  const old = { id: 'previous-session', updatedAt: 1, snapshot }; copies.set(old.id, old);
+  fixture.load.mockRejectedValueOnce(new Error('unreadable'));
+  await render();
+  expect(current.ready).toBe(false);
+  await act(async () => current.openSavedDocument());
+  expect(current.ready).toBe(true);
+  expect(current.error).toBeUndefined();
+  await act(async () => { await current.publish(snapshot); await current.publish(null); });
+  expect(copies.get(old.id)).toEqual(old);
+  expect(fixture.remove).not.toHaveBeenCalled();
+  await act(async () => root.render(null));
+  await render();
+  expect(current.restored).toEqual([old]);
+});
+
+it('ignores a late recovery read after opening the saved document', async () => {
+  fixture.load.mockRejectedValueOnce(new Error('unreadable'));
+  await render();
+  let finish!: (copies: StoredRecovery[]) => void;
+  fixture.load.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  let retry!: Promise<void>;
+  await act(async () => { retry = current.reload(); });
+  await act(async () => current.openSavedDocument());
+  await act(async () => { finish([{ id: 'old', updatedAt: 1, snapshot }]); await retry; });
+  expect(current.ready).toBe(true);
+  expect(current.restored).toEqual([]);
 });
 
 it('reports local durability only after the latest draft write finishes', async () => {

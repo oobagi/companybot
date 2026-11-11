@@ -14,18 +14,25 @@ export function useDocumentRecovery(scope: string) {
   const [error, setError] = useState<string>();
   const [persisted, setPersisted] = useState(false);
   const mounted = useRef(false);
+  const openedSaved = useRef(false);
   const latest = useRef<RecoverySnapshot | null>(null);
   const revision = useRef(0);
   const load = useCallback(() => store.load().then(copies => {
-    if (mounted.current) { setRestored(copies.filter(copy => !activeOwners.has(copy.id))); setReady(true); setError(undefined); }
+    if (mounted.current && !openedSaved.current) { setRestored(copies.filter(copy => !activeOwners.has(copy.id))); setReady(true); setError(undefined); }
   }, () => {
-    if (mounted.current) setError('Your recovery drafts could not be opened. Try again before editing this document.');
+    if (mounted.current && !openedSaved.current) setError('Your local recovery drafts could not be read. Try again, or open the saved document. Your recovery files will stay on this device.');
   }), [store]);
   useEffect(() => {
     mounted.current = true; activeOwners.add(owner);
     void load();
     return () => { mounted.current = false; activeOwners.delete(owner); };
   }, [load, owner]);
+  const openSavedDocument = () => {
+    if (ready || !error) return;
+    // Bypass only this mount's failed load. Never clear or adopt the unreadable owners.
+    openedSaved.current = true;
+    setReady(true); setError(undefined);
+  };
   const publish = useCallback(async (snapshot: RecoverySnapshot | null) => {
     const current = ++revision.current;
     latest.current = snapshot;
@@ -48,5 +55,5 @@ export function useDocumentRecovery(scope: string) {
       return false;
     }
   }, [owner, store]);
-  return { owner, ready, restored, error, persisted, latest, publish, discard, reload: load };
+  return { owner, ready, restored, error, persisted, latest, publish, discard, reload: load, openSavedDocument };
 }

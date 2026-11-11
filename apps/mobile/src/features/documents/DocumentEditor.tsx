@@ -137,7 +137,10 @@ function ConnectedEditor({ scope, pageId, editable, standalone }: { scope: strin
     const url = await addImage({ pageId, file: result.storageId });
     if (mounted.current) { const request = Date.now(); pendingImage.current = request; setImage({ url, request }); }
   });
-  if (!drafts.ready) return drafts.error ? <ErrorState layout="screen" message={drafts.error} onRetry={() => void drafts.reload()} /> : <Loading label="Checking recovery drafts…" />;
+  if (!drafts.ready) return drafts.error ? <EmptyState title="Recovery drafts unavailable" description={drafts.error} accessibilityRole="alert" action={<Stack style={{ alignItems: 'center' }}>
+    <Button label="Try again" loading={recoveryTask.busy} onPress={() => void recoveryTask.run(drafts.reload)} />
+    <Button label="Open saved document" variant="secondary" disabled={recoveryTask.busy} onPress={drafts.openSavedDocument} />
+  </Stack>} /> : <Loading label="Checking recovery drafts…" />;
   if (drafts.restored.length) return <View style={{ flex: 1 }}>
     {dialog}
     {restoredPreview && <RecoveryPreview snapshot={restoredPreview.snapshot} identity={`${pageId}:${restoredPreview.id}`} onClose={() => setRestoredPreview(undefined)} />}
