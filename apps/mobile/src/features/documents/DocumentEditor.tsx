@@ -69,7 +69,7 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
   const archive = useMutation(api.trash.move);
   const addImage = useMutation(api.pages.addImage);
   const create = useMutation(api.pages.create);
-  const actions = useDocumentActions({ editable, canCreate: standalone, create: title => {
+  const actions = useDocumentActions({ editable, available: editorReady, canCreate: standalone, create: title => {
     if (!editable || !standalone) return Promise.reject(new Error('This document cannot contain sub-pages.'));
     // The DOM cannot supply a workspace, parent, record id, or insertion flag.
     return create({ title, parentId: pageId });
