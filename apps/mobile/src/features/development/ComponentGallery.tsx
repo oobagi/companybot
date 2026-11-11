@@ -17,6 +17,7 @@ import { DirectoryExample } from './DirectoryExample';
 import { FeedbackExample } from './FeedbackExample';
 import { PendingMessageRow } from '@/features/chat/PendingMessageRow';
 import { ConversationExample } from './ConversationExample';
+import { RichText } from '@/features/chat/RichText';
 
 const examples = ['Directory', 'Lists', 'Forms', 'Choices', 'Typography', 'Sending', 'Conversation', 'Toolbar', 'Empty', 'Loading', 'Error'] as const;
 type Example = typeof examples[number];
@@ -76,7 +77,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
   </Screen>;
   else if (example === 'Directory') content = <DirectoryExample menu={[...examples.filter(value => value !== 'Directory').map(value => ({ label: value, onPress: () => setExample(value) })), { label: appearance === 'light' ? 'Dark appearance' : 'Light appearance', onPress: onAppearance }]} />;
   else if (example === 'Empty' || example === 'Loading' || example === 'Error') content = <FeedbackExample key={example} kind={example} />;
-  else if (example === 'Sending') content = <Screen scroll padded={false}><PendingMessageRow name="Alex Morgan" text="Here is the project summary for our next review. This longer message should wrap naturally with larger text sizes." files={2} dayLabel="Today" /><PendingMessageRow name="Alex Morgan" text="" files={1} /></Screen>;
+  else if (example === 'Sending') content = <Screen scroll padded={false}><PendingMessageRow name="Alexandra Morgan with a longer display name" text="Here is the project summary for our next review. This longer message should wrap naturally with larger text sizes." files={2} dayLabel="Today" /><PendingMessageRow name="Alex Morgan" text="" files={1} /></Screen>;
   else if (example === 'Conversation') content = <ConversationExample />;
   else if (example === 'Toolbar') content = <Screen padded={false}><View style={{ flex: 1, padding: spacing.lg }}><Text>A bounded content area fills the available space.</Text><Button label={busyToolbar ? "Finish saving" : "Preview busy toolbar"} variant="secondary" onPress={() => setBusyToolbar(value => !value)} />{notice ? <Text tone="muted">{notice}</Text> : null}</View><ContentToolbar busy={busyToolbar} status={busyToolbar ? "Saving…" : "All changes saved"} actions={[
     { id: 'edit', label: 'Edit', icon: { ios: 'pencil', android: Edit }, onPress: () => setNotice('Edit selected') },
@@ -91,6 +92,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
       <Section title="Form rows"><ChoicePicker label="View" options={shortChoices} value={selection} onChange={value => { if (typeof value === 'string') setSelection(value); }} /><ChoicePicker label="Multiple selections" multiple options={longChoices} value={many} onChange={value => { if (Array.isArray(value)) setMany(value); }} /><DateInput label="Date" value={date} onChange={setDate} /><TimeInput label="Time" value={time} onChange={setTime} /><TimeInput label="A longer time label that needs room to wrap" value="23:45" onChange={() => {}} disabled /></Section>
     </> : <>
       <Section title="System typography"><Text variant="title">A clear page title</Text><Text variant="heading">Section heading</Text><Text>Body text uses the system font and follows the device’s text size.</Text><Text variant="supporting" tone="muted">Supporting information stays secondary.</Text><Text variant="caption" tone="muted">Metadata · 9:41 AM</Text></Section>
+      <Section title="Formatted content"><RichText value={'## A heading with **bold** and `code`\n\nBody text with **bold _italic_** and a [**formatted link**](https://example.com).'} /></Section>
       <Section title="Custom content rows"><View>
         <ListRow title="A content item" description="Useful supporting detail" value="Today" disclosure onPress={() => setNotice('Opened item')} />
         <ListRow title="A longer title that wraps across several lines at larger text sizes" description="Rows grow with their content. This supporting text must stay above the next row without relying on extra space between rows." disclosure onPress={() => setNotice('Opened long item')} />

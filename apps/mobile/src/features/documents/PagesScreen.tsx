@@ -6,7 +6,7 @@ import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { PageIcon, FolderIcon } from '@/design/icons';
-import { Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Stack } from '@/components/ui';
+import { Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Stack, listContentStyle } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
@@ -23,8 +23,8 @@ export function PagesScreen() {
   const me = useQuery(api.workspace.me);
   const found = useQuery(api.pages.search, search.trim() ? { query: search.trim() } : 'skip');
   const theme = useTheme();
-  return <><DirectoryHeader menu={arrangements.writable ? [{ label: 'Organize pages', icon: 'arrow.up.arrow.down', onPress: () => setOrganize(true) }] : undefined} search={{ placeholder: 'Search pages', value: search, onChange: setSearch }} action={me?.access && can(me.access, 'pages.edit') ? { label: 'New page', onPress: () => setCreating(true) } : undefined} /><Screen nativeScroll padded={false} edges={['left', 'right']}><Stack style={{ flex: 1 }}>
-    {search.trim() ? <ScreenList contentContainerStyle={{ paddingHorizontal: theme.sizes.gutter }} data={found ?? []} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
+  return <><DirectoryHeader menu={arrangements.writable ? [{ label: 'Organize pages', icon: 'arrow.up.arrow.down', onPress: () => setOrganize(true) }] : undefined} search={{ placeholder: 'Search pages', value: search, onChange: setSearch }} action={me?.access && can(me.access, 'pages.edit') ? { label: 'New page', onPress: () => setCreating(true) } : undefined} /><Screen keyboard nativeScroll padded={false} edges={['left', 'right']}><Stack style={{ flex: 1 }}>
+    {search.trim() ? <ScreenList contentContainerStyle={listContentStyle} data={found ?? []} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
       renderItem={({ item }) => <ListRow title={item.title || 'Untitled'} description={item.path.join(' / ') || 'Top level'} leading={item.kind === 'folder' ? <FolderIcon size={theme.sizes.icon} color={theme.colors.muted} /> : <PageIcon size={theme.sizes.icon} color={theme.colors.muted} />} onPress={() => openPage(item._id)} />}
       ListEmptyComponent={found === undefined ? <Loading /> : <EmptyState title="No pages found" description="Try a different title." />} /> : <PageChildren />}
     {organize && <PageOrganizer onClose={() => setOrganize(false)} />}
@@ -36,7 +36,7 @@ export function PageChildren({ parentId, onSelect = openPage }: { parentId?: Id<
   const pages = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
   const arrangements = useArrangements();
   const theme = useTheme();
-  return <ScreenList contentContainerStyle={{ paddingHorizontal: theme.sizes.gutter }} data={arrangements.order('pages', pages.results, parentId)} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
+  return <ScreenList contentContainerStyle={listContentStyle} data={arrangements.order('pages', pages.results, parentId)} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
     renderItem={({ item }) => <ListRow title={item.title || 'Untitled'} description={item.hasChildren ? 'Contains sub-pages' : undefined} leading={item.kind === 'folder' ? <FolderIcon size={theme.sizes.icon} color={theme.colors.muted} /> : <PageIcon size={theme.sizes.icon} color={theme.colors.muted} />} disclosure onPress={() => onSelect(item._id)} />}
     ListEmptyComponent={pages.status === 'LoadingFirstPage' || !arrangements.loaded ? <Loading /> : <EmptyState title={parentId ? 'No sub-pages' : 'No pages yet'} description={parentId ? 'Create a page inside this one to organize your work.' : 'Keep notes, plans and team knowledge together.'} />}
     ListFooterComponent={pages.status === 'CanLoadMore' || pages.status === 'LoadingMore' ? <Button label="Load more pages" variant="ghost" loading={pages.status === 'LoadingMore'} onPress={() => pages.loadMore(30)} /> : undefined} />;

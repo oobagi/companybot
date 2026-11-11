@@ -9,7 +9,7 @@ export function TabStack({ title }: { title: string }) {
   return <OverlayChromeContext.Provider value={Platform.OS === 'ios'}><Stack screenOptions={{
     title,
     statusBarStyle: dark ? 'light' : 'dark',
-    headerLargeTitleEnabled: Platform.OS === 'ios',
+    headerLargeTitleEnabled: false,
     headerTransparent: Platform.OS === 'ios',
     // iOS 26 supplies the native content fade. Older iOS needs a translucent
     // material once content scrolls beneath the compact navigation bar.
@@ -17,7 +17,6 @@ export function TabStack({ title }: { title: string }) {
     scrollEdgeEffects: { top: 'automatic' },
     headerTintColor: colors.text,
     headerTitleStyle: { color: colors.text },
-    headerLargeTitleStyle: { color: colors.text },
     headerShadowVisible: false,
     contentStyle: { backgroundColor: colors.background },
   }} /></OverlayChromeContext.Provider>;

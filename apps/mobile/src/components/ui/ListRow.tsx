@@ -47,7 +47,7 @@ export function ListRow({ title, description, value, disclosure = false, leading
 /** Shared geometry for content and settings rows, without coupling their interactions. */
 export const rowStyles = StyleSheet.create({
   container: { flexDirection: 'row', alignItems: 'center', minWidth: 0, gap: spacing.md },
-  row: { minWidth: 0, minHeight: sizes.touch + spacing.sm, flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md, gap: spacing.md, borderRadius: radii.md },
+  row: { minWidth: 0, minHeight: sizes.touch, flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, gap: spacing.md, borderRadius: radii.md },
   leading: { minWidth: sizes.avatar.md, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
   copy: { flex: 1, minWidth: 0, gap: spacing.sm },
   text: { flex: 1, minWidth: 0, gap: spacing.xs },

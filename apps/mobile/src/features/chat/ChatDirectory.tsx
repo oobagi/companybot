@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Switch, View } from 'react-native';
 import { ChannelIcon, PrivateChannelIcon } from '@/design/icons';
 import { useTheme } from '@/design';
-import { Avatar, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Text } from '@/components/ui';
+import { Avatar, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, SectionHeading, listContentStyle, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
@@ -45,12 +45,12 @@ export function ChatDirectory() {
     ...(arrangements.writable ? [{ label: 'Organize channels', icon: 'arrow.up.arrow.down' as const, onPress: () => setDialog('organize') }] : []),
     { label: 'Browse channels', icon: 'number', onPress: () => setDialog('browse') },
     ...(me?.access && can(me.access, 'channels.edit') ? [{ label: 'New channel', icon: 'plus' as const, onPress: () => setDialog('channel') }] : []),
-  ]} /><Screen nativeScroll padded={false} edges={['left', 'right']}>
-    <ScreenList data={rows} keyExtractor={row => row.key} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: sizes.gutter, paddingBottom: spacing.xl }}
+  ]} /><Screen keyboard nativeScroll padded={false} edges={['left', 'right']}>
+    <ScreenList data={rows} keyExtractor={row => row.key} keyboardShouldPersistTaps="handled" contentContainerStyle={listContentStyle}
       ListHeaderComponent={task.error ? <ErrorState message={task.error} /> : undefined}
       ListEmptyComponent={<EmptyState title={search ? 'No chats found' : 'No conversations yet'} description={search ? 'Try a different name.' : 'Start a conversation with a teammate or agent.'} />}
-      renderItem={({ item }) => 'heading' in item
-        ? <Text variant="supporting" tone="muted" accessibilityRole="header" style={{ paddingTop: spacing.xl, paddingBottom: spacing.sm, fontWeight: '500' }}>{item.heading}</Text>
+      renderItem={({ item, index }) => 'heading' in item
+        ? <View style={{ paddingTop: index === 0 ? 0 : spacing.xl, paddingBottom: spacing.sm }}><SectionHeading title={item.heading} /></View>
         : <ListRow title={item.title} leading={item.leading} accessibilityLabel={`${item.title}${item.mentioned ? ', mentioned you' : item.unread ? ', unread' : ''}`} trailing={item.mentioned ? <Text variant="supporting" tone="link">@</Text> : item.unread ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: colors.text }} /> : undefined} onPress={item.onPress} />} />
     {dialog === 'organize' && <ReorderSheet title="Organize channels" list="channels" items={chats.channels.map(channel => ({ _id: channel._id, title: chatTitle(channel) }))} onClose={() => setDialog(undefined)} />}
     {dialog === 'threads' && <ActiveThreads onClose={() => setDialog(undefined)} />}

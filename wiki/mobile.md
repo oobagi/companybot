@@ -49,4 +49,10 @@ Native editor process termination overrides Expo's automatic reload. The surface
 
 Image validation uses bounded `FileHandle.readBytes` on native and Blob slicing on web. Expo File's `slice()` constructs a Blob from an ArrayBuffer, which React Native rejects. Document and Settings uploads share `lib/imageFile.ts` and the core image limits.
 
+Date and time inputs share a platform adapter: iOS uses Expo SwiftUI DatePicker with a field title and localized accessibility value, while Android retains the native dialog. Compact iOS pickers keep hidden visual labels because the React Native row owns their visible label. Full screen-reader acceptance remains required.
+
+A tracked `expo-symbols@58.0.4` patch disables text scaling only for its decorative Material Symbol glyph. Upstream renders the glyph as scalable Text inside a fixed-size View, clipping icons at accessibility text sizes; 58.0.5 has the same implementation. Body text still scales normally. Reassess the patch when upgrading Expo Symbols.
+
+For Android software-keyboard QA, open the bound device session with `--no-test-ime`. The automation tool otherwise uses a headless input method by default. If it was already enabled, close this thread's session first, then reopen with that flag; changing the flag on an already active session alone did not restore the real keyboard.
+
 Research: [Expo UI](https://docs.expo.dev/versions/v58.0.0/sdk/ui/), [native tabs](https://docs.expo.dev/router/advanced/native-tabs/), [native toolbars](https://docs.expo.dev/router/advanced/stack-toolbar/), [native menus](https://docs.expo.dev/versions/v58.0.0/sdk/ui/drop-in-replacements/menu/), [native sheets](https://docs.expo.dev/versions/v58.0.0/sdk/ui/drop-in-replacements/bottomsheet/), and [date pickers](https://docs.expo.dev/versions/v58.0.0/sdk/ui/drop-in-replacements/datetimepicker/).

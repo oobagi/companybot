@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { memo, useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
-import { Avatar, Badge, Button, Card, ErrorState, Field, Stack, Text, useConfirm } from '@/components/ui';
+import { Badge, Button, Card, ErrorState, Field, Stack, Text, useConfirm } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
@@ -12,6 +12,7 @@ import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { ActionMenu, type Action } from '@/components/ui/ActionMenu';
 import { ProfileLink } from './Profile';
+import { MessageAuthor, MessageHeader } from './MessageHeader';
 import { Approvals } from './Approval';
 import { Dialog } from './Dialog';
 import { openContentLink } from './links';
@@ -28,7 +29,7 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
   const hidePreview = useMutation(api.messages.hidePreview);
   const share = useMutation(api.messages.share);
   const confirmation = useConfirm();
-  const { colors, spacing } = useTheme();
+  const { colors, sizes, spacing } = useTheme();
   const task = useTask();
   const [dialog, setDialog] = useState<'reaction' | 'edit' | 'delete' | 'stats'>();
   const [emoji, setEmoji] = useState('');
@@ -42,9 +43,9 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
   const day = dayLabel && <Text variant="caption" tone="muted" accessibilityRole="header" style={{ textAlign: 'center', paddingVertical: spacing.sm }}>{dayLabel}</Text>;
   const shareable = canShareReply(message, readOnly);
   const thread = () => router.push({ pathname: '/chat/[chatId]/thread/[threadId]', params: { chatId: message.chatId, threadId: message._id } });
-  if (message.privacy?.hidden) return <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.md }}>{day}<Text tone="muted">🔒 {message.privacy.label}</Text></View>;
+  if (message.privacy?.hidden) return <View style={{ paddingHorizontal: sizes.gutter, paddingVertical: spacing.md }}>{day}<Text tone="muted">🔒 {message.privacy.label}</Text></View>;
   if (message.status === 'streaming' && !hasApproval) return null;
-  if (message.pause && !message.deleted) return <View>{day}<Paused message={message} readOnly={readOnly} /></View>;
+  if (message.pause && !message.deleted) return <View style={{ paddingHorizontal: sizes.gutter, paddingVertical: spacing.md }}>{day}<Paused message={message} readOnly={readOnly} /></View>;
   const actions: Action[] = [
     ...(!readOnly ? [{ id: 'react', title: 'React', icon: 'face.smiling', items: [...['👍', '❤️', '😂', '🎉', '👀', '✅'].map(value => ({ id: `react:${value}`, title: value, disabled: task.busy, selected: message.reactions.some(reaction => reaction.emoji === value && reaction.mine) })), { id: 'custom-reaction', title: 'Choose another…' }] } as Action] : []),
     ...(!readOnly && !inThread && !message.threadId ? [{ id: 'thread', title: 'Reply in thread', icon: 'bubble.left' as const }] : []),
@@ -60,26 +61,13 @@ export const MessageRow = memo(function MessageRow({ row, readOnly = false, inTh
     else if (action === 'edit') setDialog('edit');
     else if (action === 'delete' || action === 'stats') setDialog(action);
   };
-  return <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm, backgroundColor: highlighted ? colors.selected : undefined }}>
+  return <View style={{ paddingHorizontal: sizes.gutter, paddingVertical: spacing.md, gap: spacing.xs, backgroundColor: highlighted ? colors.selected : undefined }}>
     {day}
     {confirmation.dialog}
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <ProfileLink who={message.author}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <Avatar name={message.author.name} image={message.author.image} agent={message.author.type === 'agent'} size="sm" />
-            <View style={{ flex: 1, minWidth: 0, gap: spacing.xs }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
-                <Text variant="label" style={{ flexShrink: 1 }}>{message.author.name}</Text>
-                {message.author.type === 'agent' && <Badge label="Bot" />}
-              </View>
-              <Text variant="caption" tone="muted">{new Date(message.shownAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{message.editedAt ? ' · edited' : ''}</Text>
-            </View>
-          </View>
-        </ProfileLink>
-      </View>
-      {!message.deleted && <ActionMenu label={`Actions for ${message.author.name}'s message`} actions={actions} onAction={perform} />}
-    </View>
+    <MessageHeader metadata={`${new Date(message.shownAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${message.editedAt ? ' · edited' : ''}`}
+      action={!message.deleted && <ActionMenu label={`Actions for ${message.author.name}'s message`} actions={actions} onAction={perform} />}>
+      <ProfileLink who={message.author}><MessageAuthor name={message.author.name} image={message.author.image} agent={message.author.type === 'agent'} /></ProfileLink>
+    </MessageHeader>
     {message.author.for && <ProfileLink who={message.author.for}><Text variant="caption" tone="muted">Sent for {message.author.for.name}</Text></ProfileLink>}
     {message.deleted ? <Text tone="muted">This message was deleted.</Text> : <>
       {message.automation && <Badge label={`Automation · ${message.automation.name}`} />}

@@ -1,16 +1,14 @@
 import { ActivityIndicator, View } from 'react-native';
-import { Avatar, Stack, Text } from '@/components/ui';
+import { Stack, Text } from '@/components/ui';
 import { useTheme } from '@/design';
+import { MessageAuthor, MessageHeader } from './MessageHeader';
 
 /** Local message presentation has no server actions or profile/navigation dependencies. */
 export function PendingMessageRow({ name, image, text, files, dayLabel }: { name: string; image?: string | null; text: string; files: number; dayLabel?: string }) {
-  const { colors, spacing } = useTheme();
-  return <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm }}>
+  const { colors, sizes, spacing } = useTheme();
+  return <View style={{ paddingHorizontal: sizes.gutter, paddingVertical: spacing.md, gap: spacing.xs }}>
     {dayLabel && <Text variant="caption" tone="muted" accessibilityRole="header" style={{ textAlign: 'center', paddingVertical: spacing.sm }}>{dayLabel}</Text>}
-    <Stack horizontal gap="sm">
-      <Avatar name={name} image={image} size="sm" />
-      <Text variant="label" style={{ flex: 1 }}>{name}</Text>
-    </Stack>
+    <MessageHeader><MessageAuthor name={name} image={image} /></MessageHeader>
     {!!text && <Text>{text}</Text>}
     <Stack horizontal gap="xs">
       <ActivityIndicator size="small" color={colors.muted} />

@@ -1,0 +1,24 @@
+diff --git a/build/SymbolView.js b/build/SymbolView.js
+index b0d4a93cb93514ca1dee77175d96182f0da86193..bd94ebc08550053e69afba47dad4e0e35ea7995f 100644
+--- a/build/SymbolView.js
++++ b/build/SymbolView.js
+@@ -46,6 +46,7 @@ export function SymbolView({ name: nameProp, fallback, type, scale, weight, colo
+         style: style,
+         children: /*#__PURE__*/ _jsx(Text, {
+             "aria-hidden": true,
++            allowFontScaling: false,
+             style: {
+                 fontFamily: font.name,
+                 color: tintColor ?? DEFAULT_SYMBOL_COLOR,
+diff --git a/src/SymbolView.tsx b/src/SymbolView.tsx
+index 0b8535e67cee33e7e46fb8d70cb8dde6ad685a89..46f23a3b7aeb4270f8ed4c78efb2c17e3095c70d 100644
+--- a/src/SymbolView.tsx
++++ b/src/SymbolView.tsx
+@@ -51,6 +51,7 @@ export function SymbolView({
+     <View collapsable={false} {...viewProps} style={style}>
+       <Text
+         aria-hidden
++        allowFontScaling={false}
+         style={{
+           fontFamily: font.name,
+           color: tintColor ?? DEFAULT_SYMBOL_COLOR,

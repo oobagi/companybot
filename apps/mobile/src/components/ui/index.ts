@@ -1,6 +1,6 @@
-export { Text, type TextProps } from './Text';
+export { Text, InlineText, type TextProps } from './Text';
 export { Button, IconButton, type ButtonProps, type IconButtonProps } from './Button';
-export { Screen, ScreenList, Stack, Card, Divider, Section, type ScreenProps, type ScreenListProps } from './Layout';
+export { Screen, ScreenList, Stack, Card, Divider, Section, SectionHeading, listContentStyle, type ScreenProps, type ScreenListProps } from './Layout';
 export { Field, type FieldProps } from './Field';
 export { ListRow, type ListRowProps } from './ListRow';
 export { PropertyRow } from './PropertyRow';

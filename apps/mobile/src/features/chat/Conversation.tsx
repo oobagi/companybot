@@ -37,7 +37,7 @@ function OpenConversation({ chatId, threadId }: { chatId: Id<'chats'>; threadId?
   const list = useQuery(api.chats.list);
   const createSide = useMutation(api.chats.createSideChat);
   const task = useTask();
-  const { spacing } = useTheme();
+  const { sizes, spacing } = useTheme();
   const [liveVisible, setLiveVisible] = useState<ReadonlySet<string>>(() => new Set());
   const streamVisibility = useCallback((id: string, visible: boolean) => setLiveVisible(previous => {
     if (previous.has(id) === visible) return previous;
@@ -116,7 +116,7 @@ function OpenConversation({ chatId, threadId }: { chatId: Id<'chats'>; threadId?
   return <Screen keyboard padded={false}>
     <RouterStack.Screen options={{ title: threadId ? 'Thread' : chatTitle(chat) }} />
     <HeaderMenu label="Conversation actions" actions={actions} onAction={perform} />
-    {chat.topic && <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}><Text variant="supporting" tone="muted" numberOfLines={2}>{chat.topic}</Text></View>}
+    {chat.topic && <View style={{ paddingHorizontal: sizes.gutter, paddingVertical: spacing.sm }}><Text variant="supporting" tone="muted" numberOfLines={2}>{chat.topic}</Text></View>}
     {task.error && <ErrorState message={task.error} />}
     {pin.error && <ErrorState message={pin.error} />}
     {seek === 'loading' && <Loading layout="inline" label="Looking for this message…" />}

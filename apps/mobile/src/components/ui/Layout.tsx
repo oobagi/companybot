@@ -2,7 +2,7 @@ import { useContext, type ReactNode } from 'react';
 import { FlatList, KeyboardAvoidingView, ScrollView, StyleSheet, View, type FlatListProps, type StyleProp, type ViewProps, type ViewStyle } from 'react-native';
 import { HeaderHeightContext } from 'expo-router/react-navigation';
 import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
-import { useTheme, type spacing as SpaceTokens } from '@/design';
+import { sizes, spacing, useTheme, type spacing as SpaceTokens } from '@/design';
 import { Text } from './Text';
 import { OverlayChromeContext, ScrollInsetsContext, useScrollViewport } from './scrollViewport';
 
@@ -36,7 +36,7 @@ export function Screen({ children, scroll = false, nativeScroll = false, keyboar
   const content = [!scroll && styles.fill, padded && { paddingHorizontal: sizes.gutter, paddingVertical: spacing.lg }, contentStyle, scroll && viewportContent];
   return (
     <SafeAreaView collapsable={false} edges={edges} style={[styles.fill, { backgroundColor: colors.background }, style]}>
-      <KeyboardAvoidingView collapsable={false} enabled={keyboard} behavior="padding" keyboardVerticalOffset={keyboardOffset ?? headerHeight} style={[styles.fill, !scrolling && { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <KeyboardAvoidingView collapsable={false} enabled={keyboard} behavior="padding" keyboardVerticalOffset={keyboardOffset ?? (overlay ? 0 : headerHeight)} style={[styles.fill, !scrolling && { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <OverlayChromeContext.Provider value={false}><ScrollInsetsContext.Provider value={scrolling ? insets : { top: 0, bottom: 0 }}>
           {scroll ? <View ref={viewportRef} collapsable={false} style={styles.fill} onLayout={measureViewport}><ScrollView style={styles.fill} contentInsetAdjustmentBehavior="automatic" automaticallyAdjustContentInsets={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={content}>{children}</ScrollView></View> : <View collapsable={false} style={content}>{children}</View>}
         </ScrollInsetsContext.Provider></OverlayChromeContext.Provider>
@@ -78,12 +78,24 @@ export function Divider() {
 export function Section({ title, description, action, children, style }: { title?: string; description?: string; action?: ReactNode; children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const { spacing } = useTheme();
   return <View style={[{ gap: spacing.sm }, style]}>
-    {(title || action) && <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-      <View style={{ flex: 1, minWidth: 0, gap: spacing.xs }}>{title && <Text variant="supporting" accessibilityRole="header" style={{ fontWeight: '500' }}>{title}</Text>}{description && <Text tone="muted" variant="supporting">{description}</Text>}</View>
-      {action}
-    </View>}
+    {(title || description || action) && <SectionHeading title={title} description={description} action={action} />}
     {children}
   </View>;
 }
 
+/** One secondary heading treatment for lists, settings and form sections. */
+export function SectionHeading({ title, description, action }: { title?: string; description?: string; action?: ReactNode }) {
+  const { spacing } = useTheme();
+  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+    <View style={{ flex: 1, minWidth: 0, gap: spacing.xs }}>
+      {title && <Text variant="supporting" tone="muted" accessibilityRole="header" style={{ fontWeight: '500' }}>{title}</Text>}
+      {description && <Text tone="muted" variant="supporting">{description}</Text>}
+    </View>
+    {action}
+  </View>;
+}
+
 const styles = StyleSheet.create({ fill: { flex: 1 } });
+
+/** Content edges for a full-width directory or settings list. Apply once. */
+export const listContentStyle = { paddingHorizontal: sizes.gutter, paddingTop: spacing.sm, paddingBottom: spacing.xl };

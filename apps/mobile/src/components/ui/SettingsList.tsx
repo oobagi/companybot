@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { I18nManager, Pressable, Switch, View, useWindowDimensions } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { useTheme } from '@/design';
-import { ScreenList } from './Layout';
+import { ScreenList, SectionHeading, listContentStyle } from './Layout';
 import { rowStyles } from './ListRow';
 import { Text } from './Text';
 
@@ -27,9 +27,9 @@ export type SettingsListProps = { sections: readonly SettingsSection[]; testID?:
 
 /** One scroll owner, transparent groups, and content-sized rows on every platform. */
 export function SettingsList({ sections, testID }: SettingsListProps) {
-  const { spacing, sizes } = useTheme();
+  const { spacing } = useTheme();
   return <ScreenList testID={testID} data={sections} keyExtractor={section => section.id}
-    contentContainerStyle={{ paddingHorizontal: sizes.gutter, paddingVertical: spacing.lg, gap: spacing.xl }}
+    contentContainerStyle={[listContentStyle, { gap: spacing.xl }]}
     keyboardShouldPersistTaps="handled" renderItem={({ item }) => <SettingsGroup section={item} />} />;
 }
 
@@ -37,7 +37,7 @@ export function SettingsList({ sections, testID }: SettingsListProps) {
 export function SettingsGroup({ section }: { section: SettingsSection }) {
   const { spacing } = useTheme();
   return <View>
-    {section.title && <Text variant="supporting" accessibilityRole="header" style={{ fontWeight: '500', paddingBottom: spacing.sm }}>{section.title}</Text>}
+    {section.title && <View style={{ paddingBottom: spacing.sm }}><SectionHeading title={section.title} /></View>}
     {section.rows.map(row => <SettingsRow key={row.id} row={row} />)}
     {section.footer && <Text variant="supporting" tone="muted" style={{ paddingTop: spacing.sm }}>{section.footer}</Text>}
   </View>;

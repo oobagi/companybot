@@ -11,3 +11,10 @@ export function Text({ variant = 'body', tone = 'default', style, ...props }: Te
   const color = tone === 'default' ? colors.text : tone === 'inverse' ? colors.onPrimary : colors[tone];
   return <NativeText {...props} style={[typography[variant], { color }, style]} />;
 }
+
+/** Nested runs inherit size, weight and color from their enclosing paragraph. */
+export function InlineText({ tone, style, ...props }: Omit<TextProps, 'variant'>) {
+  const { colors } = useTheme();
+  const color = tone === undefined ? undefined : tone === 'default' ? colors.text : tone === 'inverse' ? colors.onPrimary : colors[tone];
+  return <NativeText {...props} style={[color !== undefined && { color }, style]} />;
+}
