@@ -168,14 +168,14 @@ function FieldRow({ field, record, editable, suggestion, onEditField, drag }: { 
 	const byAi = record.aiFilled.includes(field.key);
 	return (
 		<div {...box} className={`group relative grid grid-cols-[10rem_1fr] items-start gap-x-4 ${box.className}`}>
-			{/* Hovered, its grip shows in the margin, as a page block's does. */}
-			{handle && (
-				<button type="button" aria-label="Drag to move" title="Drag to move" {...handle} className={`${smallIconButton} absolute top-1 right-full mr-1 cursor-grab text-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}>
-					<DragHandleIcon weight="bold" />
-				</button>
-			)}
 			{/* The label opens the field's settings, for whoever may change them; dragging it (or its grip) moves the field. */}
-			<dt {...handle} className="flex min-w-0 items-center py-1 text-neutral-500">
+			<dt {...handle} className="relative flex min-w-0 items-center py-1 text-neutral-500">
+				{/* Hovered, its grip shows in the margin, centered on the name, as a page block's does; pressing it picks the field up through its name. */}
+				{handle && (
+					<button type="button" aria-label="Drag to move" title="Drag to move" className={`${smallIconButton} absolute top-1/2 right-full mr-1 -translate-y-1/2 cursor-grab text-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}>
+						<DragHandleIcon weight="bold" />
+					</button>
+				)}
 				{onEditField ? (
 					<button type="button" onClick={onEditField} title="Edit field" className={`${titleButton} -mx-1.5 flex max-w-full items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-neutral-100`}>
 						<FieldIcon field={field} large /> <span className="truncate">{field.label}</span>
