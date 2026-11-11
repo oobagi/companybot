@@ -513,3 +513,22 @@ it("gives sub-pages from before pages were blocks exactly one block in their par
 	}
 	expect((await blocks()).sort()).toEqual([old, placed].sort());
 });
+
+it("gives an Inbox from before them its first sections", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	await signIn(t, "owner@co.com");
+	const sections = () => t.run(async (ctx) => (await ctx.db.query("sidebarSections").collect()).filter((s) => s.tab === "inbox").map((s) => s.name));
+	// From before them: none.
+	await t.run(async (ctx) => {
+		for (const s of await ctx.db.query("sidebarSections").collect()) await ctx.db.delete(s._id);
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	expect(await sections()).toEqual(["Channels", "Tags"]);
+});

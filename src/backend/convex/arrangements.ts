@@ -1,4 +1,4 @@
-import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, driveRowIds, extraIds, inboxChannelIds, inboxRowIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
+import { SECTION_ITEMS_MAX, applyCommand, arrangementLists, builtInSections, driveRowIds, extraIds, inboxRowIds, isPinKey, railTabs, type Arrangement, type ArrangementCommand, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { can } from "@companybot/core/permissions";
 import { ConvexError, getDocumentSize, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -88,7 +88,7 @@ export function viewer(ctx: QueryCtx, member: Member) {
 		const doc = docId ? await ctx.db.get(docId) : null;
 		return !!doc && doc.workspaceId === member.workspaceId;
 	};
-	/** Whether a section can hold this and the person sees it: a channel, a database, a top-level page, folder or file, or an Inbox view or conversation. */
+	/** Whether a section can hold this and the person sees it: a channel, a database, a top-level page, folder or file, or an Inbox row or conversation. */
 	const sectionItem = async (tab: SectionTab, id: string) => {
 		if (tab === "chat") return channel(id);
 		if (tab === "databases") return (await types()).has(id);
@@ -239,7 +239,6 @@ function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
 		case "rail": return railTabs.includes(id) || id === "customize" || isPinKey(id);
 		case "driveRows": return driveRowIds.includes(id);
 		case "inbox": return inboxRowIds.includes(id);
-		case "inboxChannels": return inboxChannelIds.includes(id);
 		default: return true;
 	}
 }

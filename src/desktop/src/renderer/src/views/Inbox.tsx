@@ -72,10 +72,9 @@ import {
 } from "../ui";
 import { recordPath } from "./records/logic";
 import { Avatar, DialogButtons, MenuItem, Modal, Popover, SubMenu, clock, dayLabel } from "./chat/common";
-import { AddButton, AddMenu, Group as NavGroup, Item, NewSection, SectionGroup, SectionsNav } from "./chat/Sidebar";
+import { AddButton, AddMenu, Item, NewSection, SectionGroup, SectionsNav } from "./chat/Sidebar";
 import { useSections, useUnsectioned } from "../sections";
-import { type DragProps, useSortable } from "../sortable";
-import { useStoredIds } from "../arrangements";
+import type { DragProps } from "../sortable";
 import { Composer } from "./chat/Composer";
 import { Thread } from "./InboxComments";
 import { ProfileLink } from "./chat/Profile";
@@ -118,9 +117,8 @@ const planned = [
 ] as const;
 
 const filters: Record<string, { label: string; icon: React.ReactNode; match?: (c: Row) => boolean; text?: string; row?: string }> = Object.fromEntries([...views, ...channels, ...planned].map((f) => [f.id, f]));
-/** Every sidebar row, in the order a new Inbox shows them (core `inboxRowIds`). */
-const channelRows = [...channels, ...planned.filter((f) => f.id !== "tags")];
-const tagsRow = planned.find((f) => f.id === "tags")!;
+/** Every sidebar row, in the order a new Inbox shows them (core `inboxRowIds`; its first sections hold the channels and Tags). */
+const rows = [...views, ...channels, ...planned];
 const rowKey = (r: { id: string }) => r.id;
 
 // Which one is picked: the sidebar sets it, the conversation list reads it. Kept per computer.
@@ -153,10 +151,11 @@ function useFilter() {
 }
 
 /**
- * Inbox's sidebar, laid out like Chat's: the views of who's handling what (Needs you counts what waits
- * for staff) on top and in the sections people add, moving like Chat's channels; then the built-in
- * Channels and Tags groups, like Direct messages: they fold, Channels' rows reorder, and nobody deletes them.
- * Sections also hold conversations, moved there from a conversation's menu. The conversations are in their own column (InboxView).
+ * Inbox's sidebar, laid out like Chat's: its rows (the views of who's handling what, where Needs you counts
+ * what waits for staff; the channels; Tags) in no section on top, then the sections people add. Every row
+ * moves like Chat's channels, within and between them. A new Inbox starts with Channels and Tags sections
+ * (core `inboxStartSections`). Sections also hold conversations, moved there from a conversation's menu.
+ * The conversations are in their own column (InboxView).
  */
 export function InboxNav() {
 	const list = useQuery(api.inbox.list);
@@ -165,11 +164,7 @@ export function InboxNav() {
 	const openId = route[0] === "inbox" ? route[1] : undefined;
 	const byId = useMemo(() => new Map((list ?? []).map((c) => [c.id as string, c])), [list]);
 	const moves = useSectionMoves();
-	// The views move like Chat's channels, into sections people add; Channels and Tags are built in, like Direct messages.
-	const { sorted, drag } = useUnsectioned("inbox", views, rowKey);
-	const channelOrder = useSortable("inboxChannels", channelRows, rowKey);
-	const [folded, changeFolded] = useStoredIds("folded");
-	const fold = (id: string) => ({ collapsed: folded.includes(id), onToggle: () => changeFolded({ op: folded.includes(id) ? "remove" : "add", id }) });
+	const { sorted, drag } = useUnsectioned("inbox", rows, rowKey);
 	const count = (match: (c: Row) => boolean) => list?.filter(match).length ?? 0;
 	const row = (id: string, drag: DragProps | undefined) => {
 		const f = filters[id];
@@ -189,19 +184,7 @@ export function InboxNav() {
 		<>
 			{moves.dialog}
 			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((r) => row(r.id, drag(r.id)))}</div>}
-			<SectionsNav tab="inbox" builtIns={[
-				// Folded, only the picked row stays, like a folded section's.
-				{ id: "inboxChannels", render: (at) => (
-					<NavGroup title="Channels" section={fold("inboxChannels")} {...at}>
-						{channelOrder.sorted.filter((r) => !folded.includes("inboxChannels") || r.id === filter).map((r) => row(r.id, channelOrder.drag(r.id)))}
-					</NavGroup>
-				) },
-				{ id: "inboxTags", render: (at) => (
-					<NavGroup title="Tags" section={fold("inboxTags")} {...at}>
-						{(!folded.includes("inboxTags") || filter === tagsRow.id) && row(tagsRow.id, undefined)}
-					</NavGroup>
-				) },
-			]}>
+			<SectionsNav tab="inbox">
 				{(section, at) => (
 					// Folded, the picked one stays.
 					<SectionGroup

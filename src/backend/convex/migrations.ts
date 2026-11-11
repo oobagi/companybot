@@ -13,6 +13,7 @@ import { accessOf, memberOf, memberProfile, rolesOf, timeZoneOf } from "./lib";
 import { appendPageBlock } from "./pageOps";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
+import { startInboxSections } from "./sectionOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -545,6 +546,7 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.pageChildBlocks,
 	internal.migrations.railDropCustomize,
 	internal.migrations.agentCustomerReplies,
+	internal.migrations.inboxSections,
 ];
 
 // COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, and
@@ -562,6 +564,13 @@ export const agentCustomerReplies = migrations.define({
 		}
 		await ctx.db.patch(workspace._id, { publicAbilities: undefined });
 	},
+});
+
+// Inbox came with its first sections (Channels, Tags), as a new workspace gets them in startAgain.
+export const inboxSections = migrations.define({
+	table: "workspaces",
+	batchSize: 20,
+	migrateOne: (ctx, workspace) => startInboxSections(ctx, workspace._id),
 });
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
