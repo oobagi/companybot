@@ -27,6 +27,7 @@ vi.mock('@/lib/convex', () => ({
 vi.mock('@/lib/useTask', () => ({ useTask: () => ({ busy: false, error: undefined, clear: () => {}, run: async (job: () => Promise<unknown>) => job() }) }));
 vi.mock('@/lib/useDraftGuard', () => ({ useDraftGuard: ({ dirty, onClose }: { dirty: boolean; onClose: () => void }) => { fixture.dirty = dirty; return { dismissible: !dirty, close: onClose, complete: () => {}, dialog: null }; } }));
 vi.mock('./customize/PendingWakeups', () => ({ PendingWakeups: () => null }));
+vi.mock('@/components/ui/native-controls/TimeInput', () => ({ TimeInput: ({ label, value, disabled, onChange }: { label: string; value: string; disabled?: boolean; onChange: (value: string) => void }) => createElement('input', { 'aria-label': label, value, disabled, onInput: (event: { currentTarget: HTMLInputElement }) => onChange(event.currentTarget.value) }) }));
 vi.mock('@/components/navigation/NavigationHeader', () => ({ NavigationHeader: ({ action }: { action?: { label: string; onPress: () => void } }) => action && createElement('button', { onClick: action.onPress }, action.label) }));
 vi.mock('@/components/navigation/HeaderMenu', () => ({ HeaderMenu: ({ actions, onAction }: { actions: { id: string; title: string; disabled?: boolean }[]; onAction: (id: string) => void }) => actions.map(action => createElement('button', { key: action.id, disabled: action.disabled, onClick: () => onAction(action.id) }, action.title)) }));
 vi.mock('@/components/ui', () => {
@@ -78,7 +79,7 @@ it('keeps an explicit configuration draft after edit permission is lost', async 
 it('reloads the visible schedule controls with the latest version before saving', async () => {
   await act(async () => render());
   await act(async () => button('Edit configuration')!.click());
-  expect(input('Times').value).toBe('09:00');
+  expect(input('Time').value).toBe('09:00');
   await fill('Name', 'Local draft');
   const previous = fixture.items[0];
   fixture.items = [{ ...previous, custom: { ...previous.custom!, name: 'Remote name', trigger: { type: 'schedule', cron: '30 14 * * *' }, version: 2 } }];
@@ -87,10 +88,21 @@ it('reloads the visible schedule controls with the latest version before saving'
   expect(button('Done')?.disabled).toBe(true);
   await act(async () => button('Reload latest')!.click());
   expect(input('Name').value).toBe('Remote name');
-  expect(input('Times').value).toBe('14:30');
+  expect(input('Time').value).toBe('14:30');
   await fill('Name', 'Reviewed name');
   await act(async () => button('Done')!.click());
   expect(fixture.write).toHaveBeenCalledWith({ automationId: 'custom-qa', expectedVersion: 2, config: { name: 'Reviewed name', prompt: 'Summarize tasks.', trigger: { type: 'schedule', cron: '30 14 * * *' } } });
+});
+
+it('saves native time-row edits through the shared cron representation', async () => {
+  await act(async () => render());
+  await act(async () => button('Edit configuration')!.click());
+  await act(async () => button('Add time')!.click());
+  expect(input('Time 1').value).toBe('09:00');
+  expect(input('Time 2').value).toBe('10:00');
+  await fill('Time 2', '13:00');
+  await act(async () => button('Done')!.click());
+  expect(fixture.write).toHaveBeenCalledWith({ automationId: 'custom-qa', expectedVersion: 1, config: { name: 'Morning brief', prompt: 'Summarize tasks.', trigger: { type: 'schedule', cron: '0 9,13 * * *' } } });
 });
 
 it('explains invalid creation without writing and retains the form for correction', async () => {

@@ -1,6 +1,8 @@
 import { allDays, dayNames, describeCron, formCron, nextRuns, scheduleError, scheduleForm, type ScheduleForm } from '@companybot/core/schedules';
 import { useState } from 'react';
 import { Button, ChoicePicker, Field, Stack, Text } from '@/components/ui';
+import { TimeInput } from '@/components/ui/native-controls/TimeInput';
+import { nextScheduleTime } from './scheduleTimes';
 
 /** Human-friendly controls compile through the exact same domain helpers as desktop. */
 export function ScheduleEditor({ cron, timeZone, onChange, disabled }: { cron: string; timeZone: string; onChange: (cron: string) => void; disabled?: boolean }) {
@@ -27,7 +29,13 @@ export function ScheduleEditor({ cron, timeZone, onChange, disabled }: { cron: s
         else if (value === 'monthly') change({ repeats: 'monthly', on: 1, times: ['09:00'] });
       }} />
       {'days' in form && <ChoicePicker label="Days" value={form.days.map(String)} disabled={disabled} multiple options={dayNames.map((label, value) => ({ label, value: String(value) }))} onChange={(days) => change({ ...form, days: (Array.isArray(days) ? days : [days]).map(Number) })} />}
-      {'times' in form && <Field label="Times" hint="24-hour times, separated by commas. For example: 09:00, 13:00" value={form.times.join(', ')} editable={!disabled} onChangeText={(value) => change({ ...form, times: value.split(',').map((time) => time.trim()) })} autoCorrect={false} />}
+      {'times' in form && <Stack gap="sm">
+        {form.times.map((time, index) => <Stack key={index} gap="none">
+          <TimeInput label={form.times.length === 1 ? 'Time' : `Time ${index + 1}`} value={time} disabled={disabled} onChange={(value) => change({ ...form, times: form.times.map((current, at) => at === index ? value : current) })} />
+          {form.times.length > 1 && <Button label="Remove time" accessibilityLabel={`Remove time ${index + 1}`} variant="ghost" disabled={disabled} style={{ alignSelf: 'flex-start' }} onPress={() => change({ ...form, times: form.times.filter((_, at) => at !== index) })} />}
+        </Stack>)}
+        <Button label="Add time" variant="ghost" disabled={disabled} style={{ alignSelf: 'flex-start' }} onPress={() => change({ ...form, times: [...form.times, nextScheduleTime(form.times)] })} />
+      </Stack>}
       {form.repeats === 'hours' && <>
         <ChoicePicker label="Every" value={String(form.every)} disabled={disabled} options={[1, 2, 3, 4, 6, 8, 12].map((n) => ({ value: String(n), label: `${n} hour${n === 1 ? '' : 's'}` }))} onChange={(value) => { if (value) change({ ...form, every: Number(value) }); }} />
         <Field label="Starting hour (0–23)" value={String(form.from)} editable={!disabled} keyboardType="number-pad" onChangeText={(value) => change({ ...form, from: Number(value) })} />

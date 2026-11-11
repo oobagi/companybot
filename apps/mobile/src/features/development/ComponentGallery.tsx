@@ -11,6 +11,7 @@ import { ActionMenu, Avatar, Button, ChoicePicker, EditorSheet, Field, ListRow, 
 import { SettingsList } from '@/components/ui/SettingsList';
 import { ContentToolbar } from '@/components/ui/ContentToolbar';
 import { DateInput } from '@/components/ui/native-controls/DateInput';
+import { TimeInput } from '@/components/ui/native-controls/TimeInput';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DirectoryExample } from './DirectoryExample';
 import { FeedbackExample } from './FeedbackExample';
@@ -42,6 +43,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
   const [editing, setEditing] = useState<'short' | 'long' | null>(null);
   const [name, setName] = useState('Jaden');
   const [date, setDate] = useState('2026-11-04');
+  const [time, setTime] = useState('09:00');
   const { spacing, colors } = useTheme();
   const shortChoices = [{ value: 'all', label: 'All records' }, { value: 'mine', label: 'Assigned to me' }, { value: 'done', label: 'Completed' }];
   const longChoices = Array.from({ length: 12 }, (_, index) => ({ value: String(index), label: `Option ${index + 1}` }));
@@ -86,7 +88,7 @@ function Gallery({ appearance, onAppearance }: { appearance: 'light' | 'dark'; o
   else content = <Screen scroll><Stack gap="xl">
     {example === 'Choices' ? <>
       <Section title="Compact menus"><Stack horizontal style={{ flexWrap: 'wrap' }}><ChoicePicker presentation="compact" label="View" options={shortChoices} value={selection} onChange={value => { if (typeof value === 'string') setSelection(value); }} /><ChoicePicker presentation="compact" label="Unavailable" options={shortChoices} value="mine" onChange={() => {}} disabled /></Stack></Section>
-      <Section title="Form rows"><ChoicePicker label="View" options={shortChoices} value={selection} onChange={value => { if (typeof value === 'string') setSelection(value); }} /><ChoicePicker label="Multiple selections" multiple options={longChoices} value={many} onChange={value => { if (Array.isArray(value)) setMany(value); }} /><DateInput label="Date" value={date} onChange={setDate} /></Section>
+      <Section title="Form rows"><ChoicePicker label="View" options={shortChoices} value={selection} onChange={value => { if (typeof value === 'string') setSelection(value); }} /><ChoicePicker label="Multiple selections" multiple options={longChoices} value={many} onChange={value => { if (Array.isArray(value)) setMany(value); }} /><DateInput label="Date" value={date} onChange={setDate} /><TimeInput label="Time" value={time} onChange={setTime} /><TimeInput label="A longer time label that needs room to wrap" value="23:45" onChange={() => {}} disabled /></Section>
     </> : <>
       <Section title="System typography"><Text variant="title">A clear page title</Text><Text variant="heading">Section heading</Text><Text>Body text uses the system font and follows the device’s text size.</Text><Text variant="supporting" tone="muted">Supporting information stays secondary.</Text><Text variant="caption" tone="muted">Metadata · 9:41 AM</Text></Section>
       <Section title="Custom content rows"><View>

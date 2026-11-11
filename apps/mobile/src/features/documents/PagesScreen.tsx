@@ -44,13 +44,15 @@ export function PageChildren({ parentId, onSelect = openPage }: { parentId?: Id<
 
 export function NewPage({ parentId, onClose }: { parentId?: Id<'pages'>; onClose: () => void }) {
   const [title, setTitle] = useState('');
+  const [created, setCreated] = useState<Id<'pages'>>();
   const create = useMutation(api.pages.create);
   const task = useTask();
-  const guard = useDraftGuard({ dirty: !!title, busy: task.busy, onClose });
-  const save = () => void task.run(async () => { const id = await create({ title: title.trim() || 'Untitled', parentId }); guard.complete(); onClose(); openPage(id); });
-  return <EditorSheet size="content" title={parentId ? 'New sub-page' : 'New page'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()} submit={{ label: 'Create', onPress: save }}>
+  const busy = task.busy || !!created;
+  const guard = useDraftGuard({ dirty: !!title, busy, onClose });
+  const save = () => { if (!busy) void task.run(async () => { const id = await create({ title: title.trim() || 'Untitled', parentId }); guard.complete(); setCreated(id); }); };
+  return <EditorSheet size="content" title={parentId ? 'New sub-page' : 'New page'} open={!created} onDismiss={() => { if (created) { onClose(); openPage(created); } }} busy={busy} dismissible={guard.dismissible} onClose={() => void guard.close()} submit={{ label: 'Create', disabled: busy, onPress: save }}>
     {guard.dialog}
-    <Field label="Title" value={title} onChangeText={setTitle} editable={!task.busy} autoFocus placeholder="Untitled" />
+    <Field label="Title" value={title} onChangeText={setTitle} editable={!busy} autoFocus placeholder="Untitled" />
     {task.error && <ErrorState message={task.error} />}
   </EditorSheet>;
 }

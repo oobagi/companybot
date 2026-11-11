@@ -16,5 +16,5 @@ export function DateInput({ label, value, onChange, disabled = false }: DateInpu
     onValueChange={(_event, next) => { if (!disabled) onChange(localDateToCalendar(next)); setOpen(false); }} onDismiss={() => setOpen(false)} />;
   const displayDate = calendarDateToLocal(value)?.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) ?? value;
   if (Platform.OS === 'android') return <View><ListRow title={label} value={displayDate} disabled={disabled} onPress={() => setOpen(true)} />{open && !disabled && picker}</View>;
-  return <View style={{ minHeight: sizes.touch, flexDirection: fontScale >= 1.4 ? 'column' : 'row', alignItems: fontScale >= 1.4 ? 'flex-start' : 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}><Text style={{ flex: fontScale >= 1.4 ? undefined : 1 }}>{label}</Text>{picker}</View>;
+  return <View style={{ minHeight: sizes.touch, flexDirection: fontScale >= 1.4 ? 'column' : 'row', alignItems: fontScale >= 1.4 ? 'flex-start' : 'center', gap: spacing.sm, paddingVertical: spacing.sm }}><Text style={{ flex: fontScale >= 1.4 ? undefined : 1 }}>{label}</Text>{picker}</View>;
 }
