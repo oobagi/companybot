@@ -40,10 +40,10 @@ function rail(onOpen: (tab: AppTab) => void) {
 it("opens the Nth rail tab with ⌘N, in the order shown, even after a reorder", () => {
 	const onOpen = vi.fn();
 	render(rail(onOpen));
-	press("Digit2", { metaKey: true });
-	expect(onOpen).toHaveBeenLastCalledWith("drive");
+	press("Digit3", { metaKey: true });
+	expect(onOpen).toHaveBeenLastCalledWith("inbox");
 
-	saved.rail = ["customize", "databases"];
+	saved.rail = ["sites", "databases"];
 	render(rail(onOpen));
 	press("Digit2", { metaKey: true });
 	expect(onOpen).toHaveBeenLastCalledWith("databases");
@@ -58,8 +58,8 @@ it("opens a tab with ⌘N while typing a message, as in Slack", () => {
 	render(rail(onOpen));
 	const composer = document.body.appendChild(document.createElement("div"));
 	composer.contentEditable = "true";
-	press("Digit2", { metaKey: true }, composer);
-	expect(onOpen).toHaveBeenCalledWith("drive");
+	press("Digit3", { metaKey: true }, composer);
+	expect(onOpen).toHaveBeenCalledWith("inbox");
 	composer.remove();
 });
 
@@ -74,8 +74,8 @@ it("does nothing while a dialog or menu is open, so a half-filled form isn't los
 	expect(open).not.toHaveBeenCalled();
 	// Closed, they work again.
 	render(h("div", null, rail(onOpen)));
-	press("Digit2", { metaKey: true });
-	expect(onOpen).toHaveBeenCalledWith("drive");
+	press("Digit3", { metaKey: true });
+	expect(onOpen).toHaveBeenCalledWith("inbox");
 });
 
 it("no longer opens tabs with G then a letter", () => {
@@ -145,7 +145,7 @@ it("saves an active edit before keyboard navigation", () => {
 	const input = document.body.appendChild(document.createElement("input"));
 	input.addEventListener("blur", () => events.push("save"));
 	input.focus();
-	press("Digit2", { metaKey: true }, input);
+	press("Digit3", { metaKey: true }, input);
 	expect(events).toEqual(["save", "navigate"]);
 	input.remove();
 });
@@ -178,9 +178,9 @@ it("keeps focus for missing and already open tabs", () => {
 	render(rail(vi.fn()));
 	const input = document.body.appendChild(document.createElement("input"));
 	input.focus();
-	press("Digit7", { metaKey: true }, input);
+	press("Digit8", { metaKey: true }, input);
 	expect(document.activeElement).toBe(input);
-	press("Digit1", { metaKey: true }, input);
+	press("Digit2", { metaKey: true }, input);
 	expect(document.activeElement).toBe(input);
 	input.remove();
 });

@@ -96,6 +96,30 @@ export interface Who {
 }
 
 /**
+ * Someone outside the workspace an agent acts for as Public (inboxAgent.ts): an address, never a member.
+ * Reads and writes for them check the Public role in each place's list (core place-access.ts `PUBLIC_ACCESS`).
+ */
+export interface Outsider {
+	workspaceId: Id<"workspaces">;
+	/** Their lowercased email or E.164 phone, from the Inbox conversation. */
+	contact: string;
+	agentId: Id<"agents">;
+	/** False when their latest message is an email whose sender didn't check out: it may be forged, so it reads but changes nothing. */
+	verified: boolean;
+}
+
+/** AI filling fields (fieldAi.ts) from a conversation: nobody asked it to, a field's setting did. */
+export interface AiWriter {
+	workspaceId: Id<"workspaces">;
+	conversationId: Id<"inboxConversations">;
+}
+
+/** Who changes a record or puts something in Archive: a member (maybe through an agent), or someone outside through an agent. */
+export type Writer = Who | { outsider: Outsider };
+/** Who changes a record's values: a Writer, or AI filling fields. */
+export type ValueWriter = Writer | { ai: AiWriter };
+
+/**
  * Their membership in one workspace, read fresh, so role changes and removals apply right
  * away (even mid-reply). People can be in several workspaces, so always say which.
  */

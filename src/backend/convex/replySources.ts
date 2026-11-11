@@ -1,4 +1,4 @@
-import { EVERYONE, whoCan } from "@companybot/core";
+import { EVERYONE, PUBLIC_ACCESS, anyAccessIn, levelIn, whoCan } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -6,7 +6,7 @@ import { type Member, accessOf, rolesOf } from "./lib";
 import { chatAccess, reach, type AccessList } from "./placeAccess";
 import { canReadSources, opensSource, type Source, writeSourceReader } from "./replyPrivacy";
 
-type Place = Id<"recordTypes"> | Id<"pages"> | Id<"chats">;
+type Place = Id<"recordTypes"> | Id<"pages"> | Id<"driveFiles"> | Id<"chats">;
 export type UsedPlace = Place | Id<"users"> | Id<"connectorInstalls">;
 const writes = new WeakMap<Member, Promise<void>>();
 
@@ -63,7 +63,7 @@ export async function readArtifact(ctx: QueryCtx, member: Member, artifact: Sour
 }
 
 /** Direct Owner access changes may release deleted installs, only on the place being deliberately re-shared. */
-export async function changeAccessSources(ctx: MutationCtx, member: Member, place: Doc<"recordTypes"> | Doc<"chats"> | Doc<"pages">, audience: { access?: AccessList; users?: Id<"users">[] }) {
+export async function changeAccessSources(ctx: MutationCtx, member: Member, place: Doc<"recordTypes"> | Doc<"chats"> | Doc<"pages"> | Doc<"driveFiles">, audience: { access?: AccessList; users?: Id<"users">[] }) {
 	const retained: UsedPlace[] = [];
 	for (const id of place.usedPlaces ?? []) {
 		if (id === place._id) continue;
@@ -144,7 +144,7 @@ export async function placeAudience(ctx: QueryCtx, member: Member, chatId: Id<"c
 }
 
 /** The destination's audience, loaded once; the returned check refuses any source it can't open. */
-async function audienceFit(ctx: QueryCtx, member: Member, audience: Audience | undefined, place: Doc<"recordTypes"> | Doc<"pages"> | Doc<"chats"> | null, readSource: (id: UsedPlace) => Promise<Source>) {
+async function audienceFit(ctx: QueryCtx, member: Member, audience: Audience | undefined, place: Doc<"recordTypes"> | Doc<"pages"> | Doc<"driveFiles"> | Doc<"chats"> | null, readSource: (id: UsedPlace) => Promise<Source>) {
 	const placeId = place?._id;
 	const policies = typeof audience === "string" ? [await readSource(audience)] : audience && "places" in audience ? await Promise.all(audience.places.map(readSource)) : [audience && typeof audience === "object" && !("filtered" in audience) ? audience : undefined];
 	// Content edits keep the destination's saved sources, which can narrow its audience beyond its access list.
@@ -179,6 +179,8 @@ async function audienceFit(ctx: QueryCtx, member: Member, audience: Audience | u
 				const roles = member.workspaceRoles.filter((r) => !r.owner && !reach({ ...member, owner: false, roles: [r.id] }, from.access)).map((r) => r.id);
 				const viewer = { ...member, owner: false, roles };
 				allowed = !from.membersOnly && (!policies.every((p) => !!reach(viewer, p?.access)) || !!reach(viewer, from.access));
+				// Shared with Public, it reaches people outside too: the source has to open to them (Everyone never does).
+				if (allowed && policies.every((p) => !!p && anyAccessIn(PUBLIC_ACCESS, p.access))) allowed = !from.person && !!levelIn(PUBLIC_ACCESS, from.access);
 			}
 			if (!allowed || !from.visible) {
 				const who = from.person ?? (from.membersOnly ? `${whoCan(from.access, member.workspaceRoles) === "Everyone" ? "people" : whoCan(from.access, member.workspaceRoles)} in ${from.where}` : whoCan(from.access, member.workspaceRoles));

@@ -2,6 +2,8 @@ import {
 	type AgentConfig,
 	blankAgent,
 	builtinTools,
+	cleanTopics,
+	customerReplyModes,
 	permissions,
 	defaultAgents,
 	describeToolAccess,
@@ -39,6 +41,9 @@ async function clean(ctx: MutationCtx, agent: Doc<"agents">, config: AgentConfig
 		name: config.name.trim(),
 		description: config.description.trim(),
 		reasoning: config.reasoning ?? agent.reasoning ?? defaultReasoning,
+		// Likewise how it answers customers: a version from before these keeps what the agent has now.
+		customerReplies: config.customerReplies ?? agent.customerReplies ?? "check",
+		handOffTopics: cleanTopics(config.handOffTopics ?? agent.handOffTopics ?? []),
 		tools: config.tools.filter((id) => toolGroup(id) !== "night-owl"),
 	};
 	// A removed custom connector's grants go too, so the agent (and its old versions) still save and restore.
@@ -174,6 +179,20 @@ export const rename = mutation({
 		const member = await requirePermission(ctx, "agents.manage");
 		const agent = await requireLiveAgent(ctx, member, agentId);
 		await saveVersion(ctx, agent, await clean(ctx, agent, { ...pickAgentConfig(agent), name }), member.userId);
+	},
+});
+
+/**
+ * How it answers customers (Inbox), from its panel: saved at once as a new version, like a rename.
+ * Either part alone; the rest of its config stays as it is.
+ */
+export const setCustomerHandling = mutation({
+	args: { agentId: v.id("agents"), customerReplies: v.optional(v.union(...customerReplyModes.map((m) => v.literal(m)))), handOffTopics: v.optional(v.array(v.string())) },
+	handler: async (ctx, { agentId, customerReplies, handOffTopics }) => {
+		const member = await requirePermission(ctx, "agents.manage");
+		const agent = await requireLiveAgent(ctx, member, agentId);
+		const config = pickAgentConfig(agent);
+		await saveVersion(ctx, agent, await clean(ctx, agent, { ...config, ...(customerReplies && { customerReplies }), ...(handOffTopics && { handOffTopics }) }), member.userId);
 	},
 });
 

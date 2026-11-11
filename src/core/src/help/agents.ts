@@ -11,12 +11,13 @@ Agents are AI teammates. They live in Chat's sidebar as DMs, join channels when 
 The main agent, in every workspace. It can search and save memory, work with databases and pages, set up skills and automations, and help with members, channels and settings, as the person it is helping.
 
 ## Setting agents up
-[Agents](#/settings/agents) (Customize in the rail). Everyone can look; people whose role can change agents create, edit or delete them.
+[Agents](#/settings/agents) (Workspace settings → Agents). Everyone can look; people whose role can change agents create, edit or delete them.
 - **Picture, name and description**: the description shows in the agent switcher.
 - **Model**: the AI model it runs on. The default is the recommended one.
 - **Reasoning**: how hard it thinks before answering: Off, Low, Medium (the default) or High. More is slower and costs more, but handles hard or many-step work better.
 - **Tools**: what it may do, as groups (memory, chat, records, pages and more). A tool also needs one of the person's roles to allow it; if none does, the agent says which roles can. Help is its own group; grant it to let an agent answer "how do I…" questions.
 - **Instructions**: who the agent is and how it works. Changes apply from its next reply.
+- **How customers reach it**: the business's email addresses and phone numbers it answers, picked in Settings → [Email and phone](#/settings/addresses). What customers send lands in [Inbox](#/inbox); see **help: inbox**.
 - **History**: every save is kept. Restore an old version from there.
 - Deleting an agent moves it to [Archive](#/settings/archive). The last agent can't be deleted.
 

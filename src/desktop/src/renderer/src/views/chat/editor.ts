@@ -6,14 +6,17 @@ import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import type { SuggestionKeyDownProps, SuggestionOptions, SuggestionProps } from "@tiptap/suggestion";
-import type { ChannelRef, Participant, SkillRef } from "./data";
-import { COMPLETED_SHORTCODE, type EmojiIndex, emojiForShortcode, loadEmoji, loadedEmoji, shortcodeMatches } from "./emoji";
+import { recordTag } from "@companybot/core/record-mentions";
+import type { ChannelRef, Participant, RecordRef, SkillRef } from "./data";
+import { COMPLETED_SHORTCODE, EMOJI_COLUMNS, type EmojiIndex, type Store, emojiForShortcode, loadEmoji, loadedEmoji, menuEmoji, rememberEmoji, savedTone, withTone } from "./emoji";
 
 // The composer is a one-block Tiptap editor (the same ProseMirror BlockNote uses for pages).
 // Mentions are atomic `token` nodes, so a chip is picked, deleted and sent as one thing:
 // `@Ada` (people and agents), `#sales` (channels) and `/Proposal` (skills). The message is
-// sent as plain text: the chips serialize back to what was typed. `:smi` opens a fourth menu,
-// of emoji; a pick (or a typed `:smile:`) is just the emoji in the text, not a chip.
+// sent as plain text: the chips serialize back to what was typed. `@` also offers records, from a search
+// as you type; a record's chip is sent as `[@Summit Homes](record:<id>)` (core record-mentions.ts), which
+// the server keeps as the id. `:smi` opens a fourth menu, of emoji; a pick (or a typed `:smile:`) is just
+// the emoji in the text, not a chip.
 
 export type Trigger = "@" | "#" | "/" | ":";
 
@@ -21,6 +24,8 @@ export type Candidate =
 	| { kind: "user" | "agent"; id: string; label: string; image?: string | null }
 	| { kind: "channel"; id: string; label: string; topic: string | null; private: boolean; joined: boolean }
 	| { kind: "skill"; id: string; label: string; description: string }
+	/** `typeName`: its database ("Clients"). */
+	| { kind: "record"; id: string; label: string; typeName: string }
 	/** `id` is the shortcode, `label` the emoji. */
 	| { kind: "emoji"; id: string; label: string };
 
@@ -35,18 +40,21 @@ export interface Sources {
 	agents: Participant[];
 	channels: ChannelRef[];
 	skills: SkillRef[];
+	/** Records matching what's typed after @, across the databases you can see (a server search). */
+	records?: (query: string) => Promise<RecordRef[]>;
 }
 
-/** The open menu: what's offered, which row is lit, and how to pick one. */
+/** The open menu: what's offered for the `query` typed after the trigger, which row is lit, and how to pick one. */
 export interface Menu {
 	trigger: Trigger;
+	query: string;
 	items: Candidate[];
 	index: number;
 }
 
 const MAX_ITEMS = 8;
-/** Shorter than this and `:` is more likely a smiley or a time than a shortcode. */
-const MIN_EMOJI_QUERY = 2;
+/** How long typing pauses before records are searched: one search per pause, not per key. */
+const RECORD_SEARCH_MS = 150;
 
 /** `query` matches a name's start or any word's start ("sa" finds "Sam Lee" and "Ada Sampson"). */
 export const matches = (name: string, query: string) => {
@@ -55,10 +63,10 @@ export const matches = (name: string, query: string) => {
 	return n.startsWith(q) || n.split(/[\s-]+/).some((w) => w.startsWith(q));
 };
 
-/** The emoji `:query` offers, by shortcode. */
-export function emojiCandidates(index: EmojiIndex, query: string): Candidate[] {
-	if (query.length < MIN_EMOJI_QUERY) return [];
-	return shortcodeMatches(index, query, MAX_ITEMS).map((m) => ({ kind: "emoji", id: m.shortcode, label: m.emoji.char }));
+/** The `:query` menu is the emoji panel (EmojiPanel, driven by the query): what it shows (`menuEmoji`), in the saved skin tone; none, and the menu closes. */
+export function emojiCandidates(index: EmojiIndex, query: string, store: Store): Candidate[] {
+	const tone = savedTone(store);
+	return menuEmoji(index, query, store).map((e) => ({ kind: "emoji", id: e.char, label: withTone(e, tone) }));
 }
 
 export function candidatesFor(sources: Sources, trigger: Exclude<Trigger, ":">, query: string): Candidate[] {
@@ -84,6 +92,8 @@ export function findTrigger(text: string, trigger: Trigger): { start: number; qu
 
 const triggerChar = (kind: TokenKind): Exclude<Trigger, ":"> => (kind === "channel" ? "#" : kind === "skill" ? "/" : "@");
 
+const recordCandidates = (records: RecordRef[]): Candidate[] => records.map((r) => ({ kind: "record", id: r.id, label: r.name, typeName: r.typeName }));
+
 /**
  * Serves the three suggestion plugins and owns the menu: it publishes the state the
  * composer renders, and answers the keys the editor passes it while the menu is open.
@@ -93,6 +103,11 @@ export class SuggestionMenu {
 	private command: ((attrs: TokenAttrs) => void) | null = null;
 	/** Hidden on blur: the plugin stays active, but the keys go to the editor until typing resumes. */
 	private hidden = false;
+	/** What's typed after the open trigger. */
+	private query = "";
+	/** Records found for each query typed after @, while the editor lives. */
+	private found = new Map<string, Candidate[]>();
+	private searching: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
 		private readonly sources: () => Sources,
@@ -118,21 +133,53 @@ export class SuggestionMenu {
 		if (this.menu) this.set({ ...this.menu, index });
 	}
 
+	/** An emoji clicked in the panel (its kind is read by nothing: insertEmoji takes the label). */
+	pickEmoji(char: string) {
+		if (this.command) this.command({ id: char, label: char, kind: "user" });
+	}
+
 	private set(menu: Menu | null) {
 		this.menu = menu;
 		this.publish(this.open ? menu : null);
+	}
+
+	/**
+	 * The records for `query` found so far: its own results, else the last query's that still match (so the
+	 * list narrows as you type), then a search once typing pauses, which updates the open menu.
+	 */
+	private records(query: string): Candidate[] {
+		const search = this.sources().records;
+		clearTimeout(this.searching);
+		if (!search || !query.trim()) return [];
+		const known = this.found.get(query);
+		if (known) return known;
+		this.searching = setTimeout(() => {
+			search(query).then(
+				(records) => {
+					this.found.set(query, recordCandidates(records));
+					if (this.menu?.trigger !== "@" || this.query !== query) return;
+					const others = this.menu.items.filter((c) => c.kind !== "record");
+					this.set({ ...this.menu, items: [...others, ...this.found.get(query)!], index: Math.max(0, Math.min(this.menu.index, others.length + records.length - 1)) });
+				},
+				() => {},
+			);
+		}, RECORD_SEARCH_MS);
+		const before = [...this.found.keys()].filter((q) => query.startsWith(q)).sort((a, b) => b.length - a.length)[0];
+		return (before !== undefined ? this.found.get(before)! : []).filter((c) => matches(c.label, query));
 	}
 
 	/** One suggestion plugin's options for a trigger. */
 	suggestion(trigger: Trigger): Omit<SuggestionOptions<Candidate, TokenAttrs>, "editor"> {
 		const show = (props: SuggestionProps<Candidate>) => {
 			this.hidden = false;
+			this.query = props.query;
 			this.command = props.command;
-			this.set({ trigger, items: props.items, index: Math.min(this.menu?.trigger === trigger ? this.menu.index : 0, Math.max(props.items.length - 1, 0)) });
+			this.set({ trigger, query: props.query, items: props.items, index: Math.min(this.menu?.trigger === trigger && this.menu.query === props.query ? this.menu.index : 0, Math.max(props.items.length - 1, 0)) });
 		};
 		return {
 			char: trigger,
-			items: async ({ query }) => (trigger === ":" ? emojiCandidates(await loadEmoji(), query) : candidatesFor(this.sources(), trigger, query)),
+			items: async ({ query }) =>
+				trigger === ":" ? emojiCandidates(await loadEmoji(), query, localStorage) : [...candidatesFor(this.sources(), trigger, query), ...(trigger === "@" ? this.records(query) : [])],
 			...(trigger === ":" && { command: insertEmoji }),
 			findSuggestionMatch: ({ $position }) => {
 				const before = $position.nodeBefore;
@@ -145,12 +192,14 @@ export class SuggestionMenu {
 			render: () => ({
 				onStart: show,
 				onUpdate: show,
-				onExit: () => this.set(null),
+				onExit: () => (clearTimeout(this.searching), this.set(null)),
 				onKeyDown: ({ event }: SuggestionKeyDownProps) => {
 					if (!this.open || !this.menu) return false;
 					const { items, index } = this.menu;
-					if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-						this.highlight((index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length);
+					// The emoji panel is a grid: left and right step, up and down move a row.
+					const step = trigger === ":" ? { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -EMOJI_COLUMNS, ArrowDown: EMOJI_COLUMNS }[event.key] : { ArrowUp: -1, ArrowDown: 1 }[event.key];
+					if (step) {
+						this.highlight(trigger === ":" ? Math.min(Math.max(index + step, 0), items.length - 1) : (index + step + items.length) % items.length);
 						return true;
 					}
 					if (event.key === "Enter" || event.key === "Tab") {
@@ -166,6 +215,8 @@ export class SuggestionMenu {
 
 /** A picked emoji replaces the `:query` typed, with a space after like a chip. */
 const insertEmoji: SuggestionOptions<Candidate, TokenAttrs>["command"] = ({ editor, range, props }) => {
+	if (!props.label) return;
+	rememberEmoji(localStorage, props.label);
 	editor.chain().focus().insertContentAt(range, `${props.label} `).run();
 };
 
@@ -203,7 +254,11 @@ const Token = Mention.extend({
 	},
 });
 
+/** How a chip reads in the box. */
 const chipText = (node: { attrs: Record<string, unknown> }) => `${triggerChar(node.attrs.kind as TokenKind)}${node.attrs.label}`;
+/** How a chip is sent: as typed, but a record carries its id. */
+const sentText = (node: { attrs: Record<string, unknown> }) =>
+	node.attrs.kind === "record" ? recordTag(String(node.attrs.id), String(node.attrs.label)) : chipText(node);
 
 export type SendWith = "enter" | "mod-enter";
 
@@ -236,11 +291,12 @@ export function composerExtensions(options: {
 		// Only Shift-Enter: Mod-Enter is a send preference (Send above).
 		HardBreak.extend({ addKeyboardShortcuts: () => ({}) }),
 		UndoRedo,
-		Placeholder.configure({ placeholder: () => options.placeholder() }),
+		// Shown on a disabled box too: there it says why nothing can be sent.
+		Placeholder.configure({ placeholder: () => options.placeholder(), showOnlyWhenEditable: false }),
 		Token.configure({
 			deleteTriggerWithBackspace: true,
-			renderText: ({ node }) => chipText(node),
-			renderHTML: ({ options: o, node }) => ["span", mergeAttributes(o.HTMLAttributes, { class: "token" }), chipText(node)],
+			renderText: ({ node }) => sentText(node),
+			renderHTML: ({ options: o, node }) => ["span", mergeAttributes(o.HTMLAttributes, { class: node.attrs.kind === "record" ? "token record-token" : "token" }), chipText(node)],
 			suggestions: (["@", "#", "/", ":"] as const).map((t) => options.menu.suggestion(t) as Omit<SuggestionOptions, "editor">),
 		}),
 		EmojiShortcodes,
@@ -248,7 +304,7 @@ export function composerExtensions(options: {
 	];
 }
 
-/** The message as typed: chips back to `@Ada`, line breaks kept. */
+/** The message as typed: chips back to `@Ada` (a record's to its tag), line breaks kept. */
 export const plainText = (editor: Editor) => editor.getText({ blockSeparator: "\n" }).trim();
 
 /**
@@ -269,7 +325,7 @@ export function typedMentions(text: string, sources: Pick<Sources, "people" | "a
 
 /** The chips in the message, by kind. */
 export function tokensIn(editor: Editor): Record<TokenKind, string[]> {
-	const ids: Record<TokenKind, string[]> = { user: [], agent: [], channel: [], skill: [] };
+	const ids: Record<TokenKind, string[]> = { user: [], agent: [], channel: [], skill: [], record: [] };
 	editor.state.doc.descendants((node) => {
 		if (node.type.name !== "token") return;
 		const list = ids[node.attrs.kind as TokenKind];

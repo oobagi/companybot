@@ -4,6 +4,7 @@ import {
 	type CustomAutomationConfig,
 	canEditAutomation,
 	customAutomationError,
+	eventNeeds,
 	describeTrigger,
 	isValidTimeZone,
 	legacyFields,
@@ -136,6 +137,9 @@ async function checkConfig(ctx: QueryCtx, member: Member, config: CustomAutomati
 	const problem = customAutomationError(config);
 	if (problem) throw new ConvexError(problem);
 	const { trigger } = config;
+	// An event whose data is only for some (Inbox's customers' messages: inbox.use) takes that permission to watch.
+	const needs = eventNeeds(trigger);
+	if (needs) checkPermission(member, needs);
 	const watchedBefore = before?.type === "event" && before.event === "message.posted" ? before.channelId : undefined;
 	if (trigger.type === "event" && trigger.event === "message.posted" && trigger.channelId !== watchedBefore) {
 		const id = ctx.db.normalizeId("chats", trigger.channelId);

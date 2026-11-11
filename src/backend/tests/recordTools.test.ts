@@ -305,9 +305,36 @@ describe("records tools", () => {
 		const ownerRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "owner")!.id;
 		await owner.mutation(api.workspace.setRoles, { id: row!._id, roles: [ownerRole] });
 		expect(await tools.saveField(stages)).toMatchObject({ options: stages.options });
-		expect(await tools.saveField({ type: "deal", field: "stage", kind: "text" })).toEqual({ error: expect.stringContaining("Only a field's name and options") });
+		expect(await tools.saveField({ type: "deal", field: "stage", kind: "text", preview: true })).toMatchObject({ preview: true, change: "Choice → Text" });
+		// A kind change runs in the background and undoes through records_undo.
+		const changed = await tools.saveField({ type: "deal", field: "stage", kind: "text" });
+		expect(changed).toMatchObject({ kind: "text", changed: "Choice → Text", converting: true });
+		// Runs the change's batches, not the held-back reply (it would call a model).
+		const convert = async () => {
+			for (const job of await t.run((ctx) => ctx.db.query("fieldChanges").collect()))
+				while ((await t.run((ctx) => ctx.db.get(job._id)))!.status === "running") await t.mutation(internal.fieldChanges.step, { id: job._id });
+		};
+		await convert();
+		expect(await tools.undo(changed.change!)).toMatchObject({ field: true, converting: true });
+		await convert();
+		expect((await tools.types()).types.find((x) => x.type === "deal")!.fields.find((f) => f.key === "stage")).toMatchObject({ kind: "choice" });
 		const linked = await tools.saveField({ type: "task", label: "Call", kind: "link", linksTo: "call" });
 		expect(linked).toMatchObject({ key: "call", kind: "link", linksTo: "call" });
+	});
+
+	it("set a field's icon and its options' colors, and read them back", async () => {
+		const { t, owner } = await ownerAndMember();
+		const tools = await turnFor(t, owner);
+		const priority = await tools.saveField({ type: "client", label: "Priority", kind: "choice", icon: "flag", options: [{ label: "High", color: "red" }, "Low"] });
+		expect(priority).toMatchObject({ icon: "flag", choices: [{ label: "High", color: "red" }, { label: "Low", color: "brown" }] });
+		// Plain labels keep the colors they have.
+		expect(await tools.saveField({ type: "client", field: "priority", icon: null, options: ["High", "Low", "Medium"] })).toMatchObject({
+			choices: [{ label: "High", color: "red" }, { label: "Low", color: "brown" }, { label: "Medium", color: "orange" }],
+		});
+		const field = (await tools.types()).types.find((x) => x.type === "client")!.fields.find((f) => f.key === "priority")!;
+		expect(field.icon).toBeUndefined();
+		// Only the set's icons: the tool's input schema lists them.
+		await expect(tools.saveField({ type: "client", field: "priority", icon: "rocket" })).rejects.toThrow("flag");
 	});
 
 	it("stop working once the person leaves, and never reach another workspace", async () => {

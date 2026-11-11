@@ -4,9 +4,10 @@ export const arrangementLists = {
 	dms: { scope: "personal", entity: undefined },
 	databases: { scope: "shared", entity: undefined },
 	pages: { scope: "shared", entity: "pages" },
+	/** The order of the sections people add (`sidebarSections`), every tab's in one list. */
+	sectionOrder: { scope: "shared", entity: undefined },
 	views: { scope: "shared", entity: "recordTypes" },
 	columns: { scope: "shared", entity: "recordTypes" },
-	sections: { scope: "personal", entity: undefined },
 	folded: { scope: "personal", entity: undefined },
 	channelFolds: { scope: "personal", entity: undefined },
 	dmFolds: { scope: "personal", entity: undefined },
@@ -15,6 +16,10 @@ export const arrangementLists = {
 	recent: { scope: "personal", entity: undefined },
 	/** The rail's one group, in your order: its tabs (`railTabs`) and your pins, mixed. */
 	rail: { scope: "personal", entity: undefined },
+	/** Drive's rows above its tree, in your order: Home and the views (`driveRowIds`). */
+	driveRows: { scope: "personal", entity: undefined },
+	/** Inbox's rows in no section (`inboxRowIds`), in the workspace's order. */
+	inbox: { scope: "shared", entity: undefined },
 	workspaces: { scope: "account", entity: undefined },
 } as const;
 export type ArrangementList = keyof typeof arrangementLists;
@@ -53,15 +58,44 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
-export const sidebarSections = ["channels", "dms"];
-export const railTabs = ["chat", "drive", "databases", "customize"];
-/** A pin's key: what it is and its id (`chat:…`, `page:…`, `db:…`, `rec:…`). */
-export const isPinKey = (id: string) => /^(chat|page|db|rec):./.test(id);
+/**
+ * Built-in sidebar sections: Chat's Direct messages and Drive's All files. They're always there: nobody
+ * deletes them. They fold (`folded`) and move (`sectionOrder`) by these ids, among the sections people
+ * add (`sidebarSections` rows), which do both by theirs.
+ */
+export const builtInSections = ["dms", "files"];
+/**
+ * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
+ * orders their items in no section: Chat's channels, Drive's top-level pages, folders and files, the
+ * databases, Inbox's rows (`inboxRowIds`; its sections hold conversations too). Each item is in at most one of its tab's sections.
+ */
+export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases", inbox: "inbox" } as const;
+export type SectionTab = keyof typeof sectionTabs;
+/** Sections one tab can have, and items one section holds, so the sidebar's reads stay bounded. */
+export const SECTIONS_MAX = 50;
+export const SECTION_ITEMS_MAX = 500;
+export const SECTION_NAME_MAX = 80;
+/** The rail's tabs, in the order a new rail shows them. The one list: the desktop draws these, the server accepts only these. */
+export const railTabs: readonly string[] = ["home", "chat", "inbox", "drive", "databases", "sites"];
+/** Drive's sidebar rows above its tree: Home (the top level) and the views (desktop `views/drive/Views.tsx`). */
+export const driveRowIds = ["home", "recent", "shared", "private"];
+/**
+ * Inbox's sidebar rows (desktop `views/Inbox.tsx`): the views of who's handling what, the channels, and
+ * Tags. They move like Chat's channels, into and out of sections. Fixed, so the server accepts only these.
+ */
+export const inboxRowIds = ["needs", "mine", "agent", "all", "email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat", "tags"];
+/** The sections a new Inbox starts with, holding these rows; the views stay above them. Ordinary sections: renamed, emptied or deleted like any. */
+export const inboxStartSections = [
+	{ name: "Channels", ids: ["email", "sms", "calls", "whatsapp", "instagram", "messenger", "webchat"] },
+	{ name: "Tags", ids: ["tags"] },
+];
+/** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
+export const isPinKey = (id: string) => /^(chat|page|file|db|rec|inbox):./.test(id);
 
 type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
 export function legacyArrangement(key: string): Legacy | undefined {
-	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.sections": "sections", "sidebar.folded": "folded" } as const;
+	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.folded": "folded" } as const;
 	if (key in fixed) return { list: fixed[key as keyof typeof fixed] };
 	const workspace = /^(rail\.pins|rail\.pins\.order|rail\.recent|sidebar\.channels|sidebar\.dms|sidebar\.databases|sidebar\.channels\.folded|sidebar\.dms\.folded|pages-expanded):([^:]+)$/.exec(key);
 	if (workspace) {

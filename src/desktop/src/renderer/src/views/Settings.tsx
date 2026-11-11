@@ -4,13 +4,14 @@ import { type ImageModelInfo, type ModelInfo, defaultImageModel, imageModelNote,
 import { ROUTER_MODEL, isDecisionModel } from "@companybot/core/router";
 import { type Access, can } from "@companybot/core/permissions";
 import { formatUsd, monthLabel, usageMonth } from "@companybot/core/usage";
+import { DOWNLOAD_URL } from "@companybot/core/invite-email";
 import { useState } from "react";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { describeUpdate, desktop, useUpdates } from "../desktop";
+import { describeUpdate, desktop, openLink, useUpdates } from "../desktop";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
-import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
+import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, compactDangerButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
+import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon, MailIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
@@ -23,12 +24,18 @@ import { MemoryTab } from "./Memory";
 import { WorkspaceLocks, YourPermissions } from "./Permissions";
 import { TrashView } from "./Trash";
 import { UsageTab } from "./Usage";
+import { AddressesTab } from "./Addresses";
 
 // Settings: /settings/<tab>[/<item>]. While it's open, the sidebar lists its tabs in place of the app's.
 // Two kinds, opened from different menus and never listed together: your account (your avatar, at
 // the bottom of the rail) and the open workspace (the workspace switcher, in the title bar).
-// Customize's tabs keep their /settings/<tab> addresses but open from the rail (Customize),
-// so Settings' sidebar doesn't list them (`inRail`).
+// Workspace tabs are grouped by what they manage: the workspace, its people, its agents, and its
+// connections to other apps.
+/** Agents, Connectors, Skills or Automations (`customize/`), as a settings tab. */
+const item = <I extends CustomizeTab>(id: I) => {
+	const t = customizeTabs.find((c) => c.id === id)!;
+	return { id, label: t.label, icon: <t.icon /> };
+};
 const sections = [
 	{ title: "Account", scope: "account", tabs: [{ id: "preferences", label: "Your preferences", icon: <UserIcon /> }] },
 	{
@@ -36,21 +43,31 @@ const sections = [
 		scope: "workspace",
 		tabs: [
 			{ id: "general", label: "General", icon: <SettingsIcon /> },
-			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
-			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
-			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
-			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
-			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "usage", label: "Usage", description: "What AI cost this month", icon: <UsageIcon /> },
+			{ id: "activity", label: "Activity", description: "What changed, and what agents did", icon: <ActivityIcon /> },
 			{ id: "archive", label: "Archive", icon: <ArchiveIcon /> },
 		],
 	},
 	{
-		title: "Customize",
+		title: "People",
 		scope: "workspace",
-		inRail: true,
-		tabs: customizeTabs.map((t) => ({ id: t.id, label: t.label, icon: <t.icon /> })),
+		tabs: [
+			{ id: "members", label: "Members", description: "People in this workspace", icon: <MembersIcon /> },
+			{ id: "roles", label: "Roles", description: "What each role can do", icon: <RolesIcon /> },
+		],
 	},
+	{
+		title: "Agents",
+		scope: "workspace",
+		tabs: [
+			item("agents"),
+			item("skills"),
+			{ id: "memory", label: "Memory", description: "What agents remember", icon: <MemoryIcon /> },
+			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
+		],
+	},
+	{ title: "Customers", scope: "workspace", tabs: [{ id: "addresses", label: "Email and phone", description: "Where customers reach you, who answers, and their records", icon: <MailIcon /> }] },
+	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations")] },
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
 type SettingsTab = (typeof settingsTabs)[number]["id"];
@@ -87,6 +104,7 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 				</>
 			)}
 			{tab === "preferences" && <ProfileTab />}
+			{tab === "addresses" && <AddressesTab access={access} />}
 		</Page>
 	);
 }
@@ -96,7 +114,7 @@ export function SettingsNav({ tab }: { tab: SettingsTab }) {
 	const scope = settingsScope(tab);
 	return (
 		<>
-			{sections.filter((s) => s.scope === scope && !("inRail" in s)).map((s) => (
+			{sections.filter((s) => s.scope === scope).map((s) => (
 				<Group key={s.title} title={s.title}>
 					{s.tabs.map((t) => (
 						<Item key={t.id} icon={t.icon} active={t.id === tab} onClick={() => navigate("settings", t.id)}>
@@ -153,19 +171,30 @@ function GeneralTab({ access }: { access: Access }) {
 
 function AppVersion() {
 	const { version, status } = useUpdates();
-	if (!desktop) return null;
+	const app = desktop();
+	// In a browser it's always the latest version; offer the desktop app instead.
+	if (!app)
+		return (
+			<Settings title="App">
+				<Setting label="Desktop app" hint="For Mac, in its own window, with a dock count.">
+					<button type="button" onClick={() => openLink(DOWNLOAD_URL)} className={actionButton}>
+						Download
+					</button>
+				</Setting>
+			</Settings>
+		);
 	return (
 		<Settings title="App">
 			<Setting label={`Companybot ${version}`} hint={status ? describeUpdate(status) : undefined}>
 				{status?.state === "ready" ? (
-					<button type="button" onClick={() => void desktop?.updates.install()} className={actionPrimaryButton}>
+					<button type="button" onClick={() => void app.updates.install()} className={actionPrimaryButton}>
 						Restart to update
 					</button>
 				) : (
 					<button
 						type="button"
 						disabled={status?.state === "checking" || status?.state === "downloading"}
-						onClick={() => void desktop?.updates.check()}
+						onClick={() => void app.updates.check()}
 						className={actionButton}
 					>
 						Check for updates
@@ -174,6 +203,14 @@ function AppVersion() {
 			</Setting>
 		</Settings>
 	);
+}
+
+/** Where notifications and the unread count show, which differs in a browser, and whether the browser blocks them. */
+function notificationsHint() {
+	if (desktop()) return "When Companybot isn't in front, and the dock count.";
+	if (typeof Notification !== "undefined" && Notification.permission === "denied")
+		return "Your browser blocks them: allow notifications for this site in its settings. The count still shows in the tab's title.";
+	return "When Companybot's tab isn't in front, and the count in the tab's title.";
 }
 
 /** A danger zone's row: does something that can't be undone, once you've typed `confirm` (its name, or your email). */
@@ -203,7 +240,7 @@ function DangerAction({
 	return (
 		<>
 			<Setting label={action} hint={hint}>
-				<button type="button" onClick={() => setOpen(true)} className={`${actionButton} text-red-600`}>
+				<button type="button" onClick={() => setOpen(true)} className={compactDangerButton}>
 					{action}
 				</button>
 			</Setting>
@@ -362,7 +399,7 @@ function ProfileTab() {
 	// Edited together and saved from the top bar, like General. The draft keeps `start`, your preferences
 	// as they were when you began, so Save sends only what you changed here, never another device's change
 	// back; if they changed meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
-	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true };
+	const saved = { displayName: prefs?.displayName ?? "", timeZone: prefs?.timeZone ?? "auto", sendWith: prefs?.sendWith ?? "enter", notify: prefs?.notify ?? "all", showRecents: prefs?.showRecents ?? true, foldersFirst: prefs?.foldersFirst ?? false };
 	const draft = useDraft("account:preferences", { ...saved, start: saved }, versionOf(saved));
 	const value = draft.value;
 	const { error, run } = useRun();
@@ -375,6 +412,7 @@ function ProfileTab() {
 			...(value.sendWith !== start.sendWith && { sendWith: value.sendWith }),
 			...(value.notify !== start.notify && { notify: value.notify }),
 			...(value.showRecents !== start.showRecents && { showRecents: value.showRecents }),
+			...(value.foldersFirst !== start.foldersFirst && { foldersFirst: value.foldersFirst }),
 		};
 		run(update(changed), () => draft.discard());
 	};
@@ -410,7 +448,7 @@ function ProfileTab() {
 						onChange={(sendWith) => draft.set({ ...value, sendWith })}
 					/>
 				</Setting>
-				<Setting label="Notifications" hint="When Companybot isn't in front, and the dock count.">
+				<Setting label="Notifications" hint={notificationsHint()}>
 					<Select
 						className={wideControlClass}
 						value={value.notify}
@@ -424,6 +462,9 @@ function ProfileTab() {
 				</Setting>
 				<Setting label="Recents on the rail" hint="The places you opened lately, under your pins. Right-click the rail to change this too.">
 					<Toggle checked={value.showRecents} onChange={(showRecents) => draft.set({ ...value, showRecents })} />
+				</Setting>
+				<Setting label="Folders on top" hint="In Drive, folders sit above the pages and files at every level, as in Finder. Off, you put everything in the order you like.">
+					<Toggle checked={value.foldersFirst} onChange={(foldersFirst) => draft.set({ ...value, foldersFirst })} />
 				</Setting>
 			</Settings>
 			<AppVersion />

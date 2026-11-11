@@ -13,6 +13,7 @@ import { accessOf, memberOf, memberProfile, rolesOf, timeZoneOf } from "./lib";
 import { appendPageBlock } from "./pageOps";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
+import { startInboxSections } from "./sectionOps";
 
 // Data migrations. Deploys never change stored rows; these do, once per deployment.
 // `pnpm release` runs every pending one on prod right after deploying, and the
@@ -66,6 +67,21 @@ export const companybotWebTools = migrations.define({
 	},
 });
 
+// Companybot got Inbox (inbox.manage): reading, answering and starting conversations with customers by
+// email and text. New workspaces get it from default-agents.ts; this adds it to each existing Companybot
+// that still has its default skills.load grant, saved as a new version like an edit.
+export const companybotInboxTool = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("inbox.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "inbox.*"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
 // Companybot got images.generate, to make and edit pictures. New workspaces get it from
 // default-agents.ts; this adds it to each existing Companybot that still has its default skills.load
 // grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
@@ -107,6 +123,21 @@ export const companybotFollowupTools = migrations.define({
 	migrateOne: async (ctx, agent) => {
 		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("followups.*")) return;
 		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "followups.*"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
+// Drive got files (driveFiles.ts) and Companybot the tools for them. New workspaces get them from
+// default-agents.ts; this adds them to each existing Companybot that still has its default skills.load
+// grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
+export const companybotFileTools = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("files.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "files.*"] };
 		const version = agent.version + 1;
 		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
 		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
@@ -468,6 +499,15 @@ export const pageChildBlocks = migrations.define({
 });
 
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
+// Customize left the rail for workspace settings: saved rail orders drop its id.
+export const railDropCustomize = migrations.define({
+	table: "arrangements",
+	batchSize: 100,
+	migrateOne: async (ctx, row) => {
+		if (row.list === "rail" && row.ids.includes("customize")) await ctx.db.patch(row._id, { ids: row.ids.filter((id) => id !== "customize") });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
@@ -475,6 +515,8 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.usageThisMonth,
 	internal.migrations.companybotImageTool,
 	internal.migrations.companybotFollowupTools,
+	internal.migrations.companybotFileTools,
+	internal.migrations.companybotInboxTool,
 	internal.migrations.cronSchedules,
 	internal.migrations.customRoles,
 	internal.migrations.customRolesMembers,
@@ -502,7 +544,34 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.lastWorkspaces,
 	internal.migrations.chatMemberCounts,
 	internal.migrations.pageChildBlocks,
+	internal.migrations.railDropCustomize,
+	internal.migrations.agentCustomerReplies,
+	internal.migrations.inboxSections,
 ];
+
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test, and
+// `workspaces.publicAbilities` (schema.ts). Sending replies to customers without a check moved from the
+// Public role (one switch for the workspace) to each agent: a workspace that had it on keeps it, on every agent.
+export const agentCustomerReplies = migrations.define({
+	table: "workspaces",
+	batchSize: 20,
+	migrateOne: async (ctx, workspace) => {
+		if (!workspace.publicAbilities) return;
+		if (workspace.publicAbilities.some((a) => a.ability === "public.reply" && a.on)) {
+			for await (const agent of ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))) {
+				if (!agent.customerReplies) await ctx.db.patch(agent._id, { customerReplies: "send" });
+			}
+		}
+		await ctx.db.patch(workspace._id, { publicAbilities: undefined });
+	},
+});
+
+// Inbox came with its first sections (Channels, Tags), as a new workspace gets them in startAgain.
+export const inboxSections = migrations.define({
+	table: "workspaces",
+	batchSize: 20,
+	migrateOne: (ctx, workspace) => startInboxSections(ctx, workspace._id),
+});
 
 /** Starts every pending migration, in order. Finished ones are skipped. */
 export const runAll = internalMutation({

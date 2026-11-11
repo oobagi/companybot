@@ -12,10 +12,13 @@ import { ImagePicker } from "./ImagePicker";
 import { pictureLimits } from "@companybot/core/images";
 import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
+import { AgentAddresses } from "./Addresses";
+import { Choice, Topics } from "./chat/AgentPanel";
+import { MarkdownEditor } from "./pages/PageEditor";
 import { archiveQuestion, useConfirm } from "./chat/common";
 import { TrashNotice } from "./Trash";
 import { AgentIcon, ArchiveIcon, CaretDownIcon, CaretRightIcon, RestoreIcon } from "../icons";
-import { ConflictNotice, type Crumb, Loading, Notice, Page, SaveBar, Section, Setting, Settings, barButton, cardClass, compactButton, compactControlClass, descriptionClass, hintClass, metadataClass, timeAgo, useDraft, useRun, wideControlClass, cardButton } from "../ui";
+import { ConflictNotice, type Crumb, Loading, Notice, Page, SaveBar, Section, Setting, Settings, barButton, cardClass, compactButton, compactControlClass, descriptionClass, metadataClass, timeAgo, useDraft, useRun, wideControlClass, cardButton } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
@@ -126,22 +129,25 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 					<Setting label="Reasoning" hint="How hard it thinks before answering. Higher is slower and costs more, but handles harder work.">
 						<Segmented label="Reasoning" value={config.reasoning ?? defaultReasoning} options={reasoningOptions} onChange={(reasoning) => edit({ reasoning })} />
 					</Setting>
-					<Setting wide label="Instructions" hint="Changes apply from the agent's next reply.">
-						<textarea
-							aria-label="Instructions"
-							rows={10}
-							className={`${compactControlClass} w-full resize-y font-mono leading-relaxed`}
-							value={config.instructions}
-							onChange={(e) => edit({ instructions: e.target.value })}
-						/>
+					<Setting wide label="Instructions" hint="What it should know and how it should work. Type / for headings and lists. Changes apply from the agent's next reply.">
+						<div className="w-full rounded-lg border border-neutral-200 py-2 pr-3">
+							{/* Keyed by version: a save or restore loads the new text; typing doesn't. */}
+							<MarkdownEditor key={`${agent.version}:${draft.dirty ? "draft" : "saved"}`} label="Instructions" markdown={config.instructions} editable={editable} onChange={(instructions) => edit({ instructions })} />
+						</div>
 					</Setting>
 				</Settings>
-				<Settings title="Contact" note="How customers and staff reach this agent outside the app.">
-					{contactMethods.map((c) => (
-						<Setting key={c.label} label={c.label} hint={c.hint}>
-							<span className={hintClass}>Coming soon</span>
-						</Setting>
-					))}
+				<AgentAddresses agentId={agent._id} agentName={agent.name} />
+				<Settings title="When a customer emails or texts it">
+					<Setting wide label="Replies" hint="For the email addresses and phone numbers it answers, above.">
+						<div className="w-full">
+							<Choice picked={config.customerReplies ?? "check"} disabled={!editable} name={config.name || "It"} onPick={(customerReplies) => edit({ customerReplies })} />
+						</div>
+					</Setting>
+					<Setting wide label="Topics it never answers" hint={`${config.name || "It"} sends these conversations to your team instead of replying.`}>
+						<div className="w-full">
+							<Topics topics={config.handOffTopics ?? []} disabled={!editable} onChange={(handOffTopics) => edit({ handOffTopics })} />
+						</div>
+					</Setting>
 				</Settings>
 				<Section title="Tools">
 					{options.groups.map((g) => (
@@ -162,13 +168,6 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 		</Page>
 	);
 }
-
-/** An agent's own number, address and site chat. None are built yet. */
-const contactMethods = [
-	{ label: "Phone number", hint: "Its own number: it answers calls and texts." },
-	{ label: "Email address", hint: "Its own address: it reads and replies to email." },
-	{ label: "Website chat", hint: "A chat box on your website that it answers." },
-];
 
 type Options = FunctionReturnType<typeof api.agents.options>;
 

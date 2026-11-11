@@ -2,7 +2,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
-import { Form, Notice, Setting, Settings, primaryButton, secondaryButton, useRun, useSynced, wideControlClass } from "../../ui";
+import { Form, Notice, primaryButton, secondaryButton, useRun, useSynced, fullControlClass } from "../../ui";
 import { DialogButtons, Modal } from "../chat/common";
 
 /** The title, edited in place; saved when you leave it or press Enter. */
@@ -32,14 +32,10 @@ export function RenamePage({ page, onClose }: { page: { _id: Id<"pages">; title:
 	const [title, setTitle] = useState(page.title);
 	const rename = useMutation(api.pages.rename);
 	const { error, busy, run } = useRun();
-	return <Modal title="Rename page" onClose={onClose}>
+	return <Modal title="Rename page" size="md" onClose={onClose}>
 		<Form onSubmit={() => run(rename({ pageId: page._id, title: title.trim() }), onClose)}>
 			<Notice>{error}</Notice>
-			<Settings>
-				<Setting label="Title">
-					<input autoFocus aria-label="Page title" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} onFocus={(e) => e.currentTarget.select()} className={wideControlClass} />
-				</Setting>
-			</Settings>
+			<input autoFocus aria-label="Page title" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} onFocus={(e) => e.currentTarget.select()} className={fullControlClass} />
 			<DialogButtons>
 				<button type="button" className={secondaryButton} onClick={onClose}>Cancel</button>
 				<button type="submit" className={primaryButton} disabled={busy || !title.trim()}>Rename</button>

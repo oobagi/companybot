@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
 import { navigate } from "../../router";
-import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon } from "../../icons";
-import { EmptyState, Loading, NotFound, Notice, RenameInput, Scroll, TopBar, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
+import { ChannelIcon, ChatIcon, CloseIcon, EditIcon, PlusIcon, PrivateIcon, SidebarIcon } from "../../icons";
+import { Loading, NotFound, Notice, RenameInput, Scroll, TopBar, conversationColumn, iconButton, membersButton, smallIconButton, suggestionButton, surfaceButton, tabCloseButton, useRun } from "../../ui";
 import { FileDrop, useAttachments } from "./Attachments";
-import { AgentBadge, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
+import { AgentBadge, Avatar, AvatarStack, MenuItem, Popover, archiveQuestion, useConfirm } from "./common";
 import { Composer, type SendWith } from "./Composer";
 import { type ChatDetails, type Mentions, chatTitle, showSending, useDirectory, useMessages } from "./data";
+import { AgentPanel } from "./AgentPanel";
 import { ChannelDetails } from "./dialogs";
 import { draftKey } from "./drafts";
 import { MessageList } from "./MessageList";
@@ -21,6 +22,8 @@ const suggestions = [
 	"Show the 5 largest US cities in a table",
 	"Remember that I prefer mornings for meetings.",
 ];
+
+const AGENT_PANEL_KEY = "agentPanel";
 
 /** A message to show on opening, from a link elsewhere (a record's discussion): its thread, or the message itself. */
 type ChatFocus = { thread: string } | { message: string };
@@ -48,6 +51,22 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 	const directory = useDirectory();
 	const workspace = useWorkspace();
 	const [details, setDetails] = useState(false);
+	// An agent DM's details beside it: kept open or shut per computer.
+	const [agentPanel, setAgentPanel] = useState(() => {
+		try {
+			return localStorage.getItem(AGENT_PANEL_KEY) !== "closed";
+		} catch {
+			return true;
+		}
+	});
+	const showAgentPanel = (open: boolean) => {
+		setAgentPanel(open);
+		try {
+			localStorage.setItem(AGENT_PANEL_KEY, open ? "open" : "closed");
+		} catch {
+			// It still holds until reload.
+		}
+	};
 	const { error, fail } = useRun();
 
 	// The open thread is in the route (/chat/<id>/thread/<message>), so the sidebar's thread rows,
@@ -103,12 +122,12 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 		/>
 	);
 	const footer = (
-		<div className="flex flex-col gap-2 px-5 pt-4 pb-7">
+		<div className={`${conversationColumn} flex flex-col gap-2 px-5 pt-4 pb-7`}>
 			<Notice>{error}</Notice>
 			{agent && messages?.length === 0 && !chat.trash && (
 				<div className="flex flex-col items-start gap-2 pb-2" aria-label="Suggested messages">
 					{suggestions.map((suggestion) => (
-						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [] })} className={`${suggestionButton} max-w-full`}>
+						<button type="button" key={suggestion} onClick={() => send(suggestion, { userIds: [], agentIds: [], skillIds: [], recordIds: [] })} className={`${suggestionButton} max-w-full`}>
 							{suggestion}
 						</button>
 					))}
@@ -133,6 +152,11 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 			}
 			description={agent ? undefined : chat.topic}
 		>
+			{agent && (
+				<button type="button" aria-label={agentPanel ? "Hide details" : "Show details"} title={agentPanel ? "Hide details" : "Show details"} aria-expanded={agentPanel} className={iconButton} onClick={() => showAgentPanel(!agentPanel)}>
+					<SidebarIcon className="-scale-x-100" />
+				</button>
+			)}
 			{!agent && (
 				<button
 					type="button"
@@ -157,7 +181,10 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					</>
 				) : messages.length === 0 ? (
 					<Scroll header={bar} footer={footer}>
-						<EmptyState icon={chat.kind === "channel" ? <ChannelIcon /> : <ChatIcon />} title="No messages yet">{chat.kind === "channel" ? `Start a conversation in ${title}.` : `Send your first message to ${title}.`}</EmptyState>
+						{/* No messages yet: the start of its history, just above the composer, as it shows once there are some. */}
+						<div className={`${conversationColumn} flex flex-1 flex-col justify-end py-4`}>
+							<Intro title={title} channel={chat.kind === "channel"} locked={!!chat.private} agent={agent} />
+						</div>
 					</Scroll>
 				) : (
 					<MessageList
@@ -170,7 +197,7 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 						// A channel they can only view: no reacting or editing (the server refuses those too).
 						readOnly={!chat.canPost}
 						onError={fail}
-						intro={all && <Intro title={title} channel={chat.kind === "channel"} />}
+						intro={all && <Intro title={title} channel={chat.kind === "channel"} locked={!!chat.private} agent={agent} />}
 						header={bar}
 						footer={footer}
 					/>
@@ -187,16 +214,23 @@ function OpenChat({ chat, sendWith, focus, onLeft }: { chat: ChatDetails; sendWi
 					onClose={() => openThread()}
 				/>
 			)}
+			{agent && agentPanel && !threadId && <AgentPanel agentId={agent.id as Id<"agents">} onClose={() => showAgentPanel(false)} />}
 			{details && <ChannelDetails chat={chat} onClose={() => setDetails(false)} onLeft={onLeft} />}
 		</div>
 	);
 }
 
-function Intro({ title, channel }: { title: string; channel: boolean }) {
+/** The top of a chat's history, centered: its picture (a channel's #, an agent's picture), a welcome, and what this is the start of. */
+function Intro({ title, channel, locked, agent }: { title: string; channel: boolean; locked: boolean; agent?: { name: string; image?: string | null } }) {
 	return (
-		<div className="px-5 pt-6 pb-2">
-			<p className="text-lg font-semibold">{title}</p>
-			<p className="text-sm text-neutral-500">
+		<div className="flex flex-col items-center px-5 pt-10 pb-6 text-center">
+			{agent ? (
+				<Avatar name={agent.name} image={agent.image} agent size="lg" />
+			) : (
+				<span className="flex size-14 items-center justify-center rounded-full bg-neutral-100 text-2xl text-neutral-500">{channel ? locked ? <PrivateIcon /> : <ChannelIcon /> : <ChatIcon />}</span>
+			)}
+			<p className="pt-3 text-xl font-semibold">{channel ? `Welcome to ${title}` : title}</p>
+			<p className="pt-1 text-sm text-neutral-500">
 				{channel ? `This is the very beginning of ${title}.` : `This is the beginning of your conversation with ${title}.`}
 			</p>
 		</div>

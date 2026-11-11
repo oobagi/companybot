@@ -111,6 +111,9 @@ type RecordWrite = {
 	values?: Record<string, unknown>;
 	options?: (string | { id?: string; label: string })[];
 	linksTo?: string;
+	kind?: string;
+	multiple?: boolean;
+	preview?: boolean;
 	trash?: boolean;
 	sort?: { field: string } | null;
 	columns?: string[];
@@ -154,7 +157,9 @@ async function recordRefs(ctx: QueryCtx, workspaceId: Id<"workspaces">, tool: st
 	if (i.linksTo !== undefined) refs.linksTo = typeOf(i.linksTo)?._id ?? null;
 	if (tool === "records.save_view")
 		refs.fields = [i.sort?.field, i.groupBy, ...(i.columns ?? []), ...(i.filters ?? []).map((f) => f.field)].map((k) => (typeof k === "string" ? (fieldOf(k)?._id ?? null) : null));
-	if (i.trash === true && type && (tool === "records.save_field" || tool === "records.save_database")) {
+	// Changing a field's kind rewrites its records' values: a record changed after the approval stops it, as for archiving.
+	const reshapes = tool === "records.save_field" && !!i.field && !i.preview && (i.kind !== undefined || i.multiple !== undefined || i.linksTo !== undefined);
+	if ((i.trash === true || reshapes) && type && (tool === "records.save_field" || tool === "records.save_database")) {
 		const newest = (archived: boolean) =>
 			ctx.db.query("records").withIndex("by_type_updated", (q) => q.eq("typeId", type._id).eq("archived", archived)).order("desc").first();
 		const [live, gone] = await Promise.all([newest(false), newest(true)]);

@@ -7,6 +7,7 @@ import { activityOf, addToChat, insertChat, agentOfDm, availableName, dropSeat, 
 import { mutation, query } from "./functions";
 import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
 import { type AccessList, accessInfo, chatAccess, reach, requireKeepsEdit, savedAccess } from "./placeAccess";
+import { recordTags } from "./recordTags";
 import { canReadReply, canReadSources } from "./replyPrivacy";
 import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
@@ -182,11 +183,12 @@ export const activeThreads = query({
 				.take(ACTIVE_THREADS_PER_CHANNEL)));
 		}
 		const newest = parents.sort((a, b) => b.lastReplyAt! - a.lastReplyAt!).slice(0, ACTIVE_THREADS_MAX);
-		return Promise.all(newest.map(async (m) => ({ chatId: m.chatId, messageId: m._id, title: await canReadReply(ctx, member, m) ? threadTitle(m) : "🔒 Private reply", lastReplyAt: m.lastReplyAt! })));
+		const tags = recordTags(ctx, member);
+		return Promise.all(newest.map(async (m) => ({ chatId: m.chatId, messageId: m._id, title: await canReadReply(ctx, member, m) ? threadTitle((await tags.forPeople(m.text)).text, m.deleted) : "🔒 Private reply", lastReplyAt: m.lastReplyAt! })));
 	},
 });
 
-const threadTitle = (m: Doc<"chatMessages">) => (m.deleted ? "Deleted message" : titleFrom(m.text) || "Thread");
+const threadTitle = (text: string, deleted?: boolean) => (deleted ? "Deleted message" : titleFrom(text) || "Thread");
 
 /** A chat's alert: its newest unread message meant for you. */
 export type Alert = {
@@ -198,6 +200,8 @@ export type Alert = {
 	threadId?: Id<"chatMessages">;
 	title: string;
 	text: string;
+	/** When it was said, to sort it among Inbox's in the tray. */
+	at: number;
 };
 
 /**
@@ -214,6 +218,7 @@ export const alerts = query({
 		const notify = prefs?.notify ?? "all";
 		if (notify === "off") return [];
 		const names = namer(ctx);
+		const tags = recordTags(ctx, member);
 		const alerts: Alert[] = [];
 		for (const row of await seatsOf(ctx, member)) {
 			const since = row.lastReadAt ?? 0;
@@ -249,7 +254,8 @@ export const alerts = query({
 				messageId: message._id,
 				...(message.threadId && { threadId: message.threadId }),
 				title: chat.kind === "channel" ? `${author} in #${chat.name}` : author,
-				text: await canReadReply(ctx, member, message) ? message.text.slice(0, 200) : "🔒 Private reply",
+				at: shownAt(message),
+				text: await canReadReply(ctx, member, message) ? (await tags.forPeople(message.text)).text.slice(0, 200) : "🔒 Private reply",
 			});
 		}
 		return alerts;
@@ -361,7 +367,7 @@ export const setAccess = mutation({
 		const member = await requireMember(ctx);
 		const chat = await requireManagedChannel(ctx, member, chatId);
 		if (chat.archived) throw new ConvexError("This channel is in Archive.");
-		const list: AccessList = await savedAccess(ctx, member, access);
+		const list: AccessList = await savedAccess(ctx, member, access, "channel");
 		if (chat.isDefault && !list.some((e) => e.role === "everyone")) throw new ConvexError(`Everyone is in #${chat.name}, so everyone keeps at least View.`);
 		requireKeepsEdit(member, "channel", list);
 		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.

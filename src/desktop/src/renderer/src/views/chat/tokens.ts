@@ -1,12 +1,14 @@
 import type { TokenNames } from "./data";
 
-// @names, #channels and /skills in a message's text, found the same way in a person's plain text
-// and in an agent's Markdown reply, so both show the same clickable chips.
+// @names, #channels, /skills and tagged @records in a message's text, found the same way in a person's
+// plain text and in an agent's Markdown reply, so both show the same clickable chips. A record reads in the
+// text as the server wrote it for this reader (`@Summit Homes`, `@Private record`), listed on the message.
 
 export type Token =
 	| { kind: "person"; text: string; ref: TokenNames["people"][number] }
 	| { kind: "channel"; text: string; ref: TokenNames["channels"][number] }
-	| { kind: "skill"; text: string; ref: TokenNames["skills"][number] };
+	| { kind: "skill"; text: string; ref: TokenNames["skills"][number] }
+	| { kind: "record"; text: string; ref: NonNullable<TokenNames["records"]>[number] };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Longest first, so "@Scout Pro" isn't "@Scout". */
@@ -17,7 +19,10 @@ const alternation = (names: string[]) => [...names].sort((a, b) => b.length - a.
  * at a word's start: "ada@x.co" and "a/Proposal" aren't tokens.
  */
 export function splitTokens(text: string, tokens: TokenNames): (string | Token)[] {
+	const records = tokens.records ?? [];
 	const parts = [
+		// First: a message's own tags win over a person who happens to share the name.
+		records.length > 0 && `(?:${alternation(records.map((r) => r.text))})(?![\\w-])`,
 		tokens.people.length > 0 && `@(?:${alternation(tokens.people.map((p) => p.name))})(?![\\w-])`,
 		tokens.channels.length > 0 && `#(?:${alternation(tokens.channels.map((c) => c.name))})(?![\\w-])`,
 		tokens.skills.length > 0 && `\\/(?:${alternation(tokens.skills.map((s) => s.name))})(?![\\w-])`,
@@ -34,6 +39,8 @@ export function splitTokens(text: string, tokens: TokenNames): (string | Token)[
 export function findToken(text: string, tokens: TokenNames): Token | undefined {
 	const name = text.slice(1).toLowerCase();
 	const same = (n: string) => n.toLowerCase() === name;
+	const record = tokens.records?.find((r) => r.text.toLowerCase() === text.toLowerCase());
+	if (record) return { kind: "record", text, ref: record };
 	if (text.startsWith("@")) {
 		const ref = tokens.people.find((p) => same(p.name));
 		return ref && { kind: "person", text, ref };

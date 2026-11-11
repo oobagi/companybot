@@ -1,9 +1,9 @@
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useQuery as useCachedQuery, usePaginatedQuery as useCachedPaginatedQuery } from "convex-helpers/react/cache";
 import type { OptimisticUpdate } from "convex/browser";
-import { type PaginatedQueryReference, useAction as useConvexAction, useMutation as useConvexMutation } from "convex/react";
+import { type PaginatedQueryReference, useAction as useConvexAction, useConvex, useMutation as useConvexMutation } from "convex/react";
 import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
-import { createContext, useCallback, useContext } from "react";
+import { createContext, useCallback, useContext, useRef } from "react";
 
 // The app's Convex hooks. Use these, not convex/react's: each call carries the workspace this
 // window has open, so a request always acts where it was made, whatever another device opened
@@ -29,6 +29,12 @@ export function useQuery<Q extends FunctionReference<"query">>(query: Q, ...[arg
 	return useCachedQuery(query as FunctionReference<"query">, args === "skip" ? "skip" : withWorkspace(args as Args, workspaceId));
 }
 
+/**
+ * Keeps a query live in the cache (main.tsx) without adding the workspace: to hold a read another library
+ * makes on its own, with its own args (the page sync's snapshot, views/pages/PageEditor.tsx).
+ */
+export const useHeldQuery = useCachedQuery;
+
 export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 	query: Q,
 	args: Parameters<typeof useCachedPaginatedQuery<Q>>[1],
@@ -38,7 +44,24 @@ export function usePaginatedQuery<Q extends PaginatedQueryReference>(
 	return useCachedPaginatedQuery(query, args === "skip" ? "skip" : withWorkspace(args as Args, workspaceId), options);
 }
 
+/**
+ * A query's last result while new args load (`useQuery` gives undefined until then), so a list
+ * keeps showing instead of flashing empty. Undefined only before the first result.
+ */
+export function useSettled<T>(value: T | undefined): T | undefined {
+	const last = useRef(value);
+	if (value !== undefined) last.current = value;
+	return last.current;
+}
+
 // Stable between renders (like convex/react's), so effects can depend on them.
+
+/** A query asked once rather than watched (a menu's search as you type). */
+export function useQueryOnce<Q extends FunctionReference<"query">>(query: Q) {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	const client = useConvex();
+	return useCallback((...[args]: Rest<Q>): Promise<FunctionReturnType<Q>> => client.query(query, withWorkspace(args as Args, workspaceId)), [client, query, workspaceId]);
+}
 
 /**
  * `optimistic` makes the update that changes cached query results until the server's arrive; its args
@@ -53,6 +76,13 @@ export function useMutation<M extends FunctionReference<"mutation">>(mutation: M
 		(...[args]: Rest<M>): Promise<FunctionReturnType<M>> => (optimistic ? plain.withOptimisticUpdate(optimistic()) : plain)(withWorkspace(args as Args, workspaceId)),
 		[plain, optimistic, workspaceId],
 	);
+}
+
+/** A one-time read, not a subscription (what a folder holds now, to place a row last in it), in the open workspace like the hooks. */
+export function useFetch() {
+	const workspaceId = useContext(WorkspaceContext)?.id ?? null;
+	const convex = useConvex();
+	return useCallback(<Q extends FunctionReference<"query">>(query: Q, ...[args]: Rest<Q>): Promise<FunctionReturnType<Q>> => convex.query(query, withWorkspace(args as Args, workspaceId)), [convex, workspaceId]);
 }
 
 export function useAction<A extends FunctionReference<"action">>(action: A) {

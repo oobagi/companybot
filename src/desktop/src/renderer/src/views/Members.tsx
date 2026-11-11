@@ -7,7 +7,7 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
 import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
 import { navigate } from "../router";
-import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton } from "../ui";
+import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, compactButton, useDraft, useRun, wideControlClass, cardButton, fullControlClass, hintClass } from "../ui";
 
 import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
@@ -212,6 +212,14 @@ export function RolesTab({ access }: { access: Access }) {
 						<CaretRightIcon className="text-neutral-400" />
 					</button>
 				))}
+				<button type="button" onClick={() => navigate("settings", "roles", "public")} className={`items-center gap-3 ${cardButton}`}>
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="truncate font-medium">Public</span>
+						<span className="truncate text-xs text-neutral-500">Anyone outside who emails or texts you</span>
+					</span>
+					<span className={descriptionClass}>Customers</span>
+					<CaretRightIcon className="text-neutral-400" />
+				</button>
 			</section>
 		</>
 	);
@@ -222,13 +230,10 @@ function NewRoleDialog({ onClose }: { onClose: () => void }) {
 	const [name, setName] = useState("");
 	const { error, busy, run } = useRun();
 	return (
-		<Modal title="New role" onClose={onClose}>
+		<Modal title="New role" size="md" onClose={onClose}>
 			<Form onSubmit={() => run(create({ name }).then((id) => navigate("settings", "roles", id)), onClose)}>
-				<Settings>
-					<Setting label="Name" hint="Starts with every switch off. You turn on what it can do next.">
-						<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={wideControlClass} />
-					</Setting>
-				</Settings>
+				<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={fullControlClass} />
+				<p className={hintClass}>It starts with every switch off. You turn on what it can do next.</p>
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={onClose} className={secondaryButton}>
@@ -247,6 +252,7 @@ function NewRoleDialog({ onClose }: { onClose: () => void }) {
 export function RoleScreen({ access, roleId }: { access: Access; roleId: string }) {
 	const roles = useQuery(api.roles.list);
 	const crumbs = [{ label: "Roles", to: ["settings", "roles"] }];
+	if (roleId === "public") return <PublicRoleForm crumbs={crumbs} />;
 	if (!roles) return <NotFound crumbs={crumbs} loaded={false} icon={<RolesIcon />} title="Role not found" />;
 	const role = roles.find((r) => r.id === roleId);
 	if (!role) return <NotFound crumbs={crumbs} loaded icon={<RolesIcon />} title="Role not found" children="It may have been deleted." />;
@@ -319,6 +325,27 @@ function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: stri
 						<Checkbox label={switchLabel(p)} checked={fixed || value.on.includes(p)} disabled={!canEdit} onChange={(on) => toggle(p, on)} />
 					</Setting>
 				))}
+			</Settings>
+		</Page>
+	);
+}
+
+/**
+ * The Public role: people outside the workspace. Nobody holds it and it can't be deleted. What they see
+ * is set where it lives (a page's or database's Who can access list); how each agent replies is on the agent.
+ */
+function PublicRoleForm({ crumbs }: { crumbs: { label: string; to: string[] }[] }) {
+	return (
+		<Page title="Public" crumbs={crumbs} description="Anyone outside who reaches an agent">
+			<Settings title="About this role" note="Chat, members, money and settings are never shared with customers.">
+				<Setting label="What customers can see" hint="Nothing until you share it. Open a page or database, then add Public to its Who can access list.">
+					<span className={metadataClass}>Set on each page</span>
+				</Setting>
+				<Setting label="How agents reply to customers" hint="Each agent has its own setting: send replies right away, or let you check each one first.">
+					<button type="button" className={compactButton} onClick={() => navigate("settings", "agents")}>
+						Open agents
+					</button>
+				</Setting>
 			</Settings>
 		</Page>
 	);

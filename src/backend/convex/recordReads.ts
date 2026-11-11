@@ -1,9 +1,10 @@
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { outsiderWords } from "@companybot/core";
 import { type Member, capped, memo, nameOf } from "./lib";
 import { currencyOf, fieldsOf, idsIn, resolveRefs, requireType, typeTrashed, typeVisible, typesOf } from "./recordOps";
-import { type Condition, type Group, type Sort, findRecords } from "./recordQuery";
+import { type Condition, type Group, type Owner, type Sort, findRecords } from "./recordQuery";
 
 // Reads the app (records.ts) and agents (recordTools.ts) share, so their lists, search and
 // "what links here" can't drift. Callers check the database they name; reads that span databases
@@ -26,7 +27,7 @@ export async function listRecords(
 	ctx: QueryCtx,
 	workspaceId: Id<"workspaces">,
 	type: { typeId: Id<"recordTypes">; fields: Doc<"recordFields">[] },
-	opts: { archived: boolean; conditions: Condition[]; group?: Group; sort?: Sort; paginationOpts: PaginationOptions },
+	opts: { archived: boolean; conditions: Condition[]; group?: Group; sort?: Sort; owner?: Owner; paginationOpts: PaginationOptions },
 ) {
 	return findRecords(ctx, { workspaceId, ...type, ...opts, currency: await currencyOf(ctx, workspaceId), pageMax: PAGE_MAX });
 }
@@ -103,8 +104,26 @@ export async function linkingRecords(
 	return { ...rows, page };
 }
 
+/** Field and database settings in history, as people say them. */
+const settingLabels: Record<string, string> = { ai: "Fill with AI", label: "Name", options: "Options", position: "Position", kind: "Kind", multiple: "Holds", linkType: "Links to", name: "Name", plural: "Plural" };
+
 /** History entries hold old and new values, so their pages are smaller than lists. */
 const HISTORY_PAGE_MAX = 20;
+
+/**
+ * Who made a change, for history and Activity: a member's name, or someone outside an agent acted for as
+ * Public ("(555) 123-4567 by text"), shown with the agent as "Front desk, for (555) 123-4567 by text"; or AI
+ * filling fields from a conversation.
+ */
+export async function changedBy(ctx: QueryCtx, e: Pick<Doc<"recordHistory">, "userId" | "contact" | "ai">) {
+	if (e.userId) return nameOf(ctx, e.userId);
+	if (e.ai) {
+		// Field AI (fieldAi.ts): from which conversation.
+		const c = e.ai.conversationId && (await ctx.db.get(e.ai.conversationId));
+		return c ? `AI, from the conversation with ${c.contactName ?? outsiderWords(c.contact)}` : "AI, from a conversation";
+	}
+	return e.contact ? outsiderWords(e.contact) : "Someone";
+}
 
 /** History entries, display-ready, with names resolved once for the page. */
 export async function toEntries(ctx: QueryCtx, member: Member, items: { entry: Doc<"recordHistory">; fields: Doc<"recordFields">[] }[]) {
@@ -115,6 +134,8 @@ export async function toEntries(ctx: QueryCtx, member: Member, items: { entry: D
 	return Promise.all(
 		items.map(async ({ entry: e, fields }, i) => {
 			const field = e.fieldId && fields.find((f) => f._id === e.fieldId);
+			// A change to the field's kind, one/several or linked database: undone from here, while its old values are kept.
+			const job = e.fieldId && !e.recordId && e.action === "field.updated" ? await ctx.db.query("fieldChanges").withIndex("by_history", (q) => q.eq("historyId", e._id)).first() : null;
 			return {
 				_id: e._id,
 				time: e._creationTime,
@@ -123,9 +144,11 @@ export async function toEntries(ctx: QueryCtx, member: Member, items: { entry: D
 				recordId: e.recordId ?? null,
 				/** Field changes: the field's current label. */
 				field: field ? field.label : null,
-				changes: e.changes.map((c) => ({ ...c, label: fields.find((f) => f.key === c.key)?.label ?? c.key })),
+				changes: e.changes.map((c) => ({ ...c, label: e.recordId ? (fields.find((f) => f.key === c.key)?.label ?? c.key) : (settingLabels[c.key] ?? c.key) })),
+				/** A field change that converted values: `undoable` while its old values are kept and nothing later is in the way. */
+				...(job && { fieldChange: { running: job.status === "running", undoable: !job.undoes && !job.undoneBy && !job.forgotten && job.status === "done" && !!job.keepUntil && job.keepUntil > Date.now(), cleared: job.counts.cleared, converted: job.counts.converted } }),
 				refs: Object.fromEntries(idsOf[i]!.filter((id) => refs[id]).map((id) => [id, refs[id]!])),
-				user: await nameOf(ctx, e.userId),
+				user: await changedBy(ctx, e),
 				agent: e.agentId ? ((await ctx.db.get(e.agentId))?.name ?? null) : null,
 				undoes: e.undoes ?? null,
 				undone: !!e.undoneBy,

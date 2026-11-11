@@ -77,6 +77,19 @@ export const loadedEmoji = () => loaded;
 /** The emoji in skin tone `tone` (1 light … 5 dark; 0 is the default yellow). */
 export const withTone = (e: Emoji, tone: number) => (tone > 0 && e.tones[tone - 1]) || e.char;
 
+/** The panel's tiles per row (`grid-cols-9` in EmojiPanel), for arrow keys to move by a row. */
+export const EMOJI_COLUMNS = 9;
+
+/**
+ * What a `:query` menu lists, first one lit: the matches for what's typed (none, and the menu closes), or
+ * with nothing typed the recents, then every emoji, as the panel shows them.
+ */
+export function menuEmoji(index: EmojiIndex, query: string, store: Store): Emoji[] {
+	if (query) return searchEmoji(index, query);
+	const recent = recentEmoji(store).flatMap((c) => index.emoji.find((e) => e.char === c || e.tones.includes(c)) ?? []);
+	return [...new Set([...recent, ...index.emoji])];
+}
+
 const words = (s: string) => s.toLowerCase().split(/[\s_:,-]+/).filter(Boolean);
 
 /**
@@ -130,7 +143,7 @@ export const COMPLETED_SHORTCODE = /(?:^|\s):([a-z0-9_+-]+):$/i;
 
 // Recents and the skin tone stay on this computer, like the sidebar's width.
 
-type Store = Pick<Storage, "getItem" | "setItem">;
+export type Store = Pick<Storage, "getItem" | "setItem">;
 export const RECENT_KEY = "emoji.recent";
 export const TONE_KEY = "emoji.tone";
 export const MAX_RECENT = 24;

@@ -368,6 +368,12 @@ function streamsFor(plan: string, typeId: Id<"recordTypes">, archived: boolean, 
 	return check?.eqStreams ?? (check?.rangeStream && [check.rangeStream]);
 }
 
+/** Someone's own records by creation time (`records.by_creator` or `by_contact`). */
+const ownerStream = (typeId: Id<"recordTypes">, archived: boolean, owner: Owner): Stream =>
+	"contact" in owner
+		? { table: "records", index: "by_contact", prefix: [["typeId", typeId], ["archived", archived], ["contact", owner.contact]], keys: ["_creationTime"] }
+		: { table: "records", index: "by_creator", prefix: [["typeId", typeId], ["archived", archived], ["createdBy", owner.createdBy]], keys: ["_creationTime"] };
+
 /**
  * Picks the driver: the sort, else the fewest rows among equalities, else among ranges,
  * else the type. Counting is shared out of PROBE_ROWS and read through the budget.
@@ -410,6 +416,9 @@ function groupCondition(fields: Fields, { field: key, option }: Group): Conditio
 
 type Cursor = { q: string; p: string; a?: Key };
 
+/** Whose records a list is limited to (Add): a member's, or someone outside's. */
+export type Owner = { createdBy: Id<"users"> } | { contact: string };
+
 function parseCursor(raw: string, fingerprint: string): Cursor {
 	let cursor: Cursor | undefined;
 	try {
@@ -428,7 +437,7 @@ function parseCursor(raw: string, fingerprint: string): Cursor {
  */
 export async function findRecords(
 	ctx: QueryCtx,
-	{ workspaceId, typeId, archived, fields, conditions: filters, group, sort, currency, pageMax, paginationOpts }: {
+	{ workspaceId, typeId, archived, fields, conditions: filters, group, sort, owner, currency, pageMax, paginationOpts }: {
 		workspaceId: Id<"workspaces">;
 		typeId: Id<"recordTypes">;
 		archived: boolean;
@@ -437,6 +446,11 @@ export async function findRecords(
 		/** A board column, on top of the view's filters and outside their limit. */
 		group?: Group;
 		sort?: Sort;
+		/**
+		 * Only records this member (`createdBy`) or outside contact made: Add's list. They drive the scan, newest
+		 * first (a field sort is ignored), and every condition is checked on the record.
+		 */
+		owner?: Owner;
 		currency: string;
 		pageMax: number;
 		paginationOpts: { numItems: number; cursor: string | null; endCursor?: string | null };
@@ -449,16 +463,17 @@ export async function findRecords(
 	const checks: Check[] = [];
 	for (const c of conditions) checks.push(await compile(fields, c, currency, live));
 	// Conditions as resolved, so a cursor stops working if what they mean changes (say, the workspace's currency).
-	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, checks.map((c) => c.resolved), sort ?? null]));
+	if (owner) sort = sort?.field === "createdAt" ? sort : undefined;
+	const fingerprint = hash(JSON.stringify([workspaceId, typeId, archived, checks.map((c) => c.resolved), sort ?? null, owner ?? null]));
 	const start = paginationOpts.cursor ? parseCursor(paginationOpts.cursor, fingerprint) : undefined;
 	const endCursor = paginationOpts.endCursor ?? undefined;
 	const endAt = endCursor ? parseCursor(endCursor, fingerprint) : undefined;
 	if (start && endAt && start.p !== endAt.p) throw new ConvexError("That page is out of date. Start the list again.");
-	const byField = sort && !["createdAt", "updatedAt"].includes(sort.field);
+	const byField = !!sort && !["createdAt", "updatedAt"].includes(sort.field);
 	// Archived records have no index rows, so their lists scan the type and check every condition.
 	if (archived && byField) throw new ConvexError("Archived records can't be sorted by a field.");
 	let sortStream: Stream | undefined;
-	if (byField) {
+	if (byField && sort) {
 		const field = fields.find((f) => f.key === sort.field && !f.archived);
 		if (!field) throw new ConvexError(`There's no field “${sort.field}”.`);
 		if (field.multiple || field.kind === "link") throw new ConvexError(`Lists can't be sorted by “${field.label}”.`);
@@ -471,8 +486,9 @@ export async function findRecords(
 	const order = sort?.order ?? (byField ? "asc" : "desc");
 
 	const plan =
-		start?.p ?? endAt?.p ?? (archived ? (sort?.field === "updatedAt" ? "u" : "t") : await choosePlan(ctx, budget, checks, sort, sortStream));
-	const streams = streamsFor(plan, typeId, archived, fields, checks, sortStream);
+		start?.p ?? endAt?.p ?? (owner ? "o" : archived ? (sort?.field === "updatedAt" ? "u" : "t") : await choosePlan(ctx, budget, checks, sort, sortStream));
+	if ((plan === "o") !== !!owner) throw new ConvexError("That page is out of date. Start the list again.");
+	const streams = owner ? [ownerStream(typeId, archived, owner)] : streamsFor(plan, typeId, archived, fields, checks, sortStream);
 	if (!streams) throw new ConvexError("That page is out of date. Start the list again.");
 	// Ranges drive in their own order; everything else in the asked (or newest-first) order.
 	const streamOrder = plan.startsWith("c") && !checks[Number(plan.slice(1))]!.eqStreams ? "asc" : order;

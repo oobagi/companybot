@@ -1,9 +1,9 @@
 import type { Doc, Id } from "@companybot/backend/convex/_generated/dataModel";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
-import { ArrowUpIcon, ChannelIcon, PrivateIcon, SkillIcon } from "../../icons";
+import { ArrowUpIcon, ChannelIcon, DatabaseIcon, PrivateIcon, SkillIcon } from "../../icons";
 import { AttachButton, type Attachments, PendingFiles } from "./Attachments";
 import { Avatar } from "./common";
 import { ComposerTools } from "./ComposerTools";
@@ -11,6 +11,7 @@ import type { Mentions } from "./data";
 import { pastedFiles } from "./composerFiles";
 import { keepDraft, textKey, useDraft } from "./drafts";
 import { type Candidate, type Menu, type Sources, SuggestionMenu, composerExtensions, plainText, tokensIn, typedMentions } from "./editor";
+import { EmojiPanel } from "./EmojiPanel";
 import { Form, metadataClass, rowButton, sendButton } from "../../ui";
 
 export type SendWith = Doc<"preferences">["sendWith"];
@@ -24,6 +25,9 @@ export function Composer({
 	sources,
 	attachments,
 	draftKey,
+	start,
+	tools,
+	disabled,
 }: {
 	/** Rejects if the message didn't go: the composer gets its text and files back. */
 	onSend: (text: string, mentions: Mentions, files: Id<"_storage">[]) => Promise<unknown>;
@@ -39,6 +43,12 @@ export function Composer({
 	attachments?: Attachments;
 	/** Where an unsent message is kept for this chat or thread (drafts.ts). */
 	draftKey?: string;
+	/** In the attach button's place, where there are no files to attach (Inbox, until it sends them). */
+	start?: ReactNode;
+	/** More round buttons, before emoji and dictation. */
+	tools?: ReactNode;
+	/** Nothing can be sent from here now: the box stays, greyed, and its placeholder says why. */
+	disabled?: boolean;
 }) {
 	const me = useQuery(api.chats.list)?.me;
 	// Each person's own, and none until we know who's here.
@@ -46,8 +56,8 @@ export function Composer({
 	const [menu, setMenu] = useState<Menu | null>(null);
 	const [empty, setEmpty] = useState(true);
 	// The editor is made once; it reads the latest props (and this render's submit) through this ref.
-	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, saveAt, submit: () => {} });
-	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments, saveAt };
+	const latest = useRef({ sources, placeholder, sendWith, onSend, onType, attachments, saveAt, disabled, submit: () => {} });
+	latest.current = { ...latest.current, sources, placeholder, sendWith, onSend, onType, attachments, saveAt, disabled };
 	const suggestions = useMemo(() => new SuggestionMenu(() => latest.current.sources, setMenu), []);
 
 	const editor = useEditor({
@@ -59,7 +69,8 @@ export function Composer({
 		}),
 		autofocus: "end",
 		editorProps: {
-			attributes: { class: "max-h-48 overflow-y-auto py-1.5 outline-none break-words", role: "textbox", "aria-multiline": "true" },
+			// One line is 32px (22px line, 5px above and below), as tall as the round buttons, so its text sits on their middle.
+			attributes: { class: "max-h-48 overflow-y-auto py-1.25 leading-5.5 outline-none break-words", role: "textbox", "aria-multiline": "true" },
 			handlePaste: (view, event) => {
 				const clipboard = event.clipboardData;
 				if (!clipboard?.files.length || !latest.current.attachments) return false;
@@ -80,9 +91,12 @@ export function Composer({
 	});
 
 	useDraft(editor, saveAt, setEmpty);
+	useEffect(() => {
+		if (editor && editor.isEditable === !!disabled) editor.setEditable(!disabled);
+	}, [editor, disabled]);
 
 	const submit = () => {
-		if (!editor) return;
+		if (!editor || latest.current.disabled) return;
 		const text = plainText(editor);
 		const files = latest.current.attachments;
 		if (files?.uploading || (!text && !files?.ids.length)) return;
@@ -95,7 +109,8 @@ export function Composer({
 		const key = latest.current.saveAt;
 		// Emptied at once, so it feels sent; a send that fails puts it all back.
 		const taken = files?.take();
-		const sending = latest.current.onSend(text, { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill }, taken?.ids ?? []);
+		const mentions = { userIds: tokens.user as Id<"users">[], agentIds: tokens.agent as Id<"agents">[], skillIds: tokens.skill, recordIds: tokens.record as Id<"records">[] };
+		const sending = latest.current.onSend(text, mentions, taken?.ids ?? []);
 		editor.commands.clearContent(true);
 		setEmpty(true);
 		sending.then(
@@ -113,16 +128,18 @@ export function Composer({
 
 	return (
 		<div className="relative flex w-full flex-col">
-			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} />}
+			{menu && <Picker menu={menu} onHighlight={(i) => suggestions.highlight(i)} onPick={(i) => suggestions.pick(i)} onPickEmoji={(char) => suggestions.pickEmoji(char)} />}
 			<div className="flex flex-col">
-				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300 ${attachments ? "" : "pl-4"}`} onSubmit={submit}>
+				{/* One 8px inset all round, and a corner that follows the round buttons' (16px radius + 8px = 24px). */}
+				<Form className={`flex w-full flex-wrap items-end gap-2 rounded-3xl border border-neutral-200 p-2 shadow-xs focus-within:border-neutral-300 ${disabled ? "bg-neutral-50" : "bg-white"} ${attachments || start ? "" : "pl-4"}`} onSubmit={submit}>
 					{attachments && <PendingFiles attachments={attachments} />}
-					{attachments && <AttachButton attachments={attachments} />}
+					{attachments ? <AttachButton attachments={attachments} /> : start}
 					<EditorContent editor={editor} className="composer min-w-0 flex-1" />
+					{tools}
 					<ComposerTools editor={editor} />
 					<button
 						type="submit"
-						disabled={attachments?.uploading || (empty && !attachments?.ids.length)}
+						disabled={disabled || attachments?.uploading || (empty && !attachments?.ids.length)}
 						className={sendButton}
 						aria-label="Send"
 					>
@@ -140,27 +157,32 @@ export function Composer({
 
 const hints: Record<Menu["trigger"], string> = { "@": "People and agents", "#": "Channels", "/": "Skills", ":": "Emoji" };
 
-/** The menu over the box. Arrows move, Enter or Tab picks, Escape closes; the mouse works too. */
-function Picker({ menu, onHighlight, onPick }: { menu: Menu; onHighlight: (i: number) => void; onPick: (i: number) => void }) {
+/**
+ * The menu over the box. Arrows move, Enter or Tab picks, Escape closes; the mouse works too. For `:` it's the
+ * emoji panel, driven by what's typed (its one item is what Enter takes).
+ */
+function Picker({ menu, onHighlight, onPick, onPickEmoji }: { menu: Menu; onHighlight: (i: number) => void; onPick: (i: number) => void; onPickEmoji: (char: string) => void }) {
 	return (
-		<div className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg">
-			<p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>
-			<ul role="listbox" className="pb-1">
-				{menu.items.map((c, i) => (
-					<li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === menu.index}>
-						<button
-							type="button"
-							// mousedown, not click: the editor must keep focus, or the chip lands nowhere.
-							onMouseDown={(e) => (e.preventDefault(), onPick(i))}
-							onMouseEnter={() => onHighlight(i)}
-							data-active={i === menu.index || undefined}
-							className={`${rowButton} items-center gap-2`}
-						>
-							<Row candidate={c} />
-						</button>
-					</li>
-				))}
-			</ul>
+		// mousedown is swallowed: the editor must keep focus, or the pick lands nowhere.
+		<div onMouseDown={(e) => e.preventDefault()} className="absolute bottom-full left-0 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg">
+			{menu.trigger === ":" ? (
+				<EmojiPanel search={menu.query} selected={menu.items[menu.index]?.label} onPick={onPickEmoji} />
+			) : (
+				<>
+					{menu.items[0]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>{hints[menu.trigger]}</p>}
+					<ul role="listbox" className="max-h-96 overflow-y-auto pb-1">
+						{menu.items.map((c, i) => (
+							<li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === menu.index}>
+								{/* Records come after people and agents, under their own heading. */}
+								{c.kind === "record" && menu.items[i - 1]?.kind !== "record" && <p className={`px-3 pt-2 pb-1 ${metadataClass}`}>Records</p>}
+								<button type="button" onClick={() => onPick(i)} onMouseEnter={() => onHighlight(i)} data-active={i === menu.index || undefined} className={`${rowButton} items-center gap-2`}>
+									<Row candidate={c} />
+								</button>
+							</li>
+						))}
+					</ul>
+				</>
+			)}
 		</div>
 	);
 }
@@ -181,6 +203,17 @@ function Row({ candidate: c }: { candidate: Candidate }) {
 			<>
 				<span className="flex size-6 shrink-0 items-center justify-center text-lg">{c.label}</span>
 				<span className="truncate">:{c.id}:</span>
+			</>
+		);
+	}
+	if (c.kind === "record") {
+		return (
+			<>
+				<span className="flex size-6 shrink-0 items-center justify-center text-neutral-500">
+					<DatabaseIcon />
+				</span>
+				<span className="truncate">{c.label}</span>
+				<span className={`ml-auto shrink-0 ${metadataClass}`}>{c.typeName}</span>
 			</>
 		);
 	}

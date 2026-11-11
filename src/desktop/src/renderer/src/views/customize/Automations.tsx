@@ -119,10 +119,13 @@ function AutomationFields({
 	const { trigger } = value;
 	const setTrigger = (t: CustomAutomationConfig["trigger"]) => onChange({ ...value, trigger: t });
 	const firstChannel = channels[0]?._id ?? "";
+	// Inbox events carry customers' messages, so only people who see Inbox can watch them (the server checks too).
+	const me = useQuery(api.workspace.me);
+	const inbox = !!me?.access && can(me.access, "inbox.use");
 	const triggers: { label: string; value: CustomAutomationConfig["trigger"] }[] = [
 		{ label: "On a schedule", value: defaultSchedule },
-		{ label: "When something happens here", value: firstChannel ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: "member.joined" } },
-		{ label: "When another app sends a webhook", value: { type: "webhook" } },
+		{ label: "When something happens", value: firstChannel ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: "member.joined" } },
+		{ label: "From another app (webhook)", value: { type: "webhook" } },
 	];
 	return (
 		<Settings title={title}>
@@ -159,9 +162,11 @@ function AutomationFields({
 								options={[
 									{ value: "message.posted", label: "Someone posts in", disabled: !firstChannel },
 									{ value: "member.joined", label: "Someone joins the workspace" },
+									{ value: "inbox.started", label: "Someone new emails or texts you", disabled: !inbox && trigger.event !== "inbox.started" },
+									{ value: "inbox.received", label: "An email or text comes in", disabled: !inbox && trigger.event !== "inbox.received" },
 								]}
 								onChange={(event) =>
-									setTrigger(event === "member.joined" ? { type: "event", event: "member.joined" } : { type: "event", event: "message.posted", channelId: firstChannel })
+									setTrigger(event === "message.posted" ? { type: "event", event: "message.posted", channelId: firstChannel } : { type: "event", event: event as "member.joined" | "inbox.started" | "inbox.received" })
 								}
 							/>
 							{trigger.event === "message.posted" && (
@@ -177,6 +182,11 @@ function AutomationFields({
 								/>
 							)}
 						</div>
+					)}
+					{trigger.type === "event" && (trigger.event === "inbox.started" || trigger.event === "inbox.received") && (
+						<p className={descriptionClass}>
+							The agent gets who wrote, how, and what they said, as data. It runs as you, with your permissions, never as the customer.
+						</p>
 					)}
 					{trigger.type === "webhook" && (
 						<p className={descriptionClass}>

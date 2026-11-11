@@ -2,6 +2,7 @@ import { skills } from "./fixtures";
 import type { AutomationStore } from "../src/automation-tools";
 import type { WakeupStore } from "../src/wakeups";
 import type { PageStore } from "../src/page-tools";
+import type { FileStore } from "../src/drive-tools";
 import type { RecordStore } from "../src/record-tools";
 import type { ChatStore } from "../src/chat";
 import type { MemoryStore } from "../src/memory";
@@ -34,6 +35,7 @@ export const ctx = (actor: Actor) => ({
 	wakeups: {} as WakeupStore,
 	records: {} as RecordStore,
 	pages: {} as PageStore,
+	files: {} as FileStore,
 	web: {} as WebTurn,
 	images: {} as ImageStore,
 });

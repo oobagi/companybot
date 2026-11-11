@@ -113,7 +113,7 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 				)}
 				{memory.canEdit &&
 					(!draft.dirty ? (
-						<Popover trigger={<MoreIcon size={16} weight="bold" />} label="Memory actions" className={iconButton} panelClassName="w-48 p-1">
+						<Popover trigger={<MoreIcon weight="bold" />} label="Memory actions" className={iconButton} panelClassName="w-48 p-1">
 							{(close) => (
 								<>
 									<MenuItem onClick={() => (close(), draft.set(memory.content))}>
@@ -188,7 +188,7 @@ function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored:
 						<button
 							type="button"
 							onClick={() => run(restore({ versionId: v._id, expectedVersion: memory.version }), onRestored)}
-							className={`shrink-0 ${compactButton}`}
+							className={compactButton}
 						>
 							<RestoreIcon /> Restore
 						</button>

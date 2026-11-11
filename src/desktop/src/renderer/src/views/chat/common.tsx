@@ -1,7 +1,7 @@
 import { Modal as MantineModal, Popover as MantinePopover } from "@mantine/core";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CloseIcon, MoreIcon, PlusIcon } from "../../icons";
-import { Notice, Scroll, ScrollUnder, Stacked, dangerButton, primaryButton, secondaryButton, useRun } from "../../ui";
+import { CaretRightIcon, CloseIcon, MoreIcon, PlusIcon } from "../../icons";
+import { Notice, Scroll, ScrollUnder, dangerButton, iconButton, primaryButton, secondaryButton, useRun } from "../../ui";
 import { EmojiPanel } from "./EmojiPanel";
 
 const initials = (name: string) =>
@@ -45,12 +45,13 @@ export function Avatar({
 	);
 }
 
-export function AvatarStack({ people, size = "sm" }: { people: { name: string; type: string; image?: string | null }[]; size?: keyof typeof sizes }) {
+/** `ring`: the color between the pictures, the background they sit on (white unless said). */
+export function AvatarStack({ people, size = "sm", ring = "ring-white" }: { people: { name: string; type: string; image?: string | null }[]; size?: keyof typeof sizes; ring?: string }) {
 	return (
 		<span className="flex -space-x-1">
 			{/* The ring is on the avatar itself, so it follows its shape: round for people, square for agents. */}
 			{people.slice(0, 3).map((p, i) => (
-				<Avatar key={i} name={p.name} image={p.image} agent={p.type === "agent"} size={size} className="ring-2 ring-white" />
+				<Avatar key={i} name={p.name} image={p.image} agent={p.type === "agent"} size={size} className={`ring-2 ${ring}`} />
 			))}
 		</span>
 	);
@@ -200,20 +201,21 @@ export function Layer({ onClose, className, overlayClassName, children }: { onCl
  * A dialog. Its fields are `Settings`/`Setting` rows in a card, exactly as on a settings screen (never
  * stacked fields); a form (create, rename, invite) ends with `DialogButtons` (Cancel, then the action) at
  * the bottom right. Leave, Archive and the like go in `menu`, the ⋯ beside Close. `size="md"` for a yes/no
- * question with no rows; `size="xl"` for side-by-side content (page history).
+ * question with no rows, and for one that asks one thing (a name), which is just that field, full width
+ * (`fullControlClass`), the title asking it; `size="xl"` for side-by-side content (page history).
  */
 export function Modal({ title, size = "lg", menu, onClose, children }: { title: string; size?: "md" | "lg" | "xl"; menu?: (close: () => void) => React.ReactNode; onClose: () => void; children: React.ReactNode }) {
 	return (
 		<Layer
 			onClose={onClose}
 			overlayClassName="bg-neutral-900/20"
-			className={`dialog flex max-h-[85vh] w-full ${widths[size]} flex-col overflow-hidden rounded-2xl bg-white text-body text-neutral-900 shadow-xl`}
+			className={`flex max-h-[85vh] w-full ${widths[size]} flex-col overflow-hidden rounded-2xl bg-white text-body text-neutral-900 shadow-xl`}
 		>
 			{/* The title stays put and the content scrolls under it, fading out as in chat (`Scroll`); `DialogButtons` stick to the bottom the same way. */}
 			<Scroll
 				header={
-					<header className="flex items-center gap-1 px-6 pt-6 pb-5">
-						<MantineModal.Title className="min-w-0 flex-1 truncate text-lg font-medium">{title}</MantineModal.Title>
+					<header className="flex items-center gap-1 pt-4 pr-3 pb-3 pl-5">
+						<MantineModal.Title className="min-w-0 flex-1 truncate text-base font-semibold">{title}</MantineModal.Title>
 						{menu && <MoreMenu label="More">{menu}</MoreMenu>}
 						<IconButton label="Close" onClick={onClose}>
 							<CloseIcon />
@@ -221,8 +223,8 @@ export function Modal({ title, size = "lg", menu, onClose, children }: { title: 
 					</header>
 				}
 			>
-				<div className="flex flex-col gap-5 px-6 pb-6">
-					<Stacked>{children}</Stacked>
+				<div className="flex flex-col gap-4 px-5 pb-5">
+					{children}
 				</div>
 			</Scroll>
 		</Layer>
@@ -237,7 +239,7 @@ const widths = { md: "max-w-md", lg: "max-w-xl", xl: "max-w-4xl" };
 export function DialogButtons({ children }: { children: React.ReactNode }) {
 	const under = useContext(ScrollUnder);
 	return (
-		<div className="scrim-bottom sticky bottom-0 z-30 -mt-4 -mb-6 flex justify-end gap-2 pt-4 pb-6" data-under={under || undefined}>
+		<div className="scrim-bottom sticky bottom-0 z-30 -mt-4 -mb-5 flex justify-end gap-2 pt-4 pb-5" data-under={under || undefined}>
 			{children}
 		</div>
 	);
@@ -246,13 +248,11 @@ export function DialogButtons({ children }: { children: React.ReactNode }) {
 /** ⋯ opening a menu of `MenuItem`s: a row's or a dialog's other actions. */
 export function MoreMenu({ label, children }: { label: string; children: (close: () => void) => React.ReactNode }) {
 	return (
-		<Popover label={label} trigger={<MoreIcon />} className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 aria-expanded:bg-neutral-100" panelClassName="w-56 p-1">
+		<Popover label={label} trigger={<MoreIcon />} className={iconButton} panelClassName="w-56 p-1">
 			{children}
 		</Popover>
 	);
 }
-
-export const iconButton = "no-drag flex size-7 items-center justify-center rounded-md text-base text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900";
 
 /** A square button holding only an icon; `label` is its tooltip and accessible name. */
 export function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
@@ -272,10 +272,13 @@ export function Popover({
 	label,
 	disabled,
 	matchWidth,
+	active,
 	className = "",
 	panelClassName,
 	children,
 }: {
+	/** Marks the button `data-active` (a filter chip that's filtering). */
+	active?: boolean;
 	/** What you click. */
 	trigger: React.ReactNode;
 	/** Tooltip and accessible name for the button, when the trigger is only an icon or avatar. */
@@ -298,7 +301,7 @@ export function Popover({
 			matchWidth={matchWidth}
 			className={panelClassName}
 			target={
-				<button type="button" title={label} aria-label={label} disabled={disabled} onClick={() => setOpened(!opened)} className={className}>
+				<button type="button" title={label} aria-label={label} disabled={disabled} data-active={active || undefined} onClick={() => setOpened(!opened)} className={className}>
 					{trigger}
 				</button>
 			}
@@ -323,6 +326,7 @@ export function PopoverPanel({
 	returnFocus,
 	matchWidth,
 	trapFocus = true,
+	side = "bottom-start",
 	className = "w-72",
 	children,
 }: {
@@ -333,6 +337,8 @@ export function PopoverPanel({
 	returnFocus?: React.RefObject<HTMLElement | null>;
 	matchWidth?: boolean;
 	trapFocus?: boolean;
+	/** Where it opens from its target: below (the default), or beside it for a submenu. */
+	side?: "bottom-start" | "right-start";
 	className?: string;
 	children: React.ReactNode;
 }) {
@@ -353,7 +359,7 @@ export function PopoverPanel({
 		<MantinePopover
 			opened={opened}
 			{...plain}
-			position="bottom-start" offset={6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus && onTop} closeOnEscape={false}
+			position={side} offset={side === "right-start" ? { mainAxis: 6, crossAxis: -5 } : 6} width="" zIndex={50} floatingStrategy="fixed" trapFocus={trapFocus && onTop} closeOnEscape={false}
 			onDismiss={() => isTop() && onClose()}
 			middlewares={{
 				flip: true,
@@ -377,6 +383,47 @@ export function PopoverPanel({
 				{children}
 			</MantinePopover.Dropdown>
 		</MantinePopover>
+	);
+}
+
+/**
+ * A row in a popover menu that opens more rows beside it ("Move to ›"), on hover or click. `children`
+ * get the menu's `close`, so picking one closes both.
+ */
+export function SubMenu({ icon, label, close, children }: { icon: React.ReactNode; label: string; close: () => void; children: (close: () => void) => React.ReactNode }) {
+	const [opened, setOpened] = useState<"hover" | "click">();
+	const leaving = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const stay = () => clearTimeout(leaving.current);
+	// Moving from the row into the panel crosses a small gap: wait a moment before closing.
+	const leave = () => (stay(), (leaving.current = setTimeout(() => setOpened((o) => (o === "hover" ? undefined : o)), 150)));
+	useEffect(() => stay, []);
+	return (
+		<PopoverPanel
+			opened={!!opened}
+			onClose={() => setOpened(undefined)}
+			side="right-start"
+			trapFocus={opened === "click"}
+			className="w-52 p-1"
+			target={
+				<button
+					type="button"
+					aria-haspopup="menu"
+					aria-expanded={!!opened}
+					onClick={() => setOpened("click")}
+					onMouseEnter={() => (stay(), setOpened((o) => o ?? "hover"))}
+					onMouseLeave={leave}
+					className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100 ${opened ? "bg-neutral-100" : ""}`}
+				>
+					{icon}
+					<span className="min-w-0 flex-1 truncate">{label}</span>
+					<CaretRightIcon className="shrink-0 text-neutral-400" />
+				</button>
+			}
+		>
+			<div onMouseEnter={stay} onMouseLeave={leave}>
+				{children(close)}
+			</div>
+		</PopoverPanel>
 	);
 }
 

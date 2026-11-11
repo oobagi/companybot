@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type Field,
 	type ValueMode,
+	autoColor,
 	fieldConfigError,
 	formatDate,
 	formatMoney,
@@ -37,6 +38,12 @@ describe("records", () => {
 		expect(fieldConfigError({ label: "A", kind: "text", multiple: true })).toMatch("several");
 		expect(fieldConfigError({ label: "A", kind: "link" })).toMatch("database");
 		expect(fieldConfigError({ label: "A", kind: "blob" as Field["kind"] })).toMatch("one of");
+		expect(fieldConfigError({ label: "A", kind: "text", icon: "flag" })).toBeNull();
+		expect(fieldConfigError({ label: "A", kind: "text", icon: "Flag" })).toMatch("icon is one of");
+		expect(fieldConfigError({ label: "A", kind: "choice", options: [{ id: "a", label: "A", color: "green" }] })).toBeNull();
+		expect(fieldConfigError({ label: "A", kind: "choice", options: [{ id: "a", label: "A", color: "#00ff00" }] })).toMatch("color is one of");
+		// New options cycle through the palette after default.
+		expect([0, 1, 8, 9].map(autoColor)).toEqual(["gray", "brown", "red", "gray"]);
 	});
 
 	it("normalizes values, and empty ones clear", () => {

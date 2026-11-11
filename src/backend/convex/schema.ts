@@ -1,5 +1,5 @@
-import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
-import { arrangementLists, type ArrangementList } from "@companybot/core/arrangements";
+import { accessLevels, customerReplyModes, appEventIds, builtInRoles, fieldAiModes, fieldAiTriggers, fieldKinds, fileTypes, inboxChannels, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
@@ -8,8 +8,11 @@ import { viewConfig } from "./recordValidators";
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
 
-const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
 export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+/** AI that fills a field (core field-ai.ts): what to write, when it runs, and how it writes. */
+export const fieldAi = v.object({ instruction: v.string(), when: oneOf(fieldAiTriggers), mode: oneOf(fieldAiModes) });
+export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
 export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()) });
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
@@ -26,7 +29,7 @@ export const wakeOutcome = oneOf(wakeOutcomes);
  * Who can access a place (core place-access.ts): Everyone or a role, each at View or Edit. Unset is
  * Everyone at Edit; on a page, its parent's (a record's page follows its database).
  */
-export const accessEntry = v.object({ role: v.union(v.literal("everyone"), v.id("roles")), level: oneOf(accessLevels) });
+export const accessEntry = v.object({ role: v.union(v.literal("everyone"), v.literal("public"), v.id("roles")), level: oneOf(accessLevels) });
 const access = v.optional(v.array(accessEntry));
 /** A Who can access list as the app sends it: role ids are checked against the workspace's (placeAccess `savedAccess`). */
 export const accessArg = v.array(v.object({ role: v.string(), level: oneOf(accessLevels) }));
@@ -39,6 +42,9 @@ export const agentConfig = v.object({
 	/** Unset on agents and versions saved before it existed: `defaultReasoning`. */
 	reasoning: v.optional(oneOf(reasonings)),
 	tools: v.array(v.string()),
+	/** Unset is "check" (core AgentConfig). */
+	customerReplies: v.optional(oneOf(customerReplyModes)),
+	handOffTopics: v.optional(v.array(v.string())),
 });
 
 /** A file on a message: its name, the type its bytes say it is, and (pictures) its size in pixels. */
@@ -178,8 +184,11 @@ export const customTrigger = v.union(
 	scheduleTrigger,
 	v.object({ type: v.literal("webhook") }),
 	v.object({ type: v.literal("event"), event: v.literal("message.posted"), channelId: v.string() }),
-	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
+	v.object({ type: v.literal("event"), event: oneOf(appEventIds.filter((e) => e !== "message.posted")) }),
 );
+
+/** core's AppEvent. */
+export const appEvent = oneOf(appEventIds);
 
 /** core's FieldValue. Empty values aren't stored. Currency is core's Money. */
 export const fieldValue = v.union(
@@ -192,6 +201,17 @@ export const fieldValue = v.union(
 
 /** core's FieldKind. */
 export const fieldKind = oneOf(fieldKinds);
+
+/** core's FieldShape, with the linked database by id: what a field's values depend on. */
+export const fieldShape = v.object({
+	kind: fieldKind,
+	options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
+	linkTypeId: v.optional(v.id("recordTypes")),
+	multiple: v.optional(v.boolean()),
+});
+
+/** core's ChangeCounts. */
+export const changeCounts = v.object({ checked: v.number(), converted: v.number(), cleared: v.number(), partly: v.number(), examples: v.array(v.string()) });
 
 /** core's AutomationAudience. */
 export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
@@ -221,7 +241,7 @@ const automationDefinition = v.object({
 	connectors: v.array(v.string()), prompt: v.string(),
 	trigger: v.union(
 		scheduleTrigger,
-		v.object({ type: v.literal("event"), event: v.union(v.literal("message.posted"), v.literal("member.joined")), label: v.string(), channelId: v.optional(v.string()) }),
+		v.object({ type: v.literal("event"), event: oneOf(appEventIds), label: v.string(), channelId: v.optional(v.string()) }),
 		v.object({ type: v.literal("webhook"), webhookEvent: v.optional(v.literal("call.ended")), label: v.string(), sample: v.object({ id: v.string(), event: v.optional(v.string()), person: v.optional(v.object({ email: v.string() })), data: v.optional(v.record(v.string(), v.any())) }) }),
 	),
 });
@@ -246,6 +266,8 @@ export default defineSchema({
 	workspaces: defineTable({
 		name: v.string(),
 		version: v.optional(v.number()),
+		// COMPAT(0.1.0-alpha.10): once migrations.agentCustomerReplies has run on prod, drop this field. Nothing reads it.
+		publicAbilities: v.optional(v.array(v.object({ ability: v.string(), on: v.boolean() }))),
 		/** ISO 4217: the default for new amounts. Each amount stores its own. Unset means DEFAULT_CURRENCY. */
 		currency: v.optional(v.string()),
 		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
@@ -345,6 +367,131 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
 
+	// One of the workspace's email addresses or phone numbers (contactPoints.ts): how people outside reach the business.
+	contactPoints: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** The agent that answers new conversations to it. Unset: nobody does, and staff answer them. */
+		agentId: v.optional(v.id("agents")),
+		kind: v.union(v.literal("email"), v.literal("phone")),
+		/** Lowercased email, or E.164 phone. Empty while a number is still being bought. Unique among live rows. */
+		address: v.string(),
+		/** `getting`: a number is being bought from the provider; `failed`: it couldn't be (`error` says why). */
+		status: v.union(v.literal("active"), v.literal("getting"), v.literal("failed")),
+		/** The provider's id for a phone number (Twilio's PN…), needed to release it. */
+		providerId: v.optional(v.string()),
+		/** A phone number asked for in this US area code. */
+		areaCode: v.optional(v.string()),
+		error: v.optional(v.string()),
+		createdBy: v.id("users"),
+	})
+		.index("by_address", ["kind", "address"])
+		.index("by_agent", ["agentId", "kind"])
+		.index("by_workspace", ["workspaceId"]),
+
+	// Inbox (inbox.ts): one conversation per outside contact per workspace address. Staff see them in Inbox; an agent answers as Public.
+	inboxConversations: defineTable({
+		workspaceId: v.id("workspaces"),
+		channel: oneOf(inboxChannels),
+		/** Our address or number it's with (a `contactPoints` address). Replies go from it while it's still the workspace's. */
+		via: v.string(),
+		/** The agent answering it, while `mode` is agent: the address's agent when it started, or whoever it was assigned to. */
+		agentId: v.optional(v.id("agents")),
+		/** Their address: lowercased email, or E.164 phone. */
+		contact: v.string(),
+		/** The name their email gave, if any. Their words, shown as text. */
+		contactName: v.optional(v.string()),
+		/** Email: the thread's subject, from its first message. */
+		subject: v.optional(v.string()),
+		/** The record whose email or phone field matches `contact`, once found. */
+		recordId: v.optional(v.id("records")),
+		/** `agent`: `agentId` answers each new message; `staff`: people do, and agents stay quiet. */
+		mode: v.union(v.literal("agent"), v.literal("staff")),
+		/** Who on staff it's assigned to, while `mode` is staff. */
+		takenBy: v.optional(v.id("users")),
+		/** Why someone on staff should look: a reply waiting to be sent, or the agent handed it off. */
+		needsStaff: v.optional(v.union(v.literal("draft"), v.literal("handoff"))),
+		/** Its last message's time and first line, for the list. */
+		lastAt: v.number(),
+		preview: v.string(),
+		/** While the agent is answering (inboxAgent.ts): when it started. One at a time; a message meanwhile sets `replyAgain`. */
+		replyingSince: v.optional(v.number()),
+		replyAgain: v.optional(v.boolean()),
+		/** When AI next fills its record's fields (fieldAi.ts), per trigger: a later message moves it, so a burst is one run. */
+		fillAt: v.optional(v.object({ message: v.optional(v.number()), quiet: v.optional(v.number()) })),
+	})
+		.index("by_contact", ["workspaceId", "channel", "via", "contact"])
+		.index("by_workspace", ["workspaceId", "lastAt"])
+		.index("by_needs", ["workspaceId", "needsStaff"])
+		.index("by_agent", ["agentId"])
+		.index("by_record", ["recordId"]),
+
+	// What needs someone in Inbox (notifications.ts): one per person per conversation, until cleared.
+	notifications: defineTable({
+		workspaceId: v.id("workspaces"),
+		userId: v.id("users"),
+		conversationId: v.id("inboxConversations"),
+		/** assigned: to you. message: the customer wrote, on one that's yours. comment: you're mentioned, or one that's yours got one. handoff, draft: the agent needs staff. */
+		kind: v.union(v.literal("assigned"), v.literal("message"), v.literal("handoff"), v.literal("comment"), v.literal("draft")),
+		text: v.string(),
+		/** Who did it: someone on staff, or the agent. Neither for the customer. */
+		actorUserId: v.optional(v.id("users")),
+		actorAgentId: v.optional(v.id("agents")),
+		/** For everyone who can use Inbox, not you in particular: pops up only with notifications on All. */
+		broad: v.optional(v.literal(true)),
+	})
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_conversation", ["conversationId", "userId"]),
+
+	// Comments on Inbox messages (inboxComments.ts): staff only, never sent. One thread per message.
+	inboxComments: defineTable({
+		workspaceId: v.id("workspaces"),
+		conversationId: v.id("inboxConversations"),
+		messageId: v.id("inboxMessages"),
+		text: v.string(),
+		/** Who wrote it: a person; or an agent, for that person (both), or on its own (agent only). */
+		authorUserId: v.optional(v.id("users")),
+		authorAgentId: v.optional(v.id("agents")),
+		/** Teammates it @mentions: they're told. */
+		mentions: v.optional(v.array(v.id("users"))),
+		editedAt: v.optional(v.number()),
+	})
+		.index("by_conversation", ["conversationId"])
+		.index("by_message", ["messageId"])
+		.index("by_workspace", ["workspaceId"]),
+
+	inboxMessages: defineTable({
+		workspaceId: v.id("workspaces"),
+		conversationId: v.id("inboxConversations"),
+		/** `in` from the customer; `out` to them; `event` a line staff see (an assignment), never sent. */
+		direction: v.union(v.literal("in"), v.literal("out"), v.literal("event")),
+		text: v.string(),
+		/** `draft`: the agent's reply waiting for staff (Public can't reply on its own); `sending` until the provider takes it. */
+		status: v.union(v.literal("received"), v.literal("draft"), v.literal("sending"), v.literal("sent"), v.literal("failed")),
+		/** Who wrote it on our side: a person (staff), or an agent. Neither on `in`. */
+		authorUserId: v.optional(v.id("users")),
+		authorAgentId: v.optional(v.id("agents")),
+		/** The provider's id (Resend email id, Twilio MessageSid): an inbound one is stored once however often it's delivered. */
+		providerId: v.optional(v.string()),
+		/** Email Message-ID, for threading replies (In-Reply-To, References). */
+		messageId: v.optional(v.string()),
+		/** An `out` email: the one in this conversation it answers (its In-Reply-To), when staff picked it. Else the latest of theirs. */
+		answers: v.optional(v.id("inboxMessages")),
+		/** An `event` that says who it was assigned to (inbox.assign): an agent, or someone on staff. */
+		assignedTo: v.optional(v.union(v.id("agents"), v.id("users"))),
+		/** An `in` email that failed its sender check (core `senderVerified`): its From may be forged, so it changes none of their records. */
+		unverified: v.optional(v.literal(true)),
+		/** An `in` email's history its sender's mail app quoted under it (core `splitQuoted`), shown folded; `text` is the new part. */
+		quoted: v.optional(v.string()),
+		/** An `in` email's other recipients (To and Cc), besides the agent's address. */
+		cc: v.optional(v.array(v.string())),
+		/** What became of a `sent` email (Resend's delivery events): delivered; bounced, `error` saying why; or they marked it as spam. */
+		delivery: v.optional(v.union(v.literal("delivered"), v.literal("bounced"), v.literal("spam"))),
+		error: v.optional(v.string()),
+	})
+		.index("by_conversation", ["conversationId"])
+		.index("by_provider", ["providerId"]),
+
 	agentVersions: defineTable({
 		agentId: v.id("agents"),
 		version: v.number(),
@@ -405,6 +552,16 @@ export default defineSchema({
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_entity", ["entityId"]),
 
+	// Sections people add to a tab's sidebar (core `sectionTabs`), shared by the workspace like Discord's
+	// categories (sidebarSections.ts). `ids`: what it holds, in order; each item is in one of its tab's
+	// sections at most. Their order is the `sectionOrder` arrangement; who folds one, `folded`.
+	sidebarSections: defineTable({
+		workspaceId: v.id("workspaces"),
+		tab: sectionTab,
+		name: v.string(),
+		ids: v.array(v.string()),
+	}).index("by_workspace", ["workspaceId", "tab"]),
+
 	// Personal preferences follow the person across devices.
 	preferences: defineTable({
 		userId: v.id("users"),
@@ -423,6 +580,8 @@ export default defineSchema({
 		image: v.optional(v.id("_storage")),
 		/** Recents under their pins on the rail. Left out means shown. */
 		showRecents: v.optional(v.boolean()),
+		/** Drive shows each level's folders above its pages and files, as Finder can (off: one order by hand). */
+		foldersFirst: v.optional(v.boolean()),
 	}).index("by_user", ["userId"]),
 
 	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
@@ -1218,6 +1377,8 @@ export default defineSchema({
 		updatedAt: v.number(),
 		/** Who can see and change it, its records and their pages. */
 		access,
+		/** Set on the one database Inbox's conversations link to (customers.ts); `addNew`: someone new writing in gets a record. */
+		customers: v.optional(v.object({ addNew: v.boolean() })),
 	}).index("by_workspace", ["workspaceId", "key"]),
 
 	// Named sorting, filtering and columns, shared with the workspace.
@@ -1226,6 +1387,8 @@ export default defineSchema({
 		typeId: v.id("recordTypes"),
 		...viewConfig,
 		version: v.number(),
+		/** Why its filters, sort or grouping changed without anyone saving it (a field's kind changed). Cleared by the next save. */
+		notice: v.optional(v.string()),
 	}).index("by_type", ["typeId"]),
 
 	// A field on a database. Its values live on `records.values[key]`; renaming keeps the key.
@@ -1235,10 +1398,19 @@ export default defineSchema({
 		key: v.string(),
 		label: v.string(),
 		kind: fieldKind,
-		/** Removed options stay, `retired`, so records using them keep their meaning. */
-		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()) }))),
+		/** One of core's `fieldIcons`; without one the app shows the kind's icon. */
+		icon: v.optional(v.string()),
+		/** Removed options stay, `retired`, so records using them keep their meaning. `color`: one of core's `optionColors`. */
+		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
 		linkTypeId: v.optional(v.id("recordTypes")),
 		multiple: v.optional(v.boolean()),
+		/** AI fills it from the record's customer conversations (fieldAi.ts). */
+		ai: v.optional(fieldAi),
+		/**
+		 * Set while its kind, one/several or linked database is changing (fieldChanges.ts): values are
+		 * converting in the background, so the field and its values can't be edited until it's unset.
+		 */
+		change: v.optional(v.id("fieldChanges")),
 		/** Display order. */
 		position: v.number(),
 		/** In Trash: its values stay on every record but can't be set, filtered or sorted. */
@@ -1248,6 +1420,19 @@ export default defineSchema({
 	})
 		.index("by_type", ["typeId", "key"])
 		.index("by_type_kind", ["typeId", "kind"]),
+
+	// What AI would write into a field set to "Suggest a change to accept" (fieldAi.ts), for someone to accept or dismiss. One per record and field: a newer one replaces it.
+	fieldSuggestions: defineTable({
+		workspaceId: v.id("workspaces"),
+		recordId: v.id("records"),
+		fieldId: v.id("recordFields"),
+		value: fieldValue,
+		conversationId: v.optional(v.id("inboxConversations")),
+		at: v.number(),
+	})
+		.index("by_record", ["recordId"])
+		.index("by_field", ["fieldId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	records: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -1259,15 +1444,30 @@ export default defineSchema({
 		searchText: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
-		createdBy: v.id("users"),
+		/** The member who made it. Unset when someone outside did (`contact`). */
+		createdBy: v.optional(v.id("users")),
+		/**
+		 * Made by someone outside the workspace, through an agent as Public: their lowercased email or E.164
+		 * phone. They're who Add lets see and change it (core place-access.ts `canAddIn`).
+		 */
+		contact: v.optional(v.string()),
 		updatedAt: v.number(),
-		updatedBy: v.id("users"),
-		/** Set when an agent made the last change, acting for `updatedBy`. */
+		/** Unset when someone outside made the last change, through `updatedByAgent`. */
+		updatedBy: v.optional(v.id("users")),
+		/** Set when an agent made the last change, acting for `updatedBy` (or for someone outside). */
 		updatedByAgent: v.optional(v.id("agents")),
+		/** Values AI wrote (fieldAi.ts), by field key: when, and from which conversation. A person's change to one drops it. */
+		ai: v.optional(v.record(v.string(), v.object({ at: v.number(), conversationId: v.optional(v.id("inboxConversations")) }))),
 	})
 		.index("by_type", ["typeId", "archived"])
+		/** A member's own records, newest first, for Add (they see only what they made). */
+		.index("by_creator", ["typeId", "archived", "createdBy"])
+		/** Someone outside's own records, for Add as Public. */
+		.index("by_contact", ["typeId", "archived", "contact"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
+		// Every record of a database by creation time, in Archive or not: a field change converts them in this order.
+		.index("by_type_created", ["typeId"])
 		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
 
 	// A page: a standalone doc (wiki, SOP, meeting notes) or a record's body. Its content lives
@@ -1278,16 +1478,21 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		/** Set for a record's body; standalone pages have none. */
 		recordId: v.optional(v.id("records")),
-		/** Only standalone pages can be nested. */
+		/**
+		 * A folder in Drive: a page row with no content, holding pages, files and other folders (driveFiles.ts).
+		 * Unset is a page. Folders sit in folders or at the top level; pages hold sub-pages only.
+		 */
+		kind: v.optional(v.literal("folder")),
+		/** Only standalone pages have one: inside a page (a record's too, as sub-pages) or a folder. */
 		parentId: v.optional(v.id("pages")),
-		/** Standalone pages only: a record's body shows the record's name. */
+		/** Standalone pages only: a record's body shows the record's name. A folder's name. */
 		title: v.string(),
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
 		updatedAt: v.number(),
 		updatedBy: v.id("users"),
-		/** Standalone pages: who can see and edit it. Unset follows its parent; a top-level page's is Everyone at Edit. */
+		/** Standalone pages: who can see and edit it. Unset follows its parent (inside a record's page, its database); a top-level page's is Everyone at Edit. */
 		access,
 	})
 		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
@@ -1328,6 +1533,29 @@ export default defineSchema({
 	// Pictures in a page: uploaded (pages.addImage), or pasted from another page in the workspace
 	// (pageOps.adoptImages). Kept while the page is, even once out of its content, so restoring an
 	// older version brings them back. The file goes with the last page that has it.
+	// A file in Drive (driveFiles.ts): uploaded like a chat file (files.upload), then put in a folder or at the
+	// top level. Its type is what its bytes said. Who can access follows its folder unless it sets its own.
+	driveFiles: defineTable({
+		/** Sources retained across edits and later audience changes. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		/** The folder it's in; unset at Drive's top level. Never a page. */
+		parentId: v.optional(v.id("pages")),
+		...fileInfo.fields,
+		storageId: v.id("_storage"),
+		/** In Archive (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Who can see and change it. Unset follows its folder; a top-level file's is Everyone at Edit. */
+		access,
+	})
+		.index("by_workspace", ["workspaceId", "archived", "name"])
+		.index("by_parent", ["workspaceId", "parentId", "archived", "name"])
+		.index("by_storage", ["storageId"])
+		.searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId", "archived"] }),
+
 	pageImages: defineTable({ workspaceId: v.id("workspaces"), pageId: v.id("pages"), storageId: v.id("_storage"), url: v.string() })
 		.index("by_page", ["pageId", "url"])
 		.index("by_url", ["workspaceId", "url"])
@@ -1381,10 +1609,15 @@ export default defineSchema({
 			v.literal("field.archived"),
 			v.literal("field.restored"),
 		),
-		/** Records: changed values by field key. Fields: changed settings ("label", "options"). */
+		/** Records: changed values by field key. Fields: changed settings ("label", "icon", "options", "colors"). */
 		changes: v.array(v.object({ key: v.string(), old: v.optional(fieldValue), new: v.optional(fieldValue) })),
-		userId: v.id("users"),
+		/** Who did it. Unset when someone outside did, through `agentId` as Public (`contact`). */
+		userId: v.optional(v.id("users")),
+		/** Someone outside the workspace (lowercased email or E.164 phone) the agent acted for as Public. */
+		contact: v.optional(v.string()),
 		agentId: v.optional(v.id("agents")),
+		/** AI filled these fields (fieldAi.ts), from this conversation. No person or agent did. */
+		ai: v.optional(v.object({ conversationId: v.id("inboxConversations") })),
 		/** Set on an undo: the change it reversed. */
 		undoes: v.optional(v.id("recordHistory")),
 		/** Set once this change has been undone. */
@@ -1394,6 +1627,55 @@ export default defineSchema({
 		.index("by_workspace", ["workspaceId"])
 		.index("by_type", ["typeId"])
 		.index("by_field", ["fieldId"]),
+
+	// A change to a field's kind, one/several or linked database, converting every record's value in
+	// batches (fieldChanges.ts). Forward changes keep each changed record's old value so the change can
+	// be undone; undoing is a change too (`undoes`), and keeps none.
+	fieldChanges: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		fieldId: v.id("recordFields"),
+		from: fieldShape,
+		to: fieldShape,
+		/** Set on an undo: the change it reverses. */
+		undoes: v.optional(v.id("fieldChanges")),
+		/** Set once this change has been undone (or is being). */
+		undoneBy: v.optional(v.id("fieldChanges")),
+		status: v.union(v.literal("running"), v.literal("done")),
+		/** Records created at or before this have been converted. */
+		doneThrough: v.number(),
+		counts: changeCounts,
+		/** Its line in the field's history. */
+		historyId: v.optional(v.id("recordHistory")),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		finishedAt: v.optional(v.number()),
+		/** Forward changes: old values are kept until then, so it can be undone. */
+		keepUntil: v.optional(v.number()),
+		/** Its kept values were deleted (keepUntil passed): it can't be undone. */
+		forgotten: v.optional(v.boolean()),
+		/** Its latest scheduled run, so `resume` can tell a failed run from a slow one. */
+		run: v.optional(v.id("_scheduled_functions")),
+		updatedAt: v.number(),
+		error: v.optional(v.string()),
+	})
+		.index("by_field", ["fieldId"])
+		.index("by_type", ["typeId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_history", ["historyId"])
+		.index("by_status", ["status", "updatedAt"])
+		.index("by_keep", ["keepUntil"]),
+
+	// A record's value before a field change rewrote it, and what it wrote, so undo restores it exactly
+	// (unless the record changed since). Only records whose value changed have one.
+	fieldChangeValues: defineTable({
+		changeId: v.id("fieldChanges"),
+		recordId: v.id("records"),
+		old: v.optional(fieldValue),
+		new: v.optional(fieldValue),
+	})
+		.index("by_change", ["changeId", "recordId"])
+		.index("by_record", ["recordId"]),
 
 	// A chat message that references a record, so the record can show where it was discussed.
 	recordMentions: defineTable({
@@ -1411,16 +1693,19 @@ export default defineSchema({
 	trash: defineTable({
 		workspaceId: v.id("workspaces"),
 		kind: trashKind,
-		/** The item's row id: record, database, field, page, chat, agent, or skill or automation install. */
+		/** The item's row id: record, database, field, page or folder, file, chat, agent, or skill or automation install. */
 		itemId: v.string(),
 		/** Its name when deleted, for listing and search. */
 		name: v.string(),
-		/** Page deletion included live children, captured when it entered Trash. */
+		/** Page or folder deletion included live children (sub-pages, or a folder's contents), captured when it entered Trash. */
 		includesSubpages: v.optional(v.boolean()),
 		/** Records and fields: their database. */
 		typeId: v.optional(v.id("recordTypes")),
-		deletedBy: v.id("users"),
-		/** Set when an agent deleted it, acting for `deletedBy`. */
+		/** Unset when someone outside archived their own record, through `agentId` as Public (`contact`). */
+		deletedBy: v.optional(v.id("users")),
+		/** Someone outside the workspace (lowercased email or E.164 phone) the agent acted for as Public. */
+		contact: v.optional(v.string()),
+		/** Set when an agent deleted it, acting for `deletedBy` (or `contact`). */
 		agentId: v.optional(v.id("agents")),
 		deletedAt: v.number(),
 	})

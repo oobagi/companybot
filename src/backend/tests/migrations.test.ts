@@ -6,7 +6,7 @@ import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { readDoc } from "../convex/pageOps";
 
-import { agentTurn, agentsOf, generalOf, modules, signIn, messagesIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, modules, oldChild, signIn, messagesIn } from "./helpers";
 import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 
@@ -158,6 +158,28 @@ describe("migrations", () => {
 		await expect(owner.mutation(api.workspace.invite, { email: "MIXEDCASE@CO.COM", role: "member" })).rejects.toThrow("already a member");
 		await t.run(ctx => ctx.db.patch(membership!._id, { email: undefined }));
 		await expect(owner.mutation(api.workspace.invite, { email: "next@co.com", role: "member" })).rejects.toThrow("being updated");
+	});
+
+	it("moves sending replies right away from the workspace's Public switch to each of its agents, and drops the switch", async () => {
+		const t = convexTest({ schema, modules, transactionLimits: true });
+		migrationsTest.register(t);
+		const on = await signIn(t, "on@co.com");
+		const off = await signIn(t, "off@co.com");
+		const [onAgents, offAgents] = [await on.query(api.agents.list), await off.query(api.agents.list)];
+		await t.run(async (ctx) => {
+			await ctx.db.patch(onAgents[0]!.workspaceId, { publicAbilities: [{ ability: "public.reply", on: true }, { ability: "public.handoff", on: false }] });
+			await ctx.db.patch(offAgents[0]!.workspaceId, { publicAbilities: [{ ability: "public.message", on: false }] });
+		});
+		vi.useFakeTimers();
+		try {
+			await t.mutation(internal.migrations.runAll);
+			await t.finishAllScheduledFunctions(vi.runAllTimers);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect((await on.query(api.agents.list)).map((a) => a.customerReplies)).toEqual(onAgents.map(() => "send"));
+		expect((await off.query(api.agents.list)).map((a) => a.customerReplies)).toEqual(offAgents.map(() => undefined));
+		expect(await t.run(async (ctx) => (await ctx.db.query("workspaces").collect()).filter((w) => w.publicAbilities).length)).toBe(0);
 	});
 
 	it("strips the retired chat.react from agents and their versions, and drops rules and locks on it", async () => {
@@ -476,7 +498,7 @@ it("gives sub-pages from before pages were blocks exactly one block in their par
 	prosemirrorSync.register(t);
 	const owner = await signIn(t, "owner@co.com");
 	const root = await owner.mutation(api.pages.create, { title: "Wiki" });
-	const old = await owner.mutation(api.pages.create, { title: "Old guide", parentId: root, insertInParent: false });
+	const old = await oldChild(t, owner, "Old guide", root);
 	const placed = await owner.mutation(api.pages.create, { title: "New guide", parentId: root });
 	const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.flatMap((b) => b.firstChild?.type.name === "page" ? [b.firstChild.attrs.pageId as string] : []));
 	expect(await blocks()).toEqual([placed]);
@@ -490,4 +512,23 @@ it("gives sub-pages from before pages were blocks exactly one block in their par
 		vi.useRealTimers();
 	}
 	expect((await blocks()).sort()).toEqual([old, placed].sort());
+});
+
+it("gives an Inbox from before them its first sections", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	await signIn(t, "owner@co.com");
+	const sections = () => t.run(async (ctx) => (await ctx.db.query("sidebarSections").collect()).filter((s) => s.tab === "inbox").map((s) => s.name));
+	// From before them: none.
+	await t.run(async (ctx) => {
+		for (const s of await ctx.db.query("sidebarSections").collect()) await ctx.db.delete(s._id);
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	expect(await sections()).toEqual(["Channels", "Tags"]);
 });

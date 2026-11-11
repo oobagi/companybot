@@ -28,7 +28,9 @@ Any email, no code: local backends send no email and the app signs straight in. 
 
 ## Look at it without Electron
 
-The renderer is also served at `http://localhost:5173` (vite prints the port; it moves if taken). Open it in a browser (Playwright) to click through and screenshot. Screens have paths, so you can open one directly: `#/customize/automations/new`, `#/settings/members`.
+`pnpm dev --web` starts the same local backend with the app in a browser only (no Electron, no Electron download); vite prints the address. It's the web build clients use, so check browser-only behavior there ([architecture: Web and desktop](../../../wiki/architecture.md#web-and-desktop)).
+
+With `pnpm dev`, the renderer is also served at `http://localhost:5173` (vite prints the port; it moves if taken). Open it in a browser (Playwright) to click through and screenshot. Screens have paths, so you can open one directly: `#/customize/automations/new`, `#/settings/members`.
 
 ## Other commands
 

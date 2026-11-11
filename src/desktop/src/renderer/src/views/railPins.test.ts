@@ -1,6 +1,7 @@
+import { railTabs } from "@companybot/core/arrangements";
 import { describe, expect, it } from "vitest";
 import type { PinKey } from "../pins";
-import { steadyOrder } from "./RailPins";
+import { appTabs, steadyOrder } from "./RailPins";
 
 const k = (...ids: string[]) => ids.map((id) => `page:${id}` as PinKey);
 
@@ -23,4 +24,9 @@ describe("steadyOrder", () => {
 		steadyOrder(before, k("d", "a", "b"));
 		expect(before).toEqual(k("a", "b", "c"));
 	});
+});
+
+// The server saves only the rail tabs it knows; one it doesn't is refused ("Not found.") when moved.
+it("draws exactly the rail tabs the server accepts, in its order", () => {
+	expect(appTabs.map((t) => t.id)).toEqual(railTabs);
 });

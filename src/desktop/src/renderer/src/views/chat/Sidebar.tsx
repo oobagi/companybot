@@ -1,15 +1,17 @@
 import { useStoredIds } from "../../arrangements";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
-import { useMemo, useRef, useState } from "react";
+import type { SectionTab } from "@companybot/core/arrangements";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery, useWorkspace } from "../../convex";
-import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, UnpinIcon } from "../../icons";
+import { AgentIcon, ArchiveIcon, CaretRightIcon, ChannelIcon, ChatIcon, CheckIcon, CloseIcon, EditIcon, MembersIcon, MoreIcon, PinIcon, PlusIcon, PrivateIcon, SignOutIcon, ThreadIcon, TrashIcon, UnpinIcon } from "../../icons";
 import { type PinKey, setRailVia, usePins } from "../../pins";
 import { navigate } from "../../router";
 import { blurActiveEditable, sidebarRow, useJump } from "../../shortcuts";
-import { type DragProps, splitDrag, useSortable } from "../../sortable";
-import { CountBadge, Notice, RenameInput, chevronButton, surfaceButton, titleButton, trailingAction, useClock, useRun } from "../../ui";
-import { AgentBadge, Avatar, MenuItem, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
+import { type Section, type SectionId, itemsGroup, unsectionedList, useSections, useUnsectioned } from "../../sections";
+import { type DragListOptions, type DragProps, type RowDrag, splitDrag, useDragList, useDragStatic, useSortable } from "../../sortable";
+import { CountBadge, Form, Notice, RenameInput, chevronButton, primaryButton, secondaryButton, surfaceButton, titleButton, trailingAction, useClock, useRun, fullControlClass } from "../../ui";
+import { AgentBadge, Avatar, DialogButtons, MenuItem, Modal, Popover, PopoverPanel, archiveQuestion, useConfirm } from "./common";
 import { AccessLock } from "../access";
 import type { ChatList, Participant } from "./data";
 import { BrowseChannels, ChannelDetailsFor, CreateChannel, NewMessage } from "./dialogs";
@@ -33,21 +35,21 @@ type ChatNavProps = {
 	onError: (e: unknown) => void;
 	/** `agents.manage`: renames agents from their rows. */
 	canManageAgents: boolean;
-	section: SectionProps;
 };
 
 /**
- * Channels, in your own order (drag to change), each with its active threads nested under it
- * (replied to lately, by the workspace's setting; `chats.activeThreads`). Collapsed, it keeps
- * only the open one and unread ones, like Slack.
+ * Channels: the ones in no section at the top of the sidebar (like Drive's Home), in the workspace's
+ * order, then the sections people add (`SectionsNav`), each channel with its active threads nested under
+ * it (replied to lately, by the workspace's setting; `chats.activeThreads`). Drag a channel within or
+ * between them. New channel, Browse channels and New section are the + beside the tab's name.
  */
-export function ChannelsNav({ chats, openId, openThread, onOpen, section }: ChatNavProps) {
+export function ChannelsNav({ chats, openId, openThread, onOpen, dms }: ChatNavProps & { dms: BuiltIn["render"] }) {
 	const workspace = useWorkspace();
 	const now = useClock();
-	const threads = useQuery(api.chats.activeThreads, section.collapsed ? "skip" : { now }) ?? [];
+	const threads = useQuery(api.chats.activeThreads, { now }) ?? [];
 	const [folded, changeFolded] = useStoredIds("channelFolds");
-	const [dialog, setDialog] = useState<Dialog>();
 	const [details, setDetails] = useState<Id<"chats">>();
+	const [creatingIn, setCreatingIn] = useState<SectionId>();
 	const markRead = useMutation(api.chats.markRead);
 	const updateChannel = useMutation(api.chats.updateChannel);
 	const leave = useMutation(api.chats.leave);
@@ -55,29 +57,15 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 	const { error, run } = useRun();
 	const { confirm, dialog: confirming } = useConfirm();
 	const drafts = useDraftChats(chats.me, workspace?.id);
-	const { sorted, drag } = useSortable("channels", chats.channels, chatKey);
-	const shown = section.collapsed ? sorted.filter((c) => c._id === openId || c.unread || c.mentioned) : sorted;
+	const { place } = useSections("chat");
+	const { sorted, drag } = useUnsectioned("chat", chats.channels, chatKey);
+	const byId = useMemo(() => new Map<string, (typeof chats.channels)[number]>(chats.channels.map((c) => [c._id, c])), [chats.channels]);
 	/** Leaving or deleting the open channel: nothing to show there anymore. */
 	const left = (chatId: Id<"chats">) => chatId === openId && navigate("chat");
-	return (
-		<Group
-			title="Channels"
-			section={section}
-			add={
-				<Popover trigger={<PlusIcon />} label="Add channels" className={trailingAction} panelClassName="w-48 p-1">
-					{(close) => (
-						<>
-							<MenuItem onClick={() => (close(), setDialog("create"))}>New channel</MenuItem>
-							<MenuItem onClick={() => (close(), setDialog("browse"))}>Browse channels</MenuItem>
-						</>
-					)}
-				</Popover>
-			}
-		>
-			{shown.map((c) => {
+	const row = (c: (typeof chats.channels)[number], drag: DragProps | undefined) => {
 				const own = threads.filter((t) => t.chatId === c._id);
 				const open = !folded.includes(c._id);
-				const d = splitDrag(drag(c._id));
+		const d = splitDrag(drag);
 				return (
 					<div key={c._id} {...d.box} className={`flex flex-col gap-px ${d.box.className}`}>
 				<Item
@@ -116,13 +104,35 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
 				))}
 					</div>
 				);
-			})}
+	};
+	return (
+		<>
+			{!!sorted.length && <div className="flex flex-col gap-px">{sorted.map((c) => row(c, drag(c._id)))}</div>}
+			<SectionsNav tab="chat" builtIns={[{ id: "dms", render: dms }]}>
+				{(section, at) => {
+					const rows = section.ids.filter((id) => byId.has(id));
+					// Folded, what needs you stays, as in Direct messages.
+					const keep = (id: string) => { const c = byId.get(id)!; return c._id === openId || c.unread || c.mentioned; };
+					return <SectionGroup {...at} tab="chat" section={section} rows={rows} keep={keep} render={(id, drag) => row(byId.get(id)!, drag?.item)} add={<AddButton label={`New channel in ${section.name}`} onClick={() => setCreatingIn(section._id)} />} />;
+				}}
+			</SectionsNav>
 			<Notice>{error}</Notice>
 			{confirming}
+			{details && <ChannelDetailsFor chatId={details} onClose={() => setDetails(undefined)} onLeft={() => left(details)} />}
+			{creatingIn && <CreateChannel onClose={() => setCreatingIn(undefined)} onOpen={(id) => (place(id, creatingIn), onOpen(id))} />}
+		</>
+	);
+}
+
+/** The + beside Chat's name: New channel and Browse channels, for the channels listed under it, and New section. */
+export function ChannelsAdd({ onOpen, onNewSection }: { onOpen: (chatId: Id<"chats">) => void; onNewSection?: () => void }) {
+	const [dialog, setDialog] = useState<Dialog>();
+	return (
+		<>
+			<AddMenu label="Add channels" actions={[{ label: "New channel", onClick: () => setDialog("create") }, { label: "Browse channels", onClick: () => setDialog("browse") }, ...(onNewSection ? [{ label: "New section", onClick: onNewSection }] : [])]} />
 			{dialog === "create" && <CreateChannel onClose={() => setDialog(undefined)} onOpen={onOpen} />}
 			{dialog === "browse" && <BrowseChannels onClose={() => setDialog(undefined)} onOpen={onOpen} />}
-			{details && <ChannelDetailsFor chatId={details} onClose={() => setDetails(undefined)} onLeft={() => left(details)} />}
-		</Group>
+		</>
 	);
 }
 
@@ -131,7 +141,7 @@ export function ChannelsNav({ chats, openId, openThread, onOpen, section }: Chat
  * written to it. Most recent first until you drag one; then your order, with new ones after.
  * An agent's side chats nest under it, like a channel's threads.
  */
-export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, section }: ChatNavProps) {
+export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, section, at }: ChatNavProps & { section: SectionProps; at: Parameters<BuiltIn["render"]>[0] }) {
 	const workspace = useWorkspace();
 	const openDm = useMutation(api.chats.openDm);
 	const createSide = useMutation(api.chats.createSideChat);
@@ -160,7 +170,7 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 	const markRead = useMutation(api.chats.markRead);
 	const closeDm = useMutation(api.chats.closeDm);
 	return (
-		<Group title="Direct messages" section={section} add={<AddButton label="New message" onClick={() => setDialog("message")} />}>
+		<Group title="Direct messages" section={section} {...at} add={<AddButton label="New message" onClick={() => setDialog("message")} />}>
 			{shown.map((d) => {
 				const sides = section.collapsed ? sidesOf(d.dmId).filter(needed) : sidesOf(d.dmId);
 				const open = section.collapsed || !folded.includes(d.key);
@@ -241,22 +251,56 @@ export function DmsNav({ chats, openId, onOpen, onError, canManageAgents, sectio
 const chatKey = (c: { _id: string }) => c._id;
 const dmKey = (d: { key: string }) => d.key;
 
-/** What the sidebar gives each section: whether it's folded, and its drag handle (the header) and drop area. */
-export type SectionProps = { collapsed: boolean; onToggle: () => void; drag: DragProps };
+/** What the sidebar gives each section: whether it's folded, and what folds it. */
+export type SectionProps = { collapsed: boolean; onToggle: () => void };
 
 /**
- * A sidebar section. With `section`, click its title to fold it and drag its title to move it.
- * `add` sits at the header's right end, showing on hover.
+ * A sidebar section (Chat's Direct messages, Drive's All files, and the ones people add). With
+ * `section`, click its title to fold it. `add` sits at the header's right end, showing on hover, then
+ * `menu`'s ⋯ (also its right-click menu); `rename` puts Rename first in it and edits the title in place.
+ * `drag` makes the header its handle among sections; `divider` makes the header a divider between drag
+ * lists (`useDragStatic`), so a row dropped just under it goes in.
  */
-export function Group({ title, section, add, children }: { title: string; section?: SectionProps; add?: React.ReactNode; children: React.ReactNode }) {
-	const { onPointerDown, className = "", ...box } = section?.drag ?? {};
+export function Group({ title, section, add, menu, rename, drag, divider, children }: {
+	title: string;
+	section?: SectionProps;
+	add?: React.ReactNode;
+	menu?: (close: () => void) => React.ReactNode;
+	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
+	drag?: DragProps;
+	divider?: ReturnType<typeof useDragStatic>;
+	children: React.ReactNode;
+}) {
+	const [renaming, setRenaming] = useState(false);
+	const [menuAt, setMenuAt] = useState<"button" | { x: number; y: number }>();
+	const closeMenu = () => setMenuAt(undefined);
+	const titleRef = useRef<HTMLButtonElement>(null);
+	const items = menu || rename
+		? (close: () => void) => (
+				<>
+					{rename && <MenuItem onClick={() => (close(), setRenaming(true))}><EditIcon /> Rename</MenuItem>}
+					{menu?.(close)}
+				</>
+			)
+		: undefined;
+	const d = splitDrag(drag);
 	return (
 		// Folded, ⌥1–9 skip its rows (`sidebarRow`).
-		<section {...box} data-collapsed={section?.collapsed || undefined} className={`group/section relative flex flex-col gap-px ${className}`}>
-			<div onPointerDown={onPointerDown} className="flex items-center justify-between px-2 pb-1">
+		<section data-collapsed={section?.collapsed || undefined} {...d.box} className={`group/section relative flex flex-col gap-px ${d.box.className}`}>
+			<div
+				{...divider}
+				// While renaming, a drag would take the text selection, and right-click is the input's own.
+				// min-h-6: as tall with its + and ⋯ as without, so every section's rows start at the same place.
+				onPointerDown={renaming ? undefined : d.handle?.onPointerDown}
+				onContextMenu={items && !renaming ? (e) => (e.preventDefault(), setMenuAt({ x: e.clientX, y: e.clientY })) : undefined}
+				className={`flex min-h-6 items-center justify-between gap-1 px-2 pb-1 ${divider?.className ?? ""}`}
+			>
+				{renaming && rename ? (
+					<RenameInput value={rename.value} onSave={rename.onSave} onDone={() => setRenaming(false)} className="-my-0.5 -ml-1 min-w-0 flex-1 px-1 py-0.5 text-xs" />
+				) : (
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500">
 					{section ? (
-						<button type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className={`${titleButton} flex max-w-full items-center gap-0.5`}>
+							<button ref={titleRef} type="button" onClick={section.onToggle} aria-expanded={!section.collapsed} className={`${titleButton} flex max-w-full items-center gap-0.5`}>
 							<span className="truncate">{title}</span>
 							<CaretRightIcon className={`shrink-0 ${section.collapsed ? "" : "rotate-90 opacity-0 group-hover/section:opacity-100"}`} />
 						</button>
@@ -264,10 +308,172 @@ export function Group({ title, section, add, children }: { title: string; sectio
 						title
 					)}
 				</h2>
-				{add && <span className="flex opacity-0 group-hover/section:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100">{add}</span>}
+				)}
+				{(add || items) && !renaming && (
+					<span className={`flex items-center gap-0.5 ${menuAt ? "" : "opacity-0 group-hover/section:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100"}`}>
+						{add}
+						{items && (
+							<PopoverPanel
+								opened={menuAt === "button"}
+								onClose={closeMenu}
+								className="w-52 p-1"
+								target={
+									<button type="button" title="More" aria-label={`Actions for ${title}`} onClick={() => setMenuAt(menuAt === "button" ? undefined : "button")} className={trailingAction}>
+										<MoreIcon weight="bold" />
+									</button>
+								}
+							>
+								{items(closeMenu)}
+							</PopoverPanel>
+						)}
+					</span>
+				)}
+				{items && typeof menuAt === "object" && (
+					<PopoverPanel opened at={menuAt} returnFocus={titleRef} onClose={closeMenu} className="w-52 p-1">
+						{items(closeMenu)}
+					</PopoverPanel>
+				)}
 			</div>
 			{children}
 		</section>
+	);
+}
+
+/** A built-in section (core `builtInSections`) drawn among the ones people add: `render` gets its header's drag and divider. */
+export type BuiltIn = { id: string; render: (at: { drag: DragProps | undefined; divider: ReturnType<typeof useDragStatic> | undefined }) => React.ReactNode };
+type Entry = { id: string; section?: Section };
+const entryKey = (e: Entry) => e.id;
+
+/**
+ * A tab's sections, built in (`builtIns`) and people added (backend sidebarSections.ts), in the
+ * workspace's order, after its rows in no section. With `sidebar.arrange`, drag a header to move its
+ * section. `children` draws each one people added (`SectionGroup`), told whether it's first after the
+ * rows in no section: its header then also ends that list, so it takes drops even when it's empty.
+ * `holder`: the built-in that holds those rows (Drive's All files), on top until someone moves it;
+ * other built-ins start after the sections.
+ */
+export function SectionsNav({ tab, builtIns = [], holder, children }: {
+	tab: SectionTab;
+	builtIns?: BuiltIn[];
+	holder?: string;
+	children: (section: Section, at: { drag: DragProps | undefined; first: boolean }) => React.ReactNode;
+}) {
+	const { sections } = useSections(tab);
+	const [order] = useStoredIds("sectionOrder");
+	const ids = builtIns.map((b) => b.id).join(" ");
+	const entries = useMemo((): Entry[] => {
+		const fixed = ids ? ids.split(" ").map((id) => ({ id })) : [];
+		return [...fixed.filter((e) => e.id === holder), ...sections.map((s) => ({ id: s._id, section: s })), ...fixed.filter((e) => e.id !== holder)];
+	}, [ids, holder, sections]);
+	// Unsaved, the holder stays on top (an unsaved id otherwise goes after the saved ones).
+	const onTop = !!holder && !order.includes(holder);
+	const arrange = useCallback((sorted: Entry[]) => (onTop ? [...sorted.filter((e) => e.id === holder), ...sorted.filter((e) => e.id !== holder)] : sorted), [onTop, holder]);
+	const { sorted, drag } = useSortable("sectionOrder", entries, entryKey, "y", undefined, { group: `${itemsGroup(tab)}:sections`, arrange });
+	const byId = new Map(builtIns.map((b) => [b.id, b]));
+	return (
+		<>
+			{sorted.map((e, i) => {
+				const first = holder ? sorted[i - 1]?.id === holder : i === 0;
+				const builtIn = byId.get(e.id);
+				return (
+					<Fragment key={e.id}>
+						{e.section ? children(e.section, { drag: drag(e.id), first }) : builtIn && <BuiltInSlot tab={tab} first={first} drag={drag(e.id)} render={builtIn.render} />}
+					</Fragment>
+				);
+			})}
+		</>
+	);
+}
+
+/** A built-in section in its place. Its header shifts with drags of the tab's rows, and first after the rows in no section, it also ends that list (as `SectionGroup`'s). */
+function BuiltInSlot({ tab, first, drag, render }: { tab: SectionTab; first: boolean; drag: DragProps | undefined; render: BuiltIn["render"] }) {
+	const divider = useDragStatic(itemsGroup(tab), { endOf: first ? unsectionedList(tab) : undefined });
+	return <>{render({ drag, divider })}</>;
+}
+
+/** Where a deleted section's things go back to, by tab. */
+const homeOf: Record<SectionTab, string> = { chat: "Its channels move back above the sections.", drive: "What it holds moves back to All files.", databases: "Its databases move back above the sections.", inbox: "What it holds moves back above the sections." };
+
+/**
+ * One section people added: `rows` (the ids it holds that this tab draws, in order; `render` draws one
+ * with its drag). Each person folds it; folded, only the rows `keep` passes stay. With
+ * `sidebar.arrange`, rows drag in, out and within it, and its header has `add` (a new thing in it) and
+ * ⋯ (Rename, Delete section) on hover. Without, an empty one isn't shown. `children` follow its rows
+ * (uploads in flight into it). `rowDrag`: what its rows say to the group's drags (Drive's folders take
+ * rows in).
+ */
+export function SectionGroup({ tab, section, drag, first, rows, keep, render, rowDrag, add, children }: {
+	tab: SectionTab;
+	section: Section;
+	drag: DragProps | undefined;
+	first: boolean;
+	rows: readonly string[];
+	keep: (id: string) => boolean;
+	render: (id: string, drag: RowDrag | undefined) => React.ReactNode;
+	rowDrag?: DragListOptions;
+	add?: React.ReactNode;
+	children?: React.ReactNode;
+}) {
+	const { place, writable } = useSections(tab);
+	const [folded, changeFolded] = useStoredIds("folded");
+	const collapsed = folded.includes(section._id);
+	const rename = useMutation(api.sidebarSections.rename);
+	const remove = useMutation(api.sidebarSections.remove);
+	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
+	const { row, key } = useDragList({
+		...rowDrag,
+		group: itemsGroup(tab),
+		enabled: writable,
+		onDrop: (from, index) => {
+			if (from.list === key && rows.indexOf(from.id) === index) return;
+			place(from.id, section._id, rows.filter((id) => id !== from.id)[index] ?? null);
+		},
+	});
+	const divider = useDragStatic(itemsGroup(tab), { startOf: key, endOf: first ? unsectionedList(tab) : undefined });
+	if (!writable && !rows.length) return null;
+	return (
+		<Group
+			title={section.name}
+			section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: section._id }) }}
+			drag={drag}
+			divider={divider}
+			add={writable && add}
+			rename={writable ? { value: section.name, onSave: (name) => run(rename({ sectionId: section._id, name })) } : undefined}
+			menu={writable ? (close) => (
+				<MenuItem onClick={() => (close(), confirm({ title: `Delete “${section.name}”?`, action: "Delete section", body: `${homeOf[tab]} Nothing in it is deleted.`, onConfirm: () => remove({ sectionId: section._id }) }))}>
+					<TrashIcon /> Delete section
+				</MenuItem>
+			) : undefined}
+		>
+			{(collapsed ? rows.filter(keep) : rows).map((id) => render(id, row(id)))}
+			{children}
+			<Notice>{error}</Notice>
+			{dialog}
+		</Group>
+	);
+}
+
+/** New section, from the + beside the tab's name (or a Move to menu): it goes after the tab's others. `onCreated` gets it, to move something into it. */
+export function NewSection({ tab, onClose, onCreated }: { tab: SectionTab; onClose: () => void; onCreated?: (id: Id<"sidebarSections">) => void }) {
+	const create = useMutation(api.sidebarSections.create);
+	const [name, setName] = useState("");
+	const { error, run } = useRun();
+	return (
+		<Modal title="New section" size="md" onClose={onClose}>
+			<Form onSubmit={() => run(create({ tab, name }).then((id) => onCreated?.(id)), onClose)}>
+				<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder={tab === "chat" ? "e.g. Sales" : tab === "drive" ? "e.g. Clients" : tab === "inbox" ? "e.g. Priority" : "e.g. Pipeline"} className={fullControlClass} />
+				<Notice>{error}</Notice>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="submit" disabled={!name.trim()} className={primaryButton}>
+						Create
+					</button>
+				</DialogButtons>
+			</Form>
+		</Modal>
 	);
 }
 
@@ -290,7 +496,18 @@ export function SidebarList({ children }: { children: React.ReactNode }) {
 	);
 }
 
-/** A section header's +. */
+/** The + beside a tab's name: one action is a button, more are a menu. */
+export function AddMenu({ label, actions }: { label: string; actions: { label: string; onClick: () => void }[] }) {
+	const [only] = actions;
+	if (actions.length < 2) return only ? <AddButton label={only.label} onClick={only.onClick} /> : null;
+	return (
+		<Popover trigger={<PlusIcon />} label={label} className={trailingAction} panelClassName="w-48 p-1">
+			{(close) => actions.map((a) => <MenuItem key={a.label} onClick={() => (close(), a.onClick())}>{a.label}</MenuItem>)}
+		</Popover>
+	);
+}
+
+/** A + on a section header or beside the tab's name. */
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
 	return (
 		<button type="button" onClick={onClick} title={label} aria-label={label} className={trailingAction}>
@@ -319,8 +536,10 @@ export function Item({
 	onToggle,
 	menu,
 	actions,
+	swap,
 	rename,
 	drag,
+	over,
 	pin,
 	onClick,
 	children,
@@ -351,10 +570,14 @@ export function Item({
 	menu?: (close: () => void) => React.ReactNode;
 	/** Other controls after the menu button. Controls in the icon slot need `relative z-10` to sit above the row's click area. */
 	actions?: React.ReactNode;
+	/** The menu button sits over the row's end, where its trailing details hide on hover (they take `group-hover/item:invisible`), instead of pushing them aside. */
+	swap?: boolean;
 	/** The name as edited (without a channel's #), and what saves a new one. */
 	rename?: { value: string; onSave: (name: string) => Promise<unknown> };
 	/** From `useSortable`: makes the row draggable within its list. */
 	drag?: DragProps;
+	/** A dragged row would go into this one if let go now (a Drive folder): it lights as if hovered. */
+	over?: boolean;
 	/**
 	 * What it is as a pin: its menu gets Pin to rail / Unpin from rail. A function makes the thing
 	 * first (an agent you haven't written to has no DM yet) and returns its key.
@@ -393,7 +616,7 @@ export function Item({
 			{guides.map((continues, level) => (
 				<Guide key={level} continues={continues} elbow={level === guides.length - 1} />
 			))}
-			<div className={`relative flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 ${itemTone({ active, unread, muted, open: !!menuAt })}`}>
+			<div className={`relative flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 ${itemTone({ active, unread, muted, open: !!menuAt, over })}`}>
 			{icon && (
 				<span className="flex size-[22px] shrink-0 items-center justify-center text-lg text-neutral-500">
 					{onToggle ? (
@@ -434,7 +657,8 @@ export function Item({
 				</button>
 			)}
 			{(items || actions) && !renaming && (
-				<span className={`relative z-10 items-center gap-0.5 ${menuAt ? "flex" : "hidden group-focus-within/item:flex group-hover/item:flex has-[[aria-expanded=true]]:flex"}`}>
+				// Swapped in, it shows for keyboard focus only (a clicked row keeps focus, and its details should stay).
+				<span className={`${swap ? "absolute inset-y-0 right-2" : "relative"} z-10 items-center gap-0.5 ${menuAt ? "flex" : `hidden group-hover/item:flex has-[[aria-expanded=true]]:flex ${swap ? "group-has-[:focus-visible]/item:flex" : "group-focus-within/item:flex"}`}`}>
 					{items && (
 						<PopoverPanel
 							opened={menuAt === "button"}
@@ -468,6 +692,8 @@ export function Item({
  * slot, the same at every depth) and runs the row's full height plus the 1px gap below, so a
  * curve branching off it never breaks it. The elbow stops just short of the pill.
  */
+/** A guide's width: one level of the tree, for where a drag's line starts (sortable.ts). */
+export const GUIDE_WIDTH = 28;
 function Guide({ continues, elbow }: { continues: boolean; elbow: boolean }) {
 	return (
 		<span aria-hidden className="relative w-7 shrink-0">
@@ -479,8 +705,9 @@ function Guide({ continues, elbow }: { continues: boolean; elbow: boolean }) {
 	);
 }
 
-/** The pill's colors. Hover paints it when the pointer is anywhere on the row, gutter included. */
-function itemTone({ active, unread, muted, open }: { active?: boolean; unread?: boolean; muted?: boolean; open?: boolean }) {
+/** The pill's colors. Hover paints it when the pointer is anywhere on the row, gutter included; `over` (a drop would go into it) paints it darker. */
+function itemTone({ active, unread, muted, open, over }: { active?: boolean; unread?: boolean; muted?: boolean; open?: boolean; over?: boolean }) {
+	if (over) return "bg-neutral-200 text-neutral-900";
 	if (active) return "bg-neutral-200/70 font-medium text-neutral-900";
 	const hover = open ? "bg-neutral-100" : "group-hover/item:bg-neutral-100";
 	if (unread) return `font-semibold text-neutral-900 ${hover}`;

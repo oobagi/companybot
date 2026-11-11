@@ -39,7 +39,7 @@ export function YourPermissions() {
 					</div>
 					{r.automation ? (
 						<button type="button" onClick={() => confirm({ title: "Remove this permission?", action: "Remove permission", danger: false, body: "The automation will ask again before this action runs.", onConfirm: () => remove({ ruleId: r._id }) })} aria-label="Remove" title="Remove permission" className={iconDangerButton}>
-							<TrashIcon size={16} />
+							<TrashIcon />
 						</button>
 					) : (
 						<Select

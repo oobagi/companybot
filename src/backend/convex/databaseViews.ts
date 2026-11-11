@@ -57,9 +57,13 @@ export async function saveView(ctx: MutationCtx, who: Who, typeId: Id<"recordTyp
 	const changes = (["name", "filters", "sort", "columns", "layout", "groupBy"] as const)
 		.filter((key) => text(old?.[key]) !== text(config[key]))
 		.map((key) => ({ key, old: text(old?.[key]), new: text(config[key]) }));
-	if (old && !changes.length) return old._id;
+	if (old && !changes.length) {
+		if (old.notice) await ctx.db.patch(old._id, { notice: undefined });
+		return old._id;
+	}
 	const id = old ? old._id : await ctx.db.insert("databaseViews", { workspaceId: who.member.workspaceId, typeId, ...config, version: 1 });
-	if (old) await ctx.db.patch(id, { ...config, version: old.version + 1 });
+	// Saving clears a note about filters a field's kind change removed (fieldChanges.ts).
+	if (old) await ctx.db.patch(id, { ...config, notice: undefined, version: old.version + 1 });
 	await logChange(ctx, who, { typeId, subject: config.name, action: old ? "view.updated" : "view.created", changes });
 	return id;
 }

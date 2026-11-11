@@ -17,6 +17,24 @@ describe("splitTokens", () => {
 		expect(kinds("@Scout Pro and @Ada, see #sales for /Proposal")).toEqual(["[person:@Scout Pro]", " and ", "[person:@Ada]", ", see ", "[channel:#sales]", " for ", "[skill:/Proposal]"]);
 	});
 
+	it("shows a message's tagged records, ahead of a person with the same name", () => {
+		const records = [
+			{ text: "@Ada Roofing", id: "r1" as never, typeKey: "client", state: "live" as const },
+			{ text: "@Private record", id: null, typeKey: null, state: "locked" as const },
+		];
+		const withRecords = splitTokens("@Ada Roofing signed, @Ada, and @Private record too", { ...tokens, records });
+		expect(withRecords.map((p) => (typeof p === "string" ? p : `[${p.kind}:${p.text}]`))).toEqual([
+			"[record:@Ada Roofing]",
+			" signed, ",
+			"[person:@Ada]",
+			", and ",
+			"[record:@Private record]",
+			" too",
+		]);
+		// Without the message's list, the same words are just text: a name is never guessed into a record.
+		expect(kinds("@Private record")).toEqual(["@Private record"]);
+	});
+
 	it("matches any case and only at a word's start", () => {
 		expect(kinds("@ada")).toEqual(["[person:@ada]"]);
 		expect(kinds("ada@Ada.co a/Proposal #sales-team @Adam")).toEqual(["ada@Ada.co a/Proposal #sales-team @Adam"]);
