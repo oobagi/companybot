@@ -28,6 +28,7 @@ import { inheritPlaces, notePlace, writeSources } from "./replySources";
 import { withReceipt } from "./approvals";
 import { opArg } from "./schema";
 import { enqueueTurn, runningTurn } from "./turns";
+import { autonomyAllowed } from "./agentPolicy";
 
 // Wakeups: an agent wakes later in a place (chat + thread), acting for a person. A wakeup is when
 // plus what. When: a time (`at`, through the scheduler; with `repeat` it's re-armed after each wake,
@@ -156,6 +157,7 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 		await cancelWakeup(ctx, row!, reason);
 		await logWake(ctx, row!, "skipped", reason);
 	};
+	if (row.answer && !(await autonomyAllowed(ctx, row.workspaceId, true))) return stop("Agent handoffs are off in workspace settings.");
 	// Never as anyone else: their follow-ups end with them.
 	const member = await memberOf(ctx, row.actorId, row.workspaceId);
 	if (!member) return stop("Its person left the workspace.");
@@ -186,7 +188,7 @@ export async function wake(ctx: MutationCtx, id: Id<"wakeups">, outcome?: { resu
 	}
 	const wakeLogId = await logWake(ctx, row, "fired");
 	if (chat.kind === "channel") await addToChat(ctx, chat, { agentId: agent._id });
-	await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, threadId: row.threadId, actorId: row.actorId, wakeupId: id, wakeLogId });
+	await enqueueTurn(ctx, chat, { agentId: agent._id, chatId: chat._id, threadId: row.threadId, actorId: row.actorId, wakeupId: id, wakeLogId, ...(row.answer && { handoff: true as const }) });
 	await ctx.db.patch(id, settle);
 }
 

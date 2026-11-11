@@ -13,6 +13,12 @@ export default {
 - **Currency**: the default for new amounts. Existing amounts keep theirs.
 - **Memory**: whether agents remember things. Off keeps existing memories for later. See **help: memory**.
 
+## Agent participation
+- **Automatic activity**: the workspace switch for proactive channel replies and agent collaboration. Off stops queued automatic work and prevents running automatic turns from making further calls or posting further output. Direct messages and human @mentions still work. An outside action already sent cannot be undone by this switch. Scheduled automations and ordinary reminders have their own controls.
+- **Agent handoffs**: allow agents to mention, hand work to, or privately ask other agents. This also requires Automatic activity. Both switches start on; new channels, including #general, start **Mentions only**, so proactive channel participation requires choosing **When relevant** in that channel. Existing channels keep their settings.
+- **Reply decisions**: the model choosing when to wake agents in When relevant channels. Jev is the default. Changing the model does not enable a disabled feature.
+- Agents can change these settings for people with the workspace settings permission. Enabling automatic activity or handoffs asks for approval.
+
 ## Pictures
 Agents with the picture tool (Companybot has it) make a picture when you ask ("make a logo for our roofing ad"), or edit one attached in the chat ("make the roof red"). The picture is attached to their reply. They can only edit pictures from chats you can see.
 

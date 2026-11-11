@@ -101,6 +101,15 @@ describe("grouped tools", () => {
 		expect(manageInputs["workspace.settings"].safeParse({ request: { action: "update_preferences", deviceTimeZone: "UTC" } }).success).toBe(false);
 	});
 
+	it("asks before an agent enables automatic activity or collaboration", async () => {
+		const tool = manageTools.find(t => t.id === "workspace.settings")!;
+		const ask = (request: object) => toolApprovalPolicy([tool])({ toolCall: { toolCallId: "settings", toolName: "workspace_settings", input: { request } } });
+		for (const field of ["agentAutonomy", "agentHandoffs"]) {
+			expect(await ask({ action: "update", expectedVersion: 1, [field]: true })).toBe("user-approval");
+			expect(await ask({ action: "update", expectedVersion: 1, [field]: false })).toBeUndefined();
+		}
+	});
+
 	it("asks for exact channel deletion without prompting for channel reads or edits", async () => {
 		const tool = manageTools.find((t) => t.id === "channels.manage")!;
 		const input = { request: { action: "delete", chat: "exact-channel" } };

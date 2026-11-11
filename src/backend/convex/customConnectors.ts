@@ -44,9 +44,9 @@ async function requireCustom(ctx: MutationCtx, member: Member, connectorId: stri
 	return row;
 }
 
-/** Adds one, installed for the Member role (owners always can), like installing from the catalog. Returns its id. */
+/** Adds one for the chosen roles, Owners-only when omitted by older clients. */
 export const create = mutation({
-	args: { connector: input },
+	args: { connector: input, roles: v.optional(v.array(v.id("roles"))) },
 	handler: async (ctx, args): Promise<string> => {
 		const member = await requirePermission(ctx, "connectors.manage");
 		const value = tidy(args.connector);
@@ -60,7 +60,7 @@ export const create = mutation({
 		const connectorId = customConnectorId(value.name, mine.map((c) => c.connectorId));
 		const now = Date.now();
 		const id = await ctx.db.insert("customConnectors", { workspaceId: member.workspaceId, connectorId, ...value, createdBy: member.userId, updatedBy: member.userId, updatedAt: now });
-		await install(ctx, member, fromRow((await ctx.db.get(id))!));
+		await install(ctx, member, fromRow((await ctx.db.get(id))!), args.roles);
 		return connectorId;
 	},
 });

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { decrypt } from "../convex/crypto";
+import { type ConnectorCredentials, type OAuthState, connectorCatalog, defineConnector } from "@companybot/core";
 
 import { workspaceOf, agentTurn, generalOf, agentsOf, ownerAndMember, settle, messagesIn } from "./helpers";
 import "./connectorFixtures";
@@ -8,6 +9,38 @@ import "./connectorFixtures";
 afterEach(() => void vi.useRealTimers());
 
 describe("connectors", () => {
+	it("stores registered OAuth app secrets only in encrypted flow and connection state", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const connector = defineConnector({ id: "registered-oauth", name: "Registered", description: "", version: "1", publisher: "Test", mcp: { url: "https://oauth.example.com/mcp", transport: "http" }, connection: "personal", auth: { type: "oauth" } });
+		connectorCatalog.push(connector);
+		vi.stubEnv("CONVEX_SITE_URL", "https://app.convex.site");
+		vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("/.well-known/oauth-protected-resource")) return Response.json({ resource: connector.mcp.url, authorization_servers: ["https://oauth.example.com"] });
+			if (url.includes("/.well-known/oauth-authorization-server")) return Response.json({ issuer: "https://oauth.example.com", authorization_endpoint: "https://oauth.example.com/authorize", token_endpoint: "https://oauth.example.com/token", response_types_supported: ["code"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["client_secret_basic"] });
+			if (url.endsWith("/token")) return Response.json({ access_token: "test-access", refresh_token: "test-refresh", token_type: "Bearer" });
+			throw new Error(`Unexpected endpoint ${url}`);
+		});
+		try {
+			await owner.mutation(api.connectors.setInstalled, { connectorId: connector.id, installed: true });
+			const url = await member.action(api.connectors.startOAuth, { connectorId: connector.id, client: { clientId: "test-client", clientSecret: "test-app-secret", issuer: "https://oauth.example.com" } });
+			const flow = (await t.run(ctx => ctx.db.query("connectorOAuthFlows").first()))!;
+			expect(JSON.stringify(flow)).not.toContain("test-app-secret");
+			expect(await decrypt<OAuthState>(flow.data)).toMatchObject({ preRegistered: true, client: { client_secret: "test-app-secret" } });
+			const response = await t.fetch(`/oauth/callback?code=test-code&state=${new URL(url).searchParams.get("state")}&iss=${encodeURIComponent("https://oauth.example.com")}`);
+			expect(await response.text()).toContain("Registered is connected");
+			const connection = (await t.run(ctx => ctx.db.query("connectorConnections").first()))!;
+			expect(JSON.stringify(connection)).not.toContain("test-app-secret");
+			expect(await decrypt<ConnectorCredentials>(connection.credentials)).toMatchObject({ type: "oauth", oauth: { preRegistered: true, client: { client_secret: "test-app-secret" } } });
+			for (const as of [owner, member]) expect(JSON.stringify(await as.query(api.connectors.list))).not.toContain("test-app-secret");
+			expect(await t.run(ctx => ctx.db.query("connectorOAuthFlows").collect())).toEqual([]);
+		} finally {
+			connectorCatalog.splice(connectorCatalog.indexOf(connector), 1);
+			vi.unstubAllGlobals();
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("lets only owners install, and members connect their own account", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		await expect(member.mutation(api.connectors.setInstalled, { connectorId: "notes", installed: true })).rejects.toThrow(

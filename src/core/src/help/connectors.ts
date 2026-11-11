@@ -14,12 +14,17 @@ People whose role can install connectors add any service with an **MCP server**:
 - **Account**: one shared account, or each person's own.
 - **Sign-in**: none, an API key (which header it goes in, an optional prefix such as "Bearer ", and what to call the key), or OAuth (sign in through the browser).
 
-Anyone with Member can use it once it's connected; change who can on its page. On its page, **Edit** changes it and **Remove** deletes it. Changing its server, account type or sign-in disconnects everyone and resets its Ask / Always / Never settings, since the old ones were for a different server. Removing it deletes its connections and settings, and agents granted it lose its tools. Agents can't add, change or remove connectors.
+**Who can use it** starts with Owners only. Select any other roles during creation, or change them on its page later. Existing connectors keep their audience. On its page, **Edit** changes it and **Remove** deletes it. Changing its server, account type or sign-in disconnects everyone and resets its Ask / Always / Never settings, since the old ones were for a different server. Removing it deletes its connections and settings, and agents granted it lose its tools. Agents can't add, change or remove connectors.
+
+## OAuth sign-in
+For a custom OAuth connector, **Connect** lets you register automatically or **Use a registered app**. If the provider requires a registered app, register the displayed redirect URL with that provider, then enter its client ID, OAuth issuer URL and, if required, client secret. These credentials belong to this connection and are stored encrypted with its tokens. They are not saved in form drafts or shown to other members. The issuer must match the provider discovered by the server. Reconnecting requires entering the app credentials again.
+
+MCP access does not install a Slack bot in Companybot. Slack's official MCP server also requires a suitable registered Slack app and scopes. A server still needs to support the transport and OAuth flow Companybot uses.
 
 ## How they work
 - People whose role can install connectors pick which roles can use each one (owners always can).
 - A connector uses either **one shared account** for the workspace (someone who can install connectors sets it) or **each person's own account** (everyone connects theirs with **Connect** on its page; an agent uses the account of the person it is helping).
 - Grant the connector to an agent in [Agents](#/settings/agents) for it to use it. Its tools are read from the server each time the agent works.
-- Anything the server doesn't mark read-only **asks first**, and anything it marks destructive always asks. On the connector's page, set each action to Ask, Always or Never for yourself. See **help: permissions**.
+- Custom servers' actions **ask first**, even if the server calls them read-only. Only built-in catalog connectors may use read-only hints to skip asking. Anything a server marks destructive always asks. On the connector's page, set each action to Ask, Always or Never for yourself. See **help: permissions**.
 `,
 } satisfies HelpPage;

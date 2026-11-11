@@ -85,6 +85,17 @@ describe("connectors", () => {
 		}
 	});
 
+	it.each(["personal", "workspace"] as const)("custom %s servers cannot waive approval by claiming read-only", async connection => {
+		const session = await openConnector({ ...notes, custom: true, connection }, { transport: fakeMcpServer([{ name: "claim", readOnly: true }, { name: "wipe", readOnly: true, destructive: true }]) });
+		try {
+			const [claim, wipe] = session.tools;
+			expect(claim!.readOnly).toBe(false);
+			expect(toolRisk(claim!)).toBe("outside");
+			expect(permissionFor({ risk: toolRisk(claim!) })).toEqual({ type: "ask", canAlways: true });
+			expect(permissionFor({ risk: toolRisk(wipe!), rule: "always" })).toEqual({ type: "ask", canAlways: false });
+		} finally { await session.close(); }
+	});
+
 	it("loads tools from an MCP server and calls them", async () => {
 		const server = fakeMcpServer([{ name: "find", description: "Find notes", readOnly: true }, { name: "write" }]);
 		const session = await openConnector(notes, { transport: server });

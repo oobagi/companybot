@@ -210,6 +210,7 @@ export async function ensureGeneral(ctx: MutationCtx, workspaceId: Id<"workspace
 		workspaceId,
 		kind: "channel",
 		name: "general",
+		replyMode: "mentions",
 		searchPublic: true,
 		topic: "Everyone in the workspace.",
 		private: false,

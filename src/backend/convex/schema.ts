@@ -266,6 +266,10 @@ export default defineSchema({
 		imageModel: v.optional(v.string()),
 		/** What decides whether agents reply in "When relevant" channels (core router.ts); unset: ROUTER_MODEL. */
 		routerModel: v.optional(v.string()),
+		/** Master switch for proactive replies and agent collaboration; absent preserves legacy behavior. */
+		agentAutonomy: v.optional(v.boolean()),
+		/** Also requires agentAutonomy. Includes mentions, named handoffs, and private asks. */
+		agentHandoffs: v.optional(v.boolean()),
 		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
 		imageBudgetUsd: v.optional(v.number()),
 		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`; 0 forever). Unset means THREAD_HOURS_DEFAULT. */
@@ -812,6 +816,8 @@ export default defineSchema({
 		promptPlaces: usedPlaces,
 		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
 		routed: v.optional(v.literal(true)),
+		/** Explicit collaboration provenance, including resumed chains and later follow-ups. */
+		handoff: v.optional(v.literal(true)),
 		/**
 		 * The dispatcher's pick, for its prompt and its reply's stats. One message's picks run one after
 		 * another, best fit first, so each sees what the ones before posted: `after` is the pick it waits for,

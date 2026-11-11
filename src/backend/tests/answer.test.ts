@@ -40,6 +40,7 @@ async function turn(kind: "asked" | "picked") {
 	else {
 		// Fake timers hold the scheduled run back, as agentTurn does: the test runs it.
 		vi.useFakeTimers();
+		await owner.mutation(api.chats.updateChannel, { chatId, replyMode: "relevant" });
 		const messageId = await owner.mutation(api.messages.send, { chatId, text: "hi", mentions: { userIds: [], agentIds: [] } });
 		await t.mutation(internal.router.apply, { messageId, replies: [{ agentId: companybot._id, probability: 0.9 }], model: "jev", costUsd: 0 });
 		turnId = (await turnsOf(t)).find((x) => x.triggerId === messageId)!._id;

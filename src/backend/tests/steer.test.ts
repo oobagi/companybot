@@ -363,6 +363,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 		const { t, owner, member } = await ownerAndMember();
 		const { companybot, scribe } = await agentsOf(owner);
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+		await owner.mutation(api.chats.updateChannel, { chatId, replyMode: "relevant" });
 		await owner.mutation(api.chats.addMembers, { chatId, userIds: [member.userId], agentIds: [companybot._id, scribe._id] });
 		const asked = await say(owner, chatId, "Can you do this problem for me: 5 / 10");
 		await t.mutation(internal.router.apply, { messageId: asked, replies: [{ agentId: companybot._id, probability: 0.4 }], model: "jev", costUsd: 0.0002 });
@@ -565,6 +566,7 @@ describe("steering a dispatcher's pick in a channel", () => {
 		const { t, owner } = await ownerAndMember();
 		const { companybot } = await agentsOf(owner);
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "ops", private: false });
+		await owner.mutation(api.chats.updateChannel, { chatId, replyMode: "relevant" });
 		await owner.mutation(api.chats.addMembers, { chatId, userIds: [], agentIds: [companybot._id] });
 		const sent = await owner.mutation(api.messages.send, { chatId, text: "nvm", mentions: noMentions });
 		expect(await turnsOf(t)).toEqual([]);

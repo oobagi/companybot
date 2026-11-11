@@ -101,13 +101,13 @@ function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; c
 					["Account", connector.connection === "personal" ? "Each person connects their own" : "One shared account for the workspace"],
 					["Sign-in", signIn],
 					["Tools", `Discovered from the connector each turn. Grant "${connector.id}.*" to an agent to use them.`],
-					["Asks first", "Anything that changes something, unless you set it to Always below."],
+					["Asks first", connector.custom ? "Every action, unless you allow it below. A custom server cannot skip confirmation by labeling a tool read-only." : "Anything that changes something, unless you set it to Always below."],
 					["Server", connector.server],
 				]}
 			/>
 			{connector.installed && (
 				<Section title="Access" flush>
-					<ConnectorRoles connector={connector} canManage={canManage} onChange={(roles) => run(setRoles({ connectorId: connector.id, roles }))} />
+					<ConnectorRoles allowed={connector.roleIds as Id<"roles">[]} canManage={canManage} onChange={(roles) => run(setRoles({ connectorId: connector.id, roles }))} />
 					<Connection connector={connector} />
 				</Section>
 			)}
@@ -117,10 +117,9 @@ function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; c
 }
 
 /** Which roles may use the connector. Owners always can, so Owner shows checked and fixed. */
-function ConnectorRoles({ connector, canManage, onChange }: { connector: ConnectorItem; canManage: boolean; onChange: (roles: Id<"roles">[]) => void }) {
+function ConnectorRoles({ allowed, canManage, onChange }: { allowed: Id<"roles">[]; canManage: boolean; onChange: (roles: Id<"roles">[]) => void }) {
 	const roles = useQuery(api.roles.list);
 	if (!roles) return null;
-	const allowed = connector.roleIds as Id<"roles">[];
 	return (
 		<div role="group" aria-label="Who can use it" className="flex flex-col gap-1.5 text-sm">
 			<span className="text-neutral-500">Who can use it</span>
@@ -145,6 +144,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 	const disconnect = useMutation(api.connectors.disconnect);
 	const { confirm, dialog } = useConfirm();
 	const [pasting, setPasting] = useState(false);
+	const [signing, setSigning] = useState(false);
 	const { error, run } = useRun();
 
 	return (
@@ -175,11 +175,12 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 						className={actionPrimaryButton}
 						// Opens in the browser (a new tab, or from the desktop app the default browser). The
 						// app flips to Connected on its own once the sign-in finishes.
-						onClick={() => run(openLinkWhenReady(startOAuth({ connectorId: connector.id })))}
+						onClick={() => connector.custom ? setSigning(true) : run(openLinkWhenReady(startOAuth({ connectorId: connector.id })))}
 					>
 						Connect with {connector.name}
 					</button>
 					<span className="text-neutral-400">{desktop() ? "Opens your browser to sign in." : "Opens a new tab to sign in."}</span>
+					{signing && <ConnectOAuthDialog connector={connector} onClose={() => setSigning(false)} />}
 				</div>
 			) : connector.canUse && connector.canConnect && connector.auth.type === "api_key" ? (
 				<div className="flex items-center gap-3">
@@ -193,6 +194,46 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "None of your roles can use this connector."}</p>
 			)}
 		</div>
+	);
+}
+
+/** App credentials stay in this dialog's memory and the backend's encrypted OAuth state, never a saved draft. */
+function ConnectOAuthDialog({ connector, onClose }: { connector: ConnectorItem; onClose: () => void }) {
+	const startOAuth = useAction(api.connectors.startOAuth);
+	const [registered, setRegistered] = useState(false);
+	const [clientId, setClientId] = useState("");
+	const [clientSecret, setClientSecret] = useState("");
+	const [issuer, setIssuer] = useState("");
+	const { error, busy, run } = useRun();
+	return (
+		<Modal title={`Connect ${connector.name}`} onClose={onClose}>
+			<Form className="flex flex-col gap-3" onSubmit={() => run(openLinkWhenReady(startOAuth({ connectorId: connector.id, ...(registered && { client: { clientId, issuer, ...(clientSecret && { clientSecret }) } }) })), onClose)}>
+				<Settings>
+					<Setting label="App registration">
+						<Select label="App registration" className={wideControlClass} value={registered ? "registered" : "automatic"} options={[{ value: "automatic", label: "Register automatically" }, { value: "registered", label: "Use a registered app" }]} onChange={(value) => setRegistered(value === "registered")} />
+					</Setting>
+					{registered && <>
+						<Setting label="Redirect URL" hint="Register this exact URL with the provider before connecting.">
+							<input aria-label="Redirect URL" readOnly value={connector.oauthRedirectUrl ?? ""} className={wideControlClass} />
+						</Setting>
+						<Setting label="OAuth issuer" hint="The issuer URL published by the provider, for example https://slack.com. Credentials are bound to this issuer.">
+							<input aria-label="OAuth issuer" required type="url" spellCheck={false} value={issuer} onChange={(e) => setIssuer(e.target.value)} className={wideControlClass} />
+						</Setting>
+						<Setting label="Client ID">
+							<input aria-label="Client ID" required autoComplete="off" value={clientId} onChange={(e) => setClientId(e.target.value)} className={wideControlClass} />
+						</Setting>
+						<Setting label="Client secret" hint="Only if your provider requires it. Stored encrypted with this connection, never shown to other members.">
+							<input aria-label="Client secret" type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} className={wideControlClass} />
+						</Setting>
+					</>}
+				</Settings>
+				<Notice>{error}</Notice>
+				<DialogButtons>
+					<button type="button" className={secondaryButton} onClick={onClose}>Cancel</button>
+					<button type="submit" disabled={busy} className={primaryButton}>Continue to sign in</button>
+				</DialogButtons>
+			</Form>
+		</Modal>
 	);
 }
 
@@ -292,12 +333,14 @@ function ConnectorFields({ value, onChange, autoFocus }: { value: ConnectorForm;
 export function NewConnectorDialog({ onClose }: { onClose: () => void }) {
 	const draft = useDraft<ConnectorForm>("connectors:new", emptyForm, 0);
 	const create = useMutation(api.customConnectors.create);
+	const [roles, setRoles] = useState<Id<"roles">[]>([]);
 	const { error, busy, run } = useRun();
 	const close = () => (draft.discard(), onClose());
 	return (
 		<Modal title="New connector" onClose={close}>
-			<Form className="flex flex-col gap-3" onSubmit={() => run(create({ connector: draft.value }).then((id) => { close(); navigate("settings", "connectors", id); }))}>
+			<Form className="flex flex-col gap-3" onSubmit={() => run(create({ connector: draft.value, roles }).then((id) => { close(); navigate("settings", "connectors", id); }))}>
 				<ConnectorFields autoFocus value={draft.value} onChange={draft.set} />
+				<ConnectorRoles allowed={roles} canManage onChange={setRoles} />
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={close} className={secondaryButton}>Cancel</button>

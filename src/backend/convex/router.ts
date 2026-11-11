@@ -1,3 +1,4 @@
+import { autonomyAllowed } from "./agentPolicy";
 import {
 	ROUTER_CONTEXT_MESSAGES,
 	QUIET_WINDOW_MS,
@@ -32,7 +33,7 @@ import { type MutationCtx, type QueryCtx, internalAction, internalMutation, inte
 import { dispatchTo, shownReply } from "./chains";
 import { type Namer, canSee, chatMembersOf, label, namer, textForModel } from "./chatOps";
 import { type RecordTags, recordTags } from "./recordTags";
-import { type Member, liveWorkspace, memberOf } from "./lib";
+import { type Member, memberOf } from "./lib";
 import { canReadReply } from "./replyPrivacy";
 import type { dispatchInfo } from "./schema";
 import { STALE_TURN_MS, enqueueTurn } from "./turns";
@@ -47,7 +48,7 @@ import { recordUsage } from "./usage";
 
 /** From messages.send, for a person's message that @mentions no agent. */
 export async function routeLater(ctx: MutationCtx, chat: Doc<"chats">, message: Doc<"chatMessages">) {
-	if (replyModeOf(chat) !== "relevant" || !message.authorUserId) return;
+	if (replyModeOf(chat) !== "relevant" || !message.authorUserId || !(await autonomyAllowed(ctx, chat.workspaceId))) return;
 	await ctx.scheduler.runAfter(QUIET_WINDOW_MS, internal.router.decide, { messageId: message._id });
 }
 
@@ -56,7 +57,7 @@ async function routable(ctx: QueryCtx, messageId: Id<"chatMessages">) {
 	const message = await ctx.db.get(messageId);
 	if (!message || message.deleted || !message.authorUserId || message.mentions.agentIds.length > 0) return null;
 	const chat = await ctx.db.get(message.chatId);
-	if (!chat || chat.archived || replyModeOf(chat) !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
+	if (!chat || chat.archived || replyModeOf(chat) !== "relevant" || !(await autonomyAllowed(ctx, chat.workspaceId))) return null;
 	const member = await memberOf(ctx, message.authorUserId, chat.workspaceId);
 	if (!member || !(await canSee(ctx, chat, member))) return null;
 	return { message, chat, member };
@@ -260,7 +261,7 @@ export const nextContext = internalQuery({
 		const reply = turn && (await shownReply(ctx, turn));
 		if (!turn || !chain || chain.status !== "running" || !reply || reply.deleted || reply.status !== "done") return null;
 		const chat = await ctx.db.get(reply.chatId);
-		if (!chat || chat.archived || replyModeOf(chat) !== "relevant" || !(await liveWorkspace(ctx, chat.workspaceId))) return null;
+		if (!chat || chat.archived || replyModeOf(chat) !== "relevant" || !(await autonomyAllowed(ctx, chat.workspaceId, true))) return null;
 		const agents = (await agentsIn(ctx, chat)).filter((a) => a._id !== turn.agentId);
 		if (agents.length === 0) return null;
 		const keys = new Map(agents.map((a, i) => [a._id, `a${i + 1}`]));

@@ -98,6 +98,9 @@ Modeled on Android runtime permissions and OAuth incremental consent: ask for wh
 - The runner supplies `toolApprovalPolicy(usable, check)` as the AI SDK's `toolApproval`. Built-ins with no risk skip the check; connector reads are checked too. A rule-allowed call logs `allowed` (how, who, when, rule id).
 - `backend/convex/approvals.ts`: holds, decides and claims calls. Tests: `backend/tests/permissions.test.ts` and `approvals.test.ts`; pure helpers have matching core tests.
 
+## Custom connector trust
+Custom MCP tools ask by default even when their server claims they are read-only. Only catalog servers are trusted for read-only hints. A destructive hint always tightens the policy to locked. This policy is applied to live tool discovery; stored tool metadata is for settings display only. New custom installs start Owners-only unless the installer explicitly selects other workspace roles. Existing role selections are preserved.
+
 ## Later
 - Recipient-scoped grants ("always allow emails to @acme.com").
 - Personal-data detection: ask even under Always when a send carries an address, phone or payment details.

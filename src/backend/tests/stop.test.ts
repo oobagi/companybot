@@ -103,6 +103,7 @@ describe("stopping an agent mid-reply", () => {
 		const { t, owner, general, companybot } = await setUp();
 		// Fake timers hold the scheduled run back: the test runs it.
 		vi.useFakeTimers();
+		await owner.mutation(api.chats.updateChannel, { chatId: general, replyMode: "relevant" });
 		const asked = await owner.mutation(api.messages.send, { chatId: general, text: "anyone know a CRM tip?", mentions: noMentions });
 		await t.mutation(internal.router.apply, { messageId: asked, replies: [{ agentId: companybot._id, probability: 0.9 }], model: "jev", costUsd: 0 });
 		const turnId = (await turnsOf(t)).find((x) => x.triggerId === asked)!._id;

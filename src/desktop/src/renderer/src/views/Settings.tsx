@@ -287,6 +287,8 @@ function GeneralForm({
 		imageBudgetUsd: number;
 		imageSpentUsd: number | null;
 		routerModel: string;
+		agentAutonomy: boolean;
+		agentHandoffs: boolean;
 		routerModels: ModelInfo[];
 		threadHours: number;
 		version: number;
@@ -295,7 +297,7 @@ function GeneralForm({
 }) {
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
-	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) };
+	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, agentAutonomy: settings.agentAutonomy, agentHandoffs: settings.agentHandoffs, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) };
 	const draft = useDraft("settings", saved, settings.version);
 	const value = canManage ? draft.value : saved;
 	const [confirming, setConfirming] = useState(false);
@@ -340,7 +342,13 @@ function GeneralForm({
 					<Toggle disabled={!canManage} checked={value.memory} onChange={(memory) => draft.set({ ...value, memory })} />
 				</Setting>
 			</Settings>
-			<Settings title="Agents in channels">
+			<Settings title="Agent participation">
+				<Setting label="Automatic activity" hint="Allow proactive channel replies and agents working together. Off stops queued and running automatic activity; direct messages and human @mentions still work.">
+					<Toggle disabled={!canManage} checked={value.agentAutonomy} onChange={(agentAutonomy) => draft.set({ ...value, agentAutonomy })} />
+				</Setting>
+				<Setting label="Agent handoffs" hint="Allow agents to mention, hand work to, or privately ask other agents. Also requires Automatic activity.">
+					<Toggle disabled={!canManage || !value.agentAutonomy} checked={value.agentHandoffs} onChange={(agentHandoffs) => draft.set({ ...value, agentHandoffs })} />
+				</Setting>
 				<Setting label="Reply decisions" hint="Decides when agents reply in channels set to “When relevant”. Jev is fastest and cheapest.">
 					<ModelPicker
 						models={settings.routerModels}

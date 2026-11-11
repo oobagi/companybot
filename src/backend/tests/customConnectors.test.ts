@@ -66,6 +66,17 @@ const tickets = {
 };
 
 describe("custom connectors", () => {
+	it("installs for an explicitly chosen audience and rejects roles from another workspace atomically", async () => {
+		const { t, owner, member } = await ownerAndMember();
+		const role = (await owner.query(api.roles.list))!.find(r => r.builtIn === "member")!;
+		const id = await owner.mutation(api.customConnectors.create, { connector: tickets, roles: [role.id] });
+		expect((await member.query(api.connectors.list)).find(c => c.id === id)?.canUse).toBe(true);
+		const other = await signIn(t, "other-audience@example.com");
+		const foreign = (await other.query(api.roles.list))!.find(r => r.builtIn === "member")!;
+		await expect(owner.mutation(api.customConnectors.create, { connector: { ...tickets, name: "Wrong audience" }, roles: [foreign.id] })).rejects.toThrow("Role not found");
+		expect((await owner.query(api.connectors.list)).some(c => c.name === "Wrong audience")).toBe(false);
+	});
+
 	it("only people with connectors.manage add, edit or remove them", async () => {
 		const { owner, member } = await ownerAndMember();
 		await expect(member.mutation(api.customConnectors.create, { connector: tickets })).rejects.toThrow("Only people with the");
@@ -74,9 +85,11 @@ describe("custom connectors", () => {
 		await expect(member.mutation(api.customConnectors.update, { connectorId: id, connector: { ...tickets, name: "Mine" } })).rejects.toThrow("Only people with the");
 		await expect(member.mutation(api.customConnectors.remove, { connectorId: id })).rejects.toThrow("Only people with the");
 
-		// Added = installed for Member, like a catalog install; members see it and connect their own account.
+		// Added = Owners-only until a manager explicitly grants a role.
 		const seen = (await member.query(api.connectors.list)).find((c) => c.id === id)!;
-		expect(seen).toMatchObject({ name: "Tickets", custom: true, installed: true, canUse: true, connected: false, server: tickets.url });
+		expect(seen).toMatchObject({ name: "Tickets", custom: true, installed: true, canUse: false, connected: false, server: tickets.url });
+		await expect(member.action(api.connectors.connect, { connectorId: id, credentials: { type: "api_key", key: "member-key" } })).rejects.toThrow();
+		await owner.mutation(api.connectors.setRoles, { connectorId: id, roles: ["member"] });
 		await member.action(api.connectors.connect, { connectorId: id, credentials: { type: "api_key", key: "member-key" } });
 		expect((await member.query(api.connectors.list)).find((c) => c.id === id)?.connected).toBe(true);
 		// A second one with the same name gets its own id.
@@ -255,6 +268,7 @@ describe("custom connectors", () => {
 	it("removing one uninstalls it like a catalog connector, and agents' grants of it drop on their next save", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const id = await owner.mutation(api.customConnectors.create, { connector: tickets });
+		await owner.mutation(api.connectors.setRoles, { connectorId: id, roles: ["member"] });
 		await member.action(api.connectors.connect, { connectorId: id, credentials: { type: "api_key", key: "member-key" } });
 		await member.mutation(api.permissions.set, { action: `${id}.close_ticket`, setting: "never" });
 		const { scribe } = await agentsOf(owner);
