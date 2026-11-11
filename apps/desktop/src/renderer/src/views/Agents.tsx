@@ -14,8 +14,8 @@ import { modelNote } from "@companybot/core/models";
 import { ModelPicker } from "./ModelPicker";
 import { archiveQuestion, useConfirm } from "./chat/common";
 import { TrashNotice } from "./Trash";
-import { AgentIcon, ArchiveIcon } from "../icons";
-import { ConflictNotice, type Crumb, Field, Loading, Notice, Page, SaveBar, Section, barButton, cardClass, descriptionClass, inputClass, metadataClass, timeAgo, useDraft, useRun } from "../ui";
+import { AgentIcon, ArchiveIcon, CaretDownIcon, CaretRightIcon, RestoreIcon } from "../icons";
+import { ConflictNotice, type Crumb, Loading, Notice, Page, SaveBar, Section, Setting, Settings, barButton, cardClass, compactButton, compactControlClass, descriptionClass, hintClass, metadataClass, timeAgo, useDraft, useRun, wideControlClass, cardButton } from "../ui";
 
 type Agent = FunctionReturnType<typeof api.agents.list>[number];
 
@@ -46,7 +46,7 @@ function AgentRow({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
 		<button
 			type="button"
 			onClick={onOpen}
-			className={`flex flex-col gap-0.5 text-left hover:bg-neutral-50 ${cardClass}`}
+			className={`flex-col gap-0.5 ${cardButton}`}
 		>
 			<span className="font-medium">{agent.name}</span>
 			{agent.description && <span className={descriptionClass}>{agent.description}</span>}
@@ -72,9 +72,10 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 	const update = useMutation(api.agents.update);
 	const remove = useMutation(api.trash.move);
 	const { confirm, dialog } = useConfirm();
-	const draft = useDraft(pickAgentConfig(agent), agent.version);
+	const draft = useDraft(`agent:${agent._id}`, pickAgentConfig(agent), agent.version);
 	const { error, run } = useRun();
-	const config = draft.value;
+	const editable = canManage && !agent.archived;
+	const config = editable ? draft.value : pickAgentConfig(agent);
 	const edit = (changes: Partial<AgentConfig>) => draft.set({ ...config, ...changes });
 	const access = new Map(agent.access.map((a) => [a.id, a]));
 
@@ -105,49 +106,48 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 		>
 			{dialog}
 			{agent.trash && <TrashNotice trash={agent.trash} />}
-			<ConflictNotice draft={draft} who={agent.updatedByName} />
+			{editable && <ConflictNotice draft={draft} who={agent.updatedByName} />}
 			<Notice>{error}</Notice>
 
 			<fieldset disabled={!canManage || agent.archived} className="flex flex-col gap-5">
-				{/* Not a Field: its <label> would name the picker's buttons. */}
-				<div className="flex flex-col gap-1.5">
-					<span className="text-sm font-medium">Picture</span>
-					<ImagePicker of={agent._id} name={agent.name} image={agent.image} agent disabled={!canManage || agent.archived} />
-					<span className="text-xs text-neutral-500">{pictureLimits}.</span>
-				</div>
-				<Field label="Name">
-					<input className={inputClass} value={config.name} onChange={(e) => edit({ name: e.target.value })} />
-				</Field>
-				<Field label="Description" hint="Shown to your team in the agent switcher.">
-					<input
-						className={inputClass}
-						value={config.description}
-						onChange={(e) => edit({ description: e.target.value })}
-					/>
-				</Field>
-				<ModelPicker label="Model" note={modelNote} models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
-				{/* Not a Field: a <label> around buttons would press the first one when its text is clicked. */}
-				<div role="group" aria-label="Reasoning" className="flex flex-col gap-1.5">
-					<span className="text-sm font-medium">Reasoning</span>
-					<div>
-						<Segmented value={config.reasoning ?? defaultReasoning} options={reasoningOptions} onChange={(reasoning) => edit({ reasoning })} />
-					</div>
-					<span className="text-xs text-neutral-500">How hard it thinks before answering. Higher is slower and costs more, but handles harder work.</span>
-				</div>
-				<div className="flex flex-col gap-1.5">
-					<span className="text-sm font-medium">Tools</span>
+				<Settings title="Agent">
+					<Setting label="Picture" hint={`${pictureLimits}.`}>
+						<ImagePicker of={agent._id} name={agent.name} image={agent.image} agent disabled={!canManage || agent.archived} />
+					</Setting>
+					<Setting label="Name">
+						<input aria-label="Name" className={wideControlClass} value={config.name} onChange={(e) => edit({ name: e.target.value })} />
+					</Setting>
+					<Setting label="Description" hint="Shown to your team in the agent switcher.">
+						<input aria-label="Description" className={wideControlClass} value={config.description} onChange={(e) => edit({ description: e.target.value })} />
+					</Setting>
+					<Setting label="Model">
+						<ModelPicker note={modelNote} models={options.models} defaultModel={options.defaultModel} value={config.model} onChange={(model) => edit({ model })} />
+					</Setting>
+					<Setting label="Reasoning" hint="How hard it thinks before answering. Higher is slower and costs more, but handles harder work.">
+						<Segmented label="Reasoning" value={config.reasoning ?? defaultReasoning} options={reasoningOptions} onChange={(reasoning) => edit({ reasoning })} />
+					</Setting>
+					<Setting wide label="Instructions" hint="Changes apply from the agent's next reply.">
+						<textarea
+							aria-label="Instructions"
+							rows={10}
+							className={`${compactControlClass} w-full resize-y font-mono leading-relaxed`}
+							value={config.instructions}
+							onChange={(e) => edit({ instructions: e.target.value })}
+						/>
+					</Setting>
+				</Settings>
+				<Settings title="Contact" note="How customers and staff reach this agent outside the app.">
+					{contactMethods.map((c) => (
+						<Setting key={c.label} label={c.label} hint={c.hint}>
+							<span className={hintClass}>Coming soon</span>
+						</Setting>
+					))}
+				</Settings>
+				<Section title="Tools">
 					{options.groups.map((g) => (
 						<ToolGroup key={g.id} group={g} grants={config.tools} canManage={canManage} access={access} onChange={(tools) => edit({ tools })} />
 					))}
-				</div>
-				<Field label="Instructions" hint="Changes apply from the agent's next reply.">
-					<textarea
-						rows={10}
-						className={`${inputClass} resize-y font-mono text-sm leading-relaxed`}
-						value={config.instructions}
-						onChange={(e) => edit({ instructions: e.target.value })}
-					/>
-				</Field>
+				</Section>
 			</fieldset>
 
 			{canManage && !agent.archived && (
@@ -162,6 +162,13 @@ function AgentEditor({ agent, canManage, back }: { agent: Agent; canManage: bool
 		</Page>
 	);
 }
+
+/** An agent's own number, address and site chat. None are built yet. */
+const contactMethods = [
+	{ label: "Phone number", hint: "Its own number: it answers calls and texts." },
+	{ label: "Email address", hint: "Its own address: it reads and replies to email." },
+	{ label: "Website chat", hint: "A chat box on your website that it answers." },
+];
 
 type Options = FunctionReturnType<typeof api.agents.options>;
 
@@ -238,7 +245,7 @@ function History({ agent, canManage }: { agent: Agent; canManage: boolean }) {
 	if (!versions) return null;
 
 	return (
-		<Section title="History" hint="Every save is kept. Restoring saves an old version as the newest one.">
+		<Section title="History" note="Every save is kept. Restoring saves an old version as the newest one.">
 			<Notice>{error}</Notice>
 			{versions.map((v, i) => {
 				// Picked, so versions from before reasoning existed read as the default it ran with.
@@ -261,8 +268,10 @@ function History({ agent, canManage }: { agent: Agent; canManage: boolean }) {
 							<button
 								type="button"
 								onClick={() => setOpenVersion(openVersion === v.version ? undefined : v.version)}
-								className="text-neutral-500 hover:text-neutral-900"
+								aria-expanded={openVersion === v.version}
+								className={compactButton}
 							>
+								{openVersion === v.version ? <CaretDownIcon /> : <CaretRightIcon />}
 								{openVersion === v.version ? "Hide" : "View"}
 							</button>
 							{v.version === agent.version ? (
@@ -274,9 +283,9 @@ function History({ agent, canManage }: { agent: Agent; canManage: boolean }) {
 										onClick={() =>
 											run(restore({ agentId: agent._id, version: v.version, expectedVersion: agent.version }))
 										}
-										className="font-medium hover:underline"
+										className={compactButton}
 									>
-										Restore
+										<RestoreIcon /> Restore
 									</button>
 								)
 							)}

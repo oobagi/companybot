@@ -1,14 +1,19 @@
-import { defaultView, groupable, sortable, type Database, type ViewConfig } from './model';
+import { defaultView, groupable, sortable, type Database, type SavedView, type ViewConfig } from './model';
 import { buildFilter, draftFilter, type Condition } from './filters';
 
-export const deviceViewKey = (workspaceId: string, typeId: string) => `companybot.records.view.${workspaceId}.${typeId}`;
+export const deviceViewKey = (workspaceId: string, typeId: string, viewId: string) => `companybot.records.view.${workspaceId}.${typeId}.${viewId}`;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+export type DeviceViewDraft = { config: ViewConfig; baseVersion: number; local: boolean };
 
-/** Device preferences may outlive fields, options, or schema versions. Never send stale keys to list queries. */
-export function restoreDeviceView(raw: string | null, database: Database, currency: string): ViewConfig {
-  if (!raw) return defaultView(database);
-  try { return normalizeViewConfig(JSON.parse(raw), database, currency); }
-  catch { return defaultView(database); }
+/** Applied device overrides retain the version they started from, even after a remote edit. */
+export function restoreDeviceView(raw: string | null, database: Database, currency: string, view: SavedView): DeviceViewDraft {
+  const shared = { config: normalizeViewConfig(view, database, currency), baseVersion: view.version, local: false };
+  if (!raw) return shared;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!object(value) || !object(value.config) || !Array.isArray(value.config.columns) || !Array.isArray(value.config.filters) || typeof value.baseVersion !== 'number' || !Number.isInteger(value.baseVersion) || value.baseVersion < 1) return shared;
+    return { config: normalizeViewConfig(value.config, database, currency), baseVersion: value.baseVersion, local: true };
+  } catch { return shared; }
 }
 
 /** Shared views also outlive field changes. Normalize on render without rebasing the saved version. */

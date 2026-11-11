@@ -4,17 +4,25 @@ export const arrangementLists = {
 	dms: { scope: "personal", entity: undefined },
 	databases: { scope: "shared", entity: undefined },
 	pages: { scope: "shared", entity: "pages" },
+	/** The order of the sections people add (`sidebarSections`), every tab's in one list. */
+	sectionOrder: { scope: "shared", entity: undefined },
 	views: { scope: "shared", entity: "recordTypes" },
+	/** COMPAT(0.1.0-alpha.11): the old All tab's columns, which alpha.10 apps still send (the server drops them). Delete once those apps are gone. */
 	columns: { scope: "shared", entity: "recordTypes" },
-	sections: { scope: "personal", entity: undefined },
 	folded: { scope: "personal", entity: undefined },
 	channelFolds: { scope: "personal", entity: undefined },
 	dmFolds: { scope: "personal", entity: undefined },
 	expanded: { scope: "personal", entity: undefined },
+	/** COMPAT(mobile pilot): retain old rows until migrations.pinOrderToRail runs. */
+	pinsOrder: { scope: "personal", entity: undefined },
 	pins: { scope: "personal", entity: undefined },
 	recent: { scope: "personal", entity: undefined },
-	pinsOrder: { scope: "personal", entity: undefined },
-	tabs: { scope: "personal", entity: undefined },
+	/** The rail's one group, in your order: its tabs (`railTabs`) and your pins, mixed. */
+	rail: { scope: "personal", entity: undefined },
+	/** Drive's rows above its tree, in your order: Home and the views (`driveRowIds`). */
+	driveRows: { scope: "personal", entity: undefined },
+	/** Databases' rows above the databases, in your order: Assigned to me and Due (`databaseRowIds`). */
+	databaseRows: { scope: "personal", entity: undefined },
 	workspaces: { scope: "account", entity: undefined },
 } as const;
 export type ArrangementList = keyof typeof arrangementLists;
@@ -53,23 +61,44 @@ export function applyCommand(saved: readonly string[] | undefined, command: Arra
 
 /** The ids a command names besides `id`: checked only for shape, never read one by one. */
 export const extraIds = (command: ArrangementCommand) => ("fill" in command ? command.fill : "seed" in command ? command.seed : undefined) ?? [];
-export const sidebarSections = ["channels", "dms"];
-export const railTabs = ["chat", "drive", "databases", "customize"];
+/**
+ * Built-in sidebar sections that fold (`folded`): Chat's Direct messages, Drive's All files and Databases' All databases. Sections
+ * people add (`sidebarSections` rows) fold by their ids in the same list.
+ */
+export const builtInSections = ["dms", "files", "databases"];
+/**
+ * Tabs whose sidebar takes sections people add, like Discord's categories, and the shared list that
+ * orders their items in no section: Chat's channels, Drive's top-level pages, folders and files, the
+ * databases. Each item is in at most one of its tab's sections.
+ */
+export const sectionTabs = { chat: "channels", drive: "pages", databases: "databases" } as const;
+export type SectionTab = keyof typeof sectionTabs;
+/** Sections one tab can have, and items one section holds, so the sidebar's reads stay bounded. */
+export const SECTIONS_MAX = 50;
+export const SECTION_ITEMS_MAX = 500;
+export const SECTION_NAME_MAX = 80;
+/** The rail's tabs, in the order a new rail shows them. The one list: the desktop draws these, the server accepts only these. */
+export const railTabs: readonly string[] = ["home", "chat", "inbox", "drive", "databases", "sites"];
+/** Drive's sidebar rows above its tree: Home (the top level) and the views (desktop `views/drive/Views.tsx`). */
+export const driveRowIds = ["home", "recent", "shared", "private"];
+/** Databases' sidebar rows above the databases: Assigned to me and Due (desktop `views/records/Lists.tsx`). */
+export const databaseRowIds = ["mine", "due"];
+/** A pin's key: what it is and its id (`chat:…`, `page:…` (a page or folder), `file:…`, `db:…`, `rec:…`). */
+export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
 
-type Legacy = { list: ArrangementList | "layout"; workspaceId?: string; entityId?: string; databaseKey?: string };
+type Legacy = { list: ArrangementList; workspaceId?: string; entityId?: string };
 /** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
 export function legacyArrangement(key: string): Legacy | undefined {
-	const fixed = { "rail.order": "workspaces", "rail.tabs": "tabs", "sidebar.sections": "sections", "sidebar.folded": "folded" } as const;
+	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.folded": "folded" } as const;
 	if (key in fixed) return { list: fixed[key as keyof typeof fixed] };
 	const workspace = /^(rail\.pins|rail\.pins\.order|rail\.recent|sidebar\.channels|sidebar\.dms|sidebar\.databases|sidebar\.channels\.folded|sidebar\.dms\.folded|pages-expanded):([^:]+)$/.exec(key);
 	if (workspace) {
-		const lists = { "rail.pins": "pins", "rail.pins.order": "pinsOrder", "rail.recent": "recent", "sidebar.channels": "channels", "sidebar.dms": "dms", "sidebar.databases": "databases", "sidebar.channels.folded": "channelFolds", "sidebar.dms.folded": "dmFolds", "pages-expanded": "expanded" } as const;
+		const lists = { "rail.pins": "pins", "rail.pins.order": "rail", "rail.recent": "recent", "sidebar.channels": "channels", "sidebar.dms": "dms", "sidebar.databases": "databases", "sidebar.channels.folded": "channelFolds", "sidebar.dms.folded": "dmFolds", "pages-expanded": "expanded" } as const;
 		return { list: lists[workspace[1] as keyof typeof lists], workspaceId: workspace[2] };
 	}
 	const pages = /^sidebar\.pages:([^:]+):([^:]+)$/.exec(key);
 	if (pages) return { list: "pages", workspaceId: pages[1], entityId: pages[2] === "top" ? undefined : pages[2] };
 	const views = /^views\.order:([^:]+)$/.exec(key);
 	if (views) return { list: "views", entityId: views[1] };
-	const display = /^records\.(columns|layout)\.(.+)$/.exec(key);
-	if (display) return { list: display[1] as "columns" | "layout", databaseKey: display[2] };
+	// The All tab's columns and layout (`records.columns.*`, `records.layout.*`) are a saved view's now: dropped.
 }

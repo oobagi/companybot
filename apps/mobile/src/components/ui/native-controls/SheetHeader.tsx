@@ -17,7 +17,7 @@ export function SheetHeader({ title, onClose, busy = false, submit }: SheetHeade
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
       <View style={{ width: stacked ? undefined : slotWidth, maxWidth: '45%' as const }}>{submit && <Button label="Cancel" variant="ghost" onPress={onClose} disabled={busy} />}</View>
       {stacked ? <View style={{ flex: 1 }} /> : heading}
-      <View style={{ width: stacked ? undefined : slotWidth, maxWidth: '45%' as const }}>{submit ? <Button label="Done" variant="ghost" onPress={submit.onPress} disabled={submit.disabled} loading={busy} /> : <IconButton label={`Close ${title}`} onPress={onClose} disabled={busy}><Text variant="heading">×</Text></IconButton>}</View>
+      <View style={{ width: stacked ? undefined : slotWidth, maxWidth: '45%' as const }}>{submit ? <Button label={submit.label ?? "Done"} variant="ghost" onPress={submit.onPress} disabled={submit.disabled} loading={busy} /> : <IconButton label={`Close ${title}`} onPress={onClose} disabled={busy}><Text variant="heading">×</Text></IconButton>}</View>
     </View>
   </View>;
 }

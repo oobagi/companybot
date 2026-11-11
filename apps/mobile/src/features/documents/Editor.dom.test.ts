@@ -66,3 +66,28 @@ it('reports an unreadable snapshot without mounting an editable document', async
   expect(report).toHaveBeenCalled();
   report.mockRestore();
 });
+
+
+it.each([false, true])('opens desktop record references from a document (editable: %s) without changing its content', async (editable) => {
+  const href = 'companybot://record/record1';
+  const source = BlockNoteEditor.create({ schema: documentSchema, links: { isValidLink: () => true }, initialContent: [
+    { type: 'paragraph', content: [{ type: 'link', href, content: [{ type: 'text', text: 'Customer record', styles: {} }] }] },
+  ] });
+  const content = JSON.stringify(source._tiptapEditor.state.doc.toJSON());
+  source._tiptapEditor.destroy();
+  const open = vi.fn(async () => {});
+  const submit = vi.fn(async () => { throw new Error('Unexpected write'); });
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root!.render(createElement(DocumentDOM, {
+    payload: encodeDocumentPayload({ pageId: 'saved-page', snapshot: { content, version: 1 }, latestVersion: 1, editable, canCreatePage: false, dark: false, colors: palettes.light, references: {} }),
+    getSteps: async () => ({ steps: [], clientIds: [], version: 1 }), submitSteps: submit,
+    onBlockActions: async () => null, onCreatePage: async () => null, onReferences: async () => {}, onOpenLink: open,
+    onRemovePages: async () => false, onStatus: async () => {}, onImageResult: async () => {},
+  })));
+  const link = host.querySelector<HTMLAnchorElement>(`a[href="${href}"]`)!;
+  expect(link).not.toBeNull();
+  await act(async () => link.click());
+  expect(open).toHaveBeenCalledExactlyOnceWith(href);
+  expect(host.querySelector('[contenteditable]')?.textContent).toContain('Customer record');
+  expect(submit).not.toHaveBeenCalled();
+});

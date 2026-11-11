@@ -19,7 +19,7 @@ pnpm dev            # this checkout's own local Convex backend + the desktop app
 
 - Sign in with any email. Local backends skip the email code.
 - `pnpm dev --reset` wipes this checkout's local data.
-- `pnpm --filter @companybot/desktop preview:web` serves the UI in a browser at `localhost:5173`.
+- `pnpm dev --web` runs the same app in a browser instead (vite prints the address). See [Architecture → Web and desktop](wiki/architecture.md#web-and-desktop).
 - Connector sign-in (OAuth) doesn't work on local backends. They have no public URL for the callback.
 
 ### Running it outside the team
@@ -43,10 +43,6 @@ pnpm test:scale     # slow list tests over thousands of records
 - Update the wiki page your change touches, and the in-app help if it changes what people see.
 - Screenshots or a short clip help a lot for UI changes.
 
-## Contributor License Agreement
-
-Outside contributors sign the [CLA](CLA.md) once. The CLA bot comments on your first PR. Reply with the sentence it asks for. You keep ownership of your work. The CLA lets us ship it in every edition, including the paid ones (see [Product → Open source](wiki/product.md#open-source)).
-
 ## License
 
-By contributing, you agree your work is licensed under [AGPL-3.0](LICENSE), as described in the CLA.
+By contributing, you agree your work is licensed under [AGPL-3.0](LICENSE).

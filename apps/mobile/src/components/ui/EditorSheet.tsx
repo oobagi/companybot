@@ -60,9 +60,9 @@ export function ChoicePicker({ label, options, value, onChange, multiple = false
   const trigger = <View style={{ minHeight: sizes.touch, minWidth: sizes.touch, paddingVertical: spacing.sm, paddingHorizontal: compact ? spacing.sm : 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, opacity: unavailable ? 0.5 : 1 }}>
     <View style={{ flex: compact ? undefined : 1, flexShrink: 1, minWidth: 0, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: stacked ? spacing.xs : spacing.md }}>
       {!compact && <Text style={{ flexShrink: 1, maxWidth: stacked ? undefined : '50%' }}>{label}</Text>}
-      <Text tone={compact ? 'link' : 'muted'} style={{ flex: compact || stacked ? undefined : 1, flexShrink: 1, textAlign: compact || stacked ? 'left' : 'right' }}>{text}</Text>
+      <Text tone={compact ? 'default' : 'muted'} style={{ flex: compact || stacked ? undefined : 1, flexShrink: 1, textAlign: compact || stacked ? 'left' : 'right' }}>{text}</Text>
     </View>
-    <SymbolView name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }} size={sizes.icon} tintColor={compact ? colors.link : colors.muted} />
+    <SymbolView name={{ ios: 'chevron.down', android: 'expand_more', web: 'expand_more' }} size={sizes.icon} tintColor={compact ? colors.text : colors.muted} />
   </View>;
   if (!multiple && !unavailable && choices.length > 0 && choices.length <= 8 && Platform.OS !== 'web') return <ChoiceMenu label={label} selectionLabel={text} presentation={presentation} options={choices} value={selected[0] ?? ''} onChange={value => { const option = choices.find(choice => choice.value === value); if (option) choose(option); }}>
     {trigger}

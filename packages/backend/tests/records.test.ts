@@ -229,7 +229,12 @@ describe("records", () => {
 
 		expect(await titles(owner, { typeId: deal._id })).toEqual(["D", "C", "B", "A"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "stage", eq: "Won" }] })).toEqual(["C", "A"]);
-		expect(await titles(owner, { typeId: deal._id, sort: { field: "value", order: "asc" } })).toEqual(["C", "A", "B"]);
+		// Records without the sort field's value come last, either way round.
+		expect(await titles(owner, { typeId: deal._id, sort: { field: "value", order: "asc" } })).toEqual(["C", "A", "B", "D"]);
+		expect(await titles(owner, { typeId: deal._id, sort: { field: "close_date", order: "desc" } })).toEqual(["A", "B", "D", "C"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", empty: true }], sort: { field: "value", order: "asc" } })).toEqual(["D"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", empty: false }], sort: { field: "value", order: "asc" } })).toEqual(["C", "A", "B"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", gte: 100 }], sort: { field: "value", order: "asc" } })).toEqual(["A", "B"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "value", gte: 100, lte: 1000 }] })).toEqual(["A"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "close_date", gte: "2026-02-01" }] })).toEqual(["A"]);
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "client", eq: acme }] })).toEqual(["C", "A"]);
@@ -245,11 +250,67 @@ describe("records", () => {
 			sort: { field: "value", order: "desc" },
 			paginationOpts: { numItems: 2, cursor: first.continueCursor },
 		});
-		expect(second.page.map((r) => r.title)).toEqual(["C"]);
+		// The page runs on from the last record with a value into those without one.
+		expect(second.page.map((r) => r.title)).toEqual(["C", "D"]);
+		const third = await owner.query(api.records.list, { typeId: deal._id, sort: { field: "value", order: "desc" }, paginationOpts: { numItems: 2, cursor: second.continueCursor } });
+		expect(third).toMatchObject({ page: [], isDone: true });
+		// An endCursor in the records without a value replays the page that ran into them.
+		const replay = await owner.query(api.records.list, {
+			typeId: deal._id,
+			sort: { field: "value", order: "desc" },
+			paginationOpts: { numItems: 2, cursor: first.continueCursor, endCursor: second.continueCursor },
+		});
+		expect(replay.page.map((r) => r.title)).toEqual(["C", "D"]);
 
 		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "stage", eq: "won" }], sort: { field: "value", order: "asc" } })).toEqual(["C", "A"]);
+		expect(await titles(owner, { typeId: deal._id, filters: [{ field: "stage", eq: "lost" }], sort: { field: "value", order: "asc" } })).toEqual(["D"]);
 		await expect(titles(owner, { typeId: deal._id, sort: { field: "client", order: "asc" } })).rejects.toThrow("can't be sorted");
 		await expect(titles(owner, { typeId: deal._id, filters: [{ field: "nope", eq: 1 }] })).rejects.toThrow("no field");
+	});
+
+	it("sorts a choice field in its options' order, a page at a time, following a reorder", async () => {
+		const { owner, deal } = await setup();
+		const stage = deal.fields.find((f) => f.key === "stage")!;
+		const ids = stage.options!.filter((o) => !o.retired).map((o) => o.id);
+		const [first, second] = [ids.at(-1)!, ids[0]!];
+		for (const [name, option] of [["A", first], ["B", second], ["C", first], ["D", undefined]] as const)
+			await owner.mutation(api.records.create, { typeId: deal._id, values: { name, ...(option && { stage: option }) } });
+		const sorted = (order: "asc" | "desc") => titles(owner, { typeId: deal._id, sort: { field: "stage", order } });
+		// The first option, then the last; ties oldest first going up, newest first going down; no stage last.
+		expect(await sorted("asc")).toEqual(["B", "A", "C", "D"]);
+		expect(await sorted("desc")).toEqual(["C", "A", "B", "D"]);
+		const pages: string[] = [];
+		let cursor: string | null = null;
+		for (let done = false; !done; ) {
+			const result: { page: { title: string }[]; isDone: boolean; continueCursor: string } = await owner.query(api.records.list, { typeId: deal._id, sort: { field: "stage", order: "asc" }, paginationOpts: { numItems: 1, cursor } });
+			pages.push(...result.page.map((r) => r.title));
+			({ isDone: done, continueCursor: cursor } = result);
+		}
+		expect(pages).toEqual(["B", "A", "C", "D"]);
+		await owner.mutation(api.fields.update, { fieldId: stage._id, options: [...stage.options!].reverse().map(({ id, label }) => ({ id, label })) });
+		expect(await sorted("asc")).toEqual(["A", "C", "B", "D"]);
+	});
+
+	it("keeps a board's manual order: newest first, then where cards are dropped, within and across columns", async () => {
+		const { owner, deal } = await setup();
+		const [lead, won] = deal.fields.find((f) => f.key === "stage")!.options!.map((o) => o.id);
+		const make = (name: string, last?: boolean) => owner.mutation(api.records.create, { typeId: deal._id, values: { name, stage: lead }, last });
+		const a = await make("A");
+		const b = await make("B");
+		const c = await make("C");
+		await make("D", true);
+		const column = (option: string) => titles(owner, { typeId: deal._id, group: { field: "stage", option }, sort: { field: "manualOrder", order: "asc" } });
+		// New ones first, a column's New row last.
+		expect(await column(lead!)).toEqual(["C", "B", "A", "D"]);
+		await owner.mutation(api.records.move, { recordId: a, after: c, before: b });
+		expect(await column(lead!)).toEqual(["C", "A", "B", "D"]);
+		await owner.mutation(api.records.move, { recordId: c, after: b });
+		expect(await column(lead!)).toEqual(["A", "B", "C", "D"]);
+		// Into another column: its value changes, with history; its place is where it was dropped.
+		await owner.mutation(api.records.move, { recordId: b, values: { stage: won } });
+		expect(await column(lead!)).toEqual(["A", "C", "D"]);
+		expect(await column(won!)).toEqual(["B"]);
+		await expect(owner.mutation(api.records.move, { recordId: b, after: c, before: a })).rejects.toThrow("aren't next to each other");
 	});
 
 	it("lists what links to a record, optionally through one field", async () => {
@@ -272,6 +333,24 @@ describe("records", () => {
 		expect((await owner.query(api.records.search, { query: "main", typeId: client._id })).map((r) => r.title)).toEqual(["Acme Roofing"]);
 		// Rows like a list's, so the app can show them in the same table.
 		expect((await owner.query(api.records.search, { query: "roofing" }))[0]).toMatchObject({ values: { name: "Acme Roofing" }, refs: {} });
+	});
+
+	it("searches a list like one more filter: every word, any case, with the view's filters, sort and pages", async () => {
+		const { owner, client } = await setup();
+		for (const [name, address] of [["Acme Roofing", "12 Main St"], ["Acme Paint", "4 Oak Ave"], ["Bolt Electric", "9 Main St"], ["acme main", undefined]] as const)
+			await owner.mutation(api.records.create, { typeId: client._id, values: { name, ...(address && { address }) } });
+		const list = async (search: string, more: Record<string, unknown> = {}) =>
+			(await owner.query(api.records.list, { typeId: client._id, search, paginationOpts: page, ...more })).page.map((r) => r.title);
+		expect(await list("ACME", { sort: { field: "name", order: "asc" } })).toEqual(["acme main", "Acme Paint", "Acme Roofing"]);
+		expect(await list("acme main", { sort: { field: "name", order: "asc" } })).toEqual(["acme main", "Acme Roofing"]);
+		expect(await list("main", { filters: [{ field: "address", empty: false }], sort: { field: "name", order: "asc" } })).toEqual(["Acme Roofing", "Bolt Electric"]);
+		expect(await list("  ")).toHaveLength(4);
+		const first = await owner.query(api.records.list, { typeId: client._id, search: "acme", sort: { field: "name", order: "asc" }, paginationOpts: { numItems: 2, cursor: null } });
+		expect(first.page.map((r) => r.title)).toEqual(["acme main", "Acme Paint"]);
+		const rest = await owner.query(api.records.list, { typeId: client._id, search: "acme", sort: { field: "name", order: "asc" }, paginationOpts: { numItems: 2, cursor: first.continueCursor } });
+		expect(rest.page.map((r) => r.title)).toEqual(["Acme Roofing"]);
+		// A cursor belongs to its search.
+		await expect(owner.query(api.records.list, { typeId: client._id, search: "bolt", sort: { field: "name", order: "asc" }, paginationOpts: { numItems: 2, cursor: first.continueCursor } })).rejects.toThrow("out of date");
 	});
 
 	it("lists the chat messages that reference a record, only where you can see them", async () => {
@@ -356,6 +435,56 @@ describe("fields", () => {
 		await owner.mutation(api.fields.update, { fieldId: status._id, options: [{ id: "active", label: "Current" }, { label: "Lead" }] });
 		await owner.mutation(api.records.update, { recordId: live, values: { status: "Lead" } });
 		expect(await titles(owner, { typeId: client._id, filters: [{ field: "status", eq: "lead" }] })).toEqual(["Bolt", "Acme"]);
+	});
+
+	it("gives fields an icon and options colors, keeping colors an older app leaves out", async () => {
+		const { t, owner, client } = await setup();
+		const stage = await owner.mutation(api.fields.create, {
+			typeId: client._id,
+			label: "Stage",
+			kind: "choice",
+			icon: "flag",
+			options: [{ label: "New" }, { label: "Won", color: "green" }, { label: "Lost" }],
+		});
+		// New options without a color take the palette in turn.
+		expect(stage).toMatchObject({ icon: "flag", options: [{ label: "New", color: "gray" }, { label: "Won", color: "green" }, { label: "Lost", color: "orange" }] });
+		const [won, lost] = [stage.options![1]!, stage.options![2]!];
+
+		await owner.mutation(api.fields.update, { fieldId: stage._id, icon: "trophy", options: [{ id: won.id, label: "Won", color: "blue" }, { id: lost.id, label: "Lost" }, { label: "Paused" }] });
+		// Apps up to 0.1.0-alpha.10, and agents naming options by label, send them without colors: each keeps its own.
+		await owner.mutation(api.fields.update, { fieldId: stage._id, options: [{ id: won.id, label: "Won!" }, { id: lost.id, label: "Lost" }, { id: "paused", label: "Paused" }] });
+		const options = () => owner.query(api.recordTypes.list).then((types) => types.find((t) => t.key === "client")!.fields.find((f) => f._id === stage._id)!);
+		expect(await options()).toMatchObject({
+			icon: "trophy",
+			options: [
+				{ label: "Won!", color: "blue" },
+				{ label: "Lost", color: "orange" },
+				// The fourth option the field has had, so the fourth color.
+				{ id: "paused", label: "Paused", color: "yellow" },
+				{ label: "New", color: "gray", retired: true },
+			],
+		});
+		await owner.mutation(api.fields.update, { fieldId: stage._id, icon: null });
+		expect((await options()).icon).toBeUndefined();
+
+		const history = await t.run((ctx) => ctx.db.query("recordHistory").withIndex("by_type", (q) => q.eq("typeId", client._id)).collect());
+		expect(history.filter((h) => h.fieldId === stage._id).map((h) => h.changes)).toEqual([
+			[{ key: "label", new: "Stage" }, { key: "icon", new: "flag" }],
+			[
+				{ key: "icon", old: "flag", new: "trophy" },
+				{ key: "options", old: ["New", "Won", "Lost"], new: ["Won", "Lost", "Paused"] },
+				{ key: "colors", old: ["Won: green"], new: ["Won: blue"] },
+			],
+			[{ key: "options", old: ["Won", "Lost", "Paused"], new: ["Won!", "Lost", "Paused"] }],
+			[{ key: "icon", old: "trophy" }],
+		]);
+
+		await expect(owner.mutation(api.fields.update, { fieldId: stage._id, icon: "rocket" })).rejects.toThrow("icon is one of");
+		await expect(owner.mutation(api.fields.update, { fieldId: stage._id, options: [{ id: won.id, label: "Won", color: "teal" }] })).rejects.toThrow("color is one of");
+		// Options from before colors stay without one until someone picks it.
+		const status = client.fields.find((f) => f.key === "status")!;
+		await owner.mutation(api.fields.update, { fieldId: status._id, label: "State" });
+		expect((await owner.query(api.recordTypes.list)).find((t) => t.key === "client")!.fields.find((f) => f._id === status._id)!.options!.every((o) => !o.color)).toBe(true);
 	});
 
 	it("archives fields without losing values, and keeps the name field", async () => {

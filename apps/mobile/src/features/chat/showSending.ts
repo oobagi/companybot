@@ -18,7 +18,7 @@ export const showSending: OptimisticUpdate<FunctionArgs<typeof api.messages.send
     author: { type: 'user', id: me.userId, name: me.name || me.email, image: me.image },
     text: text.trim(), parts: [], status: 'done', error: null, stoppedBy: null, stats: null,
     editedAt: null, deleted: false, mine: true, replyCount: 0, lastReplyAt: null, replyAuthors: [],
-    reactions: [], automation: null, attachments: [], linkPreviews: [], pause: null, ask: null,
+    records: [], reactions: [], automation: null, attachments: [], linkPreviews: [], pause: null, ask: null,
     sending: { files: attachments.length },
   };
   for (const { args, value } of newest) store.setQuery(api.messages.page, args, { ...value!, page: [...value!.page, message] });

@@ -14,7 +14,7 @@ let root: ReactTestRenderer;
 afterEach(() => { act(() => root?.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function Lists() {
-	const [tabs] = useStoredIds("tabs");
+	const [tabs] = useStoredIds("rail");
 	const [pins] = useStoredIds("pins");
 	return createElement("div", null, tabs.join(","), ";", pins.join(","));
 }
@@ -27,7 +27,7 @@ it("renders no default/empty lists while loading, then mounts both from one comp
 	state.query.mockClear();
 	await act(async () => { root = create(tree()); });
 	expect(root.toJSON()).toBeNull();
-	state.data = { rows: [{ list: "tabs", ids: ["drive", "chat"] }, { list: "pins", ids: ["page:p1"] }], writable: true };
+	state.data = { rows: [{ list: "rail", ids: ["drive", "chat"] }, { list: "pins", ids: ["page:p1"] }], writable: true };
 	state.query.mockClear();
 	await act(async () => root.update(tree()));
 	expect(root.toJSON()).toMatchObject({ children: ["drive,chat", ";", "page:p1"] });

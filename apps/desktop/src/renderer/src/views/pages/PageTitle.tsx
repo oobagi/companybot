@@ -2,8 +2,8 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation } from "../../convex";
-import { Form, Notice, inputClass, primaryButton, secondaryButton, useRun, useSynced } from "../../ui";
-import { Modal } from "../chat/common";
+import { Form, Notice, primaryButton, secondaryButton, useRun, useSynced, fullControlClass } from "../../ui";
+import { DialogButtons, Modal } from "../chat/common";
 
 /** The title, edited in place; saved when you leave it or press Enter. */
 export function PageTitle({ title, editable, onSave, onEnter }: { title: string; editable: boolean; onSave: (title: string) => Promise<unknown>; onEnter?: () => void }) {
@@ -32,14 +32,14 @@ export function RenamePage({ page, onClose }: { page: { _id: Id<"pages">; title:
 	const [title, setTitle] = useState(page.title);
 	const rename = useMutation(api.pages.rename);
 	const { error, busy, run } = useRun();
-	return <Modal title="Rename page" onClose={onClose}>
+	return <Modal title="Rename page" size="md" onClose={onClose}>
 		<Form onSubmit={() => run(rename({ pageId: page._id, title: title.trim() }), onClose)}>
 			<Notice>{error}</Notice>
-			<input autoFocus aria-label="Page title" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} onFocus={(e) => e.currentTarget.select()} className={inputClass} />
-			<div className="flex justify-end gap-2">
+			<input autoFocus aria-label="Page title" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} onFocus={(e) => e.currentTarget.select()} className={fullControlClass} />
+			<DialogButtons>
 				<button type="button" className={secondaryButton} onClick={onClose}>Cancel</button>
 				<button type="submit" className={primaryButton} disabled={busy || !title.trim()}>Rename</button>
-			</div>
+			</DialogButtons>
 		</Form>
 	</Modal>;
 }

@@ -21,7 +21,7 @@ export type ScreenProps = {
 
 /** Static bodies trim overlay chrome; scrollers let UIKit own those insets. */
 export function Screen({ children, scroll = false, nativeScroll = false, keyboard = false, keyboardOffset, edges = ['left', 'right', 'bottom'], padded = true, contentStyle, style }: ScreenProps) {
-  const { colors, spacing } = useTheme();
+  const { colors, spacing, sizes } = useTheme();
   // Same source as useHeaderHeight(), with a zero fallback for pre-navigation setup screens.
   const headerHeight = useContext(HeaderHeightContext) ?? 0;
   const overlay = useContext(OverlayChromeContext);
@@ -33,7 +33,7 @@ export function Screen({ children, scroll = false, nativeScroll = false, keyboar
   };
   const { ref: viewportRef, onLayout: measureViewport, contentStyle: viewportContent } = useScrollViewport(insets);
   const scrolling = scroll || nativeScroll;
-  const content = [!scroll && styles.fill, padded && { padding: spacing.lg }, contentStyle, scroll && viewportContent];
+  const content = [!scroll && styles.fill, padded && { paddingHorizontal: sizes.gutter, paddingVertical: spacing.lg }, contentStyle, scroll && viewportContent];
   return (
     <SafeAreaView collapsable={false} edges={edges} style={[styles.fill, { backgroundColor: colors.background }, style]}>
       <KeyboardAvoidingView collapsable={false} enabled={keyboard} behavior="padding" keyboardVerticalOffset={keyboardOffset ?? headerHeight} style={[styles.fill, !scrolling && { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -67,7 +67,7 @@ export function Stack({ gap = 'lg', horizontal = false, style, ...props }: ViewP
 
 export function Card({ style, ...props }: ViewProps) {
   const { colors, radii, spacing } = useTheme();
-  return <View {...props} style={[{ backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.lg, gap: spacing.md }, style]} />;
+  return <View {...props} style={[{ backgroundColor: colors.background, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, borderRadius: radii.lg, padding: spacing.lg, gap: spacing.md }, style]} />;
 }
 
 export function Divider() {
@@ -77,9 +77,9 @@ export function Divider() {
 
 export function Section({ title, description, action, children, style }: { title?: string; description?: string; action?: ReactNode; children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const { spacing } = useTheme();
-  return <View style={[{ gap: spacing.md }, style]}>
+  return <View style={[{ gap: spacing.sm }, style]}>
     {(title || action) && <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-      <View style={{ flex: 1, gap: spacing.xs }}>{title && <Text variant="label" accessibilityRole="header">{title}</Text>}{description && <Text tone="muted" variant="supporting">{description}</Text>}</View>
+      <View style={{ flex: 1, minWidth: 0, gap: spacing.xs }}>{title && <Text variant="supporting" accessibilityRole="header" style={{ fontWeight: '500' }}>{title}</Text>}{description && <Text tone="muted" variant="supporting">{description}</Text>}</View>
       {action}
     </View>}
     {children}

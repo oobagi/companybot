@@ -19,11 +19,13 @@ export const get = query({
 	handler: async (ctx) => {
 		const userId = await authUserId(ctx);
 		const prefs = userId && (await preferencesOf(ctx, userId));
-		if (!prefs) return { ...defaults, notify: defaultNotify, ...unset, image: null };
+		if (!prefs) return { ...defaults, notify: defaultNotify, showRecents: true, foldersFirst: false, ...unset, image: null };
 		return {
 			displayName: prefs.displayName,
 			sendWith: prefs.sendWith,
 			notify: prefs.notify ?? defaultNotify,
+			showRecents: prefs.showRecents ?? true,
+			foldersFirst: prefs.foldersFirst ?? false,
 			/** Null means automatic. */
 			timeZone: prefs.timeZone ?? null,
 			deviceTimeZone: prefs.deviceTimeZone ?? null,
@@ -37,6 +39,8 @@ const preferenceChanges = v.object({
 		displayName: v.optional(v.string()),
 		sendWith: v.optional(sendWith),
 		notify: v.optional(notify),
+		showRecents: v.optional(v.boolean()),
+		foldersFirst: v.optional(v.boolean()),
 		/** Null switches back to automatic. */
 		timeZone: v.optional(v.union(v.string(), v.null())),
 		deviceTimeZone: v.optional(v.string()),
@@ -56,6 +60,7 @@ export async function updatePreferences(ctx: MutationCtx, userId: Id<"users">, {
 	}
 	if (changes.displayName !== undefined) {
 		changes.displayName = changes.displayName.trim();
+		if (!changes.displayName) throw new ConvexError("Enter your name.");
 		if (changes.displayName.length > 60) throw new ConvexError("Keep your name under 60 characters.");
 	}
 	await savePreferences(ctx, userId, changes);

@@ -7,10 +7,10 @@ import { useState } from "react";
 import { agentLabel, agentOptions } from "../agent-options";
 import { api } from "../api";
 import { useMutation, useQuery } from "../convex";
-import { MemoryIcon } from "../icons";
-import { ConflictNotice, EmptyState, Form, Loading, NoMatches, Notice, Section, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, hintClass, inputClass, insetClass, metadataClass, timeAgo, toolbarClass, useDraft, useRun } from "../ui";
+import { ArchiveIcon, EditIcon, HistoryIcon, MemoryIcon, MoreIcon, RestoreIcon, TrashIcon } from "../icons";
+import { ConflictNotice, EmptyState, Form, Loading, NewButton, NoMatches, Notice, PageActions, Section, Setting, Settings, cardClass, compactButton, compactControlClass, compactPrimaryButton, iconButton, hintClass, insetClass, metadataClass, primaryButton, secondaryButton, timeAgo, useDraft, useRun, wideControlClass } from "../ui";
 
-import { archiveQuestion, useConfirm } from "./chat/common";
+import { DialogButtons, MenuItem, Modal, Popover, archiveQuestion, useConfirm } from "./chat/common";
 
 type MemoryItem = FunctionReturnType<typeof api.memory.list>[number];
 type Agent = { _id: Id<"agents">; name: string; archived: boolean };
@@ -21,7 +21,7 @@ export function MemoryTab({ access }: { access: Access }) {
 	const settings = useQuery(api.workspace.settings);
 	const create = useMutation(api.memory.create);
 	const [filter, setFilter] = useState<Id<"agents"> | "all">("all");
-	const { error, run } = useRun();
+	const [adding, setAdding] = useState(false);
 
 	if (!memories || !agents || !settings) return <Loading />;
 
@@ -38,20 +38,23 @@ export function MemoryTab({ access }: { access: Access }) {
 					still edit or delete them here.
 				</p>
 			)}
-			<Notice>{error}</Notice>
-			<AddMemory
-				agents={agents.filter((a) => !a.archived)}
-				canAddTeam={can(access, "memory.team.write")}
-				onAdd={(agentId, scope, content) => run(create({ agentId, scope, content }))}
-			/>
-			<div className={toolbarClass}>
+			<PageActions>
 				<Select
 					label="Agent"
 					value={filter}
 					options={[{ value: "all", label: "All agents" }, ...agentOptions(agents)]}
 					onChange={(f) => setFilter(f as typeof filter)}
 				/>
-			</div>
+				<NewButton label="New memory" onClick={() => setAdding(true)} />
+			</PageActions>
+			{adding && (
+				<NewMemoryDialog
+					agents={agents.filter((a) => !a.archived)}
+					canAddTeam={can(access, "memory.team.write")}
+					onAdd={(agentId, scope, content) => create({ agentId, scope, content })}
+					onClose={() => setAdding(false)}
+				/>
+			)}
 			{shown.length === 0 ? (filter !== "all" ? <NoMatches /> : <EmptyState icon={<MemoryIcon />} title="No memories yet">Add something to remember, or ask an agent to save it.</EmptyState>) : <>
 				<MemoryList title="Team" empty="No team memories yet." items={team} agentName={agentName} />
 				<MemoryList title="Personal" empty="No personal memories yet." items={personal} agentName={agentName} />
@@ -85,7 +88,7 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	const update = useMutation(api.memory.update);
 	const remove = useMutation(api.memory.remove);
 	const { confirm, dialog } = useConfirm();
-	const draft = useDraft(memory.content, memory.version);
+	const draft = useDraft(`memory:${memory.id}`, memory.content, memory.version);
 	const { error, run } = useRun();
 	const [history, setHistory] = useState(false);
 	const id = memory.id as Id<"memories">;
@@ -94,62 +97,56 @@ function MemoryRow({ memory, agent }: { memory: MemoryItem; agent: string }) {
 	return (
 		<div className={`flex flex-col gap-2 ${cardClass}`}>
 			{dialog}
-			<ConflictNotice draft={draft} who={memory.updatedByName} />
+			{memory.canEdit && <ConflictNotice draft={draft} who={memory.updatedByName} />}
 			<Notice>{error}</Notice>
 			<div className="flex items-start gap-3">
-				{!draft.dirty ? (
+				{!memory.canEdit || !draft.dirty ? (
 					<p className="flex-1 leading-relaxed">{memory.content}</p>
 				) : (
 					<textarea
 						autoFocus
 						value={draft.value}
 						onChange={(e) => draft.set(e.target.value)}
-						className={`${inputClass} flex-1 resize-none bg-neutral-50 leading-relaxed`}
+						aria-label="Memory"
+						className={`${compactControlClass} flex-1 resize-none leading-relaxed`}
 					/>
 				)}
-				{memory.canEdit && (
-					<div className={`flex gap-2 ${descriptionClass}`}>
-						{!draft.dirty ? (
-							<>
-								<button
-									type="button"
-									onClick={() => draft.set(memory.content)}
-									className="hover:text-neutral-900"
-								>
-									Edit
-								</button>
-								{memory.version > 1 && (
-									<button type="button" onClick={() => setHistory(!history)} className="hover:text-neutral-900" aria-expanded={history}>
-										History
-									</button>
-								)}
-								<button
-									type="button"
-									onClick={() => confirm(team ? archiveQuestion("team memory", () => remove({ id }), "Agents will stop using this memory.") : { title: "Delete this personal memory?", action: "Delete memory", body: "This permanently deletes the memory and its history. It cannot be undone.", onConfirm: () => remove({ id }) })}
-									title={team ? "Archive this memory" : "Delete this memory forever"}
-									className={team ? "hover:text-neutral-900" : "hover:text-red-600"}
-								>
-									{team ? "Archive" : "Delete"}
-								</button>
-							</>
-						) : (
-							<>
-								<button
-									type="button"
-									onClick={() =>
-										run(update({ id, content: draft.value, expectedVersion: draft.base }), draft.discard)
-									}
-									className="font-medium text-neutral-900"
-								>
-									Save
-								</button>
-								<button type="button" onClick={draft.discard}>
-									Cancel
-								</button>
-							</>
-						)}
-					</div>
-				)}
+				{memory.canEdit &&
+					(!draft.dirty ? (
+						<Popover trigger={<MoreIcon weight="bold" />} label="Memory actions" className={iconButton} panelClassName="w-48 p-1">
+							{(close) => (
+								<>
+									<MenuItem onClick={() => (close(), draft.set(memory.content))}>
+										<EditIcon /> Edit
+									</MenuItem>
+									{memory.version > 1 && (
+										<MenuItem onClick={() => (close(), setHistory(!history))}>
+											<HistoryIcon /> {history ? "Hide history" : "History"}
+										</MenuItem>
+									)}
+									<MenuItem
+										danger={!team}
+										onClick={() => (close(), confirm(team ? archiveQuestion("team memory", () => remove({ id }), "Agents will stop using this memory.") : { title: "Delete this personal memory?", action: "Delete memory", body: "This permanently deletes the memory and its history. It cannot be undone.", onConfirm: () => remove({ id }) }))}
+									>
+										{team ? <ArchiveIcon /> : <TrashIcon />} {team ? "Archive" : "Delete"}
+									</MenuItem>
+								</>
+							)}
+						</Popover>
+					) : (
+						<div className="flex shrink-0 gap-2">
+							<button type="button" onClick={draft.discard} className={compactButton}>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={() => run(update({ id, content: draft.value, expectedVersion: draft.base }), draft.discard)}
+								className={compactPrimaryButton}
+							>
+								Save
+							</button>
+						</div>
+					))}
 			</div>
 			<p className={metadataClass}>
 				<span className="rounded bg-neutral-100 px-1.5 py-0.5 text-neutral-600">{agent}</span> · {provenance(memory)} ·{" "}
@@ -191,9 +188,9 @@ function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored:
 						<button
 							type="button"
 							onClick={() => run(restore({ versionId: v._id, expectedVersion: memory.version }), onRestored)}
-							className={`${descriptionClass} hover:text-neutral-900`}
+							className={compactButton}
 						>
-							Restore
+							<RestoreIcon /> Restore
 						</button>
 					)}
 				</div>
@@ -202,51 +199,55 @@ function MemoryHistory({ memory, onRestored }: { memory: MemoryItem; onRestored:
 	);
 }
 
-function AddMemory({
+/** Add a memory by hand: what to remember, for which agent, and who sees it. */
+function NewMemoryDialog({
 	agents,
 	canAddTeam,
 	onAdd,
+	onClose,
 }: {
 	agents: Agent[];
 	canAddTeam: boolean;
-	onAdd: (agentId: Id<"agents">, scope: MemoryScope, content: string) => void;
+	onAdd: (agentId: Id<"agents">, scope: MemoryScope, content: string) => Promise<unknown>;
+	onClose: () => void;
 }) {
 	const [content, setContent] = useState("");
 	const [agentId, setAgentId] = useState(agents[0]?._id);
 	const [scope, setScope] = useState<MemoryScope>("personal");
+	const { error, busy, run } = useRun();
 	return (
-		<Form
-			className={toolbarClass}
-			onSubmit={() => {
-				if (!content.trim() || !agentId) return;
-				onAdd(agentId, scope, content.trim());
-				setContent("");
-			}}
-		>
-			<input
-				value={content}
-				onChange={(e) => setContent(e.target.value)}
-				placeholder="Add something to remember…"
-				className={`${compactControlClass} min-w-48 flex-1`}
-			/>
-			<Select
-				label="Agent"
-				value={agentId}
-				options={agentOptions(agents)}
-				onChange={(id) => setAgentId(id as Id<"agents">)}
-			/>
-			<Select
-				label="Who can see it"
-				value={scope}
-				options={[
-					{ value: "personal", label: "Personal" },
-					{ value: "workspace", label: canAddTeam ? "Team" : "Team (not allowed)", disabled: !canAddTeam },
-				]}
-				onChange={setScope}
-			/>
-			<button type="submit" className={compactPrimaryButton}>
-				Add
-			</button>
-		</Form>
+		<Modal title="New memory" onClose={onClose}>
+			<Form className="flex flex-col gap-3" onSubmit={() => content.trim() && agentId && run(onAdd(agentId, scope, content.trim()), onClose)}>
+				<Settings>
+					<Setting wide label="What to remember">
+						<textarea aria-label="What to remember" autoFocus rows={3} value={content} onChange={(e) => setContent(e.target.value)} placeholder="e.g. Invoices go out on the 1st." className={`${compactControlClass} w-full`} />
+					</Setting>
+					<Setting label="Agent">
+						<Select className={wideControlClass} label="Agent" value={agentId} options={agentOptions(agents)} onChange={(id) => setAgentId(id as Id<"agents">)} />
+					</Setting>
+					<Setting label="Who can see it" hint={scope === "personal" ? "Only you. The agent uses it when it's helping you." : "Everyone in the workspace, and anyone can fix it."}>
+						<Select
+							className={wideControlClass}
+							label="Who can see it"
+							value={scope}
+							options={[
+								{ value: "personal", label: "Just me" },
+								{ value: "workspace", label: canAddTeam ? "Team" : "Team (your roles can't add these)", disabled: !canAddTeam },
+							]}
+							onChange={setScope}
+						/>
+					</Setting>
+				</Settings>
+				<Notice>{error}</Notice>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="submit" disabled={busy || !content.trim() || !agentId} className={primaryButton}>
+						Add memory
+					</button>
+				</DialogButtons>
+			</Form>
+		</Modal>
 	);
 }

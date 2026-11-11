@@ -1,7 +1,9 @@
-import { DOCX, FILES_PER_MESSAGE, XLSX, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
+import { composerButton, cornerCloseButton, imageButton } from "../../ui";
+import { FILES_PER_MESSAGE, fileKind, formatFileSize, isImageType } from "@companybot/core/files";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery } from "../../convex";
-import { AttachIcon, CloseIcon, FileCsvIcon, FileDocIcon, FileIcon, FilePdfIcon, FileXlsIcon, PageIcon } from "../../icons";
+import { AttachIcon, CloseIcon } from "../../icons";
+import { FileKindIcon } from "../drive/FileIcon";
 import { useFileUpload } from "../../upload";
 import { api } from "../../api";
 import { Layer } from "./common";
@@ -99,7 +101,7 @@ export function AttachButton({ attachments }: { attachments: Attachments }) {
 				onClick={() => input.current?.click()}
 				title="Attach files"
 				aria-label="Attach files"
-				className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+				className={composerButton}
 			>
 				<AttachIcon />
 			</button>
@@ -144,7 +146,7 @@ export function PendingFiles({ attachments }: { attachments: Attachments }) {
 								onClick={() => attachments.remove(item.key)}
 								title="Remove"
 								aria-label={`Remove ${item.name}`}
-								className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full text-xs text-neutral-400 hover:bg-neutral-100 hover:text-neutral-900"
+								className={`absolute top-1 right-1 ${cornerCloseButton}`}
 							>
 								<CloseIcon />
 							</button>
@@ -194,17 +196,9 @@ export function FileDrop({ attachments, className, children }: { attachments?: A
 	);
 }
 
-/** An icon for a file's kind, by its type or (pending, untyped) its name. */
+/** A file's kind, in a chip. */
 function KindIcon({ type, name }: { type?: string; name: string }) {
-	const ext = name.toLowerCase().split(".").pop();
-	const icon =
-		type === "application/pdf" || ext === "pdf" ? <FilePdfIcon /> :
-		type === DOCX || ext === "docx" ? <FileDocIcon /> :
-		type === XLSX || ext === "xlsx" ? <FileXlsIcon /> :
-		type === "text/csv" || ext === "csv" ? <FileCsvIcon /> :
-		type?.startsWith("text/") || ext === "txt" || ext === "md" ? <PageIcon /> :
-		<FileIcon />;
-	return <span className="flex size-9 shrink-0 items-center justify-center rounded bg-neutral-100 text-xl text-neutral-500">{icon}</span>;
+	return <span className="flex size-9 shrink-0 items-center justify-center rounded bg-neutral-100 text-xl text-neutral-500"><FileKindIcon type={type} name={name} /></span>;
 }
 
 /** A message's files: pictures as thumbnails that open larger, the rest as chips that open the file. */
@@ -217,7 +211,7 @@ export function MessageFiles({ files }: { files: Message["attachments"] }) {
 			{pictures.length > 0 && (
 				<div className="flex flex-wrap gap-2">
 					{pictures.map((f, i) => (
-						<button type="button" key={i} onClick={() => setOpen(f)} title={f.name} className="overflow-hidden rounded-lg border border-neutral-200 hover:border-neutral-300">
+						<button type="button" key={i} onClick={() => setOpen(f)} title={f.name} className={imageButton}>
 							<img src={f.url!} alt={f.name} loading="lazy" className="max-h-60 max-w-xs object-contain" />
 						</button>
 					))}

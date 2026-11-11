@@ -5,8 +5,8 @@ import { can } from '@companybot/core/permissions';
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { FileText } from 'phosphor-react-native';
-import { Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Stack, Text } from '@/components/ui';
+import { PageIcon, FolderIcon } from '@/design/icons';
+import { Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Stack } from '@/components/ui';
 import { useTheme } from '@/design';
 import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
@@ -23,9 +23,9 @@ export function PagesScreen() {
   const me = useQuery(api.workspace.me);
   const found = useQuery(api.pages.search, search.trim() ? { query: search.trim() } : 'skip');
   const theme = useTheme();
-  return <><DirectoryHeader menu={arrangements.writable ? [{ label: 'Organize pages', onPress: () => setOrganize(true) }] : undefined} search={{ placeholder: 'Search pages', value: search, onChange: setSearch }} action={me?.access && can(me.access, 'pages.edit') ? { label: 'New page', onPress: () => setCreating(true) } : undefined} /><Screen nativeScroll padded={false} edges={['left', 'right']}><Stack style={{ flex: 1 }}>
-    {search.trim() ? <ScreenList contentContainerStyle={{ paddingHorizontal: theme.spacing.lg }} data={found ?? []} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
-      renderItem={({ item }) => <ListRow title={item.title || 'Untitled'} description={item.path.join(' / ') || 'Top level'} leading={<FileText size={theme.sizes.icon} color={theme.colors.muted} />} onPress={() => openPage(item._id)} />}
+  return <><DirectoryHeader menu={arrangements.writable ? [{ label: 'Organize pages', icon: 'arrow.up.arrow.down', onPress: () => setOrganize(true) }] : undefined} search={{ placeholder: 'Search pages', value: search, onChange: setSearch }} action={me?.access && can(me.access, 'pages.edit') ? { label: 'New page', onPress: () => setCreating(true) } : undefined} /><Screen nativeScroll padded={false} edges={['left', 'right']}><Stack style={{ flex: 1 }}>
+    {search.trim() ? <ScreenList contentContainerStyle={{ paddingHorizontal: theme.sizes.gutter }} data={found ?? []} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
+      renderItem={({ item }) => <ListRow title={item.title || 'Untitled'} description={item.path.join(' / ') || 'Top level'} leading={item.kind === 'folder' ? <FolderIcon size={theme.sizes.icon} color={theme.colors.muted} /> : <PageIcon size={theme.sizes.icon} color={theme.colors.muted} />} onPress={() => openPage(item._id)} />}
       ListEmptyComponent={found === undefined ? <Loading /> : <EmptyState title="No pages found" description="Try a different title." />} /> : <PageChildren />}
     {organize && <PageOrganizer onClose={() => setOrganize(false)} />}
     {creating && <NewPage onClose={() => setCreating(false)} />}
@@ -36,8 +36,8 @@ export function PageChildren({ parentId, onSelect = openPage }: { parentId?: Id<
   const pages = usePaginatedQuery(api.pages.children, { parentId }, { initialNumItems: 30 });
   const arrangements = useArrangements();
   const theme = useTheme();
-  return <ScreenList contentContainerStyle={{ paddingHorizontal: theme.spacing.lg }} data={arrangements.order('pages', pages.results, parentId)} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
-    renderItem={({ item }) => <ListRow title={item.title || 'Untitled'} description={item.hasChildren ? 'Contains sub-pages' : undefined} leading={<FileText size={theme.sizes.icon} color={theme.colors.muted} />} trailing={<Text tone="muted">›</Text>} onPress={() => onSelect(item._id)} />}
+  return <ScreenList contentContainerStyle={{ paddingHorizontal: theme.sizes.gutter }} data={arrangements.order('pages', pages.results, parentId)} keyboardShouldPersistTaps="handled" keyExtractor={(page) => page._id}
+    renderItem={({ item }) => <ListRow title={item.title || 'Untitled'} description={item.hasChildren ? 'Contains sub-pages' : undefined} leading={item.kind === 'folder' ? <FolderIcon size={theme.sizes.icon} color={theme.colors.muted} /> : <PageIcon size={theme.sizes.icon} color={theme.colors.muted} />} disclosure onPress={() => onSelect(item._id)} />}
     ListEmptyComponent={pages.status === 'LoadingFirstPage' || !arrangements.loaded ? <Loading /> : <EmptyState title={parentId ? 'No sub-pages' : 'No pages yet'} description={parentId ? 'Create a page inside this one to organize your work.' : 'Keep notes, plans and team knowledge together.'} />}
     ListFooterComponent={pages.status === 'CanLoadMore' || pages.status === 'LoadingMore' ? <Button label="Load more pages" variant="ghost" loading={pages.status === 'LoadingMore'} onPress={() => pages.loadMore(30)} /> : undefined} />;
 }
@@ -47,13 +47,11 @@ export function NewPage({ parentId, onClose }: { parentId?: Id<'pages'>; onClose
   const create = useMutation(api.pages.create);
   const task = useTask();
   const guard = useDraftGuard({ dirty: !!title, busy: task.busy, onClose });
-  return <EditorSheet size="content" title={parentId ? 'New sub-page' : 'New page'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()}>
+  const save = () => void task.run(async () => { const id = await create({ title: title.trim() || 'Untitled', parentId }); guard.complete(); onClose(); openPage(id); });
+  return <EditorSheet size="content" title={parentId ? 'New sub-page' : 'New page'} busy={task.busy} dismissible={guard.dismissible} onClose={() => void guard.close()} submit={{ label: 'Create', onPress: save }}>
     {guard.dialog}
-    <Field label="Title" value={title} onChangeText={setTitle} autoFocus placeholder="Untitled" />
+    <Field label="Title" value={title} onChangeText={setTitle} editable={!task.busy} autoFocus placeholder="Untitled" />
     {task.error && <ErrorState message={task.error} />}
-    <Button label="Create page" loading={task.busy} onPress={() => void task.run(async () => {
-      const id = await create({ title: title.trim() || 'Untitled', parentId }); onClose(); openPage(id);
-    })} />
   </EditorSheet>;
 }
 

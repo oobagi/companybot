@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Field } from '@companybot/core/records';
 import { buildFilter, draftFilter, replaceFilter, viewIsStale } from './filters';
-import { deviceViewKey, normalizeViewConfig, restoreDeviceView } from './deviceView';
+import { normalizeViewConfig } from './deviceView';
 import type { Database } from './model';
 
 const field = (kind: Field['kind']): Field => ({ key: 'value', label: 'Value', kind });
@@ -45,15 +45,6 @@ describe('mobile record filters', () => {
 
 describe('device database views', () => {
   const database = { fields: [{ _id: 'name', key: 'name', kind: 'text', label: 'Name' }, { _id: 'value', key: 'value', kind: 'number', label: 'Value' }] } as Database;
-  it('scopes preferences to both the workspace and database', () => {
-    expect(deviceViewKey('a', 'db')).not.toBe(deviceViewKey('b', 'db'));
-    expect(deviceViewKey('a', 'db')).not.toBe(deviceViewKey('a', 'other'));
-  });
-  it('drops removed fields and corrupt preferences while preserving valid view choices', () => {
-    const view = restoreDeviceView(JSON.stringify({ columns: ['removed', 'value'], filters: [{ field: 'removed', eq: 1 }, { field: 'value', gt: 4, lte: 9 }], sort: { field: 'removed', order: 'asc' }, layout: 'board', groupBy: 'removed' }), database, 'USD');
-    expect(view).toEqual({ columns: ['name', 'value'], filters: [{ field: 'value', gt: 4, lte: 9 }], sort: undefined, layout: 'board', groupBy: undefined });
-    expect(restoreDeviceView('not json', database, 'USD').columns).toEqual(['name', 'value']);
-  });
   it('keeps a selected shared view queryable after a live field archival without changing its save baseline', () => {
     const saved = { version: 7, columns: ['name', 'value'], filters: [{ field: 'value', gt: 4 }, { field: 'name', eq: 'Acme' }], sort: { field: 'value', order: 'asc' }, layout: 'table' };
     const original = structuredClone(saved);
@@ -62,6 +53,5 @@ describe('device database views', () => {
     expect(normalizeViewConfig(saved, archived, 'USD')).toEqual({ columns: ['name'], filters: [{ field: 'name', eq: 'Acme' }], sort: undefined, groupBy: undefined, layout: 'table' });
     expect(saved).toEqual(original);
     expect(viewIsStale(saved.version, 8)).toBe(true);
-    expect(restoreDeviceView(JSON.stringify(saved), archived, 'USD')).toEqual(normalizeViewConfig(saved, archived, 'USD'));
   });
 });

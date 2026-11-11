@@ -14,7 +14,7 @@ import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS, runningTurn } from "../convex/turns";
 import { createWakeup, wake } from "../convex/wakeups";
 import "./connectorFixtures";
-import { agentsOf, agentTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch, settle, messagesIn } from "./helpers";
+import { agentsOf, agentTurn, finishTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch, settle, messagesIn } from "./helpers";
 
 async function decideReaction(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turnId: Id<"agentTurns">, triggerId: Id<"chatMessages">, emoji: string) {
 	await t.run((ctx) => ctx.db.patch(turnId, { triggerId }));
@@ -538,7 +538,8 @@ describe("private agent replies", () => {
 		await s.t.mutation(internal.recordTools.getFor, { turnId: id, id: s.deal });
 		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", id)))!.replyId!;
 		await s.t.mutation(internal.turns.updateReply, { turnId: id, text: SECRET, parts: [{ type: "text", text: SECRET }] });
-		expect((await messagesIn(s.dana, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toMatchObject({ hidden: false });
+		// Dana is everyone in her own DM and can open Deals: no lock to show, no one to share with.
+		expect((await messagesIn(s.dana, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toBeNull();
 		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [] });
 		expect((await messagesIn(s.dana, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toMatchObject({ hidden: true });
 		await s.owner.mutation(api.recordTypes.setAccess, { typeId: s.deals, access: [{ role: s.office, level: "view" }] });
@@ -758,7 +759,7 @@ describe("private agent replies", () => {
 	it("does not record a search hit beyond the output cap", async () => {
 		const s = await setup();
 		const last = await s.t.run(async (ctx) => {
-			for (let i = 0; i < 21; i++) await ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, authorUserId: s.dana.userId, text: "Captest quartz", parts: [], status: "done", mentions: noMentions });
+			for (let i = 0; i < 21; i++) await ctx.db.insert("chatMessages", { workspaceId: s.turn.workspaceId, chatId: s.chat._id, authorUserId: s.dana.userId, text: "Captest quartz", parts: [], status: "done", mentions: noMentions, searchPublic: true });
 			const hits = await ctx.db.query("chatMessages").withSearchIndex("search_text", (q) => q.search("text", "Captest").eq("workspaceId", s.turn.workspaceId)).take(21);
 			const last = hits[20]!._id;
 			await ctx.db.patch(last, { usedPlaces: [s.deals] });
@@ -1006,7 +1007,8 @@ describe("private agent replies", () => {
 		const replyId = (await s.t.run((ctx) => ctx.db.get("agentTurns", turnId)))!.replyId!;
 		expect((await s.t.run((ctx) => ctx.db.get(replyId)))!.usedPlaces).toContain(s.owner.userId);
 		await s.t.mutation(internal.turns.updateReply, { turnId, text: SECRET, parts: [{ type: "text", text: SECRET }] });
-		expect((await messagesIn(s.owner, { chatId: dm })).find((m) => m._id === replyId)!.privacy!.label).toBe("Only owner@co.com can see this");
+		// Still a source (for context and other places), but in their own DM there's nobody else to label it for.
+		expect((await messagesIn(s.owner, { chatId: dm })).find((m) => m._id === replyId)!.privacy).toBeNull();
 		await expect(s.t.mutation(internal.memory.createFor, { turnId, scope: "workspace", content: SECRET })).resolves.toHaveProperty("id");
 	});
 
@@ -1035,11 +1037,46 @@ describe("private agent replies", () => {
 		});
 		const messages = await messagesIn(s.owner, { chatId: dm });
 		expect(messages).toHaveLength(200);
-		expect(messages.every((m) => m.text === SECRET && m.privacy?.hidden === false)).toBe(true);
+		expect(messages.every((m) => m.text === SECRET && m.privacy === null)).toBe(true);
 	});
 
 	// #230: listing a personal skill used to count as reading it, so one personal skill made every channel reply private.
 	// Now only loading its body (skills_load) is a read; outside the asker's own DM it isn't listed at all.
+	it("keeps one private answer from making the asker's later replies in a shared channel private", async () => {
+		const s = await setup();
+		await s.read();
+		await s.t.mutation(internal.turns.savePrompt, { turnId: s.turnId, prompt: "What is Quartz worth?" });
+		await s.finish();
+		expect((await s.reply(s.crew)).privacy).toMatchObject({ hidden: true });
+		// Their next question in #general: the private answer isn't replayed, so nothing restricted carries over.
+		const next = await s.start(s.dana);
+		const context = await s.t.mutation(internal.turns.turnContext, { turnId: next });
+		expect(JSON.stringify(context)).not.toContain(SECRET);
+		expect(JSON.stringify(context)).not.toContain("What is Quartz worth?");
+		await finishTurn(s.t, next, "144");
+		const answer = (await messagesIn(s.crew, { chatId: s.chat._id })).find((m) => m.text === "144");
+		expect(answer).toBeDefined();
+		expect(answer!.privacy ?? null).toBeNull();
+		// A summary built from the private turn stays out too.
+		await s.t.run((ctx) => ctx.db.patch(s.turn.sessionId!, { summary: SECRET, summaryPlaces: [s.deals], summaryPrivacy: 1, summarizedUpTo: 0 }));
+		const later = await s.start(s.dana);
+		const summarized = await s.t.mutation(internal.turns.turnContext, { turnId: later });
+		expect(summarized.session.summary).toBeNull();
+		expect(JSON.stringify(summarized)).not.toContain(SECRET);
+		expect((await s.t.run(async (ctx) => ctx.db.get((await ctx.db.get("agentTurns", later))!.replyId!)))!.usedPlaces ?? []).not.toContain(s.deals);
+	});
+
+	it("still replays the asker's private answers in their own agent DM", async () => {
+		const s = await setup();
+		const dm = await s.dana.mutation(api.chats.openDm, { userIds: [], agentIds: [s.companybot._id] });
+		const first = await s.start(s.dana, dm);
+		await s.t.mutation(internal.recordTools.getFor, { turnId: first, id: s.deal });
+		await finishTurn(s.t, first, SECRET);
+		const next = await s.start(s.dana, dm);
+		expect(JSON.stringify(await s.t.mutation(internal.turns.turnContext, { turnId: next }))).toContain(SECRET);
+		expect((await s.t.run(async (ctx) => ctx.db.get((await ctx.db.get("agentTurns", next))!.replyId!)))!.usedPlaces).toContain(s.deals);
+	});
+
 	describe("personal skills", () => {
 		const config = { name: "Personal procedure", description: "Private preferences", instructions: SECRET };
 		const usedPlaces = async (s: Awaited<ReturnType<typeof setup>>, turnId = s.turnId) =>

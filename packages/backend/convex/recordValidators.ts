@@ -14,6 +14,9 @@ export const recordGroup = v.object({ field: v.string(), option: v.union(v.strin
 export const recordSort = v.object({ field: v.string(), order: v.union(v.literal("asc"), v.literal("desc")) });
 export const viewLayout = v.union(v.literal("table"), v.literal("board"));
 /** `layout` and `groupBy` are optional: views saved before boards read as tables. `groupBy` is a single-valued choice field's key. */
+/** Table column widths in pixels, by field key, for columns someone resized. The rest use their kind's default. */
+export const columnWidths = v.record(v.string(), v.number());
+
 export const viewConfig = {
 	name: v.string(),
 	filters: v.array(condition),

@@ -2,14 +2,15 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useEffect, useRef } from "react";
 import { api } from "./api";
 import { type OpenWorkspace, useQuery, useWorkspace } from "./convex";
-import { desktop } from "./desktop";
+import { askForNotifications, focusApp, setBadge } from "./desktop";
 import { navigate } from "./router";
 
 /**
  * Unread DMs and mentions (by your setting in Your preferences) reach you outside the app:
- * a desktop notification for each new one while the window isn't in front, and a dock badge
- * with how many chats have one. Clicking a notification opens its chat (or the thread, for a
- * mention in one), in its workspace, even if this window has switched to another since.
+ * a notification for each new one while the window isn't in front, and a count of how many chats
+ * have one (the dock badge in the desktop app, the tab's title in a browser). Clicking a
+ * notification opens its chat (or the thread, for a mention in one), in its workspace, even if
+ * this window has switched to another since.
  */
 export function useAlerts() {
 	const alerts = useQuery(api.chats.alerts);
@@ -19,13 +20,11 @@ export function useAlerts() {
 	workspace.current = current;
 
 	const count = alerts?.length ?? 0;
-	useEffect(() => desktop?.setBadge(count), [count]);
+	useEffect(() => setBadge(count), [count]);
 	// Signing out or switching workspaces clears it; the next workspace sets its own.
-	useEffect(() => () => desktop?.setBadge(0), []);
+	useEffect(() => () => setBadge(0), []);
 
-	useEffect(() => {
-		if (typeof Notification !== "undefined" && Notification.permission === "default") void Notification.requestPermission();
-	}, []);
+	useEffect(askForNotifications, []);
 
 	useEffect(() => {
 		if (!alerts) return;
@@ -37,8 +36,7 @@ export function useAlerts() {
 			if (known.has(alert.messageId)) continue;
 			const notification = new Notification(alert.title, { body: alert.text, tag: alert.chatId });
 			notification.onclick = () => {
-				desktop?.focus();
-				window.focus();
+				focusApp();
 				openAlert(alert, workspace.current);
 			};
 		}

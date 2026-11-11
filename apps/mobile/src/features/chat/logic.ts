@@ -1,3 +1,5 @@
+import { linkedRecordId } from '@companybot/core/page-links';
+
 export type Mention = { id: string; name: string; kind: 'user' | 'agent' | 'skill'; detail?: string };
 export type MentionSpan = Mention & { start: number; end: number };
 export const mentionLabel = (mention: Mention) => `${mention.kind === 'skill' ? '/' : '@'}${mention.name}`;
@@ -62,6 +64,8 @@ export type ContentDestination =
 /** Translate persistent desktop links to native routes; reject unsupported schemes. */
 export function contentDestination(href: string): ContentDestination {
   if (/[\u0000-\u001f]/.test(href)) throw new Error('This link is not valid.');
+  const record = linkedRecordId(href);
+  if (record) return { kind: 'path', path: `/record/${record}` };
   const page = /^companybot:\/\/page\/([a-z0-9]+)$/.exec(href);
   if (page) return { kind: 'path', path: `/pages/${page[1]}` };
   const internal = href.startsWith('#/') ? href.slice(1) : href.startsWith('/') && !href.startsWith('//') ? href : null;

@@ -2,14 +2,15 @@
 
 import { lookup as dnsLookup } from "node:dns/promises";
 import type { LookupFunction } from "node:net";
-import { DOCX, FILE_MAX_BYTES, PAGE_CHARS, type FileType, type SavedFile, type WebPage, XLSX, cleanFileName, clipPage, imageSize, isImageType, sniffDocument, sniffFile } from "@companybot/core";
+import { DOCX, FILE_MAX_BYTES, PAGE_CHARS, PPTX, type FileType, type SavedFile, type WebPage, XLSX, cleanFileName, clipPage, imageSize, isImageType, sniffDocument, sniffFile } from "@companybot/core";
 import { fileText } from "@companybot/core/file-text";
 import { type FetchedBody, UnsafeUrlError, safeFetch, textOf } from "@companybot/core/safe-fetch";
 import { Readability } from "@mozilla/readability";
 import { v } from "convex/values";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
-import { Agent, fetch } from "undici";
+import { fetch } from "undici";
+import { pinnedAgent } from "./connectorNetwork";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { type ActionCtx, internalAction } from "./_generated/server";
@@ -83,7 +84,7 @@ export function savedFrom(body: FetchedBody): { name: string; type: FileType } |
 	if (body.cut) return { error: `The file is over ${FILE_MAX_BYTES / 1024 / 1024} MB, too large to save.` };
 	const name = fileNameOf(body.url);
 	const type = sniffFile(body.bytes, name);
-	if (!type) return { error: "That's not a file messages take: save a picture (PNG, JPEG, WebP, GIF), PDF, Word, Excel or text file. For a page, read it with web_fetch." };
+	if (!type) return { error: "That's not a file messages take: save a picture (PNG, JPEG, WebP, GIF), PDF, Word, Excel, PowerPoint or text file. For a page, read it with web_fetch." };
 	// The extension says what it is: "logo.png" served as WebP is saved as "logo.webp".
 	const ext = extensions[type];
 	const [, base = name, current] = /^(.*)\.([a-z0-9]{2,5})$/i.exec(name) ?? [];
@@ -99,6 +100,7 @@ const extensions: Record<FileType, string> = {
 	"application/pdf": "pdf",
 	[DOCX]: "docx",
 	[XLSX]: "xlsx",
+	[PPTX]: "pptx",
 	"text/plain": "txt",
 	"text/markdown": "md",
 	"text/csv": "csv",
@@ -136,12 +138,7 @@ async function resolve(hostname: string) {
 
 /** One GET that can only connect to `addresses`, the ones safeFetch checked. */
 async function request(url: URL, addresses: string[], { signal, headers }: { signal: AbortSignal; headers: Record<string, string> }) {
-	const pinned: LookupFunction = (_host, options, callback) => {
-		const all = addresses.map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
-		if (options.all) callback(null, all);
-		else callback(null, all[0]!.address, all[0]!.family);
-	};
-	const dispatcher = new Agent({ connect: { lookup: pinned } });
+	const dispatcher = pinnedAgent(addresses);
 	try {
 		return (await fetch(url, { headers, signal, redirect: "manual", dispatcher })) as unknown as Response;
 	} finally {
@@ -151,7 +148,7 @@ async function request(url: URL, addresses: string[], { signal, headers }: { sig
 }
 
 /**
- * HTML through Readability to Markdown; PDF, Word and Excel files as their text (`fileText`, as
+ * HTML through Readability to Markdown; PDF, Word, Excel and PowerPoint files as their text (`fileText`, as
  * chat.read_file reads them); text, JSON and XML as served; anything else refused.
  */
 export async function pageFrom(body: FetchedBody): Promise<WebPage | { error: string }> {
@@ -171,7 +168,7 @@ export async function pageFrom(body: FetchedBody): Promise<WebPage | { error: st
 		return { url, ...(title && { title }), content: page.content + files, truncated: page.truncated };
 	}
 	if (contentType.startsWith("text/") || /^application\/([\w.-]+\+)?(json|xml)$/.test(contentType) || !contentType) return { url, ...clipPage(text + note) };
-	return { error: `Can't read ${contentType} files: only web pages, PDF, Word and Excel files, text, JSON and XML.` };
+	return { error: `Can't read ${contentType} files: only web pages, PDF, Word, Excel and PowerPoint files, text, JSON and XML.` };
 }
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-" });

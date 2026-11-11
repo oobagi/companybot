@@ -1,11 +1,12 @@
 import type { Field, FieldKind, FieldValue, Money } from "@companybot/core/records";
-import { formatDate, formatMoney, minorToDecimal } from "@companybot/core/records";
+import { formatDate, formatMoney, kindLabels, minorToDecimal } from "@companybot/core/records";
+import { moneyOf, parseDay, parseNumber } from "@companybot/core/field-change";
 
 // Pure rules for the record screens: columns, filters, sorting and how values read.
 // Shared by every database, built-in or added later. See wiki/data.md.
 
 /** A field as the app gets it from `recordTypes.list` (key, kind, options…), plus its id. */
-export type TypeField = Field & { _id: string; archived?: boolean; canEdit?: boolean };
+export type TypeField = Field & { _id: string; archived?: boolean; canEdit?: boolean; /** Its kind is changing: values are converting, so they can't be edited. */ changing?: true };
 /** Names for user and record ids in a row's values. */
 /** `locked`: a record in a database you can't see; its name isn't sent (backend `resolveRefs`). */
 export type Refs = Record<string, { name: string; archived?: true; locked?: true }>;
@@ -14,19 +15,7 @@ export type Refs = Record<string, { name: string; archived?: true; locked?: true
 /** The route of a type's list, or of one record. */
 export const recordPath = (typeKey: string, recordId?: string) => ["records", typeKey, ...(recordId ? [recordId] : [])];
 
-export const kindLabels: Record<FieldKind, string> = {
-	text: "Text",
-	number: "Number",
-	currency: "Amount",
-	date: "Date",
-	checkbox: "Checkbox",
-	choice: "Choice",
-	email: "Email",
-	phone: "Phone",
-	url: "Website",
-	user: "Person",
-	link: "Link to a record",
-};
+export { kindLabels } from "@companybot/core/records";
 
 /** Name, then the next few live fields. */
 export const defaultColumns = (fields: TypeField[], count = 4) =>
@@ -78,14 +67,37 @@ export function opsFor(field: Field): Op[] {
 
 export const needsValue = (op: Op) => !["empty", "notEmpty", "checked", "unchecked"].includes(op);
 
-/** The list condition for a filter, or null while it's missing a value. */
-export function toCondition({ field, op, value }: Filter): Record<string, unknown> & { field: string } | null {
+/** The list condition for a filter, or null while it's missing a value or its value isn't one yet ("1e" on a number). */
+export function toCondition({ field, op, value }: Filter, kind?: Field["kind"]): Record<string, unknown> & { field: string } | null {
 	if (op === "empty" || op === "unchecked") return { field, empty: true };
 	if (op === "notEmpty" || op === "checked") return { field, empty: false };
 	if (op === "anyOf") return Array.isArray(value) && value.length ? { field, in: value } : null;
 	const text = Array.isArray(value) ? "" : value.trim();
 	if (!text) return null;
+	if (kind === "number" ? parseNumber(text) === null : kind === "currency" ? moneyOf(text, "USD") === null : kind === "date" && parseDay(text) === null) return null;
 	return { field, [op === "is" ? "eq" : op]: text };
+}
+
+/**
+ * Whether a filter still fits its field: one made before the field changed may not (a range on
+ * what's now text, an option since removed). Lists drop it quietly, like Notion.
+ */
+export function filterFits(filter: Filter, field: Field) {
+	if (!opsFor(field).includes(filter.op)) return false;
+	// A new one has no value yet.
+	if (filter.op === "anyOf") return filter.value === "" || (Array.isArray(filter.value) && (field.kind !== "choice" || filter.value.every((v) => field.options?.some((o) => o.id === v))));
+	return !needsValue(filter.op) || !Array.isArray(filter.value);
+}
+
+/**
+ * A filter made before its field turned into a choice, as one on the option with its text for a
+ * label ("is Test" → "is any of Test"), like the values converted; undefined if it can't be.
+ */
+export function refitFilter<F extends Filter>(filter: F, field: Field): F | undefined {
+	if (field.kind !== "choice" || filter.op !== "is" || Array.isArray(filter.value)) return undefined;
+	const text = filter.value.trim().toLowerCase();
+	const option = field.options?.find((o) => !o.retired && o.label.trim().toLowerCase() === text);
+	return option && { ...filter, op: "anyOf", value: [option.id] };
 }
 
 /** Saved conditions back into the existing filter controls; ranges may have two bounds. */

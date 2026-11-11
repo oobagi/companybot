@@ -1,5 +1,11 @@
+import { rankAt } from "@companybot/core/rank";
+import { NAME_KEY } from "@companybot/core/records";
+import { VIEWS_MAX } from "./databaseViews";
+import { checkWidths, fieldsOf, groupsCards } from "./recordOps";
+import { setActivity } from "./chatOps";
+import { publicSearchChat, ensureSeatActivity } from "./chatDiscovery";
 import { fromLegacy } from "./wakeups";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { type MigrationFunctionReference, Migrations } from "@convex-dev/migrations";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
@@ -7,7 +13,8 @@ import { type MutationCtx, internalMutation, internalQuery } from "./_generated/
 import { TOPIC_MAX, defaultModel, scheduleCron, usageMonth, wakeAnchor } from "@companybot/core";
 import { recordUsage } from "./usage";
 import { type RunOutcome, triggerIndexes, scheduleCursor } from "./automationOps";
-import { memberProfile, rolesOf, timeZoneOf } from "./lib";
+import { accessOf, memberOf, memberProfile, rolesOf, timeZoneOf } from "./lib";
+import { appendPageBlock } from "./pageOps";
 import { seedRoles } from "./roles";
 import { withoutPageTitles } from "./pageBlocks";
 
@@ -95,16 +102,6 @@ export const usageThisMonth = migrations.define({
 	},
 });
 
-// Welcomes became fixed text (onboarding.ts), but old turns still carry their retired `welcome`. Clearing it
-// lets the schema drop the field.
-export const clearTurnWelcome = migrations.define({
-	table: "agentTurns",
-	batchSize: 20,
-	migrateOne: async (ctx, turn) => {
-		if (turn.welcome) await ctx.db.patch(turn._id, { welcome: undefined });
-	},
-});
-
 // Companybot got follow-ups, so it can check back later (wakeups.ts). New workspaces get them from
 // default-agents.ts; this adds them to each existing Companybot that still has its default skills.load
 // grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
@@ -114,6 +111,21 @@ export const companybotFollowupTools = migrations.define({
 	migrateOne: async (ctx, agent) => {
 		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("followups.*")) return;
 		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "followups.*"] };
+		const version = agent.version + 1;
+		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
+		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
+	},
+});
+
+// Drive got files (driveFiles.ts) and Companybot the tools for them. New workspaces get them from
+// default-agents.ts; this adds them to each existing Companybot that still has its default skills.load
+// grant (one an owner rebuilt on purpose is left alone), saved as a new version like an edit.
+export const companybotFileTools = migrations.define({
+	table: "agents",
+	batchSize: 8,
+	migrateOne: async (ctx, agent) => {
+		if (agent.name !== "Companybot" || !agent.tools.includes("skills.load") || agent.tools.includes("files.*")) return;
+		const config = { name: agent.name, description: agent.description, instructions: agent.instructions, model: agent.model, tools: [...agent.tools, "files.*"] };
 		const version = agent.version + 1;
 		await ctx.db.patch(agent._id, { tools: config.tools, version, updatedAt: Date.now() });
 		await ctx.db.insert("agentVersions", { agentId: agent._id, version, config, savedBy: agent.updatedBy });
@@ -314,6 +326,28 @@ export const dropChatReactLocks = migrations.define({
 	},
 });
 
+// COMPAT(0.1.0-alpha.10): populate indexed search audiences and activity-ordered seats.
+export const searchAudience = migrations.define({
+	table: "chatMessages", batchSize: 50,
+	migrateOne: async (ctx, row) => {
+		const chat = await ctx.db.get(row.chatId);
+		return { searchPublic: !!chat && publicSearchChat(chat) };
+	},
+});
+// COMPAT(0.1.0-alpha.10): backfill chat discovery audiences.
+export const searchChats = migrations.define({
+	table: "chats", batchSize: 50,
+	migrateOne: async (_ctx, chat) => ({ searchPublic: publicSearchChat(chat) }),
+});
+// COMPAT(0.1.0-alpha.10): backfill user discovery activity directly from existing seats.
+export const moveSeatActivity = migrations.define({
+	table: "chatMembers", batchSize: 50,
+	migrateOne: async (ctx, seat) => {
+		const chat = await ctx.db.get(seat.chatId);
+		if (chat) await ensureSeatActivity(ctx, chat, seat);
+	},
+});
+
 // COMPAT(0.1.0-alpha.10): retire after existing installs have their trigger indexes backfilled.
 export const automationTriggerIndexes = migrations.define({
 	table: "automationInstalls",
@@ -348,6 +382,12 @@ export const messageShownAt = migrations.define({
 	migrateOne: async (ctx, m) => {
 		if (m.publishedAt === undefined && !m.quiet) await ctx.db.patch(m._id, { publishedAt: m._creationTime });
 	},
+});
+
+// COMPAT(0.1.0-alpha.10): populate bounded channel-discovery keys on hot activity documents.
+export const discoveryChatActivity = migrations.define({
+	table: "chats", batchSize: 50,
+	migrateOne: async (ctx, chat) => { await setActivity(ctx, chat, {}); },
 });
 
 // COMPAT(0.1.0-alpha.10): member lists read only `members` (workspace.team), so each row copies its person's
@@ -409,15 +449,148 @@ export const continueSeatCount = internalMutation({
 	},
 });
 
+// Sub-pages made before pages became blocks (Oct 31) had no block in their parent: the editor used to add one
+// on open, racing the server's own insert for new children (two blocks). The server is the only writer now;
+// this gives each older child its block, as someone who can edit the parent: who made or last edited the
+// child or the parent (one index read each), else an owner among the workspace's first memberships (where its
+// founder is). Bounded per page, never a scan of the whole team; a child none of them can edit keeps showing
+// as a row under the document. Re-running is safe: a child that has its block is left alone.
+// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it, its entry in `all` and its test.
+const CHILD_BLOCK_OWNER_SCAN = 50;
+export const pageChildBlocks = migrations.define({
+	table: "pages",
+	batchSize: 5,
+	migrateOne: async (ctx, page) => {
+		if (!page.parentId || page.recordId || page.archived) return;
+		const parent = await ctx.db.get(page.parentId);
+		if (!parent || parent.archived) return;
+		const tried = new Set<Id<"users">>();
+		const attempt = async (userId: Id<"users">) => {
+			if (tried.has(userId)) return false;
+			tried.add(userId);
+			const member = await memberOf(ctx, userId, page.workspaceId);
+			if (!member) return false;
+			try {
+				await appendPageBlock(ctx, { member }, parent, page._id);
+				return true;
+			} catch (e) {
+				// Someone who can't edit it (or a parent under an archived page): try the next.
+				if (!(e instanceof ConvexError)) throw e;
+				return false;
+			}
+		};
+		for (const userId of [page.createdBy, page.updatedBy, parent.createdBy, parent.updatedBy]) if (await attempt(userId)) return;
+		const roles = await rolesOf(ctx, page.workspaceId);
+		const first = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", page.workspaceId)).take(CHILD_BLOCK_OWNER_SCAN);
+		for (const row of first) if (accessOf(roles, row).owner && await attempt(row.userId)) return;
+	},
+});
+
 /** Every retained migration, oldest first. Only retire shipped entries with their COMPAT cleanup. */
+// Customize left the rail for workspace settings: saved rail orders drop its id.
+export const railDropCustomize = migrations.define({
+	table: "arrangements",
+	batchSize: 100,
+	migrateOne: async (ctx, row) => {
+		if (row.list === "rail" && row.ids.includes("customize")) await ctx.db.patch(row._id, { ids: row.ids.filter((id) => id !== "customize") });
+	},
+});
+
+// COMPAT(mobile pilot): deployments from the mobile branch still contain pinsOrder.
+// Accept those rows in the schema until this migration has moved their order to the rail.
+export const pinOrderToRail = migrations.define({
+	table: "arrangements",
+	// Each legacy row may also read a full rail row before combining them.
+	batchSize: 10,
+	migrateOne: async (ctx, row) => {
+		if (row.list !== "pinsOrder") return;
+		const rail = await ctx.db.query("arrangements").withIndex("by_list", q => q.eq("workspaceId", row.workspaceId).eq("userId", row.userId).eq("list", "rail").eq("entityId", row.entityId)).unique();
+		if (!rail) await ctx.db.patch(row._id, { list: "rail" });
+		else {
+			const ids = [...new Set([...rail.ids, ...row.ids])];
+			if (ids.length > 4000 || JSON.stringify(ids).length > 128_000) throw new ConvexError("Pin order is too large to migrate automatically.");
+			await ctx.db.patch(rail._id, { ids });
+			await ctx.db.delete(row._id);
+		}
+	},
+});
+
+// Boards keep a manual order (records.rank): records start in it by creation time, newest first, as they listed.
+export const recordRanks = migrations.define({
+	table: "records",
+	batchSize: 100,
+	migrateOne: async (ctx, record) => {
+		if (record.rank === undefined) await ctx.db.patch(record._id, { rank: rankAt(record._creationTime, record._id) });
+	},
+});
+
+// Views no longer carry a note about filters a field change removed: clear the old ones.
+export const dropViewNotice = migrations.define({
+	table: "databaseViews",
+	batchSize: 100,
+	migrateOne: async (ctx, view) => {
+		if (view.notice !== undefined) await ctx.db.patch(view._id, { notice: undefined });
+	},
+});
+
+// The All tab became an ordinary saved view. Each database gets a view named "All" with what its All tab showed
+// everyone: its shared columns (the `columns` arrangement, or without one Name and the next four live fields, as
+// the app did) and its `display` (layout, grouping, column widths). It goes first in the database's view order, so
+// it's still what opens, and then `display` and the columns arrangement go.
+// - A saved view already named "All" keeps its name; the new one is "All 2" (or "All 3", and so on).
+// - Done already: no `display`, no columns arrangement, and the first view in order is one of those names. That's
+//   a re-run, or a database made since (recordOps.createType makes its own All), and it's left alone.
+// - A database already at VIEWS_MAX views gets no new one, since nobody could see a view past the limit: it
+//   opens on its first view. Its old All settings are cleared all the same.
+// COMPAT(0.1.0-alpha.11): once this has run on prod, delete it, its entry in `all` and its test, `recordTypes.display`
+// (schema.ts), the `setDisplay` and `migrateDisplay` stubs (recordTypes.ts) and the `columns` arrangement list.
+export const allView = migrations.define({
+	table: "recordTypes",
+	batchSize: 20,
+	migrateOne: async (ctx, type) => {
+		const arrangement = (list: "views" | "columns") =>
+			ctx.db.query("arrangements").withIndex("by_list", (q) => q.eq("workspaceId", type.workspaceId).eq("userId", undefined).eq("list", list).eq("entityId", type._id)).unique();
+		const order = await arrangement("views");
+		const shared = await arrangement("columns");
+		const views = await ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", type._id)).take(VIEWS_MAX);
+		const first = order?.ids.map((id) => views.find((v) => v._id === id)).find((v) => v) ?? views[0];
+		if (!type.display && !shared && first && /^All( \d+)?$/.test(first.name)) return;
+		if (views.length < VIEWS_MAX) {
+			const fields = (await fieldsOf(ctx, type._id)).filter((f) => !f.archived);
+			const live = fields.map((f) => f.key);
+			const kept = [...new Set(shared?.ids.filter((key) => live.includes(key)))];
+			const columns = !kept.length ? live.slice(0, 5) : kept.includes(NAME_KEY) ? kept : [NAME_KEY, ...kept];
+			const { layout, groupBy, widths } = type.display ?? {};
+			let name = "All";
+			for (let n = 2; views.some((v) => v.name.toLowerCase() === name.toLowerCase()); n++) name = `All ${n}`;
+			const id = await ctx.db.insert("databaseViews", {
+				workspaceId: type.workspaceId,
+				typeId: type._id,
+				name,
+				filters: [],
+				columns,
+				// Only what a saved view would accept: a board needs a field to group by.
+				...(layout === "board" && fields.some(groupsCards) && { layout }),
+				...(groupBy && fields.some((f) => f.key === groupBy && groupsCards(f)) && { groupBy }),
+				widths: checkWidths(widths, columns),
+				version: 1,
+			});
+			if (order) await ctx.db.patch(order._id, { ids: [id, ...order.ids] });
+			else await ctx.db.insert("arrangements", { workspaceId: type.workspaceId, list: "views", entityId: type._id, ids: [id] });
+		}
+		if (shared) await ctx.db.delete(shared._id);
+		if (type.display) await ctx.db.patch(type._id, { display: undefined });
+	},
+});
+
 const all: MigrationFunctionReference[] = [
 	internal.migrations.lunaModel,
 	internal.migrations.companybotHelpTool,
 	internal.migrations.companybotWebTools,
 	internal.migrations.usageThisMonth,
 	internal.migrations.companybotImageTool,
-	internal.migrations.clearTurnWelcome,
 	internal.migrations.companybotFollowupTools,
+	internal.migrations.companybotFileTools,
 	internal.migrations.cronSchedules,
 	internal.migrations.customRoles,
 	internal.migrations.customRolesMembers,
@@ -437,9 +610,19 @@ const all: MigrationFunctionReference[] = [
 	internal.migrations.automationTriggerIndexes,
 	internal.migrations.chatActivity,
 	internal.migrations.messageShownAt,
+	internal.migrations.searchAudience,
+	internal.migrations.searchChats,
+	internal.migrations.moveSeatActivity,
+	internal.migrations.discoveryChatActivity,
 	internal.migrations.memberProfiles,
 	internal.migrations.lastWorkspaces,
 	internal.migrations.chatMemberCounts,
+	internal.migrations.pageChildBlocks,
+	internal.migrations.railDropCustomize,
+	internal.migrations.pinOrderToRail,
+	internal.migrations.dropViewNotice,
+	internal.migrations.recordRanks,
+	internal.migrations.allView,
 ];
 
 /** Starts every pending migration, in order. Finished ones are skipped. */

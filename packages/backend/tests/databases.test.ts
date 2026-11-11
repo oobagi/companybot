@@ -27,6 +27,15 @@ it("owners create, rename and archive databases with stable keys and Activity hi
 	]);
 });
 
+it("names the clashing name and its database when a singular is taken", async () => {
+	const { owner } = await ownerAndMember();
+	const roxy = await owner.mutation(api.recordTypes.create, { plural: "Poker — Roxy" });
+	await owner.mutation(api.recordTypes.update, { typeId: roxy, version: 0, name: "Poker hand" });
+	const jaden = await owner.mutation(api.recordTypes.create, { plural: "Poker — Jaden" });
+	await expect(owner.mutation(api.recordTypes.update, { typeId: jaden, version: 0, name: "Poker hand" })).rejects.toThrow("“Poker — Roxy” already uses “Poker hand”");
+	await expect(owner.mutation(api.recordTypes.create, { plural: "Poker — Roxy" })).rejects.toThrow("There's already a database called “Poker — Roxy”");
+});
+
 it("renames and archives legacy databases and validates database names", async () => {
 	const { owner } = await ownerAndMember();
 	const types = await owner.query(api.recordTypes.list);
@@ -51,12 +60,18 @@ it("shares sorting, filtering and ordered columns; refuses stale saves and delet
 	await expect(member.mutation(api.databaseViews.remove, { viewId: id, version: 1 })).rejects.toThrow("conflict");
 	const [view] = await member.query(api.databaseViews.list, { typeId: type._id });
 	expect(view).toMatchObject({ name: "Won deals", version: 2, columns: ["name", "value"], sort: { field: "value", order: "desc" } });
+	// A database keeps at least one view, for agents too.
+	await expect(member.mutation(api.databaseViews.remove, { viewId: id, version: 2 })).rejects.toThrow("at least one view");
+	const { companybot } = await agentsOf(owner);
+	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+	expect(await t.mutation(internal.recordTools.saveViewFor, { turnId, input: { type: type._id, id, version: 2, remove: true } })).toEqual({ error: expect.stringContaining("at least one view") });
+	const other = await owner.mutation(api.databaseViews.save, { ...config, typeId: type._id, name: "Other" });
 	await member.mutation(api.databaseViews.remove, { viewId: id, version: 2 });
-	expect(await owner.query(api.databaseViews.list, { typeId: type._id })).toEqual([]);
+	expect((await owner.query(api.databaseViews.list, { typeId: type._id })).map((v) => v._id)).toEqual([other]);
 	expect(await t.run((ctx) => ctx.db.get(id))).toBeNull();
 	const history = await member.query(api.records.activity, { paginationOpts: page });
 	expect(history.page.map((e) => [e.action, e.subject, e.user])).toEqual([
-		["view.deleted", "Won deals", "member@co.com"], ["view.updated", "Won deals", "owner@co.com"], ["view.created", "By name", "member@co.com"],
+		["view.deleted", "Won deals", "member@co.com"], ["view.created", "Other", "owner@co.com"], ["view.updated", "Won deals", "owner@co.com"], ["view.created", "By name", "member@co.com"],
 	]);
 });
 
@@ -74,6 +89,17 @@ it("checks filter semantics, columns, names and per-database limits before writi
 	expect(await owner.query(api.databaseViews.list, { typeId: type!._id })).toEqual([]);
 	for (let i = 0; i < 50; i++) await owner.mutation(api.databaseViews.save, { ...input, name: `View ${i}` });
 	await expect(owner.mutation(api.databaseViews.save, { ...input, name: "One too many" })).rejects.toThrow("50");
+});
+
+it("gives a new database an All view, the one it opens on", async () => {
+	const { t, owner } = await ownerAndMember();
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Mice" });
+	expect(await owner.query(api.databaseViews.list, { typeId })).toEqual([expect.objectContaining({ name: "All", filters: [], columns: ["name"], version: 1 })]);
+	const { companybot } = await agentsOf(owner);
+	const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+	await t.mutation(internal.recordTools.saveDatabaseFor, { turnId, input: { name: "Rats" } });
+	const rats = (await owner.query(api.recordTypes.list)).find((type) => type.plural === "Rats")!;
+	expect((await owner.query(api.databaseViews.list, { typeId: rats._id })).map((v) => v.name)).toEqual(["All"]);
 });
 
 it("isolates every database and view operation across workspaces, including forged ids", async () => {
@@ -185,7 +211,7 @@ it("saves board views grouped by a single choice field, for people, agents and a
 	await owner.mutation(api.fields.create, { typeId, label: "Tags", kind: "choice", options: [{ label: "Roof" }], multiple: true });
 	await owner.mutation(api.fields.create, { typeId, label: "Notes", kind: "text" });
 	const input = { typeId, name: "Pipeline", filters: [], columns: ["name"] };
-	const view = async () => (await member.query(api.databaseViews.list, { typeId }))[0]!;
+	const view = async () => (await member.query(api.databaseViews.list, { typeId })).find((v) => v._id === id)!;
 	const id = await member.mutation(api.databaseViews.save, input);
 	expect(await view()).not.toHaveProperty("layout");
 	for (const groupBy of ["notes", "tags", "missing"])
@@ -205,6 +231,14 @@ it("saves board views grouped by a single choice field, for people, agents and a
 	expect(await save({ version: 6, groupBy: "tags" })).toEqual({ error: expect.stringContaining("choice field") });
 	expect(await save({ version: 6, groupBy: null })).toMatchObject({ layout: "board", version: 7 });
 	expect(await view()).not.toHaveProperty("groupBy");
+	// A column's width saves as it's dropped, without a new version; saves and agents' edits keep it.
+	await expect(member.mutation(api.databaseViews.setWidth, { viewId: id, field: "name", px: 2000 })).rejects.toThrow("64 to 800 pixels");
+	await expect(member.mutation(api.databaseViews.setWidth, { viewId: id, field: "notes", px: 200 })).rejects.toThrow("this view shows");
+	await member.mutation(api.databaseViews.setWidth, { viewId: id, field: "name", px: 300 });
+	expect(await view()).toMatchObject({ widths: { name: 300 }, version: 7 });
+	expect(await save({ version: 7, name: "Wide" })).toMatchObject({ name: "Wide", widths: { name: 300 }, version: 8 });
+	await member.mutation(api.databaseViews.setWidth, { viewId: id, field: "name" });
+	expect(await view()).not.toHaveProperty("widths");
 	const history = await member.query(api.records.activity, { paginationOpts: page });
 	expect(history.page[0]).toMatchObject({ action: "view.updated", agent: "Companybot" });
 });

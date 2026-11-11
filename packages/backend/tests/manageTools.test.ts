@@ -2,7 +2,7 @@ import { seedSkill } from "./legacyFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch, messagesIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch, messagesIn, signIn } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
@@ -64,7 +64,7 @@ describe("messaging and channels as the person", () => {
 		const { t, call, owner, member, companybot, chat, turnId } = await ready();
 		const r = { action: "open_dm", userIds: [member.userId], agentIds: [] };
 		const { chatId } = await call("chat.manage", r);
-		expect(await call("chat.manage", r)).toEqual({ chatId });
+		expect(await call("chat.manage", r)).toMatchObject({ chatId, note: "Opened owner@co.com's DM with member@co.com. What you send there shows as from you, for them." });
 		const before = await t.run((ctx) => ctx.db.query("agentTurns").collect());
 		const parent = await owner.mutation(api.messages.send, { chatId: chat._id, text: "Parent", mentions: noMentions });
 		// A write names its chat by id or "here", never by #name: a rename can hand a name to another channel.
@@ -114,6 +114,111 @@ describe("messaging and channels as the person", () => {
 		expect(sent).toMatchObject({ messageId: expect.any(String), note: expect.stringContaining("Don't repeat") });
 		const parent = await owner.mutation(api.messages.send, { chatId, text: "Parent", mentions: noMentions });
 		expect(await call("chat.manage", { action: "send", chat: chatId, threadId: parent, text: "In its thread" })).not.toHaveProperty("note");
+	});
+
+	// #table-1: asked to deal private hands to Pip, Marlowe and Roxy, Companybot opened the person's DM with each
+	// agent and posted there as itself: no agent saw a card, and the person read every hand.
+	it("never opens or posts in a person's DM with another agent, and says where each DM and post went", async () => {
+		const { t, call, owner, member, companybot, scribe, chat } = await ready();
+		const turn = await agentTurn(t, owner, chat._id, companybot._id);
+		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: turn, tool: "chat.manage", input: { request } });
+		for (const r of [{ userIds: [], agentIds: [scribe._id] }, { userIds: [member.userId], agentIds: [scribe._id] }, { userIds: [], agentIds: [companybot._id, scribe._id] }]) {
+			expect(await fromGeneral({ action: "open_dm", ...r })).toEqual({ error: expect.stringContaining("Agents don't have DMs with each other") });
+		}
+		// Not by id either: the person's DM with Scribe, and a group DM Scribe is in, are Scribe's.
+		const scribeDm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] });
+		const scribeGroup = await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [scribe._id] });
+		for (const id of [scribeDm, scribeGroup]) {
+			expect(await fromGeneral({ action: "send", chat: id, text: "Your hand: 5♦ 4♦" })).toEqual({ error: expect.stringContaining("chat_ask_agent") });
+			expect(await messagesIn(owner, { chatId: id })).toEqual([]);
+		}
+		// Its own DMs and the person's DMs with people still work, and each result says where it went.
+		const own = await fromGeneral({ action: "open_dm", userIds: [], agentIds: [companybot._id] });
+		expect(own.note).toBe("Opened your own DM with owner@co.com: what you send there is from you.");
+		expect(await fromGeneral({ action: "send", chat: own.chatId, text: "Your hand" })).toMatchObject({ posted: "Posted in your own DM with owner@co.com." });
+		const people = await fromGeneral({ action: "open_dm", userIds: [member.userId], agentIds: [] });
+		expect(await fromGeneral({ action: "send", chat: people.chatId, text: "Hi" })).toMatchObject({ posted: "Posted in owner@co.com's DM with member@co.com, as you for them." });
+		const group = await fromGeneral({ action: "open_dm", userIds: [member.userId], agentIds: [companybot._id] });
+		expect(group.note).toBe("Opened a group DM with owner@co.com, member@co.com and you. What you send there shows as from you, for them.");
+		expect(await fromGeneral({ action: "send", chat: group.chatId, text: "Hi all" })).toMatchObject({ posted: "Posted in a group DM with owner@co.com, member@co.com and you, as you for them." });
+		const other = await owner.mutation(api.chats.createChannel, { name: "table-1", private: false });
+		expect(await fromGeneral({ action: "send", chat: other, text: "Flop" })).toMatchObject({ posted: "Posted in #table-1, as you for them." });
+	});
+
+	it("posting or opening a DM isn't reading it: only a read makes the reply private", async () => {
+		const { t, owner, member, companybot, chat } = await ready();
+		const turn = await agentTurn(t, owner, chat._id, companybot._id);
+		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: turn, tool: "chat.manage", input: { request } });
+		const replyId = (await t.run((ctx) => ctx.db.get(turn as Id<"agentTurns">)))!.replyId!;
+		const ops = await owner.mutation(api.chats.createChannel, { name: "ops", private: true });
+		const own = await fromGeneral({ action: "open_dm", userIds: [], agentIds: [] });
+		const people = await fromGeneral({ action: "open_dm", userIds: [member.userId], agentIds: [] });
+		const sent: string[] = [];
+		for (const id of [own.chatId, people.chatId, ops]) sent.push((await fromGeneral({ action: "send", chat: id, text: "Dealt" })).messageId);
+		expect((await t.run((ctx) => ctx.db.get(replyId as Id<"chatMessages">)))!.usedPlaces ?? []).toEqual([]);
+		// What it posted carries only what the turn read (nothing private), not the places it posted in.
+		for (const id of sent) expect((await t.run((ctx) => ctx.db.get(id as Id<"chatMessages">)))!.usedPlaces).toBeUndefined();
+		await t.mutation(internal.turns.updateReply, { turnId: turn, text: "Dealt everyone in.", parts: [{ type: "text", text: "Dealt everyone in." }] });
+		await t.mutation(internal.turns.finishReply, { turnId: turn });
+		expect((await messagesIn(member, { chatId: chat._id })).find((m) => m._id === replyId)).toMatchObject({ text: "Dealt everyone in.", privacy: null });
+
+		// Reading still counts: a DM and a private channel it reads make its next reply private.
+		const next = await agentTurn(t, owner, chat._id, companybot._id);
+		const nextReply = (await t.run((ctx) => ctx.db.get(next as Id<"agentTurns">)))!.replyId!;
+		await t.mutation(internal.chatTools.readFor, { turnId: next, chat: people.chatId });
+		await t.mutation(internal.chatTools.readFor, { turnId: next, chat: ops });
+		expect((await t.run((ctx) => ctx.db.get(nextReply as Id<"chatMessages">)))!.usedPlaces).toEqual(expect.arrayContaining([people.chatId, ops]));
+		await t.mutation(internal.turns.updateReply, { turnId: next, text: "Secret", parts: [{ type: "text", text: "Secret" }] });
+		await t.mutation(internal.turns.finishReply, { turnId: next });
+		expect((await messagesIn(member, { chatId: chat._id })).find((m) => m._id === nextReply)).toMatchObject({ privacy: { hidden: true } });
+	});
+
+	it("names a private reply's audience once, and shows no lock where everyone can already see its sources", async () => {
+		const { t, owner, member, companybot, scribe, chat, turnId } = await ready();
+		const read = async (turnId: Id<"agentTurns">, chatIds: Id<"chats">[]) => {
+			for (const id of chatIds) await t.mutation(internal.chatTools.readFor, { turnId, chat: id });
+			await t.mutation(internal.turns.updateReply, { turnId, text: "Read", parts: [{ type: "text", text: "Read" }] });
+			await t.mutation(internal.turns.finishReply, { turnId });
+			return (await t.run((ctx) => ctx.db.get(turnId)))!.replyId!;
+		};
+		const own = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
+		const scribeDm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [scribe._id] });
+		await owner.mutation(api.messages.send, { chatId: scribeDm, text: "Mine", mentions: noMentions });
+		// Two of the owner's one-person DMs, read in #general: one name, not "owner and owner".
+		const inGeneral = await read(await agentTurn(t, owner, chat._id, companybot._id), [own, scribeDm]);
+		const shown = (await messagesIn(owner, { chatId: chat._id })).find((m) => m._id === inGeneral)!;
+		expect(shown.privacy).toMatchObject({ hidden: false, label: "Only owner@co.com can see this", share: expect.any(String) });
+		expect(shown.privacy!.why).toBe("Uses a private conversation");
+		// In their own DM, they're the only one who can see it either way: no lock, no Share.
+		const inOwn = await read(turnId, [scribeDm]);
+		expect((await messagesIn(owner, { chatId: own })).find((m) => m._id === inOwn)!.privacy).toBeNull();
+		// With someone else in the chat, it stays locked to them.
+		const group = await owner.mutation(api.chats.openDm, { userIds: [member.userId], agentIds: [companybot._id] });
+		const inGroup = await read(await agentTurn(t, owner, group, companybot._id), [scribeDm]);
+		expect((await messagesIn(owner, { chatId: group })).find((m) => m._id === inGroup)!.privacy).toMatchObject({ hidden: false, label: "Only owner@co.com can see this" });
+		expect((await messagesIn(member, { chatId: group })).find((m) => m._id === inGroup)!.privacy).toMatchObject({ hidden: true });
+	});
+
+	it("says where a sent message went to whoever can see that chat, and nothing more to anyone else", async () => {
+		const { t, owner, member, companybot, chat } = await ready();
+		await owner.mutation(api.workspace.invite, { email: "dana@co.com", role: "member" });
+		const dana = await signIn(t, "dana@co.com");
+		const turn = await agentTurn(t, owner, chat._id, companybot._id);
+		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: turn, tool: "chat.manage", input: { request } });
+		const people = await fromGeneral({ action: "open_dm", userIds: [member.userId], agentIds: [] });
+		const own = await fromGeneral({ action: "open_dm", userIds: [], agentIds: [] });
+		const places = [people.chatId, own.chatId, chat._id];
+		const sends: { messageId: Id<"chatMessages"> }[] = [];
+		for (const id of places) sends.push(await fromGeneral({ action: "send", chat: id, text: "Dealt" }));
+		const line = (i: number) => ({ type: "tool" as const, id: `c${i}`, name: "chat_manage", label: "Post in a chat", status: "done" as const, opens: { chatId: places[i]!, messageId: sends[i]!.messageId, kind: "message" as const } });
+		const parts = [line(0), line(1), line(2), { type: "text" as const, text: "Dealt." }];
+		await t.mutation(internal.turns.updateReply, { turnId: turn, text: "Dealt.", parts });
+		await t.mutation(internal.turns.finishReply, { turnId: turn });
+		const replyId = (await t.run((ctx) => ctx.db.get(turn as Id<"agentTurns">)))!.replyId!;
+		const labels = async (as: typeof owner) => (await messagesIn(as, { chatId: chat._id })).find((m) => m._id === replyId)!.parts.flatMap((p) => (p.type === "tool" ? [p.label] : []));
+		expect(await labels(owner)).toEqual(["Post in your DM with member@co.com", "Send you a DM", "Post in #general"]);
+		expect(await labels(member)).toEqual(["Post in your DM with owner@co.com", "Post in a chat", "Post in #general"]);
+		expect(await labels(dana)).toEqual(["Post in a chat", "Post in a chat", "Post in #general"]);
 	});
 
 	it("creates, renames, clears topic, adds/removes members and joins/leaves via the UI's rules", async () => {

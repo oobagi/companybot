@@ -5,10 +5,11 @@ import { useState } from "react";
 import { describeAllowed } from "@companybot/core/action-words";
 import { agentOptions } from "../agent-options";
 import { api } from "../api";
-import { usePaginatedQuery, useQuery } from "../convex";
+import { useMutation, usePaginatedQuery, useQuery } from "../convex";
 import { navigate } from "../router";
 import { HistoryIcon } from "../icons";
-import { EmptyState, LoadMore, Loading, NoMatches, Section, cardClass, descriptionClass, metadataClass, timeAgo, toolbarClass } from "../ui";
+import { EmptyState, LoadMore, Loading, NoMatches, Notice, Section, cardClass, descriptionClass, metadataClass, smallButton, timeAgo, titleButton, PageActions, useRun } from "../ui";
+import { useConfirm } from "./chat/common";
 import { actionLabels, valueText, whoLabel } from "./records/logic";
 
 type ActivityEntry = FunctionReturnType<typeof api.activity.forReply>[number];
@@ -19,7 +20,8 @@ export function ActivityTab() {
 	const database = usePaginatedQuery(api.records.activity, {}, { initialNumItems: 20 });
 	const [agentId, setAgentId] = useState<Id<"agents">>();
 	const [changesOnly, setChangesOnly] = useState(true);
-	const entries = useQuery(api.activity.list, { agentId });
+	const activity = useQuery(api.activity.recent, { agentId });
+	const entries = activity?.entries;
 	if (!entries || !agents) return <Loading />;
 	// A wake's line (an agent checking back on its own) shows with changes: it says what's running.
 	const shown = changesOnly ? entries.filter((e) => e.changes || e.wake) : entries;
@@ -27,7 +29,8 @@ export function ActivityTab() {
 	return (
 		<>
 			{(database.results.length > 0 || database.status !== "Exhausted") && <DatabaseActivity {...database} />}
-			<div className={toolbarClass}>
+			{activity?.truncated && <p>Activity history is limited. Open a reply to see its actions.</p>}
+			<PageActions>
 				<Select
 					label="Agent"
 					value={agentId ?? ""}
@@ -43,7 +46,7 @@ export function ActivityTab() {
 					]}
 					onChange={(v) => setChangesOnly(v === "changes")}
 				/>
-			</div>
+			</PageActions>
 			{shown.length === 0 && database.status !== "LoadingFirstPage" && (agentId || entries.length > 0 ? <NoMatches /> : <EmptyState icon={<HistoryIcon />} title={database.results.length ? "No agent activity yet" : "No activity yet"}>Database changes and agent actions will appear here.</EmptyState>)}
 			<div className="flex shrink-0 flex-col gap-2 empty:hidden">
 				{shown.map((e) => (
@@ -55,16 +58,39 @@ export function ActivityTab() {
 }
 
 function DatabaseActivity({ results, status, loadMore }: { results: FunctionReturnType<typeof api.records.activity>["page"]; status: string; loadMore: (count: number) => void }) {
+	const undo = useMutation(api.records.undo);
+	const { error, run } = useRun();
+	const { confirm, dialog } = useConfirm();
 	return (
-		<Section title="Database changes" hint="Records, fields, databases and shared views, including changes made by agents.">
+		<Section title="Database changes">
+			{dialog}
+			<Notice>{error}</Notice>
 			{results.map((e) => {
 				const [kind, action] = e.action.includes(".") ? e.action.split(".") : ["record", e.action];
 				return <div key={e._id} className={`flex flex-col gap-1 text-sm ${cardClass}`}>
 					<div className="flex items-baseline gap-2">
 						<span className="font-medium">{e.undoes ? "Undid a change to" : actionLabels[action!] ?? action} {kind}: {e.subject ?? e.record ?? e.field ?? e.type}</span>
-						<span className={`ml-auto shrink-0 ${metadataClass}`}>{timeAgo(e.time)}</span>
+						<span className={`ml-auto shrink-0 ${metadataClass}`}>{e.fieldChange?.running ? "Converting…" : timeAgo(e.time)}</span>
+						{/* A field's kind change: undone here while its old values are kept (30 days). */}
+						{e.fieldChange?.undoable && (
+							<button
+								type="button"
+								className={smallButton}
+								onClick={() =>
+									confirm({
+										title: `Undo this change to “${e.field}”?`,
+										action: "Undo",
+										danger: false,
+										body: "The field goes back to how it was, and every record gets its old value back, unless it was changed since.",
+										onConfirm: () => run(undo({ historyId: e._id })),
+									})
+								}
+							>
+								Undo
+							</button>
+						)}
 					</div>
-					<p className={descriptionClass}>By {whoLabel(e)}</p>
+					<p className={descriptionClass}>By {whoLabel(e)}{e.fieldChange && !e.fieldChange.running && `. ${e.fieldChange.converted.toLocaleString()} values converted${e.fieldChange.cleared ? `, ${e.fieldChange.cleared.toLocaleString()} cleared` : ""}`}</p>
 					{e.changes.map((c) => <p key={c.key} className="break-words text-neutral-600">{c.label}: {valueText(undefined, c.old, e.refs) || "empty"} → {valueText(undefined, c.new, e.refs) || "empty"}</p>)}
 				</div>;
 			})}
@@ -77,7 +103,7 @@ function ActivityRow({ entry }: { entry: ActivityEntry & { chat: string } }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className={`flex flex-col gap-2 text-sm ${cardClass}`}>
-			<button type="button" onClick={() => setOpen(!open)} className="flex items-baseline gap-2 text-left">
+			<button type="button" onClick={() => setOpen(!open)} className={`${titleButton} flex items-baseline gap-2`}>
 				<span className="font-medium">{entry.agent}</span>
 				<span className="text-neutral-600">{entry.label}</span>
 				{entry.status === "error" && <span className="text-xs text-red-600">failed</span>}
@@ -106,12 +132,11 @@ function AllowedLine({ allowed, mine }: { allowed: NonNullable<ActivityEntry["al
 			{text}
 			{allowed.ruleStillOn === false && " · rule since removed"}
 			{allowed.ruleStillOn && mine && (
-				<>
-					{" · "}
-					<button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
+				<span>
+					{" "}· <button type="button" onClick={() => navigate("settings", "permissions")} className="hover:underline">
 						See rule
 					</button>
-				</>
+				</span>
 			)}
 		</p>
 	);

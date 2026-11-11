@@ -4,7 +4,7 @@ import { pageEntry, recordBatches, recordEntry, routeTarget, savedKeys, splitPin
 it('uses desktop personal pin order, drops orphan order entries, and excludes pins from recents', () => {
   expect(savedKeys([
     { list: 'pins', ids: ['page:p', 'chat:c', 'rec:r', 'chat:c', 'bad-key'] },
-    { list: 'pinsOrder', ids: ['deleted:x', 'rec:r', 'chat:c'] },
+    { list: 'rail', ids: ['chat', 'deleted:x', 'rec:r', 'drive', 'chat:c'] },
     { list: 'recent', ids: ['chat:c', 'db:client', 'page:other'] },
   ])).toEqual({ pins: ['rec:r', 'chat:c', 'page:p'], recent: ['db:client', 'page:other'] });
 });

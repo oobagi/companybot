@@ -4,20 +4,24 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { inApp } from "./testing";
-import { AppRail, type AppTab } from "./views/AppRail";
+import { AppRail } from "./views/AppRail";
+import type { AppTab } from "./views/RailPins";
 import { Modal } from "./views/chat/common";
 import { Group, Item, SidebarList } from "./views/chat/Sidebar";
 
-const saved = vi.hoisted(() => ({ tabs: [] as string[], pins: [] as string[] }));
-vi.mock("./arrangements", () => ({ useStoredIds: (list: string) => [list === "tabs" ? saved.tabs : [], () => {}, true] }));
-vi.mock("./pins", () => ({ usePins: () => ({ pins: saved.pins, recent: [], toggle: vi.fn(), visit: vi.fn(), canSaveRecent: true }) }));
+const saved = vi.hoisted(() => ({ rail: [] as string[], pins: [] as string[] }));
+vi.mock("./arrangements", () => ({ useStoredIds: (list: string) => [list === "rail" ? saved.rail : [], () => {}, true] }));
+// The rail resolves pins from these; with none pinned it needs nothing back.
+vi.mock("./convex", async (real) => ({ ...(await real<typeof import("./convex")>()), useQuery: () => undefined, useMutation: () => vi.fn(), useWorkspace: () => undefined }));
+vi.mock("./views/records/data", () => ({ useTypes: () => [] }));
+vi.mock("./pins", async (real) => ({ ...(await real<typeof import("./pins")>()), usePins: () => ({ pins: saved.pins, recent: [], toggle: vi.fn(), visit: vi.fn(), canSaveRecent: true }) }));
 
 let root: Root;
 let host: HTMLElement;
 beforeEach(() => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", configurable: true });
-	saved.tabs = [];
+	saved.rail = [];
 	saved.pins = [];
 	host = document.body.appendChild(document.createElement("div"));
 	root = createRoot(host);
@@ -36,10 +40,10 @@ function rail(onOpen: (tab: AppTab) => void) {
 it("opens the Nth rail tab with ⌘N, in the order shown, even after a reorder", () => {
 	const onOpen = vi.fn();
 	render(rail(onOpen));
-	press("Digit2", { metaKey: true });
-	expect(onOpen).toHaveBeenLastCalledWith("drive");
+	press("Digit3", { metaKey: true });
+	expect(onOpen).toHaveBeenLastCalledWith("inbox");
 
-	saved.tabs = ["customize", "databases"];
+	saved.rail = ["sites", "databases"];
 	render(rail(onOpen));
 	press("Digit2", { metaKey: true });
 	expect(onOpen).toHaveBeenLastCalledWith("databases");
@@ -54,8 +58,8 @@ it("opens a tab with ⌘N while typing a message, as in Slack", () => {
 	render(rail(onOpen));
 	const composer = document.body.appendChild(document.createElement("div"));
 	composer.contentEditable = "true";
-	press("Digit1", { metaKey: true }, composer);
-	expect(onOpen).toHaveBeenCalledWith("chat");
+	press("Digit3", { metaKey: true }, composer);
+	expect(onOpen).toHaveBeenCalledWith("inbox");
 	composer.remove();
 });
 
@@ -70,8 +74,8 @@ it("does nothing while a dialog or menu is open, so a half-filled form isn't los
 	expect(open).not.toHaveBeenCalled();
 	// Closed, they work again.
 	render(h("div", null, rail(onOpen)));
-	press("Digit2", { metaKey: true });
-	expect(onOpen).toHaveBeenCalledWith("drive");
+	press("Digit3", { metaKey: true });
+	expect(onOpen).toHaveBeenCalledWith("inbox");
 });
 
 it("no longer opens tabs with G then a letter", () => {
@@ -108,7 +112,7 @@ it("opens the Nth top-level sidebar row with ⌥N, skipping folded sections, nes
 	expect(open).not.toHaveBeenCalled();
 });
 
-it("leaves ⌥N alone while typing", () => {
+it("opens sidebar rows while typing", () => {
 	const open = vi.fn();
 	render(sidebar(open));
 	const field = document.body.appendChild(document.createElement("input"));
@@ -116,7 +120,8 @@ it("leaves ⌥N alone while typing", () => {
 	const editor = document.body.appendChild(document.createElement("div"));
 	editor.contentEditable = "true";
 	press("Digit1", { altKey: true }, editor);
-	expect(open).not.toHaveBeenCalled();
+	expect(open).toHaveBeenCalledWith("sales");
+	expect(open).toHaveBeenCalledTimes(2);
 	field.remove();
 	editor.remove();
 });
@@ -132,4 +137,61 @@ it("shows Pin to rail, with its text, in an unpinned row's menu, including an ag
 		await act(async () => item!.click());
 	}
 	expect(startDm).toHaveBeenCalledOnce();
+});
+
+it("saves an active edit before keyboard navigation", () => {
+	const events: string[] = [];
+	render(rail(() => events.push("navigate")));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.addEventListener("blur", () => events.push("save"));
+	input.focus();
+	press("Digit3", { metaKey: true }, input);
+	expect(events).toEqual(["save", "navigate"]);
+	input.remove();
+});
+
+it.each(["@", "#", "[", "]", "|", "{", "}"])("preserves printable ASCII %s while typing", (key) => {
+	const open = vi.fn();
+	render(sidebar(open));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.focus();
+	const event = new KeyboardEvent("keydown", { code: "Digit2", key, altKey: true, bubbles: true, cancelable: true });
+	act(() => { input.dispatchEvent(event); });
+	expect(event.defaultPrevented).toBe(false);
+	expect(document.activeElement).toBe(input);
+	expect(open).not.toHaveBeenCalled();
+	input.remove();
+});
+
+it("leaves composing keys and missing sidebar rows alone", () => {
+	const open = vi.fn();
+	render(sidebar(open));
+	for (const options of [{ code: "Digit1", isComposing: true }, { code: "Digit9" }]) {
+		const event = new KeyboardEvent("keydown", { ...options, key: "™", altKey: true, bubbles: true, cancelable: true });
+		act(() => { document.body.dispatchEvent(event); });
+		expect(event.defaultPrevented).toBe(false);
+	}
+	expect(open).not.toHaveBeenCalled();
+});
+
+it("keeps focus for missing and already open tabs", () => {
+	render(rail(vi.fn()));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.focus();
+	press("Digit8", { metaKey: true }, input);
+	expect(document.activeElement).toBe(input);
+	press("Digit2", { metaKey: true }, input);
+	expect(document.activeElement).toBe(input);
+	input.remove();
+});
+
+it("saves an edit before a rail click navigates", () => {
+	const events: string[] = [];
+	render(rail(() => events.push("navigate")));
+	const input = document.body.appendChild(document.createElement("input"));
+	input.addEventListener("blur", () => events.push("save"));
+	input.focus();
+	act(() => { host.querySelector<HTMLButtonElement>('button[aria-label="Drive"]')!.click(); });
+	expect(events).toEqual(["save", "navigate"]);
+	input.remove();
 });

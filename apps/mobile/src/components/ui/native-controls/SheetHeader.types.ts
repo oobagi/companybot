@@ -3,5 +3,5 @@ export type SheetHeaderProps = {
   onClose: () => void;
   busy?: boolean;
   /** Supplying a submit action makes this a Cancel / Done editor. */
-  submit?: { onPress: () => void; disabled?: boolean };
+  submit?: { label?: string; onPress: () => void; disabled?: boolean };
 };

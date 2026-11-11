@@ -1,15 +1,14 @@
 import { type Access, can } from "@companybot/core/permissions";
 import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX } from "@companybot/core/skills";
 import type { FunctionReturnType } from "convex/server";
-import { useState } from "react";
 import { Select } from "../../controls";
 import { useConfirm } from "../chat/common";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { SkillIcon } from "../../icons";
+import { MembersIcon, SkillIcon } from "../../icons";
 import { Markdown } from "../../markdown";
 import { navigate } from "../../router";
-import { Field, Loading, Notice, Section, secondaryButton, inputClass, useRun } from "../../ui";
+import { Loading, Notice, PageActions, Section, Setting, Settings, barButton, compactControlClass, useDraft, useRun, wideControlClass } from "../../ui";
 import { Card, Detail, Facts, ItemList, MadeItemDetail, Missing, NewItem } from "./shared";
 
 type SkillItem = FunctionReturnType<typeof api.skills.list>[number];
@@ -39,62 +38,71 @@ export function SkillsTab() {
 
 type SkillConfig = { name: string; description: string; instructions: string };
 
-/** Name, description, and instructions: the parts of a skill someone writes. */
-function SkillFields({ value, onChange }: { value: SkillConfig; onChange: (value: SkillConfig) => void }) {
+/** Name, description, and instructions: the parts of a skill someone writes, as one card. `children` are rows above them (Runs for). */
+function SkillFields({ title, value, onChange, children }: { title?: string; value: SkillConfig; onChange: (value: SkillConfig) => void; children?: React.ReactNode }) {
 	const left = SKILL_DESCRIPTION_MAX - value.description.trim().length;
 	return (
-		<>
-			<Field label="Name">
+		<Settings title={title}>
+			{children}
+			<Setting label="Name">
 				<input
-					className={inputClass}
+					aria-label="Name"
+					className={wideControlClass}
 					value={value.name}
 					maxLength={SKILL_NAME_MAX}
 					placeholder="e.g. Quote follow-up"
 					onChange={(e) => onChange({ ...value, name: e.target.value })}
 				/>
-			</Field>
-			<Field
+			</Setting>
+			<Setting
+				wide
 				label="Description"
 				hint={`What it does and when to use it. Agents see this in every message, so keep it to a line. ${left} characters left.`}
 			>
 				<input
-					className={inputClass}
+					aria-label="Description"
+					className={`${compactControlClass} w-full`}
 					value={value.description}
 					placeholder="e.g. Write a follow-up for a quote that hasn't been answered. Use when someone asks to chase a quote."
 					onChange={(e) => onChange({ ...value, description: e.target.value })}
 				/>
-			</Field>
-			<Field label="Instructions" hint="Markdown. The agent reads this only when it loads the skill.">
+			</Setting>
+			<Setting wide label="Instructions" hint="Markdown. The agent reads this only when it loads the skill.">
 				<textarea
-					className={`${inputClass} min-h-48 font-mono text-sm`}
+					aria-label="Instructions"
+					className={`${compactControlClass} min-h-48 w-full font-mono`}
 					value={value.instructions}
 					placeholder={"e.g. Write the follow-up as:\n1. A one-line reminder of the quote.\n2. One question that moves it forward."}
 					onChange={(e) => onChange({ ...value, instructions: e.target.value })}
 				/>
-			</Field>
-		</>
+			</Setting>
+		</Settings>
 	);
 }
 
 function NewSkill({ access }: { access: Access }) {
-	const [audience, setAudience] = useState<"team" | "personal">("personal");
+	const draft = useDraft<{ audience: "team" | "personal"; config: SkillConfig }>("skills:new", { audience: "personal", config: { name: "", description: "", instructions: "" } }, 0);
+	const { audience, config } = draft.value;
+	const setAudience = (audience: "team" | "personal") => draft.set({ ...draft.value, audience });
+	const setConfig = (config: SkillConfig) => draft.set({ ...draft.value, config });
 	const create = useMutation(api.skills.create);
 	const { error, run } = useRun();
-	const [config, setConfig] = useState<SkillConfig>({ name: "", description: "", instructions: "" });
 
 	return (
 		<NewItem
+			onDiscard={draft.dirty ? draft.discard : undefined}
 			tab="skills"
 			noun="skill"
 			error={error}
-			onCreate={() => run(create({ config, audience }).then((id) => navigate("settings", "skills", id)))}
+			onCreate={() => run(create({ config, audience }).then((id) => { draft.discard(); navigate("settings", "skills", id); }))}
 		>
-			<Field label="Runs for" hint={!can(access, "skills.edit") ? "This skill is just for you. Sharing with the team needs a role that can make and change team skills." : undefined}>
-				<Select label="Runs for" className={inputClass} value={audience}
-					options={[{ value: "personal", label: "Just me" }, ...(can(access, "skills.edit") ? [{ value: "team", label: "Team" }] : [])]}
-					onChange={(value) => setAudience(value as "personal" | "team")} />
-			</Field>
-			<SkillFields value={config} onChange={setConfig} />
+			<SkillFields value={config} onChange={setConfig}>
+				<Setting label="Runs for" hint={!can(access, "skills.edit") ? "This skill is just for you. Sharing with the team needs a role that can make and change team skills." : undefined}>
+					<Select label="Runs for" className={wideControlClass} value={audience}
+						options={[{ value: "personal", label: "Just me" }, ...(can(access, "skills.edit") ? [{ value: "team", label: "Team" }] : [])]}
+						onChange={(value) => setAudience(value as "personal" | "team")} />
+				</Setting>
+			</SkillFields>
 		</NewItem>
 	);
 }
@@ -108,6 +116,7 @@ function CustomSkillDetail({ skill: s, custom, access }: { access: Access; skill
 	return (
 		<MadeItemDetail<SkillConfig>
 			tab="skills"
+			id={s.id}
 			name={s.name}
 			createdByName={s.createdByName}
 			canEdit={s.canEdit}
@@ -116,15 +125,17 @@ function CustomSkillDetail({ skill: s, custom, access }: { access: Access; skill
 			trash={s.trash}
 			onDelete={() => remove({ skillId: s.id })}
 			onSave={(config, expectedVersion) => save({ skillId: s.id, config, expectedVersion })}
-			fields={(value, onChange) => <SkillFields value={value} onChange={onChange} />}
+			fields={(value, onChange) => <SkillFields title="Skill" value={value} onChange={onChange} />}
 		>
 			<Facts rows={[["Runs for", s.audience === "personal" ? "Just me" : "Team"]]} />
 			{s.audience === "personal" && !s.trash && can(access, "skills.edit") && (
-				<button className={secondaryButton} onClick={() => confirm({
-					title: "Share with team?", action: "Share with team", danger: false,
-					body: "Everyone in this workspace will see and use these instructions. Anyone with the skills edit switch can change them.",
-					onConfirm: () => share({ skillId: s.id }),
-				})}>Share with team</button>
+				<PageActions>
+					<button type="button" className={barButton} onClick={() => confirm({
+						title: "Share with team?", action: "Share with team", danger: false,
+						body: "Everyone in this workspace will see and use these instructions. Anyone with the skills edit switch can change them.",
+						onConfirm: () => share({ skillId: s.id }),
+					})}><MembersIcon /> Share with team</button>
+				</PageActions>
 			)}
 			{dialog}
 		</MadeItemDetail>
@@ -155,7 +166,7 @@ export function SkillScreen({ access, id }: { access: Access; id: string }) {
 		>
 			<Notice>{error}</Notice>
 			<Facts rows={[["Used by", 'Agents granted "skills.load", when a task calls for it']]} />
-			<Section title="Instructions" hint="What the agent reads when it loads this skill.">
+			<Section title="Instructions" note="What the agent reads when it loads this skill.">
 				<Markdown className="rounded-xl bg-neutral-50 px-4 py-3 text-sm leading-relaxed">{open.instructions}</Markdown>
 			</Section>
 		</Detail>

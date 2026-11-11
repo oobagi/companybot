@@ -3,7 +3,8 @@ import { Select } from "../controls";
 import { useState } from "react";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { Loading, Notice, Section, Setting, Settings, cardClass, hintClass, insetClass, metadataClass, secondaryButton, useRun, wideControlClass } from "../ui";
+import { Loading, Notice, Section, Setting, Settings, cardClass, compactButton, hintClass, iconDangerButton, insetClass, metadataClass, useRun, wideControlClass } from "../ui";
+import { TrashIcon } from "../icons";
 import { Confirm, useConfirm } from "./chat/common";
 
 // What agents may do without asking: your own Always / Never per action (Your preferences,
@@ -23,13 +24,10 @@ export function YourPermissions() {
 	const { error, run } = useRun();
 	if (!rules) return <Loading />;
 	return (
-		<Section
-			title="Yours"
-			hint="Actions you've set to run without asking, or never, in this workspace."
-		>
+		<Section title="Yours" note="Actions you've set to run without asking, or never, in this workspace.">
 			{dialog}
 			<Notice>{error}</Notice>
-			{rules.length === 0 && <p className={`${hintClass} ${insetClass}`}>Nothing yet. Everything asks first.</p>}
+			{rules.length === 0 && <p className={`text-sm text-neutral-500 ${cardClass}`}>Nothing yet. Everything asks first.</p>}
 			{rules.map((r) => (
 				<div key={r._id} className={`flex items-start gap-3 text-sm ${cardClass}`}>
 					<div className="min-w-0 flex-1">
@@ -40,8 +38,8 @@ export function YourPermissions() {
 						<p className="text-neutral-500">{r.text}</p>
 					</div>
 					{r.automation ? (
-						<button type="button" onClick={() => confirm({ title: "Remove this permission?", action: "Remove permission", danger: false, body: "The automation will ask again before this action runs.", onConfirm: () => remove({ ruleId: r._id }) })} className="text-neutral-500 hover:text-red-600">
-							Remove
+						<button type="button" onClick={() => confirm({ title: "Remove this permission?", action: "Remove permission", danger: false, body: "The automation will ask again before this action runs.", onConfirm: () => remove({ ruleId: r._id }) })} aria-label="Remove" title="Remove permission" className={iconDangerButton}>
+							<TrashIcon />
 						</button>
 					) : (
 						<Select
@@ -98,7 +96,17 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 	const { error, busy, run } = useRun();
 	if (!actions) return <Loading />;
 	return (
-		<Section title="Actions" hint="What agents can do here when acting for you. Anything that changes something asks first unless you say otherwise.">
+		<Section
+			title="Actions"
+			note="Anything that changes something asks you first, unless you set it otherwise."
+			action={
+				connected && (
+					<button type="button" disabled={busy} className={compactButton} onClick={() => run(refresh({ connectorId }))}>
+						{busy ? "Checking…" : "Refresh list"}
+					</button>
+				)
+			}
+		>
 			<Notice>{error}</Notice>
 			{actions.length === 0 && (
 				<p className={`${hintClass} ${insetClass}`}>
@@ -115,16 +123,6 @@ export function ConnectorActions({ connectorId, connected }: { connectorId: stri
 					<SettingSelect action={a} />
 				</div>
 			))}
-			{connected && (
-				<button
-					type="button"
-					disabled={busy}
-					className={`${secondaryButton} self-start`}
-					onClick={() => run(refresh({ connectorId }))}
-				>
-					{busy ? "Checking…" : "Refresh list"}
-				</button>
-			)}
 		</Section>
 	);
 }
@@ -137,10 +135,7 @@ export function WorkspaceLocks() {
 	if (!actions) return <Loading />;
 	const shown = actions.filter((a) => a.risk !== "none" || a.lock);
 	return (
-		<Settings
-			title="Action locks"
-			hint="For everyone, over anyone's own settings. Locked actions always ask; nobody can set them to Always."
-		>
+		<Settings title="Action locks" note="For everyone, over their own settings. Locked actions always ask; nobody can set them to Always.">
 			{error && <div className="p-3"><Notice>{error}</Notice></div>}
 			{shown.length === 0 && <p className="px-4 py-3 text-sm text-neutral-400">No actions yet. Install and connect a connector first.</p>}
 			{shown.map((a) => {

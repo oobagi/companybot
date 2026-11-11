@@ -1,3 +1,4 @@
+import { setFormDraftPerson } from "./ui";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -9,26 +10,31 @@ import { WorkspaceContext, useMutation, useQuery } from "./convex";
 import { desktop, useUpdates } from "./desktop";
 import { useAlerts } from "./notifications";
 import { navigate, useRoute, views } from "./router";
-import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, PlusIcon, SettingsIcon, SignOutIcon } from "./icons";
-import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, useRun, useStoredWidth } from "./ui";
+import { ArchiveIcon, ArrowLeftIcon, DatabaseIcon, EditIcon, SettingsIcon, SignOutIcon } from "./icons";
+import { MenuDivider, Notice, ResizeHandle, Scroll, TopBar, TruncatedTips, updateButton, useRun, useStoredWidth } from "./ui";
 import { RecordsView } from "./views/Records";
 import { roleNames } from "./views/Members";
-import { SettingsNav, SettingsView, isCustomize, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
+import { SettingsNav, SettingsView, settingsScope, settingsTabAliases, settingsTabs } from "./views/Settings";
 import { Landing } from "./views/Landing";
-import { Onboarding } from "./views/Onboarding";
+import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
+import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
-import { AppRail, type AppTab, type TabBadge, appTabs } from "./views/AppRail";
+import { AppRail } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
-import { RailPins } from "./views/RailPins";
+import { type AppTab, type TabBadge, appTabs } from "./views/RailPins";
 import { type PinKey, pinOf, usePins } from "./pins";
-import { customizeTabs } from "./views/customize";
 import { ChatView } from "./views/chat/ChatView";
 import { GettingStarted } from "./views/chat/Tutorial";
 import { Avatar, MenuItem, Popover, archiveQuestion, deviceTimeZone, useConfirm } from "./views/chat/common";
-import { AddButton, ChannelsNav, DmsNav, Group, Item, type SectionProps, SidebarList } from "./views/chat/Sidebar";
-import { useSortable } from "./sortable";
-import { PagesNav, PagesView } from "./views/Pages";
+import { AddButton, AddMenu, ChannelsAdd, ChannelsNav, DmsNav, Group, Item, NewSection, SectionGroup, SectionsNav, SidebarList } from "./views/chat/Sidebar";
+import { type DragProps, useDragStatic, useSortable } from "./sortable";
+import { type SectionId, itemsGroup, unsectionedList, useSections, useUnsectioned } from "./sections";
+import { DriveNav, PagesView } from "./views/Pages";
+import { FileView } from "./views/Files";
+import { DriveView } from "./views/drive/Views";
+import { DatabaseList, databaseLists } from "./views/records/Lists";
+import { ComingSoon } from "./views/ComingSoon";
 import { DatabaseDialog } from "./views/records/DatabaseDialog";
 import { AccessLock } from "./views/access";
 import { type RecordType, useTypes } from "./views/records/data";
@@ -40,6 +46,11 @@ type View = (typeof views)[number];
 
 export function App() {
 	const { isLoading, isAuthenticated } = useConvexAuth();
+	const draftMe = useQuery(api.workspace.me);
+	useEffect(() => {
+		if (!isLoading && !isAuthenticated) setFormDraftPerson(null);
+		else if (draftMe !== undefined) setFormDraftPerson(draftMe?.userId ?? null);
+	}, [isLoading, isAuthenticated, draftMe?.userId]);
 	// Signed out, the landing comes first; Get started opens sign-in.
 	const [started, setStarted] = useState(false);
 	if (isLoading) return null;
@@ -61,6 +72,7 @@ function Workspace() {
 	const ensure = useMutation(api.workspace.ensure);
 	const remember = useMutation(api.workspace.switchTo);
 	const [chosen, setChosen] = useState(() => localStorage.getItem(OPEN_KEY));
+	const profile = useQuery(api.preferences.get);
 	// Whether invites have been checked, so onboarding doesn't flash before they're joined.
 	const [ensured, setEnsured] = useState(false);
 	const { error, fail } = useRun();
@@ -110,9 +122,10 @@ function Workspace() {
 	if (error) return <div className="flex h-screen items-center justify-center p-8"><Notice>{error}</Notice></div>;
 	// The new workspace opens once `mine` lists it.
 	if (mine && ids.length === 0) return ensured ? <Onboarding onDone={(next) => (localStorage.setItem(OPEN_KEY, next), setChosen(next))} /> : null;
-	if (!workspace) return null;
+	if (!workspace || !profile) return null;
 	if (resetting)
 		return <div className="drag flex h-screen items-center justify-center p-8 text-sm text-neutral-500">Resetting {resetting.name}…</div>;
+	if (!profile.displayName.trim()) return <NameOnboarding />;
 	// Keyed by workspace: switching starts every screen fresh.
 	return (
 		<WorkspaceContext.Provider value={workspace}>
@@ -138,7 +151,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /chat[/<chat>[/thread|message/<id>]], /records/<type>[/<record>], /pages[/<page>], /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox, /records/<type>[/<record>], /databases/<list>, /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -149,13 +162,23 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	}, [route]);
 	const view: View = views.find((v) => v === route[0]) ?? "chat";
 	const settingsTab = settingsTabs.find((t) => t.id === (settingsTabAliases[route[1] ?? ""] ?? route[1]))?.id ?? "general";
-	// The rail's tab on screen. Customize's tabs (Agents, Connectors, Skills, Automations) keep their /settings/<tab> addresses; the rest of Settings lights none.
-	const tab: AppTab | undefined =
-		view === "chat" ? "chat" : view === "pages" ? "drive" : view === "records" ? "databases" : isCustomize(settingsTab) ? "customize" : undefined;
+	// A page inside a record belongs to its database, not Drive.
+	const openPage = useQuery(api.pages.get, view === "pages" && route[1] ? { pageId: route[1] as Id<"pages"> } : "skip");
+	const pageRecord = view === "pages" ? openPage?.record : undefined;
+	// Until a page loads (a new one), whose it is isn't known: the tab you came from stays lit, and the page isn't remembered as where any tab was left.
+	const placing = view === "pages" && !!route[1] && openPage === undefined;
+	const lastTab = useRef<AppTab>(undefined);
+	// The rail's tab on screen. Settings (Customize included) lights none.
+	const tab: AppTab | undefined = placing
+		? lastTab.current
+		: view === "home" ? "home" : view === "chat" ? "chat" : view === "inbox" ? "inbox" : pageRecord || view === "records" || view === "databases" ? "databases" : view === "pages" || view === "files" || view === "drive" ? "drive" : view === "sites" ? "sites" : undefined;
+	lastTab.current = tab;
 	const types = useTypes();
-	const [newDatabase, setNewDatabase] = useState(false);
+	const [newSection, setNewSection] = useState(false);
+	const sectionTab = tab === "chat" || tab === "drive" || tab === "databases" ? tab : undefined;
+	const addSection = can(access, "sidebar.arrange") ? { label: "New section", onClick: () => setNewSection(true) } : undefined;
 	// The database on screen, by key, and the record open in it.
-	const typeKey = view === "records" ? route[1] : undefined;
+	const typeKey = view === "records" ? route[1] : pageRecord?.typeKey;
 	const recordId = view === "records" ? route[2] : undefined;
 	// Workspace settings reopen on the tab you left them on.
 	const lastWorkspaceSettings = useRef<string[]>(["settings", "general"]);
@@ -163,11 +186,11 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	// Where "Back to app" goes from Settings.
 	const lastApp = useRef<string[]>(["chat"]);
 	if (tab) lastApp.current = route;
-	// Each tab reopens where you left it; clicking the open one goes to its start (the first database, Customize's Agents).
+	// Each tab reopens where you left it; clicking the open one goes to its start (the first database).
 	const lastIn = useRef<Partial<Record<AppTab, string[]>>>({});
-	if (tab) lastIn.current[tab] = route;
+	if (tab && !placing) lastIn.current[tab] = route;
 	const startOf = (t: AppTab): string[] =>
-		({ chat: ["chat"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], customize: ["settings", customizeTabs[0].id] })[t];
+		({ home: ["home"], chat: ["chat"], inbox: ["inbox"], drive: ["pages"], databases: types?.[0] ? recordPath(types[0].key) : ["records"], sites: ["sites"] })[t];
 	const openTab = useCallback((t: AppTab) => navigate(...(t !== tab && lastIn.current[t] ? lastIn.current[t] : startOf(t))), [tab, types]);
 	const { error, fail } = useRun();
 	const { status: update } = useUpdates();
@@ -186,10 +209,8 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 		if (here && canSaveRecent) visit(here);
 	}, [here, visit, canSaveRecent]);
 	// What's waiting in Chat: chats with an unread @mention or DM, else any unread one.
-	const waiting = chats ? [...chats.channels, ...chats.dms, ...chats.agents] : [];
-	const badges: Partial<Record<AppTab, TabBadge>> = { chat: { mentions: waiting.filter((c) => c.mentioned).length, unread: waiting.some((c) => c.unread) } };
-	// The sidebar's sections: drag a title to move one, click it to fold it. Both sync with your account in this workspace.
-	const sections = useSortable("sections", sectionIds, sectionKey);
+	const badges: Partial<Record<AppTab, TabBadge>> = { chat: chats ? chatBadge(chats) : { mentions: 0, unread: false } };
+	// The sidebar's sections fold when you click their title; folds sync with your account in this workspace.
 	const [folded, changeFolded] = useStoredIds("folded");
 	const fold = (id: string) => changeFolded({ op: folded.includes(id) ? "remove" : "add", id });
 	// Hidden or shown, the sidebar stays that way on this computer.
@@ -198,7 +219,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	const toggleSidebar = useCallback(() => setSidebar((shown) => (localStorage.setItem("sidebar.hidden", String(shown)), !shown)), []);
 
 	return (
-		<div className="flex h-screen flex-col bg-neutral-100 text-[15px] text-neutral-900">
+		<div className="flex h-screen flex-col bg-neutral-100 text-body text-neutral-900">
 			{/* A title bar the width of the window holds its buttons; everything else sits below it. */}
 			<TitleBar sidebar={sidebar} onSidebar={toggleSidebar} />
 			<Notice>{arrangements?.error}</Notice>
@@ -210,7 +231,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 					badges={badges}
 					workspace={<WorkspaceSwitcher name={workspace} onSettings={() => navigate(...lastWorkspaceSettings.current)} />}
 					workspaceName={workspace}
-					below={(tipFor, hideTip) => <RailPins open={here} tipFor={tipFor} hideTip={hideTip} />}
+					open={here}
 					you={prefs?.displayName || email}
 					youMenu={
 						<YouMenu
@@ -219,7 +240,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							email={email}
 							access={access}
 							onSettings={() => navigate("settings", "preferences")}
-							onSignOut={() => void signOut()}
+							onSignOut={() => { setFormDraftPerson(null); void signOut(); }}
 						/>
 					}
 				/>
@@ -227,14 +248,28 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 				<div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-xl border-t border-l border-neutral-200 bg-white">
 					{/* The sidebar lists the open tab's things, scrolling under its name. */}
 					{sidebar && (
-						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 [--scrim:var(--color-neutral-50)]">
+						<aside style={{ width: sidebarWidth.width }} className="drag relative flex shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 select-none [--scrim:var(--color-neutral-50)]">
 							<Scroll
 								className="no-drag"
 								header={
-									// pt-2.5: its name sits on the same line as the top bar's title.
+									// pt-2.5: its name sits on the same line as the top bar's title. It's a row's height (30px), as Settings'
+									// Back to app is, so what's under it starts at the same place on every tab.
 									<div className="drag px-3 pt-2.5 pb-4">
 										{tab ? (
-											<h1 className="truncate px-2 py-1 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+											<div className="flex items-center gap-1 pr-2">
+												<h1 className="min-w-0 flex-1 truncate px-2 py-1.25 text-sm font-semibold">{appTabs.find((t) => t.id === tab)!.label}</h1>
+												{/* The + here adds to the rows right under the name (channels) and adds sections; a section (Direct messages, All files, All databases, the ones people add) has its own on its header. */}
+												{tab === "chat" && (
+													<span className="no-drag flex">
+														<ChannelsAdd onOpen={open} onNewSection={addSection?.onClick} />
+													</span>
+												)}
+												{(tab === "databases" || tab === "drive") && (
+													<span className="no-drag flex">
+														<AddMenu label="New" actions={addSection ? [addSection] : []} />
+													</span>
+												)}
+											</div>
 										) : (
 											<div className="no-drag flex flex-col">
 												<Item icon={<ArrowLeftIcon />} onClick={() => navigate(...lastApp.current)}>
@@ -249,7 +284,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 										<GettingStarted agent={chats?.agents[0]?.name ?? "an agent"} />
 										{update?.state === "ready" && (
 											<div className="flex flex-col px-3 pt-4 pb-3">
-												<button type="button" onClick={() => void desktop?.updates.install()} className="rounded-lg bg-neutral-900 px-3 py-2 text-left text-xs text-white">
+												<button type="button" onClick={() => void desktop()?.updates.install()} className={updateButton}>
 													Update ready · Restart
 												</button>
 											</div>
@@ -259,23 +294,21 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							>
 								<SidebarList>
 									{!tab && <SettingsNav tab={settingsTab} />}
-									{tab === "chat" &&
-										chats &&
-										sections.sorted.map((id) => {
-											const section = { collapsed: folded.includes(id), onToggle: () => fold(id), drag: sections.drag(id) };
-											const props = { chats, openId, openThread: route[2] === "thread" ? route[3] : undefined, onOpen: open, onError: fail, canManageAgents: can(access, "agents.manage"), section };
-											return id === "channels" ? <ChannelsNav key={id} {...props} /> : <DmsNav key={id} {...props} />;
-										})}
-									{tab === "drive" && <PagesNav openId={route[1]} canEdit={can(access, "pages.edit")} />}
-									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} canCreate={can(access, "fields.edit")} onCreate={() => setNewDatabase(true)} />}
-									{tab === "customize" && <CustomizeNav open={settingsTab} />}
+									{tab === "chat" && chats && (
+										<>
+											<ChannelsNav chats={chats} openId={openId} openThread={route[2] === "thread" ? route[3] : undefined} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} />
+											<DmsNav chats={chats} openId={openId} onOpen={open} onError={fail} canManageAgents={can(access, "agents.manage")} section={{ collapsed: folded.includes("dms"), onToggle: () => fold("dms") }} />
+										</>
+									)}
+									{tab === "drive" && <DriveNav openId={view === "pages" ? route[1] : undefined} openFileId={view === "files" ? route[1] : undefined} openView={view === "drive" ? route[1] : undefined} canEdit={can(access, "pages.edit")} />}
+									{tab === "databases" && <DatabasesNav types={types ?? []} openKey={typeKey} openList={view === "databases" ? route[1] : undefined} canCreate={can(access, "fields.edit")} />}
 								</SidebarList>
 							</Scroll>
 							<ResizeHandle side="right" label="Resize sidebar" size={sidebarWidth} />
 						</aside>
 					)}
 
-					{newDatabase && <DatabaseDialog onClose={() => setNewDatabase(false)} />}
+					{newSection && sectionTab && <NewSection tab={sectionTab} onClose={() => setNewSection(false)} />}
 					<main className="flex min-w-0 flex-1 flex-col">
 						<Notice>{error}</Notice>
 						{view === "chat" &&
@@ -291,7 +324,11 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 								<TopBar title="" />
 							))}
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
-						{view === "pages" && <PagesView pageId={route[1]} />}
+						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
+						{view === "files" && <FileView fileId={route[1]} />}
+						{view === "drive" && <DriveView id={route[1]} />}
+						{view === "databases" && <DatabaseList id={route[1]} />}
+						{(view === "home" || view === "inbox" || view === "sites") && <ComingSoon tab={view} />}
 						{view === "settings" && <SettingsView access={access} tab={settingsTab} itemId={route[2]} />}
 					</main>
 				</div>
@@ -300,83 +337,106 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	);
 }
 
-// Chat's sections. Databases and Pages were sections too before they got rail tabs; their saved places are ignored.
-const sectionIds = ["channels", "dms"];
-const sectionKey = (id: string) => id;
 const typeKeyOf = (t: { _id: string }) => t._id;
+const listKey = (l: { id: string }) => l.id;
 
-/** Databases' sidebar: your databases, in your order. `canCreate` (fields.edit) also edits and deletes. */
+/**
+ * Databases' sidebar: Assigned to me and Due (`databaseLists`), then the databases in no section, in the workspace's order, then the sections people
+ * add (`SectionsNav`). New ones come from the + by the tab's name, or a section's own +.
+ */
 function DatabasesNav({
 	types,
 	openKey,
+	openList,
 	canCreate,
-	onCreate,
-	section,
 }: {
 	types: RecordType[];
 	openKey: string | undefined;
+	/** The open list (`databaseLists`), on its screen. */
+	openList: string | undefined;
+	/** `fields.edit`: a section's + makes a database in it. */
 	canCreate: boolean;
-	onCreate: () => void;
-	section?: SectionProps;
 }) {
-	const { sorted, drag } = useSortable("databases", types, typeKeyOf);
-	const shown = section?.collapsed ? sorted.filter((t) => t.key === openKey) : sorted;
+	const { place } = useSections("databases");
+	const { sorted, drag } = useUnsectioned("databases", types, typeKeyOf);
+	// Assigned to me and Due, in your order (`databaseRows`); they drag only among themselves.
+	const lists = useSortable("databaseRows", databaseLists, listKey);
+	const byId = useMemo(() => new Map<string, RecordType>(types.map((t) => [t._id, t])), [types]);
 	const [editing, setEditing] = useState<RecordType>();
+	// undefined: no dialog; null: in no section (All databases).
+	const [creatingIn, setCreatingIn] = useState<SectionId | null>();
+	const [folded, changeFolded] = useStoredIds("folded");
+	const collapsed = folded.includes("databases");
+	// Its header starts the unsectioned list, so a drop just under its title goes in while it's empty.
+	const allDatabases = useDragStatic(itemsGroup("databases"), { startOf: unsectionedList("databases") });
 	const remove = useMutation(api.trash.move);
 	const update = useMutation(api.recordTypes.update);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
+	const row = (type: RecordType, drag: DragProps | undefined) => (
+		<Item
+			key={type._id}
+			drag={drag}
+			pin={`db:${type.key}`}
+			icon={<DatabaseIcon />}
+			label={type.plural}
+			active={openKey === type.key}
+			onClick={() => navigate(...recordPath(type.key))}
+			rename={type.canManage ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
+			menu={
+				type.canManage
+					? (close) => (
+							<>
+								<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
+								<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("records")), "Its records will be archived with it.")))}>
+									<ArchiveIcon /> Archive database
+								</MenuItem>
+							</>
+						)
+					: undefined
+			}
+		>
+			<span className="truncate">{type.plural}</span>
+			<AccessLock lock={type.lock} />
+		</Item>
+	);
 	return (
-		<Group title="Databases" section={section} add={canCreate && <AddButton label="New database" onClick={onCreate} />}>
-			{shown.map((type) => (
-				<Item
-					key={type._id}
-					drag={drag(type._id)}
-					pin={`db:${type.key}`}
-					icon={<DatabaseIcon />}
-					label={type.plural}
-					active={openKey === type.key}
-					onClick={() => navigate(...recordPath(type.key))}
-					rename={type.canManage ? { value: type.plural, onSave: (plural) => run(update({ typeId: type._id, plural, version: type.version })) } : undefined}
-					menu={
-						type.canManage
-							? (close) => (
-									<>
-										<MenuItem onClick={() => (close(), setEditing(type))}><EditIcon /> Edit database</MenuItem>
-										<MenuItem onClick={() => (close(), confirm(archiveQuestion(type.plural, () => remove({ kind: "database", id: type._id }).then(() => openKey === type.key && navigate("records")), "Its records will be archived with it.")))}>
-											<ArchiveIcon /> Archive database
-										</MenuItem>
-									</>
-								)
-							: undefined
-					}
-				>
-					<span className="truncate">{type.plural}</span>
-					<AccessLock lock={type.lock} />
-				</Item>
-			))}
+		<>
+			<div className="flex flex-col gap-px">
+				{lists.sorted.map((l) => (
+					<Item key={l.id} drag={lists.drag(l.id)} icon={l.icon} label={l.label} active={openList === l.id} onClick={() => navigate("databases", l.id)}>
+						<span className="truncate">{l.label}</span>
+					</Item>
+				))}
+			</div>
+			<Group
+				title="All databases"
+				divider={allDatabases}
+				section={{ collapsed, onToggle: () => changeFolded({ op: collapsed ? "remove" : "add", id: "databases" }) }}
+				add={canCreate && <AddButton label="New database" onClick={() => setCreatingIn(null)} />}
+			>
+				{/* Folded, the open database stays. */}
+				{sorted.filter((type) => !collapsed || type.key === openKey).map((type) => row(type, drag(type._id)))}
+			</Group>
+			<SectionsNav tab="databases">
+				{(section, at) => (
+					<SectionGroup
+						{...at}
+						tab="databases"
+						section={section}
+						rows={section.ids.filter((id) => byId.has(id))}
+						// Folded, the open database stays.
+						keep={(id) => byId.get(id)!.key === openKey}
+						render={(id, drag) => row(byId.get(id)!, drag?.item)}
+						add={canCreate && <AddButton label={`New database in ${section.name}`} onClick={() => setCreatingIn(section._id)} />}
+					/>
+				)}
+			</SectionsNav>
 			<Notice>{error}</Notice>
 			{editing && <DatabaseDialog type={editing} onClose={() => setEditing(undefined)} />}
+			{creatingIn !== undefined && <DatabaseDialog onCreated={creatingIn ? (id) => place(id, creatingIn) : undefined} onClose={() => setCreatingIn(undefined)} />}
 			{dialog}
-			{!types.length && canCreate && !section?.collapsed && (
-				<Item icon={<PlusIcon />} muted create onClick={onCreate}>
-					New database
-				</Item>
-			)}
-		</Group>
-	);
-}
-
-/** Customize's sidebar: Agents, and what they work with (Connectors, Skills, Automations). */
-function CustomizeNav({ open }: { open: string }) {
-	return (
-		<div className="flex flex-col gap-px">
-			{customizeTabs.map((t) => (
-				<Item key={t.id} icon={<t.icon />} active={open === t.id} onClick={() => navigate("settings", t.id)}>
-					{t.label}
-				</Item>
-			))}
-		</div>
+		</>
 	);
 }
 

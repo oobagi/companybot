@@ -9,6 +9,7 @@ import { startCascade } from "./cascade";
 import { canSee, setChannelTrashed } from "./chatOps";
 import { mutation, query } from "./functions";
 import { type Member, type Who, canSeeSkill, capped, checkPermission, emptyPage, getMember, requireMember } from "./lib";
+import { deleteDriveFile, fileVisible, requireFile, setFileTrashed } from "./driveFiles";
 import { deletePage, pageVisible, requirePage, setPageTrashed } from "./pageOps";
 import { setFieldTrashed, setRecordTrashed, setTypeTrashed, typeVisible } from "./recordOps";
 import { trashKind } from "./schema";
@@ -27,6 +28,8 @@ const tables = {
 	database: "recordTypes",
 	field: "recordFields",
 	page: "pages",
+	folder: "pages",
+	file: "driveFiles",
 	channel: "chats",
 	agent: "agents",
 	skill: "skillInstalls",
@@ -45,7 +48,8 @@ async function setTrashed(ctx: MutationCtx, who: Who, kind: TrashKind, id: strin
 	if (kind === "record") return void (await setRecordTrashed(ctx, who, idOf(ctx, kind, id), trashed));
 	if (kind === "database") return setTypeTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "field") return setFieldTrashed(ctx, who, idOf(ctx, kind, id), trashed);
-	if (kind === "page") return setPageTrashed(ctx, who, await requirePage(ctx, who.member, idOf(ctx, kind, id)), trashed);
+	if (kind === "page" || kind === "folder") return setPageTrashed(ctx, who, await requirePage(ctx, who.member, idOf(ctx, kind, id)), trashed);
+	if (kind === "file") return setFileTrashed(ctx, who, await requireFile(ctx, who.member, idOf(ctx, kind, id)), trashed);
 	if (kind === "agent") return setAgentTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "skill") return setSkillTrashed(ctx, who, idOf(ctx, kind, id), trashed);
 	if (kind === "automation") return setAutomationTrashed(ctx, who, idOf(ctx, kind, id), trashed);
@@ -55,7 +59,7 @@ async function setTrashed(ctx: MutationCtx, who: Who, kind: TrashKind, id: strin
 
 /**
  * Deletes an entry's item for good. The entry goes at once, so it can't be restored; a cascade
- * (lifecycle.ts) then deletes what belonged to the item, and the item last. Pages, skills and
+ * (lifecycle.ts) then deletes what belonged to the item, and the item last. Pages, folders, files, skills and
  * automations go at once (an automation's opt-ins and grants in its own cascade).
  */
 async function deleteEntry(ctx: MutationCtx, entry: Doc<"trash">) {
@@ -65,7 +69,8 @@ async function deleteEntry(ctx: MutationCtx, entry: Doc<"trash">) {
 	if (entry.kind === "database") await startCascade(ctx, "database", { workspaceId, typeId: idOf(ctx, "database", entry.itemId) });
 	if (entry.kind === "field") await startCascade(ctx, "field", { workspaceId, typeId: entry.typeId, fieldId: idOf(ctx, "field", entry.itemId) });
 	if (entry.kind === "channel") await startCascade(ctx, "channel", { workspaceId, chatId: idOf(ctx, "channel", entry.itemId) });
-	if (entry.kind === "page") await deletePage(ctx, idOf(ctx, "page", entry.itemId));
+	if (entry.kind === "page" || entry.kind === "folder") await deletePage(ctx, idOf(ctx, entry.kind, entry.itemId));
+	if (entry.kind === "file") await deleteDriveFile(ctx, idOf(ctx, "file", entry.itemId));
 	if (entry.kind === "agent") await startCascade(ctx, "agent", { workspaceId, agentId: idOf(ctx, "agent", entry.itemId) });
 	if (entry.kind === "skill") {
 		const skill = await ctx.db.get(idOf(ctx, "skill", entry.itemId));
@@ -97,10 +102,15 @@ async function visibleEntry(ctx: QueryCtx, member: Member, entry: Doc<"trash">) 
 		const typeId = entry.typeId ?? ctx.db.normalizeId("recordTypes", entry.itemId);
 		return !!typeId && (await typeVisible(ctx, member)(typeId));
 	}
-	if (entry.kind === "page") {
+	if (entry.kind === "page" || entry.kind === "folder") {
 		const id = ctx.db.normalizeId("pages", entry.itemId);
 		const page = id && (await ctx.db.get(id));
 		return !!page && (await pageVisible(ctx, member)(page));
+	}
+	if (entry.kind === "file") {
+		const id = ctx.db.normalizeId("driveFiles", entry.itemId);
+		const file = id && (await ctx.db.get(id));
+		return !!file && (await fileVisible(ctx, member)(file));
 	}
 	if (entry.kind !== "channel") return true;
 	const id = ctx.db.normalizeId("chats", entry.itemId);

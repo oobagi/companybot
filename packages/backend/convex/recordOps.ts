@@ -4,9 +4,12 @@ import {
 	type Field,
 	type FieldConfig,
 	type FieldValue,
+	COLUMN_WIDTH,
 	NAME_KEY,
 	RECORD_MAX_BYTES,
 	type ValueMode,
+	autoColor,
+	convertValue,
 	fieldConfigError,
 	indexEntries,
 	keyOf,
@@ -18,6 +21,7 @@ import {
 	valuesBytes,
 } from "@companybot/core";
 import { type AccessLevel, reaches } from "@companybot/core";
+import { rankAt, rankBetween } from "@companybot/core/rank";
 import { ConvexError, getDocumentSize } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -25,6 +29,7 @@ import { type Member, type Who, checkPermission, checkVersion, memberOf, memo, n
 import { reach, requireAccess } from "./placeAccess";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { toggleTrash } from "./trashOps";
+import { asField, undoFieldChange } from "./fieldChanges";
 
 // Records, fields and their history. Shared by the app's functions (records.ts,
 // recordTypes.ts) and agent tools (recordTools.ts), so both follow the same rules. Agents pass
@@ -92,6 +97,27 @@ export async function requireLive(ctx: QueryCtx, record: Doc<"records">) {
 }
 
 /** A type's fields in display order, archived ones included. At most FIELDS_PER_TYPE_MAX. */
+/** A field a board can group cards by: a live choice field holding one option. */
+export const groupsCards = (f: Doc<"recordFields">) => !f.archived && f.kind === "choice" && !f.multiple;
+
+/** Why a database with no such field can't show as a board: it would show no cards to anyone. */
+export const NO_BOARD = "Add a choice field first: a board groups cards by one.";
+
+/** `widths` with one column set to `px`, or back to its default without one. */
+export function withWidth(widths: Record<string, number> | undefined, field: string, px: number | undefined) {
+	const next = { ...widths };
+	delete next[field];
+	if (px !== undefined) next[field] = px;
+	return next;
+}
+
+/** Keeps a table's column widths for the `keys` it still shows; none left reads as undefined, so every column takes its default. */
+export function checkWidths(widths: Record<string, number> | undefined, keys: string[]) {
+	const kept = Object.entries(widths ?? {}).filter(([key]) => keys.includes(key));
+	if (kept.some(([, px]) => !Number.isInteger(px) || px < COLUMN_WIDTH.min || px > COLUMN_WIDTH.max)) throw new ConvexError(`Make each column ${COLUMN_WIDTH.min} to ${COLUMN_WIDTH.max} pixels wide.`);
+	return kept.length ? Object.fromEntries(kept) : undefined;
+}
+
 export async function fieldsOf(ctx: QueryCtx, typeId: Id<"recordTypes">) {
 	const rows = await ctx.db
 		.query("recordFields")
@@ -104,6 +130,7 @@ export const toField = (f: Doc<"recordFields">): Field => ({
 	key: f.key,
 	label: f.label,
 	kind: f.kind,
+	...(f.icon && { icon: f.icon }),
 	...(f.options && { options: f.options }),
 	...(f.linkTypeId && { linkType: f.linkTypeId }),
 	...(f.multiple && { multiple: true }),
@@ -157,6 +184,7 @@ async function normalizeInput(
 	for (const [key, raw] of Object.entries(input)) {
 		const field = byKey.get(key);
 		if (!field || field.archived) throw new ConvexError(`There's no field “${key}”.`);
+		if (field.change) throw new ConvexError(`“${field.label}” is changing kind. Try again when it's done.`);
 		const result = normalizeValue(toField(field), raw, mode, currency);
 		if ("error" in result) throw new ConvexError(result.error);
 		const ids = result.value === null ? [] : [result.value].flat().map(String);
@@ -180,7 +208,7 @@ async function normalizeInput(
 }
 
 /** Rewrites the index rows (recordValues) of `keys`, or of every field. */
-async function writeIndex(ctx: MutationCtx, record: Doc<"records">, fields: Doc<"recordFields">[], keys?: Set<string>) {
+export async function writeIndex(ctx: MutationCtx, record: Doc<"records">, fields: Doc<"recordFields">[], keys?: Set<string>) {
 	for (const field of fields) {
 		if (keys && !keys.has(field.key)) continue;
 		const old = await ctx.db
@@ -210,8 +238,8 @@ function requireSize(values: Values) {
 
 const stamp = (who: Who) => ({ updatedAt: Date.now(), updatedBy: who.member.userId, updatedByAgent: who.agentId });
 
-/** Returns the new record and its "created" history entry. */
-export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>) {
+/** Returns the new record and its "created" history entry. `last`: at the end of the manual order (a board column's New row), not first. */
+export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recordTypes">, input: Record<string, unknown>, last = false) {
 	checkPermission(who.member, "records.edit");
 	const type = await requireType(ctx, who.member, typeId);
 	if (type.archived) throw new ConvexError(`${type.plural} is in Archive.`);
@@ -233,8 +261,11 @@ export async function createRecord(ctx: MutationCtx, who: Who, typeId: Id<"recor
 		searchText: searchTextOf(fields.map(toField), values),
 		archived: false,
 		createdBy: who.member.userId,
+		...(last && { rank: rankBetween(await lastRank(ctx, typeId), undefined) }),
 		...stamp(who),
 	});
+	// First, as the newest: its place comes from its creation time, known once it's in.
+	if (!last) await ctx.db.patch(id, { rank: rankAt((await ctx.db.get(id))!._creationTime, id) });
 	await writeIndex(ctx, (await ctx.db.get(id))!, fields);
 	const change = await logChange(ctx, who, {
 		typeId,
@@ -312,8 +343,10 @@ export async function setRecordTrashed(ctx: MutationCtx, who: Who, recordId: Id<
  * other write: no fields in Archive, retired options, or link targets in Archive.
  */
 export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"recordHistory">) {
-	checkPermission(who.member, "records.edit");
 	const entry = await ctx.db.get(historyId);
+	// A change to a field's kind takes the field's permission (fieldChanges.ts), not the records'.
+	if (entry?.workspaceId === who.member.workspaceId && entry.fieldId && !entry.recordId) return (await undoFieldChange(ctx, who, historyId)).historyId;
+	checkPermission(who.member, "records.edit");
 	if (!entry || entry.workspaceId !== who.member.workspaceId || !entry.recordId) throw new ConvexError("Change not found.");
 	if (entry.undoneBy) throw new ConvexError("That change was already undone.");
 	const record = await requireRecord(ctx, who.member, entry.recordId, "edit");
@@ -336,10 +369,6 @@ export async function undoChange(ctx: MutationCtx, who: Who, historyId: Id<"reco
 }
 
 /** Notes which records a chat message references, so each record can list where it was discussed. */
-export async function noteMentions(ctx: MutationCtx, message: { _id: Id<"chatMessages">; chatId: Id<"chats"> }, recordIds: Id<"records">[]) {
-	for (const recordId of recordIds) await ctx.db.insert("recordMentions", { recordId, messageId: message._id, chatId: message.chatId });
-}
-
 /** The records among `ids` the person can see, deduped. Others are dropped, not trusted. */
 export async function workspaceRecords(ctx: QueryCtx, member: Member, ids: Id<"records">[]) {
 	const visible = typeVisible(ctx, member);
@@ -354,9 +383,11 @@ export async function workspaceRecords(ctx: QueryCtx, member: Member, ids: Id<"r
 // ---- Fields and types ----
 
 export type FieldInput = Omit<FieldConfig, "options" | "linkType"> & {
-	options?: { id?: string; label: string }[];
+	options?: OptionInput[];
 	linkTypeId?: Id<"recordTypes">;
 };
+
+type OptionInput = { id?: string; label: string; color?: string };
 
 function requireUniqueLabel(fields: Doc<"recordFields">[], label: string, except?: Id<"recordFields">) {
 	if (fields.some((f) => f._id !== except && !f.archived && f.label.toLowerCase() === label.toLowerCase()))
@@ -375,7 +406,8 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 	const fields = await fieldsOf(ctx, typeId);
 	if (fields.length >= FIELDS_PER_TYPE_MAX) throw new ConvexError(`A database holds up to ${FIELDS_PER_TYPE_MAX} fields.`);
 	const { linkTypeId, ...rest } = input;
-	const config = normalizeFieldConfig({ ...rest, linkType: linkTypeId });
+	// New options without a color get the palette in turn.
+	const config = normalizeFieldConfig({ ...rest, linkType: linkTypeId, options: rest.options?.map((o, i) => ({ ...o, color: o.color ?? autoColor(i) })) });
 	requireFieldConfig(config);
 	requireUniqueLabel(fields, config.label);
 	// Linking to a database shows its records' names here, so it takes seeing it.
@@ -383,44 +415,83 @@ export async function createField(ctx: MutationCtx, who: Who, typeId: Id<"record
 	const key = keyOf(config.label, fields.map((f) => f.key));
 	await writeSources(ctx, who.member, typeId);
 	const id = await insertField(ctx, who.member, typeId, { ...config, key }, Math.max(0, ...fields.map((f) => f.position)) + 1, linkTypeId);
-	await logChange(ctx, who, { typeId, fieldId: id, action: "field.created", changes: [{ key: "label", new: config.label }] });
+	await logChange(ctx, who, { typeId, fieldId: id, action: "field.created", changes: [{ key: "label", new: config.label }, ...(config.icon ? [{ key: "icon", new: config.icon }] : [])] });
 	return (await ctx.db.get(id))!;
 }
 
-async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
+export async function requireEditableField(ctx: QueryCtx, member: Member, fieldId: Id<"recordFields">) {
 	const field = requireInWorkspace(member, await ctx.db.get(fieldId), "Field");
 	await requireType(ctx, member, field.typeId, "edit");
 	checkPermission(member, "fields.edit");
 	return field;
 }
 
+/** The last rank in a database's manual order, live records only. */
+async function lastRank(ctx: QueryCtx, typeId: Id<"recordTypes">) {
+	return (await ctx.db.query("records").withIndex("by_type_rank", (q) => q.eq("typeId", typeId).eq("archived", false)).order("desc").first())?.rank;
+}
+
 /**
- * Renames a field or changes its options. Its kind is fixed: values were checked against it.
- * Options left out are retired, not deleted: records keep them, but they can't be set again.
- * Sending one back (by id, or the same label) brings it back.
+ * Puts a record between two others of its database in the manual order (either missing: first or last),
+ * like dragging a card on a board, after setting `values` when it moves to another column. Order isn't
+ * history: no entry, no `updatedAt`.
+ */
+export async function moveRecord(
+	ctx: MutationCtx,
+	who: Who,
+	recordId: Id<"records">,
+	{ after, before, values }: { after?: Id<"records">; before?: Id<"records">; values?: Record<string, unknown> },
+) {
+	if (values) await updateRecord(ctx, who, recordId, values);
+	else checkPermission(who.member, "records.edit");
+	const record = await requireRecord(ctx, who.member, recordId, "edit");
+	await requireLive(ctx, record);
+	const neighbor = async (id: Id<"records"> | undefined) => {
+		if (!id) return undefined;
+		const other = await ctx.db.get(id);
+		if (!other || other.typeId !== record.typeId || other._id === record._id) throw new ConvexError("Move it next to another record of this database.");
+		return other.rank ?? rankAt(other._creationTime, other._id);
+	};
+	const [a, b] = [await neighbor(after), await neighbor(before)];
+	if (a !== undefined && b !== undefined && a >= b) throw new ConvexError("Those records aren't next to each other anymore. Try again.");
+	await ctx.db.patch(record._id, { rank: rankBetween(a, b) });
+}
+
+/**
+ * Renames a field, sets its icon (null: back to its kind's) or changes its options. Its kind is fixed:
+ * values were checked against it. Options left out are retired, not deleted: records keep them, but
+ * they can't be set again. Sending one back (by id, or the same label) brings it back.
  */
 export async function updateField(
 	ctx: MutationCtx,
 	who: Who,
 	fieldId: Id<"recordFields">,
-	update: { label?: string; options?: { id?: string; label: string }[]; position?: number },
+	update: { label?: string; icon?: string | null; options?: OptionInput[]; position?: number },
 ) {
 	const field = await requireEditableField(ctx, who.member, fieldId);
 	if (field.archived) throw new ConvexError("This field is in Archive. Restore it to make changes.");
-	if (update.label !== undefined || update.options !== undefined) await writeSources(ctx, who.member, field.typeId);
+	if (field.change) throw new ConvexError(`“${field.label}” is still changing. Try again when it's done.`);
+	if (update.label !== undefined || update.icon !== undefined || update.options !== undefined) await writeSources(ctx, who.member, field.typeId);
 	let options = field.options;
 	if (update.options) {
 		const existing = field.options ?? [];
 		const ids = existing.map((e) => e.id);
+		let added = existing.length;
 		const active = update.options.map((o) => {
 			const id = o.id || existing.find((e) => e.label.toLowerCase() === o.label.trim().toLowerCase())?.id || keyOf(o.label, ids);
 			ids.push(id);
-			return { id, label: o.label };
+			const before = existing.find((e) => e.id === id);
+			// A missing color keeps the option's own; only a new option gets the next in turn.
+			// COMPAT(0.1.0-alpha.10): those apps send every option without one, so this is what keeps their saves from
+			// wiping colors. Agents' plain-label options and the API rely on it too, so once they're gone only this note goes.
+			const color = o.color ?? (before ? before.color : autoColor(added++));
+			return { id, label: o.label, ...(color && { color }) };
 		});
 		const kept = new Set(active.map((o) => o.id));
 		options = [...active, ...existing.filter((e) => !kept.has(e.id)).map((e) => ({ ...e, retired: true }))];
 	}
-	const config = normalizeFieldConfig({ ...toField(field), label: update.label ?? field.label, options });
+	const icon = update.icon === undefined ? field.icon : (update.icon ?? undefined);
+	const config = normalizeFieldConfig({ ...toField(field), label: update.label ?? field.label, icon, options });
 	requireFieldConfig(config);
 	requireUniqueLabel(await fieldsOf(ctx, field.typeId), config.label, fieldId);
 	const changes: Change[] = [];
@@ -438,12 +509,22 @@ export async function updateField(
 		}
 	}
 	if (config.label !== field.label) changes.push({ key: "label", old: field.label, new: config.label });
+	if (config.icon !== field.icon) changes.push({ key: "icon", ...(field.icon && { old: field.icon }), ...(config.icon && { new: config.icon }) });
 	const labels = (options?: { label: string; retired?: boolean }[]) => options?.filter((o) => !o.retired).map((o) => o.label) ?? [];
 	if (!sameValue(labels(field.options), labels(config.options)))
 		changes.push({ key: "options", old: labels(field.options), new: labels(config.options) });
+	// Recolored options, as "Won: green", the way a rename is "options".
+	const recolored = (config.options ?? []).filter((o) => {
+		const before = field.options?.find((e) => e.id === o.id);
+		return !o.retired && before && (before.color ?? "default") !== (o.color ?? "default");
+	});
+	if (recolored.length) {
+		const colorOf = (o: { label: string; color?: string }) => `${o.label}: ${o.color ?? "default"}`;
+		changes.push({ key: "colors", old: recolored.map((o) => colorOf(field.options!.find((e) => e.id === o.id)!)), new: recolored.map(colorOf) });
+	}
 	if (changes.length === 0) return;
 	if (reordered) for (const [position, f] of reordered.entries()) await ctx.db.patch(f._id, { position });
-	await ctx.db.patch(fieldId, { label: config.label, ...(config.options && { options: config.options }), updatedAt: Date.now() });
+	await ctx.db.patch(fieldId, { label: config.label, icon: config.icon, ...(config.options && { options: config.options }), updatedAt: Date.now() });
 	await logChange(ctx, who, { typeId: field.typeId, fieldId, action: "field.updated", changes });
 }
 
@@ -454,6 +535,7 @@ export async function setFieldTrashed(ctx: MutationCtx, who: Who, fieldId: Id<"r
 		: requireInWorkspace(who.member, await ctx.db.get(fieldId), "Field");
 	if (field.key === NAME_KEY) throw new ConvexError("Every record needs a name, so this field stays.");
 	if (field.archived === archived) return;
+	if (field.change) throw new ConvexError(`“${field.label}” is still changing. Try again when it's done.`);
 	if (!archived) {
 		await requireType(ctx, who.member, field.typeId, "edit");
 		requireUniqueLabel(await fieldsOf(ctx, field.typeId), field.label, fieldId);
@@ -469,8 +551,13 @@ const TYPES_MAX = 32;
 function databaseNames(plural: string, singular: string | undefined, types: Doc<"recordTypes">[], except?: Id<"recordTypes">) {
 	const names = { name: (singular ?? singularOf(plural.trim())).trim(), plural: plural.trim() };
 	if (!names.name || !names.plural || names.name.length > 120 || names.plural.length > 120) throw new ConvexError("Give the database a name, up to 120 characters.");
-	if (types.some((t) => t._id !== except && !t.archived && [t.name, t.plural].some((n) => [names.name, names.plural].some((m) => n.toLowerCase() === m.toLowerCase()))))
-		throw new ConvexError(`There's already a database called “${names.plural}”.`);
+	// Say which name clashes, and with which database: a shared singular ("Poker hand") isn't the plural asked for.
+	for (const t of types) {
+		if (t._id === except || t.archived) continue;
+		const same = (n: string) => [names.name, names.plural].some((m) => n.toLowerCase() === m.toLowerCase());
+		if (same(t.plural)) throw new ConvexError(`There's already a database called “${t.plural}”.`);
+		if (same(t.name)) throw new ConvexError(`“${t.plural}” already uses “${t.name}” as its name for one entry. Give this database a different one.`);
+	}
 	return names;
 }
 
@@ -483,6 +570,8 @@ export async function createType(ctx: MutationCtx, who: Who, input: { plural: st
 	const names = databaseNames(input.plural, input.name, types);
 	const typeId = await insertType(ctx, who.member, { key: keyOf(names.name, [...types.map((t) => t.key), "campaign"]), ...names });
 	await insertField(ctx, who.member, typeId, { key: NAME_KEY, label: "Name", kind: "text" }, 0);
+	// Every database has at least one view; the first in order is the one it opens on.
+	await ctx.db.insert("databaseViews", { workspaceId: who.member.workspaceId, typeId, name: "All", filters: [], columns: [NAME_KEY], version: 1 });
 	await logChange(ctx, who, { typeId, action: "database.created", changes: Object.entries(names).map(([key, value]) => ({ key, new: value })) });
 	return typeId;
 }
@@ -596,8 +685,36 @@ export async function resolveRefs(ctx: QueryCtx, member: Member, ids: Iterable<s
 	return { refs, unresolved };
 }
 
+/**
+ * A record's values as its fields read now. While a field's kind is changing (fieldChanges.ts), records the
+ * change hasn't reached yet are converted here by the same rules, without lookups: a value that needs one
+ * (a teammate or record by name, a name for text) reads as empty until the change gets to it. So every app,
+ * older ones too, gets values that fit the field's kind.
+ * COMPAT(0.1.0-alpha.10): released apps render each cell by the field's kind (an amount cell given text throws),
+ * so they must never see a value in the old shape.
+ */
+export async function shownValues(ctx: QueryCtx, record: Doc<"records">, fields: Doc<"recordFields">[], jobs: (id: Id<"fieldChanges">) => Promise<Doc<"fieldChanges"> | null>) {
+	let values = record.values;
+	for (const field of fields) {
+		if (!field.change || values[field.key] === undefined) continue;
+		const job = await jobs(field.change);
+		if (!job || record._creationTime <= job.doneThrough) continue;
+		const options = field.options?.filter((o) => !o.retired) ?? [];
+		const result = convertValue(asField(field, job.from), toField(field), values[field.key]!, {
+			currency: await currencyOf(ctx, record.workspaceId),
+			option: (label) => options.find((o) => o.label.toLowerCase() === label.toLowerCase())?.id ?? null,
+		});
+		values = { ...values };
+		if ("unknown" in result || result.value === null) delete values[field.key];
+		else values[field.key] = result.value;
+	}
+	return values;
+}
+
 /** Records, display-ready, with the names their values point at resolved once for all of them. */
-export async function toRows(ctx: QueryCtx, member: Member, items: { record: Doc<"records">; fields: Doc<"recordFields">[] }[]) {
+export async function toRows(ctx: QueryCtx, member: Member, rawItems: { record: Doc<"records">; fields: Doc<"recordFields">[] }[]) {
+	const jobs = memo((id: Id<"fieldChanges">) => ctx.db.get(id));
+	const items = await Promise.all(rawItems.map(async ({ record, fields }) => ({ record: { ...record, values: await shownValues(ctx, record, fields, jobs) }, fields })));
 	const idsOf = items.map(({ record, fields }) => idsIn(fields, record.values));
 	const { refs, unresolved } = await resolveRefs(ctx, member, idsOf.flat());
 	const missing = new Set(unresolved);

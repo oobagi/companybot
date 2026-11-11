@@ -9,7 +9,7 @@ import '@blocknote/core/style.css';
 import '@blocknote/react/style.css';
 import '@mantine/core/styles.css';
 import '@blocknote/mantine/blocknoteStyles.css';
-import { linkedPageId, pageHref, validPageHref } from '@companybot/core/page-links';
+import { linkedPageId, linkedRecordId, pageHref, validPageHref } from '@companybot/core/page-links';
 import { sendableSteps } from 'prosemirror-collab';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createImageInsertion } from './imageInsertion';
@@ -178,7 +178,7 @@ export default function DocumentDOM(wire: Props) {
         if (!anchor) return;
         event.preventDefault(); event.stopPropagation();
         const href = anchor.getAttribute('href') ?? '';
-        if (linkedPageId(href) || /^(https?:|mailto:|tel:)/i.test(href)) void notifications.send(() => latest.current.onOpenLink(href));
+        if (linkedPageId(href) || linkedRecordId(href) || /^(https?:|mailto:|tel:)/i.test(href)) void notifications.send(() => latest.current.onOpenLink(href));
       }}>
       {problem && <p role="alert">Your changes have not synced: {problem}</p>}
       {actionProblem && <p role="alert">{actionProblem}</p>}

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CardProps, StatsProps, TableProps } from "@companybot/core/widgets";
 import { ArrowDownIcon, ArrowRightIcon, ArrowUpIcon } from "./icons";
-import { descriptionClass } from "./ui";
+import { descriptionClass, listRowButton } from "./ui";
 
 // Components for widgets agents place in replies. Types and props are defined in
 // core/src/widgets.ts; add a component here for each one. Unknown types (from a
@@ -69,11 +69,7 @@ function TableWidget({ props }: { props: TableProps }) {
 				{props.rows.length === 0 && <p className="px-4 py-3 text-sm text-neutral-400">No rows.</p>}
 			</div>
 			{props.rows.length > COLLAPSED_ROWS && (
-				<button
-					type="button"
-					onClick={() => setExpanded(!expanded)}
-					className="w-full border-t border-neutral-100 px-4 py-2 text-left text-sm text-neutral-500 hover:bg-neutral-50 hover:text-neutral-800"
-				>
+				<button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className={`${listRowButton} border-t border-neutral-100 text-neutral-500 hover:text-neutral-800`}>
 					{expanded ? "Show less" : `Show all ${props.rows.length} rows`}
 				</button>
 			)}

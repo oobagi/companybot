@@ -3,6 +3,7 @@ dist/
 out/
 build/
 apps/desktop/release/
+apps/desktop/dist-web/
 coverage/
 backups/
 *.tsbuildinfo

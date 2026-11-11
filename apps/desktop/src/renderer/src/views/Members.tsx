@@ -1,14 +1,15 @@
 import { Checkbox } from "../controls";
-import { type Access, type Permission, can, permissions, switches } from "@companybot/core/permissions";
+import { type Access, type Permission, can, canGrantRole, permissions, switches } from "@companybot/core/permissions";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../api";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { useMutation, useQuery } from "../convex";
-import { CaretUpDownIcon } from "../icons";
-import { Form, Loading, Notice, RenameInput, Setting, Settings, Tabs, insetClass, cardClass, compactControlClass, compactPrimaryButton, descriptionClass, metadataClass, toolbarClass, useRun } from "../ui";
+import { CaretRightIcon, CaretUpDownIcon, CloseIcon, PaperPlaneTiltIcon, RolesIcon, TrashIcon, UserMinusIcon } from "../icons";
+import { navigate } from "../router";
+import { ConflictNotice, Form, Loading, NewButton, Notice, NotFound, Page, PageActions, SaveBar, Setting, Settings, barDangerButton, versionOf, cardClass, compactControlClass, descriptionClass, metadataClass, primaryButton, secondaryButton, useDraft, useRun, wideControlClass, cardButton, fullControlClass, hintClass } from "../ui";
 
-import { Popover, useConfirm } from "./chat/common";
+import { DialogButtons, MenuItem, Modal, MoreMenu, Popover, useConfirm } from "./chat/common";
 
 type Role = NonNullable<FunctionReturnType<typeof api.roles.list>>[number];
 
@@ -19,99 +20,137 @@ const switchLabel = (p: Permission) => permissions[p].label.charAt(0).toUpperCas
 export const roleNames = (roles: readonly Role[] | null | undefined, ids: readonly string[]) =>
 	(roles ?? []).filter((r) => ids.includes(r.id)).map((r) => r.name);
 
+/** The people in the workspace and pending invitations. Invite from the top bar; each row's ⋯ removes, resends or cancels. */
 export function MembersTab({ access }: { access: Access }) {
 	const team = useQuery(api.workspace.team);
 	const roles = useQuery(api.roles.list);
-	const invite = useMutation(api.workspace.invite);
 	const cancelInvite = useMutation(api.workspace.cancelInvite);
 	const resendInvite = useMutation(api.workspace.resendInvite);
 	const removeMember = useMutation(api.workspace.removeMember);
 	const setRoles = useMutation(api.workspace.setRoles);
 	const { confirm, dialog } = useConfirm();
-	const [email, setEmail] = useState("");
-	const [inviteRoles, setInviteRoles] = useState<Id<"roles">[]>();
+	const [inviting, setInviting] = useState(false);
 	const [resent, setResent] = useState<string>();
 	const [note, setNote] = useState<string>();
 	const { error, run } = useRun();
 	const canManage = can(access, "members.manage");
 
 	if (!team || !roles) return <Loading />;
-	const memberRole = roles.find((r) => r.builtIn === "member")!.id;
 	const ownerRole = roles.find((r) => r.builtIn === "owner")!.id;
-	const picked = inviteRoles ?? [memberRole];
+	const takable = (ids: readonly string[]) => roles.filter((r) => ids.includes(r.id)).every((r) => canGrantRole(access, r));
 
 	return (
 		<>
 			{dialog}
+			{canManage && (
+				<PageActions>
+					<NewButton label="Invite people" onClick={() => (setNote(undefined), setInviting(true))} />
+				</PageActions>
+			)}
+			{inviting && <InviteDialog roles={roles} who={access} onNote={setNote} onClose={() => setInviting(false)} />}
 			<Notice>{error}</Notice>
 			{note && <p className={descriptionClass}>{note}</p>}
 
-			{canManage && (
-				<Form
-					className={toolbarClass}
-					onSubmit={() => {
-						run(
-							invite({ email, roles: picked }).then(({ emailed }) => setNote(emailed ? undefined : `${email} got an invite email a few minutes ago, so we didn't send another.`)),
-							() => (setEmail(""), setInviteRoles(undefined)),
-						);
-					}}
-				>
-					<input
-						type="email"
-						value={email}
-						onChange={(e) => setEmail(e.target.value)}
-						placeholder="teammate@company.com"
-						className={`${compactControlClass} min-w-48 flex-1`}
-					/>
-					<RolePicker roles={roles} value={picked} canGiveOwner={access.owner} onChange={setInviteRoles} />
-					<button type="submit" className={compactPrimaryButton}>
-						Invite
-					</button>
-				</Form>
-			)}
-
 			<section className="flex flex-col gap-2">
 				{team.members.map((m) => {
-					// Only owners give or take Owner, so only they change an owner's roles.
-					const editable = canManage && (access.owner || !m.roles.includes(ownerRole));
+					// Only owners give or take Owner, so only they change an owner's roles, or their own.
+					const editable = canManage && (access.owner || (!m.roles.includes(ownerRole) && !m.isYou));
+					// Removing someone takes all their roles: only someone who could take each (the server checks too).
+					const removable = editable && takable(m.roles) && !m.isYou;
 					return (
 						<Row key={m.id} label={m.name} detail={m.name === m.email ? undefined : m.email} you={m.isYou}>
 							{editable ? (
-								<RolePicker roles={roles} value={m.roles} canGiveOwner={access.owner} onChange={(ids) => run(setRoles({ id: m.id, roles: ids }))} />
+								<RolePicker roles={roles} value={m.roles} who={access} onChange={(ids) => run(setRoles({ id: m.id, roles: ids }))} />
 							) : (
-								<span className="text-neutral-400">{roleNames(roles, m.roles).join(", ") || "No role"}</span>
+								<span className="text-neutral-500">{roleNames(roles, m.roles).join(", ") || "No role"}</span>
 							)}
-							{editable && !m.isYou && (
-								<button type="button" onClick={() => confirm({ title: `Remove ${m.name}?`, action: "Remove member", body: "They will lose access to this workspace, and their personal workspace data will be deleted.", onConfirm: () => removeMember({ id: m.id }) })} className="hover:text-red-600">
-									Remove
-								</button>
-							)}
+							<RowMenu label={`More for ${m.name}`} hidden={!removable}>
+								{(close) => (
+									<MenuItem
+										danger
+										onClick={() => (close(), confirm({ title: `Remove ${m.name}?`, action: "Remove member", body: "They will lose access to this workspace, and their personal workspace data will be deleted.", onConfirm: () => removeMember({ id: m.id }) }))}
+									>
+										<UserMinusIcon /> Remove from workspace
+									</MenuItem>
+								)}
+							</RowMenu>
 						</Row>
 					);
 				})}
 				{team.invites.map((i) => (
-					<Row key={i.id} label={i.email} detail={`Invited as ${roleNames(roles, i.roles).join(", ") || "No role"} · hasn't joined yet`}>
-						{resent === i.id ? (
-							<span className="text-neutral-400">Sent</span>
-						) : (
-							<button type="button" onClick={() => run(resendInvite({ id: i.id }), () => setResent(i.id))} className="hover:text-neutral-900">
-								Resend
-							</button>
-						)}
-						<button type="button" onClick={() => confirm({ title: `Cancel the invitation to ${i.email}?`, action: "Cancel invitation", body: "They will no longer be able to join using this invitation.", onConfirm: () => cancelInvite({ id: i.id }) })} className="hover:text-red-600">
-							Cancel
-						</button>
+					<Row key={i.id} label={i.email} detail={resent === i.id ? "Invitation sent again" : "Hasn't joined yet"}>
+						<span className="text-neutral-500">{roleNames(roles, i.roles).join(", ") || "No role"}</span>
+						<RowMenu label={`More for ${i.email}`} hidden={!canManage}>
+							{(close) => (
+								<>
+									<MenuItem onClick={() => (close(), run(resendInvite({ id: i.id }), () => setResent(i.id)))}>
+										<PaperPlaneTiltIcon /> Resend invitation
+									</MenuItem>
+									{takable(i.roles) && (
+										<MenuItem
+											danger
+											onClick={() => (close(), confirm({ title: `Cancel the invitation to ${i.email}?`, action: "Cancel invitation", body: "They will no longer be able to join using this invitation.", onConfirm: () => cancelInvite({ id: i.id }) }))}
+										>
+											<CloseIcon /> Cancel invitation
+										</MenuItem>
+									)}
+								</>
+							)}
+						</RowMenu>
 					</Row>
 				))}
 			</section>
-
-			<RolesSection roles={roles} canEdit={can(access, "roles.manage")} />
 		</>
 	);
 }
 
-/** Pick one or more roles. At least one stays picked; Owner only for owners to give. */
-function RolePicker({ roles, value, canGiveOwner, onChange }: { roles: readonly Role[]; value: readonly string[]; canGiveOwner: boolean; onChange: (ids: Id<"roles">[]) => void }) {
+/** Invite someone by email, with the roles they'll join with (Member unless you pick others). */
+function InviteDialog({ roles, who, onNote, onClose }: { roles: readonly Role[]; who: Access; onNote: (note: string | undefined) => void; onClose: () => void }) {
+	const invite = useMutation(api.workspace.invite);
+	const memberRole = roles.find((r) => r.builtIn === "member")!.id;
+	const [email, setEmail] = useState("");
+	const [picked, setPicked] = useState<Id<"roles">[]>([memberRole]);
+	const { error, busy, run } = useRun();
+	return (
+		<Modal title="Invite people" onClose={onClose}>
+			<p className={descriptionClass}>We email them a link to get the app. They join when they sign in with that email.</p>
+			<Form
+				onSubmit={() =>
+					run(
+						invite({ email, roles: picked }).then(({ emailed }) => onNote(emailed ? undefined : `${email} got an invite email a few minutes ago, so we didn't send another.`)),
+						onClose,
+					)
+				}
+			>
+				<Settings>
+					<Setting label="Email">
+						<input autoFocus aria-label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@company.com" className={wideControlClass} />
+					</Setting>
+					<Setting label="Roles" hint="Member unless you pick others.">
+						<RolePicker roles={roles} value={picked} who={who} onChange={setPicked} wide />
+					</Setting>
+				</Settings>
+				<Notice>{error}</Notice>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="submit" disabled={busy || !email.trim()} className={primaryButton}>
+						Invite
+					</button>
+				</DialogButtons>
+			</Form>
+		</Modal>
+	);
+}
+
+/** A row's ⋯ menu; none when there's nothing in it for you. */
+function RowMenu({ label, hidden, children }: { label: string; hidden?: boolean; children: (close: () => void) => React.ReactNode }) {
+	return hidden ? null : <MoreMenu label={label}>{children}</MoreMenu>;
+}
+
+/** Pick one or more roles. At least one stays picked; only roles `who` may give or take (Owner only for owners). */
+function RolePicker({ roles, value, who, onChange, wide }: { roles: readonly Role[]; value: readonly string[]; who: Access; onChange: (ids: Id<"roles">[]) => void; wide?: boolean }) {
 	const names = roleNames(roles, value);
 	return (
 		<Popover
@@ -123,16 +162,17 @@ function RolePicker({ roles, value, canGiveOwner, onChange }: { roles: readonly 
 					<CaretUpDownIcon className="shrink-0 text-neutral-400" />
 				</>
 			}
-			className={`inline-flex max-w-56 items-center gap-1.5 text-left ${compactControlClass}`}
+			className={wide ? `flex items-center gap-1.5 text-left ${wideControlClass}` : `inline-flex max-w-56 items-center gap-1.5 text-left ${compactControlClass}`}
 			panelClassName="flex w-56 flex-col gap-px p-1"
 		>
 			{roles.map((r) => {
 				const on = value.includes(r.id);
+				const grantable = canGrantRole(who, r);
 				return (
-					<label key={r.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100 has-disabled:cursor-default has-disabled:text-neutral-400 has-disabled:hover:bg-transparent">
+					<label key={r.id} title={grantable ? undefined : "Only Owners and people who have this role can give or take it."} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100 has-disabled:cursor-default has-disabled:text-neutral-400 has-disabled:hover:bg-transparent">
 						<Checkbox
 							checked={on}
-							disabled={(r.builtIn === "owner" && !canGiveOwner) || (on && value.length === 1)}
+							disabled={!grantable || (on && value.length === 1)}
 							onChange={(checked) => onChange(checked ? [...(value as Id<"roles">[]), r.id] : (value as Id<"roles">[]).filter((id) => id !== r.id))}
 						/>
 						<span className="min-w-0 flex-1 truncate">{r.name}</span>
@@ -143,83 +183,141 @@ function RolePicker({ roles, value, canGiveOwner, onChange }: { roles: readonly 
 	);
 }
 
-/**
- * The workspace's roles, one at a time: its switches, and (for owners) rename and delete. Owner
- * shows every switch on and can't change; Member is what new people get.
- */
-function RolesSection({ roles, canEdit }: { roles: readonly Role[]; canEdit: boolean }) {
+/** "6 of 14 switches", or what's special about a built-in role. */
+const roleSummary = (r: Role) =>
+	r.builtIn === "owner" ? "Can do everything" : `${r.permissions.filter((p) => switches.includes(p)).length} of ${switches.length} switches on${r.builtIn === "member" ? " · New people get it" : ""}`;
+const peopleLabel = (n: number) => (n === 1 ? "1 person" : `${n} people`);
+
+/** Settings → Roles: every role, with who has it; open one to change its switches. New role in the top bar. */
+export function RolesTab({ access }: { access: Access }) {
+	const roles = useQuery(api.roles.list);
+	const [creating, setCreating] = useState(false);
+	if (!roles) return <Loading />;
+	return (
+		<>
+			{can(access, "roles.manage") && (
+				<PageActions>
+					<NewButton label="New role" onClick={() => setCreating(true)} />
+				</PageActions>
+			)}
+			{creating && <NewRoleDialog onClose={() => setCreating(false)} />}
+			<section className="flex flex-col gap-2">
+				{roles.map((r) => (
+					<button key={r.id} type="button" onClick={() => navigate("settings", "roles", r.id)} className={`items-center gap-3 ${cardButton}`}>
+						<span className="flex min-w-0 flex-1 flex-col">
+							<span className="truncate font-medium">{r.name}</span>
+							<span className="truncate text-xs text-neutral-500">{roleSummary(r)}</span>
+						</span>
+						<span className={descriptionClass}>{peopleLabel(r.people)}</span>
+						<CaretRightIcon className="text-neutral-400" />
+					</button>
+				))}
+			</section>
+		</>
+	);
+}
+
+function NewRoleDialog({ onClose }: { onClose: () => void }) {
 	const create = useMutation(api.roles.create);
+	const [name, setName] = useState("");
+	const { error, busy, run } = useRun();
+	return (
+		<Modal title="New role" size="md" onClose={onClose}>
+			<Form onSubmit={() => run(create({ name }).then((id) => navigate("settings", "roles", id)), onClose)}>
+				<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Office, Crew…" className={fullControlClass} />
+				<p className={hintClass}>It starts with every switch off. You turn on what it can do next.</p>
+				<Notice>{error}</Notice>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="submit" disabled={busy || !name.trim()} className={primaryButton}>
+						Create role
+					</button>
+				</DialogButtons>
+			</Form>
+		</Modal>
+	);
+}
+
+/** One role: its name and switches, saved together from the top bar like an agent. Owner can't change. */
+export function RoleScreen({ access, roleId }: { access: Access; roleId: string }) {
+	const roles = useQuery(api.roles.list);
+	const crumbs = [{ label: "Roles", to: ["settings", "roles"] }];
+	if (!roles) return <NotFound crumbs={crumbs} loaded={false} icon={<RolesIcon />} title="Role not found" />;
+	const role = roles.find((r) => r.id === roleId);
+	if (!role) return <NotFound crumbs={crumbs} loaded icon={<RolesIcon />} title="Role not found" children="It may have been deleted." />;
+	return <RoleForm key={role.id} role={role} crumbs={crumbs} canEdit={can(access, "roles.manage") && role.builtIn !== "owner"} />;
+}
+
+type RoleConfig = { name: string; on: Permission[] };
+/** The draft keeps `start`, the role as it was when you began editing, so Save sends only what you changed. */
+type RoleDraft = RoleConfig & { start: RoleConfig };
+/** Roles have no version number; the draft notices someone else's save by what changed. */
+
+function RoleForm({ role, crumbs, canEdit }: { role: Role; crumbs: { label: string; to: string[] }[]; canEdit: boolean }) {
 	const rename = useMutation(api.roles.rename);
 	const remove = useMutation(api.roles.remove);
 	const setPermission = useMutation(api.roles.setPermission);
 	const { confirm, dialog } = useConfirm();
 	const { error, run } = useRun();
-	const [openId, setOpenId] = useState<string>();
-	const [name, setName] = useState("");
-	const [renaming, setRenaming] = useState(false);
-	const open = roles.find((r) => r.id === openId) ?? roles.find((r) => r.builtIn === "member")!;
-	const fixed = open.builtIn === "owner";
-
+	const fixed = role.builtIn === "owner";
+	const saved: RoleConfig = { name: role.name, on: switches.filter((p) => role.permissions.includes(p)) };
+	const draft = useDraft<RoleDraft>(`role:${role.id}`, { ...saved, start: saved }, versionOf(saved));
+	const value = draft.value;
+	const toggle = (p: Permission, on: boolean) => draft.set({ ...value, on: on ? [...value.on, p] : value.on.filter((x) => x !== p) });
+	// Only what you changed since you began is sent, one switch at a time, so someone else's other
+	// changes stay. If they saved meanwhile, Save waits until you pick theirs or yours (ConflictNotice).
+	const save = async () => {
+		const { start } = value;
+		if (value.name.trim() !== start.name) await rename({ id: role.id, name: value.name });
+		for (const p of switches) {
+			const on = value.on.includes(p);
+			if (on !== start.on.includes(p)) await setPermission({ id: role.id as Id<"roles">, permission: p, on });
+		}
+	};
 	return (
-		<section className="flex flex-col gap-3">
-			{dialog}
-			<div>
-				<h2 className="font-medium">Roles</h2>
-				<p className={descriptionClass}>People get every switch any of their roles has. Owners can do everything. New people get Member.</p>
-			</div>
-			<Notice>{error}</Notice>
-			<Tabs tabs={roles.map((r) => ({ id: r.id, label: r.name }))} value={open.id} onChange={(id) => (setOpenId(id), setRenaming(false))} />
-			{/* The open role's header, lined up with the card's text: its name, Rename and Delete, then who has it. */}
-			<div className={`flex min-h-8 items-center gap-3 text-sm ${insetClass}`}>
-				{renaming && canEdit && !fixed ? (
-					<RenameInput value={open.name} onSave={(next) => rename({ id: open.id, name: next })} onDone={() => setRenaming(false)} className={`${compactControlClass} w-48`} />
-				) : (
-					<h3 className="truncate font-medium">{open.name}</h3>
-				)}
-				{canEdit && !fixed && !renaming && (
-					<button type="button" onClick={() => setRenaming(true)} className="text-neutral-500 hover:text-neutral-900">
-						Rename
-					</button>
-				)}
-				{canEdit && !fixed && !open.builtIn && (
+		<Page
+			title={role.name}
+			crumbs={crumbs}
+			description={fixed ? "Can do everything" : `${peopleLabel(role.people)}${role.builtIn === "member" ? " · new people get it" : ""}`}
+			actions={
+				canEdit &&
+				!role.builtIn && (
 					<button
 						type="button"
 						onClick={() =>
 							confirm({
-								title: `Delete ${open.name}?`,
+								title: `Delete ${role.name}?`,
 								action: "Delete role",
-								body: `${open.people === 1 ? "1 person loses it" : `${open.people} people lose it`}. Anyone left without a role keeps only shared reads, chat and personal items.`,
-								onConfirm: () => remove({ id: open.id }).then(() => setOpenId(undefined)),
+								body: `${role.people === 1 ? "1 person loses it" : `${role.people} people lose it`}. Anyone left without a role keeps only shared reads, chat and personal items.${role.invited ? ` ${role.invited === 1 ? "1 pending invite gives it" : `${role.invited} pending invites give it`}: anyone it was their only role joins as Member.` : ""}`,
+								onConfirm: () => remove({ id: role.id }).then(() => (draft.discard(), navigate("settings", "roles"))),
 							})
 						}
-						className="text-neutral-500 hover:text-red-600"
+						className={barDangerButton}
 					>
-						Delete
+						<TrashIcon /> Delete
 					</button>
-				)}
-				<span className="ml-auto shrink-0 text-neutral-500">{fixed ? "Can do everything; can't be changed." : open.people === 1 ? "1 person" : `${open.people} people`}</span>
-			</div>
+				)
+			}
+		>
+			{dialog}
+			{canEdit && <SaveBar dirty={draft.dirty} canSave={!draft.stale} onSave={() => run(save(), draft.discard)} onDiscard={draft.discard} />}
+			<ConflictNotice draft={draft} />
+			<Notice>{error}</Notice>
 			<Settings>
+				<Setting label="Name">
+					<input aria-label="Name" value={value.name} disabled={!canEdit} onChange={(e) => draft.set({ ...value, name: e.target.value })} className={wideControlClass} />
+				</Setting>
+			</Settings>
+			<Settings title="What it can do" note={fixed ? undefined : "People get every switch any of their roles has."}>
 				{switches.map((p) => (
 					<Setting key={p} label={switchLabel(p)}>
-						<Checkbox
-							label={switchLabel(p)}
-							checked={open.permissions.includes(p)}
-							disabled={!canEdit || fixed}
-							onChange={(on) => run(setPermission({ id: open.id as Id<"roles">, permission: p, on }))}
-						/>
+						<Checkbox label={switchLabel(p)} checked={fixed || value.on.includes(p)} disabled={!canEdit} onChange={(on) => toggle(p, on)} />
 					</Setting>
 				))}
 			</Settings>
-			{canEdit && (
-				<Form className={toolbarClass} onSubmit={() => run(create({ name }).then(setOpenId), () => setName(""))}>
-					<input value={name} onChange={(e) => setName(e.target.value)} placeholder="New role, like Office or Crew" className={`${compactControlClass} min-w-48 flex-1`} />
-					<button type="submit" className={compactPrimaryButton} disabled={!name.trim()}>
-						Add role
-					</button>
-				</Form>
-			)}
-		</section>
+		</Page>
 	);
 }
 

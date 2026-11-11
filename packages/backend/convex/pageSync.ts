@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
 import { type QueryCtx, internalMutation, mutation, query } from "./_generated/server";
 import { authUserId, memberOf } from "./lib";
-import { pageSchema, requireEditable, requirePageAccess, saveTransform, sync } from "./pageOps";
+import { pageSchema, requireContent, requireEditable, requirePageAccess, saveTransform, sync } from "./pageOps";
 import { withoutPageTitles } from "./pageBlocks";
 
 // Sync names a page alone, so resolve its workspace before checking access.
@@ -13,6 +13,7 @@ async function pageFor(ctx: QueryCtx, id: string) {
 	const userId = await authUserId(ctx);
 	const member = page && userId && (await memberOf(ctx, userId, page.workspaceId));
 	if (!page || !member) throw new ConvexError("Page not found.");
+	requireContent(page);
 	await requirePageAccess(ctx, member, page, "view");
 	return { page, member };
 }
@@ -37,13 +38,22 @@ export const getSteps = query({
 	},
 });
 
-// Open editors may still be subscribed when another window deletes the page forever.
+/** `pageFor`, or null where it would refuse: the page is gone, or this person lost access to it. */
+async function visiblePage(ctx: QueryCtx, id: string) {
+	try {
+		return await pageFor(ctx, id);
+	} catch (e) {
+		if (e instanceof ConvexError) return null;
+		throw e;
+	}
+}
+
+// Open editors stay subscribed when another window deletes the page or someone takes away access to it:
+// null, not an error, so the editor can say so (PageEditor) and nothing logs a failed query.
 export const latestVersion = query({
 	args: { id: v.string() },
 	handler: async (ctx, { id }): Promise<number | null> => {
-		const pageId = ctx.db.normalizeId("pages", id);
-		if (!pageId || !(await ctx.db.get(pageId))) return null;
-		await pageFor(ctx, id);
+		if (!(await visiblePage(ctx, id))) return null;
 		return ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id });
 	},
 });
@@ -70,10 +80,8 @@ export const submitSteps = mutation({
 // never trust client content or let a delayed snapshot change history or authorship.
 export const submitSnapshot = mutation({
 	args: { id: v.string(), version: v.number(), content: v.string() },
-	handler: async (ctx, { id }) => {
-		await pageFor(ctx, id);
-		return null;
-	},
+	// Saves nothing, so a page someone just lost (its editor still open) is no error either.
+	handler: async () => null,
 });
 
 export const deleteDoc = internalMutation({

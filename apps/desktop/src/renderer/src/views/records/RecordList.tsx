@@ -1,22 +1,23 @@
-import { useStoredIds } from "../../arrangements";
-import type { FieldKind } from "@companybot/core/records";
-import { type Access, can } from "@companybot/core/permissions";
+import type { Id } from "@companybot/backend/convex/_generated/dataModel";
+import { COLUMN_WIDTH, type FieldKind, type FieldValue, NAME_KEY } from "@companybot/core/records";
+import type { Access } from "@companybot/core/permissions";
 import { useEffect, useState } from "react";
 import type { OptimisticUpdate } from "convex/browser";
-import type { FunctionArgs } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { api } from "../../api";
-import { Checkbox, Segmented, Select } from "../../controls";
+import { Select, fieldEditClass } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
 import { navigate } from "../../router";
-import { useSortable } from "../../sortable";
-import { ArrowDownIcon, ArrowUpIcon, CloseIcon, DatabaseIcon, EditIcon, FilterIcon, PlusIcon, PropertiesIcon, TrashIcon } from "../../icons";
-import { ConflictNotice, EmptyState, ErrorBoundary, Field, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, Tabs, barButton, compactButton, compactControlClass, inputClass, primaryButton, timeAgo, toolbarClass, useDebounced, useDraft, useRun, wideControlClass } from "../../ui";
-import { MenuItem, Modal, Popover, useConfirm } from "../chat/common";
+import { type DragProps, useSortable } from "../../sortable";
+import { ArrowDownIcon, ArrowUpIcon, CalendarIcon, CaretDownIcon, CheckIcon, CloseIcon, DatabaseIcon, FormIcon, GalleryIcon, EditIcon, FilterIcon, PlusIcon, SearchIcon, TrashIcon } from "../../icons";
+import { ConflictNotice, EmptyState, ErrorBoundary, Form, LoadMore, Loading, MenuDivider, NewButton, NoMatches, Notice, Page, ResizeHandle, Settings, Tabs, filterChip, toolButton, toolControlClass, compactButton, compactControlClass, compactPrimaryButton, primaryButton, secondaryButton, tabAddButton, timeAgo, titleButton, useDebounced, useDraft, useRun, hintClass, metadataClass, fullControlClass, trailingAction } from "../../ui";
+import { DialogButtons, MenuItem, Modal, Popover, PopoverPanel, archiveQuestion, useConfirm } from "../chat/common";
 import { Board } from "./Board";
 import { DatabaseDialog } from "./DatabaseDialog";
 import { type ListArgs, type RecordType, type Row, type Sort, usePagedRows, useRefs } from "./data";
-import { AddField } from "./fieldDialogs";
-import { Chip, RecordPicker, useOptions } from "./fields";
+import { AddField, EditField } from "./fieldDialogs";
+import { ViewMenu } from "./ViewMenu";
+import { CheckList, Chip, FieldIcon, Picked, RecordPicker, ValueEditor, ValueView, useOptions } from "./fields";
 import {
 	type Filter,
 	type Refs,
@@ -30,6 +31,7 @@ import {
 	recordPath,
 	sortable,
 	toCondition,
+	filterFits, refitFilter,
 	valueText,
 } from "./logic";
 
@@ -38,232 +40,298 @@ import {
 // scroll. Deleted records are in Trash.
 
 type Layout = "table" | "board";
+/** Layouts picked but not saved: a board with no choice field to group by, and the ones coming soon. */
+type Preview = "board" | "calendar" | "form" | "gallery";
+const soonLayouts = {
+	calendar: { icon: <CalendarIcon />, title: "Calendar is coming soon", text: "See records on a calendar by one of their date fields, like jobs by their scheduled day." },
+	form: { icon: <FormIcon />, title: "Form is coming soon", text: "A simple screen for adding a record with just the fields you pick. The same forms will go on your sites." },
+	gallery: { icon: <GalleryIcon />, title: "Gallery is coming soon", text: "Records as cards with a picture, for things like products, properties or your team." },
+};
 
 /** Filters carry an id while in the bar, so each row keeps its own state as others come and go. */
 type Settings = { filters: (Filter & { id: string })[]; sort?: Sort; columns: string[]; layout: Layout; groupBy?: string };
+/** Columns someone resized, in pixels by field key. */
+type Widths = Record<string, number>;
+type View = FunctionReturnType<typeof api.databaseViews.list>[number];
 
-const optimisticDisplay: OptimisticUpdate<FunctionArgs<typeof api.recordTypes.setDisplay>> = (store, args) => {
-	const queryArgs = { workspaceId: args.workspaceId };
-	const types = store.getQuery(api.recordTypes.list, queryArgs);
-	if (types) store.setQuery(api.recordTypes.list, queryArgs, types.map((type) => type._id === args.typeId ? { ...type, display: { layout: args.display.layout ?? type.display?.layout ?? "table", groupBy: args.display.groupBy ?? type.display?.groupBy } } : type));
+/** `widths` with one column set to `px`, or back to its default without one. */
+function withWidth(widths: Widths | undefined, field: string, px: number | undefined): Widths {
+	const next = { ...widths };
+	delete next[field];
+	if (px !== undefined) next[field] = px;
+	return next;
+}
+const optimisticWidth: OptimisticUpdate<FunctionArgs<typeof api.databaseViews.setWidth>> = (store, args) => {
+	for (const { args: queryArgs, value } of store.getAllQueries(api.databaseViews.list))
+		if (value?.some((v) => v._id === args.viewId))
+			store.setQuery(api.databaseViews.list, queryArgs, value.map((v) => (v._id === args.viewId ? { ...v, widths: withWidth(v.widths, args.field, args.px) } : v)));
 };
+/** Module-level, so `useMutation` stays stable between renders. */
+const widthUpdate = () => optimisticWidth;
 const noViews: never[] = [];
 const viewKey = (v: { _id: string }) => v._id;
 
-export function RecordList({ type, access }: { type: RecordType; access: Access }) {
+export function RecordList({ type }: { type: RecordType; access: Access }) {
 	const views = useQuery(api.databaseViews.list, { typeId: type._id });
-	// View tabs follow the workspace order. "All" stays first.
+	// View tabs follow the workspace order, and the first is the one the database opens on.
 	const tabs = useSortable("views", views ?? noViews, viewKey, "x", type._id);
+	const [viewId, setViewId] = useState<string>();
+	// The open view: the first until another is picked, and again if the open one is deleted, by you or anyone.
+	const view = tabs.sorted.find((v) => v._id === viewId) ?? tabs.sorted[0];
+	// Nothing until the views load, so a database never opens on one view and then jumps to another.
+	if (!views) return <Page wide fill title={type.plural}><Loading /></Page>;
+	if (!view) return <NoViews type={type} onAdded={setViewId} />;
+	return <ViewList type={type} view={view} views={tabs.sorted} drag={tabs.drag} onOpen={setViewId} />;
+}
+
+/** A database keeps at least one view; this is only for one that has none yet. */
+function NoViews({ type, onAdded }: { type: RecordType; onAdded: (id: string) => void }) {
 	const saveView = useMutation(api.databaseViews.save);
+	const { error, run } = useRun();
+	return (
+		<Page wide fill title={type.plural}>
+			<Notice>{error}</Notice>
+			<EmptyState icon={<DatabaseIcon />} title="No views yet">
+				A view shows this database's records as a table or a board.
+				{type.canEdit && (
+					<span className="mt-3 flex justify-center">
+						<button type="button" onClick={() => run(saveView({ typeId: type._id, name: "All", filters: [], columns: defaultColumns(type.fields) }).then(onAdded))} className={compactButton}>
+							<PlusIcon /> Add a view
+						</button>
+					</span>
+				)}
+			</EmptyState>
+		</Page>
+	);
+}
+
+/** One view of the database, with its tabs. Changes stay yours until "Save for everyone". */
+function ViewList({ type, view, views, drag, onOpen }: { type: RecordType; view: View; views: View[]; drag: (id: string) => DragProps | undefined; onOpen: (id: string) => void }) {
+	const saveView = useMutation(api.databaseViews.save);
+	const setWidth = useMutation(api.databaseViews.setWidth, widthUpdate);
 	const removeView = useMutation(api.databaseViews.remove);
-	const [viewId, setViewId] = useState("all");
-	const selected = views?.find((v) => v._id === viewId);
+	const [preview, setPreview] = useState<Preview>();
 	const fields = type.fields.filter((f) => !f.archived) as TypeField[];
 	const live = (key: string) => ["createdAt", "updatedAt", ...fields.map((f) => f.key)].includes(key);
-	// "All" follows the workspace display; saved views keep their own settings.
-	const [storedColumns, changeColumns, writable] = useStoredIds("columns", type._id);
-	const setDisplay = useMutation(api.recordTypes.setDisplay, optimisticDisplay);
-	const display = type.display ?? { layout: "table" as const };
-	const saved: Settings | undefined = selected && {
-		filters: fromConditions(selected.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
-		sort: selected.sort && live(selected.sort.field) ? selected.sort : undefined,
-		columns: selected.columns,
-		layout: selected.layout ?? "table",
-		groupBy: selected.groupBy,
+	const saved: Settings = {
+		filters: fromConditions(view.filters.filter((c) => live(c.field)), fields).map((f, i) => ({ ...f, id: String(i) })),
+		sort: view.sort && live(view.sort.field) ? view.sort : undefined,
+		columns: view.columns,
+		layout: view.layout ?? "table",
+		groupBy: view.groupBy,
 	};
-	const draft = useDraft<Settings>(
-		saved ?? { filters: [], columns: storedColumns.length ? storedColumns : defaultColumns(type.fields), layout: display.layout, groupBy: display.groupBy },
-		selected?.version ?? 0,
-	);
-	const { filters, sort } = draft.value;
-	const layout = selected ? draft.value.layout : display.layout;
-	const columns = (selected ? draft.value.columns : storedColumns.length ? storedColumns : defaultColumns(type.fields)).filter(live);
+	const draft = useDraft<Settings>(`view:${type._id}:${view._id}`, saved, view.version);
+	const { filters, sort, layout } = draft.value;
+	// Renames a view, keeping it as saved: unsaved changes stay yours until "Save for everyone".
+	const rename = (v: View, name: string) => {
+		const kept = (key: string | undefined) => (key && live(key) ? key : undefined);
+		const sort = v.sort && kept(v.sort.field) ? v.sort : undefined;
+		return run(saveView({ typeId: type._id, viewId: v._id, version: v.version, name, filters: v.filters.filter((c) => live(c.field)), sort, columns: v.columns.filter(live), layout: v.layout, groupBy: kept(v.groupBy) }));
+	};
+	const columns = draft.value.columns.filter(live);
+	// Like Notion's, a column's width saves for everyone as it's dropped, not with the view's other settings.
+	const widths = view.widths;
+	const resize = type.canEdit ? (field: string, px: number | undefined) => run(setWidth({ viewId: view._id, field, px })) : undefined;
 	// Like Notion, a board without a saved grouping uses the first field it can group by.
 	const groupFields = fields.filter(groupable);
-	const group = groupFields.find((f) => f.key === (selected ? draft.value.groupBy : display.groupBy)) ?? groupFields[0];
-	const change = (next: Partial<Settings>) => {
-		const value = { ...draft.value, columns, layout, groupBy: selected ? draft.value.groupBy : display.groupBy, ...next };
-		draft.set(value);
-		if (!selected && writable && next.columns) {
-			// One command per column shown or hidden, starting from what's on screen if nothing's saved.
-			const shown = next.columns;
-			const seed = storedColumns.length ? undefined : columns;
-			for (const id of shown.filter((k) => !columns.includes(k))) changeColumns({ op: "add", id, seed });
-			for (const id of columns.filter((k) => !shown.includes(k))) changeColumns({ op: "remove", id, seed });
-		}
-		// Send only what changed, so someone else's layout or grouping change isn't overwritten.
-		if (!selected && writable && (next.layout || next.groupBy)) run(setDisplay({ typeId: type._id, display: { layout: next.layout, groupBy: next.groupBy } }));
-	};
+	const group = groupFields.find((f) => f.key === draft.value.groupBy) ?? groupFields[0];
+	const change = (next: Partial<Settings>) => draft.set({ ...draft.value, columns, ...next });
 	const setFilters = (filters: Settings["filters"]) => change({ filters });
+	// The filter whose editor is open: a new one opens at once, like Notion's.
+	const [openFilter, setOpenFilter] = useState<string>();
+	const addFilter = (field: TypeField) => {
+		const id = crypto.randomUUID();
+		setFilters([...filters, { id, field: field.key, op: opsFor(field)[0]!, value: opsFor(field)[0] === "anyOf" ? [] : "" }]);
+		setOpenFilter(id);
+	};
 	const setSort = (sort: Sort | undefined) => change({ sort });
 	const setColumns = (columns: string[]) => change({ columns });
-	const open = (id: string) => (setViewId(id), draft.discard());
-	// Someone deleted the open view.
-	useEffect(() => {
-		if (views && viewId !== "all" && !selected) open("all");
-	}, [views, viewId, selected]);
+	// A column moved before another (null: last).
+	const moveColumn = (key: string, before: string | null) => {
+		const rest = columns.filter((k) => k !== key);
+		const at = before === null ? rest.length : rest.indexOf(before);
+		rest.splice(at < 0 ? rest.length : at, 0, key);
+		change({ columns: rest });
+	};
+	const updateField = useMutation(api.fields.update);
+	const trash = useMutation(api.trash.move);
+	const open = (id: string) => (onOpen(id), setPreview(undefined));
 	const [savingView, setSavingView] = useState(false);
 	const [editingDatabase, setEditingDatabase] = useState(false);
 	const [search, setSearch] = useState("");
+	const [searching, setSearching] = useState(false);
 	const query = useDebounced(search);
-	const [creating, setCreating] = useState(false);
+	// The New dialog, open: with values to start from when a board column opened it (its option).
+	const [creating, setCreating] = useState<{ values: Record<string, string | null>; last?: boolean }>();
 	// The field kind a new-field dialog starts on, while it's open.
 	const [addingField, setAddingField] = useState<FieldKind>();
+	const [editingField, setEditingField] = useState<TypeField>();
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
 	// The Save view dialog's own errors, so they don't show on the page behind it too.
 	const naming = useRun();
 	const shown = columns.map((k) => fields.find((f) => f.key === k)!);
-	const conditions = filters.map(toCondition).filter((c) => c !== null);
+	// A filter or sort made before a field changed may not fit it now. Like Notion, a filter converts
+	// when it can ("is Test" → the option Test, as the values did), and otherwise goes, quietly.
+	const fieldOf = (key: string) => fields.find((x) => x.key === key);
+	const refits = filters.map((f) => {
+		const field = fieldOf(f.field);
+		return field && refitFilter(f, field);
+	});
+	const refitted = refits.some(Boolean);
+	const fitting = filters.map((f, i) => refits[i] ?? f).filter((f) => {
+		const field = fieldOf(f.field);
+		return !field || filterFits(f, field);
+	});
+	const sortField = sort && fieldOf(sort.field);
+	const sortIssue = !!sortField && !sortable(sortField);
+	useEffect(() => {
+		if (refitted || fitting.length !== filters.length || sortIssue) change({ filters: fitting, sort: sortIssue ? undefined : sort });
+	}, [refitted, fitting.length, filters.length, sortIssue]);
+	const conditions = fitting.map((f) => toCondition(f, fieldOf(f.field)?.kind)).filter((c) => c !== null);
 	// The server says: the switch, and Edit in this database's Who can access list.
 	const canEdit = type.canEdit;
-	const sortField = sort && fields.find((f) => f.key === sort.field);
-	const args = { typeId: type._id, filters: conditions, sort };
+	// While its field converts, the sort waits rather than going away.
+	// Search narrows the view, like Notion's: one more filter, so the filters and sort still apply.
+	const args = { typeId: type._id, filters: conditions, sort: sortIssue || sortField?.changing ? undefined : sort, search: query.trim() || undefined };
 	const config = { filters: conditions, sort, columns, layout, groupBy: group?.key };
 	const noun = type.plural.toLowerCase();
-	const tabClass = "flex items-center px-3 py-2 text-base text-neutral-500 hover:text-neutral-800";
+	const canSave = canEdit && draft.dirty;
 
 	return (
 		<Page
 			wide
+			// A table or board scrolls itself: the tabs and a table's header row stay put, and the sideways scrollbar sits at the bottom.
+			fill
 			title={type.plural}
-			actions={
-				<>
-					{type.canManage && (
-						<button type="button" className={barButton} onClick={() => setEditingDatabase(true)}>
-							<EditIcon /> Edit database
-						</button>
-					)}
-					{canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating(true)} />}
-				</>
-			}
+			// Its settings open from its title, as a page's actions do.
+			menu={type.canManage ? (close) => <MenuItem onClick={() => (close(), setEditingDatabase(true))}><EditIcon /> Edit database</MenuItem> : undefined}
+			actions={canEdit && <NewButton label={`New ${type.name.toLowerCase()}`} onClick={() => setCreating({ values: {} })} />}
 		>
 			<Tabs
-				tabs={[{ id: "all", label: "All" }, ...tabs.sorted.map((v) => ({ id: v._id as string, label: v.name }))]}
-				drag={(id) => (id === "all" ? undefined : tabs.drag(id))}
-				value={selected ? viewId : "all"}
-				onChange={open}
-				menu={
-					canEdit && selected && saved
-						? (close) => (
-								<>
-									{/* Renaming keeps the view as saved; unsaved changes stay yours until "Save for everyone". */}
-									<Form
-										className=""
-										onSubmit={(form) => {
-											const name = String(new FormData(form).get("name")).trim();
-											close();
-											if (name && name !== selected.name) {
-												const columns = saved.columns.filter(live);
-												const groupBy = saved.groupBy && live(saved.groupBy) ? saved.groupBy : undefined;
-												const filters = saved.filters.map(toCondition).filter((c) => c !== null);
-												run(saveView({ typeId: type._id, viewId: selected._id, version: selected.version, name, filters, sort: saved.sort, columns, layout: saved.layout, groupBy }));
-											}
-										}}
-									>
-										<input name="name" aria-label="View name" autoFocus required maxLength={120} defaultValue={selected.name} className={`${compactControlClass} w-full`} />
-									</Form>
-									<MenuDivider />
-									<MenuItem
-										danger
-										onClick={() => (close(), confirm({ title: `Delete the view ${selected.name}?`, action: "Delete view", onConfirm: () => removeView({ viewId: selected._id, version: selected.version }).then(() => open("all")) }))}
-									>
-										<TrashIcon /> Delete view
-									</MenuItem>
-								</>
-							)
-						: undefined
+				// The view's controls share the tabs' row, like Notion's, so the records start right under it.
+				end={
+					<>
+						{/* Search is an icon until you use it, like Notion's, so the row fits a narrow window. */}
+						{searching || search ? (
+							<input
+								type="search"
+								autoFocus
+								value={search}
+								onChange={(e) => setSearch(e.target.value)}
+								onBlur={() => !search && setSearching(false)}
+								onKeyDown={(e) => e.key === "Escape" && (setSearch(""), setSearching(false))}
+								placeholder={`Search ${noun}`}
+								maxLength={200}
+								className={`${toolControlClass} w-40`}
+							/>
+						) : (
+							<button type="button" aria-label={`Search ${noun}`} title="Search" onClick={() => setSearching(true)} className={toolButton}>
+								<SearchIcon />
+							</button>
+						)}
+						<FieldMenu label="Filter" fields={fields} onPick={addFilter}>
+							<FilterIcon /> <span className="@max-xl:hidden">Filter</span>
+						</FieldMenu>
+						<ViewMenu
+							view={canEdit ? {
+								name: view.name,
+								onRename: (name) => void rename(view, name),
+								onDuplicate: () => run(saveView({ typeId: type._id, name: `${view.name} copy`.slice(0, 120), ...config }).then(open)),
+								// A database keeps at least one view.
+								onDelete: views.length > 1 ? () => confirm({ title: `Delete the view ${view.name}?`, action: "Delete view", onConfirm: () => removeView({ viewId: view._id, version: view.version }) }) : undefined,
+							} : undefined}
+							layout={{
+								value: preview ?? layout,
+								// A board groups cards by a choice field. With none, it's shown but not saved (the server refuses it),
+								// and says how to add one. Calendar, Form and Gallery aren't built yet: they say what they'll do.
+								onChange: (l) => {
+									if (l === "table" || (l === "board" && groupFields.length)) return (setPreview(undefined), change({ layout: l }));
+									setPreview(l);
+								},
+							}}
+							properties={{ fields, columns, onChange: setColumns, onMove: moveColumn, where: layout === "board" ? "board" : "table" }}
+							group={layout === "board" && group ? { fields: groupFields, value: group, onChange: (groupBy) => change({ groupBy }) } : undefined}
+							onEditDatabase={type.canManage ? () => setEditingDatabase(true) : undefined}
+							onNewField={type.canManage ? () => setAddingField("text") : undefined}
+							onEditField={setEditingField}
+							onRenameField={(f, label) => run(updateField({ fieldId: f._id as Id<"recordFields">, label }))}
+							onArchiveField={(f) => confirm(archiveQuestion(f.label, () => trash({ kind: "field", id: f._id as Id<"recordFields"> }), "The field will be hidden; its saved values are kept."))}
+						/>
+					</>
 				}
+				tabs={views.map((v) => ({ id: v._id as string, label: v.name }))}
+				drag={drag}
+				value={view._id}
+				onChange={open}
+				// Double-click or F2, like the sidebar's rows.
+				onRename={canEdit ? (id, name) => rename(views.find((v) => v._id === id)!, name) : undefined}
 			>
 				{canEdit && (
-					<button type="button" title="Save these filters as a view" className={tabClass} onClick={() => setSavingView(true)}>
+					<button type="button" title="Save these filters as a view" aria-label="Save these filters as a view" className={tabAddButton} onClick={() => setSavingView(true)}>
 						<PlusIcon />
-					</button>
-				)}
-				{canEdit && selected && draft.dirty && (
-					<button type="button" disabled={draft.stale} className={`ml-auto self-center ${compactControlClass}`} onClick={() => run(saveView({ typeId: type._id, viewId: selected._id, version: draft.base, name: selected.name, ...config }), draft.discard)}>
-						Save for everyone
 					</button>
 				)}
 			</Tabs>
 			<Notice>{error}</Notice>
 			{dialog}
 			<ConflictNotice draft={draft} />
-			<div className={toolbarClass}>
-				<input
-					type="search"
-					value={search}
-					onChange={(e) => setSearch(e.target.value)}
-					placeholder={`Search ${noun}`}
-					className={wideControlClass}
-				/>
-				<button type="button" onClick={() => setFilters([...filters, { id: crypto.randomUUID(), field: fields[0]!.key, op: opsFor(fields[0]!)[0]!, value: "" }])} className={compactButton}>
-					<FilterIcon className="text-neutral-400" /> Filter
-				</button>
-				{(selected || writable) && <ColumnsPicker
-					label={layout === "board" ? "Properties" : "Columns"}
-					fields={fields}
-					columns={columns}
-					onChange={setColumns}
-					onNewField={type.canManage ? () => setAddingField("text") : undefined}
-				/>}
-				{(selected || writable) && layout === "board" && group && (
-					<label className="flex items-center gap-2 text-neutral-600">
-						Group by
-						<Select value={group.key} options={groupFields.map((f) => ({ value: f.key, label: f.label }))} onChange={(groupBy) => change({ groupBy })} />
-					</label>
-				)}
-				{(selected || writable) && <span className="ml-auto">
-					<Segmented
-						label="Layout"
-						value={layout}
-						options={[
-							{ value: "table", label: "Table" },
-							{ value: "board", label: "Board" },
-						]}
-						onChange={(l) => change({ layout: l })}
-					/>
-				</span>}
-			</div>
-			{filters.length > 0 && (
-				<div className="-mt-2 flex flex-col gap-2">
+			{(filters.length > 0 || sort || canSave) && (
+				// As tall as Save for everyone, so the row doesn't grow when it shows.
+				<div className="-mt-2 flex min-h-8 flex-wrap items-center gap-1.5">
+					{sort && <SortChip sort={sort} label={sortField?.label ?? (sort.field === "createdAt" ? "Created" : "Updated")} onChange={setSort} />}
 					{filters.map((f) => (
-						<FilterRow
+						<FilterChip
 							key={f.id}
 							fields={fields}
 							filter={f}
+							open={openFilter === f.id}
+							onOpen={(open) => setOpenFilter(open ? f.id : undefined)}
 							onChange={(next) => setFilters(filters.map((g) => (g === f ? { ...next, id: f.id } : g)))}
-							onRemove={() => setFilters(filters.filter((g) => g !== f))}
+							onRemove={() => (setOpenFilter(undefined), setFilters(filters.filter((g) => g !== f)))}
 						/>
 					))}
+					<FieldMenu label="Add filter" fields={fields} onPick={addFilter}>
+						<PlusIcon /> Add filter
+					</FieldMenu>
+					{/* A saved view's changes are yours until saved, so saving stands out, at the end of the row they're on. */}
+					{canSave && (
+						<button type="button" disabled={draft.stale} className={`${compactPrimaryButton} ml-auto`} onClick={() => run(saveView({ typeId: type._id, viewId: view._id, version: draft.base, name: view.name, ...config }), draft.discard)}>
+							Save for everyone
+						</button>
+					)}
 				</div>
 			)}
-			{query.trim() ? (
-				<>
-					<p className="-mt-2 text-xs text-neutral-500">Top 20 live {noun} matching the name or text. Filters and sort don't apply to search.</p>
-					<SearchResults type={type} query={query} columns={shown} />
-				</>
+			{preview === "board" ? (
+				<EmptyState icon={<DatabaseIcon />} title="Boards group by a choice field">
+					Add a choice field, like Status with New, Contacted and Won, and each choice becomes a column.
+					{type.canManage && (
+						<span className="mt-3 flex justify-center">
+							<button type="button" onClick={() => setAddingField("choice")} className={compactButton}>
+								<PlusIcon /> Add a choice field
+							</button>
+						</span>
+					)}
+				</EmptyState>
+			) : preview ? (
+				<EmptyState icon={soonLayouts[preview].icon} title={soonLayouts[preview].title}>{soonLayouts[preview].text}</EmptyState>
 			) : (
 				<>
-					{sortField && (
-						<p className="-mt-2 text-xs text-neutral-500">
-							Sorted by {sortField.label}: {noun} without one aren't listed.
-						</p>
-					)}
 					{/* A query error (a bad filter, an old page) shows here; changing the list clears it. */}
-					<ErrorBoundary key={JSON.stringify([args, layout, group?.key])}>
+					<ErrorBoundary resetKey={JSON.stringify([args, layout, group?.key])}>
 						<RecordResults
-							type={type} args={args} columns={shown} sort={sort} onSort={setSort}
-							layout={layout} group={group} canEdit={canEdit}
+							type={type} args={args} columns={shown} widths={widths} onResize={resize} sort={sort} onSort={setSort}
+							layout={layout} group={group} canEdit={canEdit} canManage={type.canManage}
+							onAdd={canEdit && group ? (option, last) => setCreating({ values: { [group.key]: option }, last }) : undefined}
 							noGroup={<EmptyState icon={<DatabaseIcon />} title="No choice field to group by">Open a record and use Add field to add a choice field for grouping cards.</EmptyState>}
-							empty={filters.length || sort ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
+							empty={conditions.length || args.search ? <NoMatches /> : <EmptyState icon={<DatabaseIcon />} title={`No ${noun} yet`}>Keep your {noun} and their details here.</EmptyState>}
 						/>
 					</ErrorBoundary>
 				</>
 			)}
 			{editingDatabase && <DatabaseDialog type={type} onClose={() => setEditingDatabase(false)} />}
 			{savingView && (
-				<Modal title="Save view" onClose={() => setSavingView(false)}>
+				<Modal title="Save view" size="md" onClose={() => setSavingView(false)}>
 					<Form
 						onSubmit={(form) => {
 							const name = String(new FormData(form).get("name"));
@@ -271,17 +339,18 @@ export function RecordList({ type, access }: { type: RecordType; access: Access 
 						}}
 					>
 						<Notice>{naming.error}</Notice>
-						<Field label="View name" hint="These filters, sort, columns and layout, shared with everyone in the workspace.">
-							<input name="name" autoFocus required maxLength={120} className={inputClass} />
-						</Field>
-						<button type="submit" className={`${primaryButton} self-start`}>
-							Save for everyone
-						</button>
+						<input name="name" aria-label="View name" autoFocus required maxLength={120} placeholder="View name" className={fullControlClass} />
+						<p className={hintClass}>Saves these filters, sort, columns and layout, shared with everyone in the workspace.</p>
+						<DialogButtons>
+							<button type="button" onClick={() => setSavingView(false)} className={secondaryButton}>Cancel</button>
+							<button type="submit" className={primaryButton}>Save for everyone</button>
+						</DialogButtons>
 					</Form>
 				</Modal>
 			)}
-			{creating && <NewRecord type={type} onClose={() => setCreating(false)} />}
-			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => setColumns([...columns, key])} onClose={() => setAddingField(undefined)} />}
+			{creating && <NewRecord type={type} values={creating.values} last={creating.last} onClose={() => setCreating(undefined)} />}
+			{editingField && <EditField field={editingField} onClose={() => setEditingField(undefined)} />}
+			{addingField && <AddField type={type} kind={addingField} onCreated={(key) => (setColumns([...columns, key]), preview === "board" && (setPreview(undefined), change({ layout: "board", groupBy: key })))} onClose={() => setAddingField(undefined)} />}
 		</Page>
 	);
 }
@@ -290,137 +359,357 @@ function RecordResults({
 	type,
 	args,
 	columns,
+	widths,
+	onResize,
 	sort,
 	onSort,
-	layout, group, canEdit, noGroup,
+	layout, group, canEdit, canManage, onAdd, noGroup,
 	empty,
 }: {
 	type: RecordType;
 	args: ListArgs;
 	columns: TypeField[];
+	widths?: Widths;
+	onResize?: (field: string, px: number | undefined) => void;
 	sort?: Sort;
 	onSort: (sort: Sort | undefined) => void;
 	empty: React.ReactNode;
 	layout: Layout;
 	group?: TypeField;
 	canEdit: boolean;
+	canManage: boolean;
+	onAdd?: (option: string | null, last: boolean) => void;
 	noGroup: React.ReactNode;
 }) {
-	const { rows, refs, status, loadMore, setEnd } = usePagedRows(args);
+	const { rows, refs, status, stale, loadMore, setEnd } = usePagedRows(args);
 
-	const header = (key: string, label: string, canSort: boolean) => {
+	const header = (key: string, label: string, canSort: boolean, field?: TypeField) => {
 		const on = sort?.field === key;
 		const next = (): Sort | undefined => {
 			const first = key === "updatedAt" ? "desc" : "asc";
 			if (!on) return { field: key, order: first };
 			return sort.order === first ? { field: key, order: first === "asc" ? "desc" : "asc" } : undefined;
 		};
-		return (
-			<th key={key} className="px-3 py-2 text-left font-medium whitespace-nowrap">
-				{canSort ? (
-					<button type="button" onClick={() => onSort(next())} className={`flex items-center gap-1 ${on ? "text-neutral-900" : "hover:text-neutral-900"}`}>
-						{label}
+		return canSort ? (
+					<button type="button" onClick={() => onSort(next())} className={`${titleButton} flex max-w-full items-center gap-1.5 ${on ? "text-neutral-900" : ""}`}>
+						{field && <FieldIcon field={field} />}
+						<span className="truncate">{label}</span>
 						{on && (sort.order === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
+						{field?.changing && <span className={metadataClass}>Converting…</span>}
 					</button>
-				) : (
-					label
-				)}
-			</th>
-		);
+			) : (
+				<span className="flex items-center gap-1.5">{field && <FieldIcon field={field} />}<span className="truncate">{label}</span>{field?.changing && <span className={metadataClass}>Converting…</span>}</span>
+			);
 	};
 
 	if (status === "LoadingFirstPage") return <Loading />;
 	if (rows.length === 0 && status === "Exhausted") return empty;
-	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} /> : noGroup;
-	// A board still looking past empty pages shows only the loader, not a table.
-	return (
-		<div className="flex flex-col gap-2">
-			{layout === "table" && <RowsTable
-				type={type}
-				rows={rows}
-				refs={refs}
-				columns={columns}
-				head={[
-					...columns.map((f) => header(f.key, f.label, sortable(f))),
-					header("updatedAt", "Updated", true),
-				]}
-			/>}
-			<div ref={setEnd} className="flex flex-col items-center py-2">
-				<LoadMore status={status} onMore={() => loadMore(25)} />
-			</div>
+	if (layout === "board" && rows.length > 0) return group ? <Board type={type} args={args} group={group} cards={columns} canEdit={canEdit} canManage={canManage} onAdd={onAdd} /> : noGroup;
+	// Takes room only while there's more to load, so a fully loaded table ends as close to the bottom as a board.
+	const more = (
+		<div ref={setEnd} className={`flex flex-col items-center ${status === "CanLoadMore" || status === "LoadingMore" ? "py-2" : ""}`}>
+			<LoadMore status={status} onMore={() => loadMore(25)} />
 		</div>
+	);
+	// A board still looking past empty pages shows only the loader, not a table.
+	if (layout !== "table") return more;
+	return (
+		<RowsTable
+			type={type}
+			rows={rows}
+			refs={refs}
+			columns={columns}
+			widths={widths}
+			onResize={onResize}
+			stale={stale}
+			head={[
+				...columns.map((f) => header(f.key, f.label, sortable(f) && !f.changing, f)),
+				header("updatedAt", "Updated", true),
+			]}
+			footer={more}
+		/>
 	);
 }
 
-function RowsTable({ type, rows, refs, columns, head }: { type: RecordType; rows: Row[]; refs: Refs; columns: TypeField[]; head: React.ReactNode[] }) {
+/**
+ * Each column's default width in pixels, set by its kind so it holds still as values change
+ * (`table-fixed`): long values truncate. Dragging a header's edge overrides it (`widths`). Updated,
+ * last, takes what's left of the screen, at least UPDATED_WIDTH.
+ */
+const columnWidth = (f: TypeField) =>
+	f.key === NAME_KEY ? 240
+	: f.kind === "checkbox" ? 96
+	: f.kind === "number" ? 112
+	: f.kind === "currency" || f.kind === "date" ? 144
+	: f.kind === "choice" || f.kind === "user" || f.kind === "link" ? 160
+	: 192;
+const UPDATED_WIDTH = 128;
+/** The table's outline, drawn by its first and last cells. */
+const edge = "border-neutral-200 first:border-l last:border-r";
+/**
+ * Lines go on cells, not rows: the table's borders are separate so the sticky header keeps its own.
+ * The last row closes the outline, with its corners rounded.
+ */
+const rowLine = `${edge} border-b border-b-neutral-100 group-hover:bg-neutral-50/60 group-last:border-b-neutral-200 group-last:first:rounded-bl-xl group-last:last:rounded-br-xl`;
+
+/**
+ * `head`: each column's header, then Updated's. `onResize`: when they may drag a column's edge.
+ * It fills the rest of the screen and scrolls both ways (`Page`'s `fill`), `footer` last.
+ */
+function RowsTable({ type, rows, refs, columns, widths, onResize, head, stale, footer }: {
+	type: RecordType;
+	rows: Row[];
+	refs: Refs;
+	columns: TypeField[];
+	widths?: Widths;
+	onResize?: (field: string, px: number | undefined) => void;
+	head: React.ReactNode[];
+	stale?: boolean;
+	footer?: React.ReactNode;
+}) {
+	// The column being dragged, until it's dropped.
+	const [dragging, setDragging] = useState<{ key: string; px: number }>();
+	const clamp = (px: number) => Math.round(Math.min(COLUMN_WIDTH.max, Math.max(COLUMN_WIDTH.min, px)));
+	const width = (f: TypeField) => (dragging?.key === f.key ? dragging.px : widths?.[f.key] ?? columnWidth(f));
 	return (
-		// Too wide for the column: it scrolls out to the screen's edges.
-		<div className="bleed">
-			<div className="w-max min-w-full overflow-hidden rounded-xl border border-neutral-200">
-				<table className="w-full text-sm">
-					<thead className="border-b border-neutral-200 bg-neutral-50 text-neutral-500">
-						<tr>{head}</tr>
+		// Too wide for the column: it scrolls out to the screen's edges. Ends 24px above the bottom, the gap above it and the page's side padding (`--pad`).
+		<div className="bleed min-h-0 flex-1 overflow-y-auto pb-6">
+			{/* Dimmed while a new sort or filter loads, instead of flashing empty. Clipped, not hidden, so the header can stick.
+			    The cells draw the table's outline (`edge`), so the stuck header keeps its line and rounded corners. */}
+			<div className={`w-max min-w-full overflow-clip rounded-xl transition-opacity ${stale ? "opacity-60" : ""}`}>
+				<table className="min-w-full table-fixed border-separate border-spacing-0 text-sm" style={{ width: columns.reduce((n, f) => n + width(f), UPDATED_WIDTH) }}>
+					<colgroup>
+						{columns.map((f) => <col key={f.key} style={{ width: width(f) }} />)}
+						<col />
+					</colgroup>
+					<thead className="sticky top-0 z-10 text-neutral-500">
+						<tr>
+							{head.map((content, i) => {
+								const f = columns[i];
+								const corner = i === 0 ? "rounded-tl-xl border-l" : i === head.length - 1 ? "rounded-tr-xl border-r" : "";
+								return (
+									// Opaque and square, page-colored, so rows scrolling under the stuck header don't show past its rounded corners.
+									<th key={f?.key ?? "updatedAt"} className="relative bg-white p-0 text-left font-medium whitespace-nowrap">
+										<div className={`overflow-hidden border-y border-neutral-200 bg-neutral-50 px-3 py-2 ${corner}`}>{content}</div>
+										{f && onResize && (
+											<ResizeHandle
+												side="right"
+												guide
+												label={`Resize ${f.label}`}
+												size={{
+													width: width(f),
+													...COLUMN_WIDTH,
+													fallback: columnWidth(f),
+													preview: (px) => setDragging({ key: f.key, px: clamp(px) }),
+													// The default isn't stored, so a new default for its kind still reaches it.
+													save: (px) => (setDragging(undefined), onResize(f.key, clamp(px) === columnWidth(f) ? undefined : clamp(px))),
+												}}
+											/>
+										)}
+									</th>
+								);
+							})}
+						</tr>
 					</thead>
 					<tbody>
 						{rows.map((r) => (
-							<tr
-								key={r._id}
-								onClick={() => navigate(...recordPath(type.key, r._id))}
-								className="cursor-default border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
-							>
-								{columns.map((f, i) => (
-									<td key={f.key} className={`max-w-64 truncate px-3 py-2 ${i === 0 ? "font-medium" : "text-neutral-700"}`}>
-										{valueText(f, r.values[f.key], refs)}
-									</td>
-								))}
-								<td className="px-3 py-2 whitespace-nowrap text-neutral-400">{timeAgo(r.updatedAt)}</td>
+							<tr key={r._id} className="group">
+								{columns.map((f) =>
+									f.key === NAME_KEY ? (
+										// The name opens the record; every other cell edits in place, like Notion's.
+										<td key={f.key} className={`${rowLine} truncate px-3 py-2 font-medium`}>
+											<button type="button" onClick={() => navigate(...recordPath(type.key, r._id))} className={`${titleButton} max-w-full truncate hover:underline`}>
+												{valueText(f, r.values[f.key], refs) || "Untitled"}
+											</button>
+										</td>
+									) : (
+										<td key={f.key} className={`${rowLine} overflow-hidden px-1 py-0.5 align-middle text-neutral-700 focus-within:overflow-visible`}>
+											<Cell row={r} field={f} refs={refs} editable={type.canEdit && !f.changing} />
+										</td>
+									),
+								)}
+								<td className={`${rowLine} truncate px-3 py-2 text-neutral-400`}>{timeAgo(r.updatedAt)}</td>
 							</tr>
 						))}
 					</tbody>
 				</table>
 			</div>
+			{footer}
 		</div>
 	);
 }
 
-function SearchResults({ type, query, columns }: { type: RecordType; query: string; columns: TypeField[] }) {
-	const rows = useQuery(api.records.search, { query, typeId: type._id });
-	const refs = useRefs(rows ?? []);
-	if (!rows) return <Loading />;
-	if (rows.length === 0) return <NoMatches />;
-	const head = [...columns.map((f) => <th key={f.key} className="px-3 py-2 text-left font-medium">{f.label}</th>), <th key="u" className="px-3 py-2 text-left font-medium">Updated</th>];
-	return <RowsTable type={type} rows={rows} refs={refs} columns={columns} head={head} />;
+/** Whether an editor opened at `el` fits rightward inside the table's scroll box (it clips what spills). */
+function roomRight(el: HTMLElement) {
+	let box = el.closest("td")?.parentElement ?? null;
+	while (box && getComputedStyle(box).overflowX === "visible") box = box.parentElement;
+	const edge = box ? box.getBoundingClientRect().right : window.innerWidth;
+	return el.getBoundingClientRect().left + 384 <= edge;
 }
 
-function FilterRow({
+/** Text kinds open over their cell to edit, so a long value shows whole instead of scrolling in a narrow box. */
+const typedKinds = new Set(["text", "number", "email", "phone", "url"]);
+
+/**
+ * One value in the table: the record page's editor when you may change it, else the value. Typed
+ * values read cut short with "…"; clicking one opens an editor over the cell, as wide as the text
+ * (up to a limit, then long text wraps), like Notion's.
+ */
+function Cell({ row, field, refs, editable }: { row: Row; field: TypeField; refs: Refs; editable: boolean }) {
+	const update = useMutation(api.records.update);
+	const { error, run } = useRun();
+	// Open, and which side the editor grows from: rightward, or leftward when the table's edge is near.
+	const [open, setOpen] = useState<"left" | "right">();
+	const value = row.values[field.key] as FieldValue | undefined;
+	if (!editable) return <span className="block truncate px-2 py-1"><ValueView field={field} value={value} refs={refs} /></span>;
+	const save = (next: unknown) => run(update({ recordId: row._id, values: { [field.key]: next } }));
+	if (typedKinds.has(field.kind)) {
+		const text = valueText(field, value, refs);
+		return (
+			<span className="relative block" title={error}>
+				<button type="button" onFocus={(e) => setOpen(roomRight(e.currentTarget) ? "left" : "right")} className={`${titleButton} ${fieldEditClass} ${text ? "" : "text-neutral-400"} ${open ? "invisible" : ""}`}>
+					<span className="truncate">{text || "—"}</span>
+				</button>
+				{open && (
+					// Closes when focus leaves it; the editor saves on blur first.
+					<span className={`absolute -top-px ${open === "left" ? "left-0" : "right-0"} z-20 w-max max-w-96 min-w-full rounded-lg bg-white shadow-md [&_input]:[field-sizing:content] [&_input]:min-w-full [&_textarea]:[field-sizing:content] [&_textarea]:min-w-full`} onBlur={() => setOpen(undefined)}>
+						<ValueEditor field={field} value={value} refs={refs} autoFocus onSave={save} />
+					</span>
+				)}
+				{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
+			</span>
+		);
+	}
+	return (
+		<span className="block" title={error}>
+			<ValueEditor field={field} value={value} refs={refs} oneLine onSave={save} />
+			{error && <span className="block px-2 pb-1 text-xs text-red-600">{error}</span>}
+		</span>
+	);
+}
+
+/** The sort, as a chip before the filters: its direction, or remove it. */
+function SortChip({ sort, label, onChange }: { sort: Sort; label: string; onChange: (sort: Sort | undefined) => void }) {
+	const Arrow = sort.order === "asc" ? ArrowUpIcon : ArrowDownIcon;
+	return (
+		<Popover
+			label={`Sorted by ${label}`}
+			trigger={
+				<>
+					<Arrow />
+					<span className="max-w-48 truncate">{label}</span>
+				</>
+			}
+			className={filterChip}
+			active
+			panelClassName="flex w-48 flex-col gap-px p-1"
+		>
+			{(close) => (
+				<>
+					{(["asc", "desc"] as const).map((order) => (
+						<MenuItem key={order} onClick={() => (close(), onChange({ ...sort, order }))}>
+							<span className="flex-1">{order === "asc" ? "Ascending" : "Descending"}</span>
+							{sort.order === order && <CheckIcon className="text-neutral-500" />}
+						</MenuItem>
+					))}
+					<MenuDivider />
+					<MenuItem danger onClick={() => (close(), onChange(undefined))}>
+						<TrashIcon /> Remove sort
+					</MenuItem>
+				</>
+			)}
+		</Popover>
+	);
+}
+
+/** A menu of the database's fields, each with its kind's icon: Filter, Add filter. */
+function FieldMenu({ label, fields, onPick, children }: { label: string; fields: TypeField[]; onPick: (field: TypeField) => void; children: React.ReactNode }) {
+	return (
+		<Popover label={label} trigger={children} className={toolButton} panelClassName="flex max-h-80 w-56 flex-col gap-px overflow-y-auto p-1">
+			{(close) => (
+				<>
+					<p className="px-2 pt-1 pb-0.5 text-xs text-neutral-400">Filter by</p>
+					{fields.map((f) => (
+						<MenuItem key={f.key} onClick={() => (close(), onPick(f))}>
+							<FieldIcon field={f} />
+							<span className="flex-1 truncate">{f.label}</span>
+						</MenuItem>
+					))}
+				</>
+			)}
+		</Popover>
+	);
+}
+
+/**
+ * One filter as a chip, Notion's way: "Status: Open, Done". Clicking opens its editor, the
+ * condition and value, with a remove button. Tinted once it has a value, so it's filtering.
+ */
+function FilterChip({
 	fields,
 	filter,
+	open,
+	onOpen,
 	onChange,
 	onRemove,
 }: {
 	fields: TypeField[];
 	filter: Filter;
+	open: boolean;
+	onOpen: (open: boolean) => void;
 	onChange: (filter: Filter) => void;
 	onRemove: () => void;
 }) {
 	const field = fields.find((f) => f.key === filter.field) ?? fields[0]!;
+	const options = useOptions(field);
+	const set = Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== "";
+	const active = !needsValue(filter.op) || set;
+	const value = Array.isArray(filter.value)
+		? field.kind === "link"
+			? `${filter.value.length} ${filter.value.length === 1 ? "record" : "records"}`
+			: filter.value.map((id) => options.find((o) => o.id === id)?.label ?? id).join(", ")
+		: filter.value;
+	const summary = !needsValue(filter.op) ? opLabels[filter.op] : !set ? "" : filter.op === "is" || filter.op === "anyOf" ? value : `${opLabels[filter.op]} ${value}`;
+	// Choices show as their chips, in their colors: "Status: [Open] [Done]".
+	const picked = field.kind === "choice" && filter.op === "anyOf" && Array.isArray(filter.value) && filter.value.length > 0 ? filter.value : null;
 	return (
-		<div className="flex flex-wrap items-center gap-2 text-sm">
-			<Select
-				label="Field"
-				value={field.key}
-				options={fields.map((f) => ({ value: f.key, label: f.label }))}
-				onChange={(key) => {
-					const next = fields.find((f) => f.key === key)!;
-					onChange({ field: next.key, op: opsFor(next)[0]!, value: "" });
-				}}
-			/>
-			<Select label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
+		<PopoverPanel
+			opened={open}
+			onClose={() => onOpen(false)}
+			className="flex w-80 flex-col gap-px p-1"
+			target={
+				<button type="button" onClick={() => onOpen(!open)} data-active={active || undefined} className={filterChip}>
+					<FieldIcon field={field} />
+					{picked ? (
+						<span className="flex max-w-80 min-w-0 items-center gap-1">
+							<span className="shrink-0">{field.label}:</span>
+							{picked.map((id) => (
+								<Chip key={id} color={options.find((o) => o.id === id)?.color}>
+									<span className="max-w-32 truncate text-xs">{options.find((o) => o.id === id)?.label ?? id}</span>
+								</Chip>
+							))}
+						</span>
+					) : (
+						<span className="max-w-64 truncate">
+							{field.label}
+							{summary && <span className="font-normal">: {summary}</span>}
+						</span>
+					)}
+					<CaretDownIcon />
+				</button>
+			}
+		>
+			{/* Shaped like the sort's menu: what it checks, its value, then Remove at the bottom. */}
+			<div className="flex items-center gap-1 px-1 text-sm">
+				<span className="truncate pl-1 text-neutral-500">{field.label}</span>
+				<Select className={toolButton} label="Condition" value={filter.op} options={opsFor(field).map((op) => ({ value: op, label: opLabels[op] }))} onChange={(op) => onChange({ ...filter, op })} />
+			</div>
 			{needsValue(filter.op) && <FilterValue field={field} filter={filter} onChange={(value) => onChange({ ...filter, value })} />}
-			<button type="button" onClick={onRemove} className="text-neutral-400 hover:text-neutral-700" title="Remove filter" aria-label="Remove filter">
-				<CloseIcon />
-			</button>
-		</div>
+			<MenuDivider />
+			<MenuItem danger onClick={onRemove}>
+				<TrashIcon /> Remove filter
+			</MenuItem>
+		</PopoverPanel>
 	);
 }
 
@@ -430,110 +719,57 @@ function FilterValue({ field, filter, onChange }: { field: TypeField; filter: Fi
 	const ids = Array.isArray(filter.value) ? filter.value : [];
 	const [names, setNames] = useState<Refs>({});
 	if (filter.op === "anyOf") {
-		const label = (id: string) => options.find((o) => o.id === id)?.label ?? names[id]?.name ?? id;
+		const toggle = (id: string) => onChange(ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]);
+		if (field.kind !== "link") {
+			// The options as a checklist, as when picking one on a record.
+			return options.length ? <CheckList field={field} options={options} picked={ids} onToggle={toggle} /> : <span className={`px-2 py-1 ${hintClass}`}>No options yet.</span>;
+		}
 		return (
-			<span className="flex flex-wrap items-center gap-1.5">
-				{ids.map((id) => (
-					<Chip key={id} onRemove={() => onChange(ids.filter((i) => i !== id))}>{label(id)}</Chip>
-				))}
-				{field.kind === "link" ? (
-					field.linkType && <RecordPicker
+			<>
+				{ids.map((id) => <Picked key={id} label={names[id]?.name ?? id} onClick={() => toggle(id)} />)}
+				{field.linkType && (
+					<RecordPicker
 						typeId={field.linkType}
 						exclude={ids}
 						label="Pick"
 						onPick={(id, name) => {
 							setNames({ ...names, [id]: { name } });
-							onChange([...ids, id]);
+							toggle(id);
 						}}
 					/>
-				) : (
-					<Select
-						value=""
-						options={options.filter((o) => !ids.includes(o.id)).map((o) => ({ value: o.id, label: o.label }))}
-						onChange={(id) => onChange([...ids, id])}
-					/>
 				)}
-			</span>
+			</>
 		);
 	}
 	const type = field.kind === "date" ? "date" : "text";
 	return (
 		<input
 			type={type}
+			autoFocus
+			aria-label="Value"
 			value={typeof filter.value === "string" ? filter.value : ""}
 			onChange={(e) => onChange(e.target.value)}
 			placeholder={field.kind === "currency" ? "1000 or EUR 1000" : "Value"}
-			className={`${compactControlClass} w-44`}
+			className={`${compactControlClass} m-1`}
 		/>
 	);
 }
 
-function ColumnsPicker({
-	label,
-	fields,
-	columns,
-	onChange,
-	onNewField,
-}: {
-	label: string;
-	fields: TypeField[];
-	columns: string[];
-	onChange: (keys: string[]) => void;
-	/** Opens the new-field dialog; the field is shown once made. */
-	onNewField?: () => void;
-}) {
-	return (
-		<Popover
-			trigger={
-				<>
-					<PropertiesIcon className="text-neutral-400" /> {label}
-				</>
-			}
-			className={compactButton}
-			panelClassName="flex w-56 flex-col gap-px p-1"
-		>
-			{(close) => (
-				<>
-					{fields.map((f) => (
-						<label key={f.key} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-neutral-100">
-							<Checkbox
-								disabled={f.key === "name"}
-								checked={columns.includes(f.key)}
-								onChange={(on) => onChange(on ? fields.map((g) => g.key).filter((k) => k === f.key || columns.includes(k)) : columns.filter((k) => k !== f.key))}
-							/>
-							{f.label}
-						</label>
-					))}
-					{onNewField && (
-						<>
-							<MenuDivider />
-							<MenuItem onClick={() => (close(), onNewField())}>
-								<PlusIcon className="text-neutral-400" /> New field
-							</MenuItem>
-						</>
-					)}
-				</>
-			)}
-		</Popover>
-	);
-}
-
-/** A new record starts with a name; the rest is filled in on its page. */
-function NewRecord({ type, onClose }: { type: RecordType; onClose: () => void }) {
+/** A new record starts with a name, plus `values` when a board column opened it (`last`: from its foot, so it goes last); the rest is filled in on its page. */
+function NewRecord({ type, values, last, onClose }: { type: RecordType; values: Record<string, string | null>; last?: boolean; onClose: () => void }) {
 	const create = useMutation(api.records.create);
 	const [name, setName] = useState("");
 	const { error, run } = useRun();
 	const label = type.fields.find((f) => f.key === "name")?.label ?? "Name";
 	return (
-		<Modal title={`New ${type.name.toLowerCase()}`} onClose={onClose}>
-			<Form onSubmit={() => run(create({ typeId: type._id, values: { name } }).then((id) => navigate(...recordPath(type.key, id))))}>
+		<Modal title={`New ${type.name.toLowerCase()}`} size="md" onClose={onClose}>
+			<Form onSubmit={() => run(create({ typeId: type._id, values: { ...values, name }, ...(last && { last }) }).then((id) => navigate(...recordPath(type.key, id))))}>
 				<Notice>{error}</Notice>
-				<Field label={label}>
-					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-				</Field>
-				<button type="submit" className={`${primaryButton} self-start`}>
-					Create
-				</button>
+				<input autoFocus aria-label={label} value={name} onChange={(e) => setName(e.target.value)} placeholder={label} className={fullControlClass} />
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>Cancel</button>
+					<button type="submit" className={primaryButton}>Create</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

@@ -30,12 +30,22 @@ describe("settings", () => {
 			displayName: "Jaden",
 			sendWith: "mod-enter",
 			notify: "all",
+			showRecents: true,
+			foldersFirst: false,
 			timeZone: null,
 			deviceTimeZone: null,
 			image: null,
 		});
 		expect((await member.query(api.preferences.get)).displayName).toBe("");
 		expect((await member.query(api.workspace.team))?.members.map((m) => m.name)).toContain("Jaden");
+	});
+
+	it("hides rail recents and keeps folders on top for you alone", async () => {
+		const { owner, member } = await ownerAndMember();
+		expect((await owner.query(api.preferences.get)).showRecents).toBe(true);
+		await owner.mutation(api.preferences.update, { showRecents: false, foldersFirst: true });
+		expect(await owner.query(api.preferences.get)).toMatchObject({ showRecents: false, foldersFirst: true });
+		expect(await member.query(api.preferences.get)).toMatchObject({ showRecents: true, foldersFirst: false });
 	});
 });
 
@@ -62,4 +72,11 @@ describe("time zones", () => {
 		await expect(owner.mutation(api.preferences.update, { timeZone: "Mars/Base" })).rejects.toThrow("Unknown time zone");
 	});
 
+});
+
+it("rejects clearing a saved name", async () => {
+	const { owner } = await ownerAndMember();
+	await owner.mutation(api.preferences.update, { displayName: "Ada" });
+	await expect(owner.mutation(api.preferences.update, { displayName: "   " })).rejects.toThrow("Enter your name");
+	expect((await owner.query(api.preferences.get)).displayName).toBe("Ada");
 });

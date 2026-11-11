@@ -5,7 +5,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
 import { claimUpload, imageUrl } from "./images";
-import { type Member, capped, emptyPage, getMember, nameOf, requireMember } from "./lib";
+import { type Member, capped, emptyPage, getMember, memo, nameOf, requireMember } from "./lib";
+import { searchRecords } from "./recordReads";
 import {
 	createPage,
 	editorsOf,
@@ -17,12 +18,12 @@ import {
 	requirePage,
 	restoreVersion,
 } from "./pageOps";
-import { accessInfo, savedAccess } from "./placeAccess";
+import { accessInfo, requireKeepsEdit, savedAccess } from "./placeAccess";
 import { withoutPageTitles } from "./pageBlocks";
 import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
 import { can } from "@companybot/core";
-import { movePage, pageRow, pageState, pageStates } from "./pageTree";
+import { hasChildren, kindOf, movePage, pageRow, pageState, pageStates } from "./pageTree";
 import { trashInfo } from "./trashOps";
 
 // Pages metadata and history; content syncs through pageSync.ts. See wiki/pages.md.
@@ -74,22 +75,30 @@ export const get = query({
 		const reach = pageReach(ctx, member);
 		const ancestors = [];
 		for (const [i, a] of state.ancestors.entries()) {
-			const at = await reach(a);
+			const at = !a.recordId && (await reach(a));
 			const above = state.ancestors[i + 1];
 			if (at) ancestors.unshift(pageRow(a, member, at, !above || !!(await reach(above))));
 		}
+		// The record whose page this is, or is inside, for people who can see its database: the trail starts there.
+		const body = page.recordId ? page : state.ancestors.at(-1)?.recordId ? state.ancestors.at(-1)! : null;
+		const type = state.record && (await ctx.db.get(state.record.typeId));
+		const record = state.record && type && body && (await reach(body)) ? { _id: state.record._id, title: state.record.title, typeKey: type.key, plural: type.plural } : null;
 		// In Archive with an ancestor they can't see: say it's archived without naming or offering what holds it.
-		const trashPage = state.trashPage && state.trashPage._id !== page._id && !(await reach(state.trashPage)) ? null : (state.trashPage ?? page);
+		const trashPage = state.trashPage && state.trashPage._id !== page._id && !(await reach(state.trashPage)) ? null : (state.trashPage ?? (state.recordArchived ? null : page));
+		const trash = trashPage ? await trashInfo(ctx, member, trashPage._id) : record && state.recordArchived ? ((await trashInfo(ctx, member, record._id)) ?? (await trashInfo(ctx, member, type!._id))) : null;
 		return {
 			_id: page._id,
-			title: page.title,
+			kind: kindOf(page),
+			// A record's page is called what the record is.
+			title: page.recordId ? (state.record?.title ?? "") : page.title,
 			archived: state.archived,
 			// A parent they can't see stays unnamed and unlinked: the page reads as top-level to them.
 			parentId: state.ancestors[0] && (await reach(state.ancestors[0])) ? state.ancestors[0]._id : null,
 			ancestors,
 			recordId: page.recordId ?? null,
+			record,
 			canEdit: await canEdit(ctx, member, page),
-			trash: trashPage && (await trashInfo(ctx, member, trashPage._id)),
+			trash,
 			...access,
 			/** Its own list, or null when it follows its parent's (a record's page always follows its database). */
 			ownAccess: page.access ? access.access : null,
@@ -109,17 +118,17 @@ export const forRecord = query({
 	},
 });
 
-/** A standalone page, or a record's body (its existing one, if any). */
+/** A standalone page (top-level, or inside any page, a record's too) or folder (`kind`), or a record's body (its existing one, if any). */
 export const create = mutation({
-	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")), insertInParent: v.optional(v.boolean()) },
-	handler: async (ctx, { title, recordId, parentId, insertInParent }) => {
-		if (recordId && parentId) throw new ConvexError("Record bodies can't be nested.");
+	args: { title: v.optional(v.string()), recordId: v.optional(v.id("records")), parentId: v.optional(v.id("pages")), kind: v.optional(v.literal("folder")) },
+	handler: async (ctx, { title, recordId, parentId, kind }) => {
+		if (recordId && (parentId || kind)) throw new ConvexError("A record's page stays with its record.");
 		const who = { member: await requireMember(ctx) };
-		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId, insertInParent });
+		return createPage(ctx, who, recordId ? { recordId } : { title: title ?? "", parentId, kind });
 	},
 });
 
-/** A paged level of the tree; the sidebar and Move dialog share it. */
+/** A paged level of the tree, pages and folders together (`kind`); the sidebar and Move dialog share it. Files are driveFiles.children. */
 export const children = query({
 	args: { parentId: v.optional(v.id("pages")), paginationOpts: paginationOptsValidator },
 	handler: async (ctx, { parentId, paginationOpts }) => {
@@ -128,22 +137,24 @@ export const children = query({
 		const reach = pageReach(ctx, member);
 		if (parentId) {
 			const parent = await ctx.db.get(parentId);
-			if (parent?.workspaceId !== member.workspaceId || parent.recordId || (await pageState(ctx, parent)).archived || !(await reach(parent))) return emptyPage();
+			if (parent?.workspaceId !== member.workspaceId || (await pageState(ctx, parent)).archived || !(await reach(parent))) return emptyPage();
 		}
 		const result = await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", parentId).eq("recordId", undefined).eq("archived", false))
 			.paginate(capped(paginationOpts, 50));
-		const hasChildren = async (p: Doc<"pages">) => !!(await ctx.db.query("pages").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", p._id).eq("recordId", undefined).eq("archived", false)).first());
 		const page = [];
 		// Pages kept from them are left out; a page can come back short.
 		for (const p of result.page) {
 			const level = await reach(p);
-			if (level) page.push({ ...pageRow(p, member, level), hasChildren: await hasChildren(p) });
+			if (level) page.push({ ...pageRow(p, member, level), hasChildren: await hasChildren(ctx, p) });
 		}
 		return { ...result, page };
 	},
 });
 
-/** Standalone pages whose titles match, with their ancestors' titles: the Move dialog's search. At most 20. */
+/**
+ * Pages whose titles match, with their ancestors' titles, then records' pages whose records match (path: their
+ * database): the Move dialog's search. At most 20 pages and 5 records.
+ */
 export const search = query({
 	args: { query: v.string() },
 	handler: async (ctx, { query: text }) => {
@@ -152,6 +163,7 @@ export const search = query({
 		// Record bodies can't be filtered out by the index, so walk hits until enough standalone, live pages are found.
 		const state = pageStates(ctx);
 		const reach = pageReach(ctx, member);
+		const titleOf = memo(async (recordId: Id<"records">) => (await ctx.db.get(recordId))?.title ?? "");
 		const rows = [];
 		let read = 0;
 		for await (const p of ctx.db.query("pages").withSearchIndex("search_title", (q) => q.search("title", text).eq("workspaceId", member.workspaceId).eq("archived", false))) {
@@ -160,9 +172,18 @@ export const search = query({
 			if (!level) continue;
 			const { archived, ancestors } = await state(p);
 			const path = [];
-			for (const a of ancestors.slice().reverse()) if (await reach(a)) path.push(a.title);
+			for (const a of ancestors.slice().reverse()) if (await reach(a)) path.push(a.recordId ? await titleOf(a.recordId) : a.title);
 			if (!archived) rows.push({ ...pageRow(p, member, level, !ancestors[0] || !!(await reach(ancestors[0]))), path });
 			if (rows.length === 20) break;
+		}
+		// A record's page is a place too, once it has one (opening the record makes it).
+		const types = new Map<Id<"recordTypes">, string>();
+		for (const { record } of (await searchRecords(ctx, member, text, { limit: 5 })).items) {
+			const body = await pageOfRecord(ctx, member.workspaceId, record._id);
+			const level = body && (await reach(body));
+			if (!body || !level) continue;
+			if (!types.has(record.typeId)) types.set(record.typeId, (await ctx.db.get(record.typeId))?.plural ?? "");
+			rows.push({ ...pageRow(body, member, level), title: record.title, path: [types.get(record.typeId)!] });
 		}
 		return rows;
 	},
@@ -244,9 +265,9 @@ export const addImage = mutation({
 });
 
 /**
- * Who can access a standalone page and the sub-pages that follow it: Everyone or roles, each at View or
- * Edit, or `null` to follow its parent's again. People with `pages.edit` and Edit in it choose. A
- * record's page follows its database.
+ * Who can access a standalone page or folder and the sub-pages, folders and files that follow it: Everyone or
+ * roles, each at View or Edit, or `null` to follow its parent's again. People with `pages.edit` and Edit in
+ * it choose. A record's page follows its database.
  */
 export const setAccess = mutation({
 	args: { pageId: v.id("pages"), access: v.union(accessArg, v.null()) },
@@ -257,6 +278,7 @@ export const setAccess = mutation({
 		await requireEditable(ctx, member, page);
 		const next = access ? await savedAccess(ctx, member, access) : undefined;
 		const inherited = page.parentId ? (await pageState(ctx, (await ctx.db.get(page.parentId))!)).access : undefined;
+		requireKeepsEdit(member, "page", next ?? inherited);
 		// A child following this list can retain facts from another source too. Check before widening.
 		const queue = [page];
 		let scanned = 0;
@@ -267,6 +289,11 @@ export const setAccess = mutation({
 			scanned += children.length;
 			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");
 			queue.push(...children.filter((p) => !p.access));
+			if (kindOf(row) !== "folder") continue;
+			const files = await ctx.db.query("driveFiles").withIndex("by_parent", (q) => q.eq("workspaceId", member.workspaceId).eq("parentId", row._id)).take(AUDIENCE_SCAN_MAX - scanned + 1);
+			scanned += files.length;
+			if (scanned > AUDIENCE_SCAN_MAX) throw new ConvexError("Change access on smaller branches first.");
+			for (const f of files) if (!f.access) await changeAccessSources(ctx, member, f, { access: next ?? inherited });
 		}
 		await ctx.db.patch(page._id, { access: next });
 	},

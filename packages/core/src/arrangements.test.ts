@@ -8,8 +8,6 @@ it("defines scope and entity ownership once and translates local keys only for m
 	expect(arrangementLists.views.entity).toBe("recordTypes");
 	expect(arrangementLists.pages.entity).toBe("pages");
 	expect(legacyArrangement("sidebar.pages:ws:parent")).toEqual({ list: "pages", workspaceId: "ws", entityId: "parent" });
-	expect(legacyArrangement("records.columns.job")).toEqual({ list: "columns", databaseKey: "job" });
-	expect(legacyArrangement("records.layout.job")).toEqual({ list: "layout", databaseKey: "job" });
 	expect(legacyArrangement("rail.pins:ws")).toEqual({ list: "pins", workspaceId: "ws" });
-	for (const key of ["sidebar.width", "sidebar.hidden", "draft:w", "unknown"]) expect(legacyArrangement(key)).toBeUndefined();
+	for (const key of ["records.columns.job", "records.layout.job", "sidebar.width", "sidebar.hidden", "draft:w", "unknown"]) expect(legacyArrangement(key)).toBeUndefined();
 });

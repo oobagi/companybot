@@ -1,6 +1,6 @@
 import { type PaginationResult, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./functions";
 import { canSee } from "./chatOps";
 import { emptyPage, getMember, nameOf, requireMember } from "./lib";
@@ -9,6 +9,7 @@ import {
 	createRecord,
 	fieldsOf,
 	inTrash,
+	moveRecord,
 	resolveRefs,
 	typeVisible,
 	fieldsShown,
@@ -17,6 +18,7 @@ import {
 	updateRecord,
 } from "./recordOps";
 import { activityAs, historyAs, linkingRecords, listRecords, searchRecords } from "./recordReads";
+import { recordTags } from "./recordTags";
 import { condition, recordGroup, recordSort } from "./recordValidators";
 import { canReadReply } from "./replyPrivacy";
 import { trashInfo } from "./trashOps";
@@ -32,7 +34,7 @@ type Row = Awaited<ReturnType<typeof toRows>>[number];
  * of: `eq`, `in` (any of: choice, person and link fields), a range (`gt`/`gte`/`lt`/`lte`:
  * number, amount and date fields), or `empty`. Fields holding several values take `eq`,
  * `in` and `empty`. `sort` by "createdAt", "updatedAt" or a field (records without a value
- * for it aren't listed). Without a sort it's newest first, unless the only usable filters
+ * for it come last, newest first). Without a sort it's newest first, unless the only usable filters
  * are ranges, which list in that field's order. A page can come back short with
  * `isDone: false` when a rare combination takes more than one request's reading budget:
  * ask for the next page. See wiki/data.md.
@@ -43,15 +45,17 @@ export const list = query({
 		filters: v.optional(v.array(condition)),
 		/** A board column: the view's filters stay within their limit. */
 		group: v.optional(recordGroup),
+		/** Words to find in the title or text values, on top of the filters (recordQuery.findRecords). */
+		search: v.optional(v.string()),
 		sort: v.optional(recordSort),
 		paginationOpts: paginationOptsValidator,
 	},
-	handler: async (ctx, { typeId, filters = [], group, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
+	handler: async (ctx, { typeId, filters = [], group, search, sort, paginationOpts }): Promise<PaginationResult<Row>> => {
 		const member = await getMember(ctx);
 		const type = member && (await ctx.db.get(typeId));
 		if (!member || type?.workspaceId !== member.workspaceId || type.archived || !reach(member, type.access)) return emptyPage();
 		const fields = await fieldsOf(ctx, typeId);
-		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, sort, paginationOpts });
+		const result = await listRecords(ctx, member.workspaceId, { typeId, fields }, { archived: false, conditions: filters, group, search, sort, paginationOpts });
 		return { ...result, page: await toRows(ctx, member, result.page.map((record) => ({ record, fields }))) };
 	},
 });
@@ -117,7 +121,7 @@ export const linked = query({
 	},
 });
 
-/** Live records whose title or text matches, best first, as list rows. Optionally one type. */
+/** Live records whose title or text matches, best first, as list rows: the top 20, for a picker. Optionally one type. A table's search is `list`'s `search`. */
 export const search = query({
 	args: { query: v.string(), typeId: v.optional(v.id("recordTypes")) },
 	handler: async (ctx, { query: text, typeId }): Promise<Row[]> => {
@@ -126,6 +130,27 @@ export const search = query({
 		return toRows(ctx, member, (await searchRecords(ctx, member, text, { typeId, limit: 20 })).items);
 	},
 });
+
+/**
+ * Records to tag in a message (the composer's @ menu): live ones whose title or text matches, across the
+ * databases you can see, best first. A few, for a menu; the search index does the work.
+ */
+export const mentionable = query({
+	args: { query: v.string() },
+	handler: async (ctx, { query: text }) => {
+		const member = await getMember(ctx);
+		if (!member || !text.trim()) return [];
+		const types = new Map<Id<"recordTypes">, Doc<"recordTypes"> | null>();
+		const out = [];
+		for (const { record } of (await searchRecords(ctx, member, text.slice(0, 100), { limit: MENTIONABLE_MAX })).items) {
+			if (!types.has(record.typeId)) types.set(record.typeId, await ctx.db.get(record.typeId));
+			const type = types.get(record.typeId);
+			if (type) out.push({ _id: record._id, title: record.title, typeKey: type.key, typeName: type.plural });
+		}
+		return out;
+	},
+});
+const MENTIONABLE_MAX = 6;
 
 /** A record's history, newest first. */
 export const history = query({
@@ -171,6 +196,7 @@ export const discussion = query({
 			.withIndex("by_record", (q) => q.eq("recordId", recordId))
 			.order("desc")
 			.take(50);
+		const tags = recordTags(ctx, member);
 		const out = [];
 		for (const m of mentions) {
 			const message = await ctx.db.get(m.messageId);
@@ -179,7 +205,9 @@ export const discussion = query({
 			const author = message.authorUserId
 				? await nameOf(ctx, message.authorUserId)
 				: ((message.authorAgentId && (await ctx.db.get(message.authorAgentId))?.name) ?? "");
-			out.push({ messageId: message._id, chatId: chat._id, threadId: message.threadId ?? null, text: message.text, author, time: message._creationTime });
+			// Where it was said, in a word: the channel, a side chat's title, else a DM.
+			const where = chat.kind === "channel" ? `#${chat.name}` : chat.title || "Direct message";
+			out.push({ messageId: message._id, chatId: chat._id, threadId: message.threadId ?? null, text: (await tags.forPeople(message.text)).text, author, where, time: message._creationTime });
 		}
 		return out;
 	},
@@ -188,9 +216,10 @@ export const discussion = query({
 // Field keys → values. Each value is checked against its field (core's normalizeValue); null clears.
 const values = v.record(v.string(), v.any());
 
+/** `last`: at the end of the manual order (a board column's New row); otherwise first, as the newest. */
 export const create = mutation({
-	args: { typeId: v.id("recordTypes"), values },
-	handler: async (ctx, { typeId, values }) => (await createRecord(ctx, { member: await requireMember(ctx) }, typeId, values)).id,
+	args: { typeId: v.id("recordTypes"), values, last: v.optional(v.boolean()) },
+	handler: async (ctx, { typeId, values, last }) => (await createRecord(ctx, { member: await requireMember(ctx) }, typeId, values, last)).id,
 });
 
 /** Changes only the fields given. */
@@ -198,6 +227,18 @@ export const update = mutation({
 	args: { recordId: v.id("records"), values },
 	handler: async (ctx, { recordId, values }) => {
 		await updateRecord(ctx, { member: await requireMember(ctx) }, recordId, values);
+	},
+});
+
+/**
+ * Drops a record between two others in its database's manual order (either left out: first or last), like
+ * dragging a card on a board; `values` change too when it lands in another column. Boards without a sort list
+ * in this order (`list`'s `sort: { field: "manualOrder" }`).
+ */
+export const move = mutation({
+	args: { recordId: v.id("records"), after: v.optional(v.id("records")), before: v.optional(v.id("records")), values: v.optional(values) },
+	handler: async (ctx, { recordId, ...to }) => {
+		await moveRecord(ctx, { member: await requireMember(ctx) }, recordId, to);
 	},
 });
 

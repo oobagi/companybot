@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { HistoryIcon } from "../../icons";
-import { compactControlClass, hintClass, metadataClass } from "../../ui";
+import { compactControlClass, emojiTabButton, hintClass, metadataClass, skinToneButton, tileButton } from "../../ui";
 import { type Emoji, type EmojiIndex, groupIcons, groups, loadEmoji, loadedEmoji, recentEmoji, rememberEmoji, saveTone, savedTone, searchEmoji, withTone } from "./emoji";
 
 const tones = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
-const cell = "flex size-8 items-center justify-center rounded-lg text-xl hover:bg-neutral-100";
-const tab = "flex size-7 items-center justify-center rounded-lg text-base hover:bg-neutral-100";
 
 /**
- * The full emoji picker: search, categories, recents and a skin tone, all on this computer.
- * It fills whatever panel holds it (a `Popover`); `onPick` gets the emoji to put in.
+ * The emoji picker, the one everywhere: search, categories, recents and a skin tone, all on this computer.
+ * It fills whatever panel holds it (a `Popover`); `onPick` gets the emoji to put in. With `search`, it's
+ * driven by text typed elsewhere (`:smi` in a message or a page; `menuEmoji` lists what it shows), so it has
+ * no box, and `selected` is the emoji the arrow keys are on, lit and named in the footer, which Enter takes.
  */
-export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
+export function EmojiPanel({ onPick, search, selected }: { onPick: (emoji: string) => void; search?: string; selected?: string }) {
 	const [index, setIndex] = useState<EmojiIndex | undefined>(loadedEmoji);
 	const [failed, setFailed] = useState(false);
-	const [query, setQuery] = useState("");
+	const [typed, setTyped] = useState("");
+	const query = search ?? typed;
 	const [tone, setTone] = useState(() => savedTone(localStorage));
 	const [recent, setRecent] = useState(() => recentEmoji(localStorage));
 	const [hover, setHover] = useState<Emoji>();
@@ -30,18 +31,23 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 	};
 	const results = index ? searchEmoji(index, query) : [];
 	const jump = (id: string) => scroller.current?.querySelector(`[data-section="${id}"]`)?.scrollIntoView({ block: "start" });
-	const button = (e: Emoji) => (
-		<button type="button" key={e.char} title={e.name} onClick={() => pick(withTone(e, tone))} onMouseEnter={() => setHover(e)} className={cell}>
-			{withTone(e, tone)}
+	useEffect(() => {
+		scroller.current?.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
+	}, [selected]);
+	const lit = selected ? index?.emoji.find((e) => e.char === selected || e.tones.includes(selected)) : undefined;
+	const tile = (char: string, e: Emoji | undefined, onPickChar: () => void) => (
+		<button type="button" key={char} title={e?.name} aria-selected={char === selected || undefined} onClick={onPickChar} onMouseEnter={() => setHover(e)} className={`${tileButton} text-xl aria-selected:bg-neutral-100`}>
+			{char}
 		</button>
 	);
+	const button = (e: Emoji) => tile(withTone(e, tone), e, () => pick(withTone(e, tone)));
 
 	return (
 		<div className="flex w-80 flex-col gap-2 p-2">
-			<input
+			{search === undefined && <input
 				autoFocus
 				value={query}
-				onChange={(e) => setQuery(e.target.value)}
+				onChange={(e) => setTyped(e.target.value)}
 				onKeyDown={(e) => {
 					if (e.key !== "Enter") return;
 					e.preventDefault();
@@ -50,27 +56,27 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 				placeholder="Search emoji"
 				aria-label="Search emoji"
 				className={`w-full ${compactControlClass}`}
-			/>
+			/>}
 			{!query && (
 				<div className="flex justify-between">
 					{recent.length > 0 && (
-						<button type="button" title="Recent" aria-label="Recent" onClick={() => jump("recent")} className={`${tab} text-neutral-500`}>
+						<button type="button" title="Recent" aria-label="Recent" onClick={() => jump("recent")} className={`${emojiTabButton} text-neutral-500`}>
 							<HistoryIcon />
 						</button>
 					)}
 					{groupIcons.map((icon, i) => (
-						<button type="button" key={icon} title={groups[i]} aria-label={groups[i]} onClick={() => jump(String(i))} className={tab}>
+						<button type="button" key={icon} title={groups[i]} aria-label={groups[i]} onClick={() => jump(String(i))} className={emojiTabButton}>
 							{icon}
 						</button>
 					))}
 				</div>
 			)}
-			<div ref={scroller} className="h-64 overflow-y-auto">
+			<div ref={scroller} className="max-h-64 overflow-y-auto">
 				{failed ? (
 					<p className={`p-2 ${hintClass}`}>Couldn't load emoji.</p>
 				) : !index ? null : query ? (
 					results.length > 0 ? (
-						<div className="flex flex-wrap">{results.map(button)}</div>
+						<div className="grid grid-cols-9">{results.map(button)}</div>
 					) : (
 						<p className={`p-2 ${hintClass}`}>No emoji found.</p>
 					)
@@ -78,27 +84,21 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 					<>
 						{recent.length > 0 && (
 							<section data-section="recent">
-								<h3 className={`px-1 py-1 ${metadataClass}`}>Recent</h3>
-								<div className="flex flex-wrap">
-									{recent.map((char) => (
-										<button type="button" key={char} onClick={() => pick(char)} onMouseEnter={() => setHover(index.emoji.find((e) => e.char === char || e.tones.includes(char)))} className={cell}>
-											{char}
-										</button>
-									))}
-								</div>
+								<p className={`px-1 py-1 ${metadataClass}`}>Recent</p>
+								<div className="grid grid-cols-9">{recent.map((char) => tile(char, index.emoji.find((e) => e.char === char || e.tones.includes(char)), () => pick(char)))}</div>
 							</section>
 						)}
 						{groups.map((name, i) => (
 							<section key={name} data-section={i}>
-								<h3 className={`px-1 py-1 ${metadataClass}`}>{name}</h3>
-								<div className="flex flex-wrap">{index.emoji.filter((e) => e.group === i).map(button)}</div>
+								<p className={`px-1 py-1 ${metadataClass}`}>{name}</p>
+								<div className="grid grid-cols-9">{index.emoji.filter((e) => e.group === i).map(button)}</div>
 							</section>
 						))}
 					</>
 				)}
 			</div>
 			<div className="flex h-8 items-center justify-between gap-2 border-t border-neutral-100 pt-2">
-				<span className={`min-w-0 truncate ${metadataClass}`}>{hover ? `${hover.char} ${hover.shortcodes[0] ? `:${hover.shortcodes[0]}:` : hover.name}` : "Skin tone"}</span>
+				<span className={`min-w-0 truncate ${metadataClass}`}>{(() => { const e = hover ?? lit; return e ? `${e.char} ${e.shortcodes[0] ? `:${e.shortcodes[0]}:` : e.name}` : "Skin tone"; })()}</span>
 				<span className="flex shrink-0">
 					{tones.map((char, i) => (
 						<button
@@ -108,7 +108,7 @@ export function EmojiPanel({ onPick }: { onPick: (emoji: string) => void }) {
 							aria-label={i === 0 ? "Default skin tone" : `Skin tone ${i}`}
 							aria-pressed={i === tone}
 							onClick={() => (setTone(i), saveTone(localStorage, i))}
-							className={`flex size-6 items-center justify-center rounded-md text-sm ${i === tone ? "bg-neutral-200" : "hover:bg-neutral-100"}`}
+							className={skinToneButton}
 						>
 							{char}
 						</button>

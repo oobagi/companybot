@@ -13,7 +13,7 @@ export function splitPin(value: string): { kind: PinKind; id: string } | undefin
 export function savedKeys(rows: readonly Arrangement[]) {
   const ids = (list: Arrangement['list']) => [...new Set(rows.find(row => row.list === list)?.ids ?? [])].filter((id): id is PinKey => !!splitPin(id));
   const pins = ids('pins');
-  const order = ids('pinsOrder');
+  const order = ids('rail');
   const pinned = new Set(pins);
   const orderedKeys = new Set(order);
   const ordered = [...order.filter(key => pinned.has(key)), ...pins.filter(key => !orderedKeys.has(key))];

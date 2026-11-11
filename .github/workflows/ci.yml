@@ -16,6 +16,7 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
       - run: pnpm test:scale
       - run: pnpm --filter @companybot/mobile check:dependencies

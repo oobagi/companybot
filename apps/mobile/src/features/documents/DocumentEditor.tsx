@@ -1,13 +1,12 @@
 import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { imageError, imageHeadBytes, imageMaxBytes, imageTypes } from '@companybot/core/images';
-import { linkedPageId } from '@companybot/core/page-links';
+import { openContentLink } from '@/features/chat/links';
 import { useAuthToken } from '@convex-dev/auth/react';
 import { useConvex, useConvexConnectionState, useQuery as useRawQuery } from 'convex/react';
 import { fetch as expoFetch } from 'expo/fetch';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import * as Linking from 'expo-linking';
-import { router, usePreventRemove } from 'expo-router';
+import { usePreventRemove } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, Platform, useWindowDimensions, View } from 'react-native';
 import { EmptyState, ErrorState, Loading } from '@/components/ui';
@@ -142,9 +141,7 @@ function ConnectedEditor({ pageId, editable, standalone }: { pageId: Id<'pages'>
         if (message) setError(message);
       }}
       onOpenLink={async (href) => {
-        const id = linkedPageId(href);
-        if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } });
-        else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href).catch((e: unknown) => setError(errorMessage(e)));
+        await openContentLink(href).catch((e: unknown) => setError(errorMessage(e)));
       }}
       dom={{ style: { flex: 1, minHeight: 0 }, hideKeyboardAccessoryView: true, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} />
     {editable && <ContentToolbar accessibilityLabel="Document editing" status={upload.busy ? 'Uploading image…' : image ? 'Adding image…' : dirty ? 'Saving changes…' : undefined} busy={!editorReady || imageBusy || actions.busy} actions={[
@@ -173,6 +170,6 @@ export function VersionDocument({ content, identity }: { content: string; identi
     getSteps={async () => ({ steps: [], clientIds: [], version: 1 })} submitSteps={async () => { throw new Error('History is read only.'); }}
     onReferences={async ids => setReferenceIds(ids)} onStatus={async () => {}} onRemovePages={async () => false}
     onImageResult={async () => {}}
-    onOpenLink={async (href) => { const id = linkedPageId(href); if (id) router.push({ pathname: '/pages/[pageId]', params: { pageId: id } }); else if (/^(https?:|mailto:|tel:)/i.test(href)) await Linking.openURL(href); }}
+    onOpenLink={openContentLink}
     dom={{ style: { flex: 1, minHeight: 0 }, hideKeyboardAccessoryView: true, scrollEnabled: true, contentInsetAdjustmentBehavior: 'never', automaticallyAdjustContentInsets: false }} /></View>;
 }

@@ -4,10 +4,10 @@ import { api } from "../api";
 import { useMutation, useQuery, useWorkspace } from "../convex";
 import { CheckIcon, PlusIcon, SettingsIcon, SignOutIcon } from "../icons";
 import { navigate } from "../router";
-import { shortcutLabel, useJump } from "../shortcuts";
+import { blurActiveEditable, shortcutLabel, useJump } from "../shortcuts";
 import { useSortable } from "../sortable";
-import { Field, Form, MenuDivider, Notice, inputClass, primaryButton, useRun } from "../ui";
-import { Avatar, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
+import { CountBadge, Form, MenuDivider, Notice, compactButton, compactPrimaryButton, primaryButton, rowButton, secondaryButton, useRun, fullControlClass } from "../ui";
+import { Avatar, DialogButtons, MenuItem, Modal, Popover, useConfirm } from "./chat/common";
 
 const none: never[] = [];
 const workspaceKey = (w: { id: string }) => w.id;
@@ -16,9 +16,7 @@ const workspaceKey = (w: { id: string }) => w.id;
 /** A red count of chats with an unread @mention or DM. */
 function Mentions({ count }: { count: number }) {
 	return (
-		<span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white">
-			{count > 9 ? "9+" : count}
-		</span>
+		<CountBadge count={count} />
 	);
 }
 
@@ -60,8 +58,9 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 	// ⌃⌘1–9 (Ctrl+Shift+1–9 off a Mac): ⌘1–9 are the rail's tabs.
 	useJump("workspace", (n) => {
 		const w = workspaces[n - 1];
-		if (!w) return false;
-		if (w.id !== current?.id) goTo(w.id);
+		if (!w || w.id === current?.id) return false;
+		blurActiveEditable();
+		goTo(w.id);
 	});
 
 	const others = activity?.filter((a) => a.id !== current?.id) ?? [];
@@ -101,7 +100,7 @@ export function WorkspaceSwitcher({ name, onSettings }: { name: string; onSettin
 										aria-current={active}
 										aria-label={waiting?.mentions ? `${w.name}, ${waiting.mentions} unread mentions` : w.name}
 										onClick={() => (close(), !active && goTo(w.id))}
-										className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-neutral-100"
+										className={`${rowButton} items-center gap-2`}
 									>
 										<Slot>
 											<Avatar name={w.name} image={w.image} agent size="row" className="pointer-events-none" />
@@ -159,7 +158,7 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 		<div className="flex flex-col gap-1 rounded-lg px-2 py-1.5">
 			<div className="flex items-center gap-2">
 				<Slot>
-					<span className="flex size-[22px] items-center justify-center rounded-md border border-dashed border-neutral-300 text-[10px] font-medium">
+					<span className="flex size-[22px] items-center justify-center rounded-md border border-dashed border-neutral-300 text-xs font-medium">
 						{invite.workspace.slice(0, 1).toUpperCase()}
 					</span>
 				</Slot>
@@ -169,11 +168,11 @@ function Invite({ invite, onJoined }: { invite: Invitation; onJoined: (id: Id<"w
 				</span>
 				{dot}
 			</div>
-			<div className="flex gap-3 pl-[30px] text-xs font-medium">
-				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className="text-sky-800 hover:underline">
+			<div className="flex gap-2 pl-7.5">
+				<button type="button" onClick={() => run(accept({ id: invite.id }).then(onJoined))} className={compactPrimaryButton}>
 					Join
 				</button>
-				<button type="button" onClick={() => run(decline({ id: invite.id }))} className="text-neutral-500 hover:underline">
+				<button type="button" onClick={() => run(decline({ id: invite.id }))} className={compactButton}>
 					Decline
 				</button>
 			</div>
@@ -191,7 +190,7 @@ function NewWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: 
 	// `busy` only stops it once React has re-rendered.
 	const sending = useRef(false);
 	return (
-		<Modal title="New workspace" onClose={onClose}>
+		<Modal title="New workspace" size="md" onClose={onClose}>
 			<Form
 				onSubmit={() => {
 					if (sending.current || !name.trim()) return;
@@ -200,12 +199,15 @@ function NewWorkspace({ onClose, onCreated }: { onClose: () => void; onCreated: 
 				}}
 			>
 				<Notice>{error}</Notice>
-				<Field label="Name">
-					<input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-				</Field>
-				<button type="submit" disabled={!name.trim() || busy} className={`${primaryButton} self-start`}>
-					Create workspace
-				</button>
+				<input autoFocus aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Workspace name" className={fullControlClass} />
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="submit" disabled={!name.trim() || busy} className={primaryButton}>
+						Create workspace
+					</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);

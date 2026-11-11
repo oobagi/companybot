@@ -15,7 +15,7 @@ export function TabStack({ title }: { title: string }) {
     // material once content scrolls beneath the compact navigation bar.
     headerBlurEffect: Platform.OS === 'ios' && Number(Platform.Version) < 26 ? 'systemChromeMaterial' : undefined,
     scrollEdgeEffects: { top: 'automatic' },
-    headerTintColor: colors.link,
+    headerTintColor: colors.text,
     headerTitleStyle: { color: colors.text },
     headerLargeTitleStyle: { color: colors.text },
     headerShadowVisible: false,

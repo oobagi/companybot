@@ -9,7 +9,7 @@ export function NativeButton({ label, variant = 'primary', loading = false, disa
   const inactive = !!isDisabled || loading;
   // SwiftUI replaces the prominent fill while disabled; its content must no longer
   // use the white foreground intended for an active blue button.
-  const color = inactive ? colors.muted : variant === 'primary' ? colors.onPrimary : variant === 'danger' ? colors.danger : variant === 'ghost' ? colors.link : colors.text;
+  const color = inactive ? colors.muted : variant === 'primary' ? colors.onPrimary : variant === 'danger' ? colors.danger : colors.text;
   return <Host matchContents colorScheme={dark ? 'dark' : 'light'} ignoreSafeArea="all" style={[{ flexShrink: 1, minHeight: sizes.touch, maxWidth: '100%' }, style]}>
     <Button onPress={inactive ? undefined : onPress} role={variant === 'danger' ? 'destructive' : 'default'} testID={testID} modifiers={[
       buttonStyle(variant === 'primary' ? 'borderedProminent' : variant === 'ghost' ? 'plain' : 'bordered'),

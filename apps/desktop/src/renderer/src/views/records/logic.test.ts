@@ -1,6 +1,6 @@
 import type { Field } from "@companybot/core/records";
 import { describe, expect, it } from "vitest";
-import { defaultColumns, fromConditions, moneyInput, opsFor, recordPath, sortable, toCondition, valueText, whoLabel } from "./logic";
+import { defaultColumns, filterFits, fromConditions, refitFilter, moneyInput, opsFor, recordPath, sortable, toCondition, valueText, whoLabel } from "./logic";
 
 const field = (kind: Field["kind"], extra: Partial<Field> = {}): Field => ({ key: kind, label: kind, kind, ...extra });
 const stage = field("choice", {
@@ -20,6 +20,28 @@ describe("record screens", () => {
 	it("shows the name and the next few live fields by default", () => {
 		const fields = ["name", "a", "b", "c", "d", "e"].map((key) => ({ ...field("text"), key, _id: key, archived: key === "b" }));
 		expect(defaultColumns(fields)).toEqual(["name", "a", "c", "d", "e"]);
+	});
+
+	it("drops a filter that no longer fits a field that changed, and keeps new ones still empty", () => {
+		expect(filterFits({ field: "x", op: "gte", value: "5" }, field("text"))).toBe(false);
+		expect(filterFits({ field: "x", op: "anyOf", value: ["gone"] }, stage)).toBe(false);
+		expect(filterFits({ field: "x", op: "is", value: "nope" }, field("choice", { options: [] }))).toBe(false);
+		expect(filterFits({ field: "x", op: "gte", value: "5" }, field("number"))).toBe(true);
+		expect(filterFits({ field: "x", op: "anyOf", value: [] }, stage)).toBe(true);
+		expect(filterFits({ field: "x", op: "anyOf", value: "" }, stage)).toBe(true);
+	});
+
+	it("waits to filter until a typed value is one", () => {
+		expect(toCondition({ field: "x", op: "gte", value: "-" }, "number")).toBeNull();
+		expect(toCondition({ field: "x", op: "gte", value: "soon" }, "currency")).toBeNull();
+		expect(toCondition({ field: "x", op: "gte", value: "-5" }, "number")).toEqual({ field: "x", gte: "-5" });
+	});
+
+	it("turns a text filter into the choice option with its label", () => {
+		const choice = field("choice", { options: [{ id: "o1", label: "Test" }] });
+		expect(refitFilter({ field: "x", op: "is", value: "test" }, choice)).toEqual({ field: "x", op: "anyOf", value: ["o1"] });
+		expect(refitFilter({ field: "x", op: "is", value: "nope" }, choice)).toBeUndefined();
+		expect(refitFilter({ field: "x", op: "is", value: "test" }, field("text"))).toBeUndefined();
 	});
 
 	it("offers the operators records.list takes for each kind", () => {
@@ -44,7 +66,7 @@ describe("record screens", () => {
 		const conditions = [{ field: "number", gte: 0, lt: 10 }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }];
 		const filters = fromConditions(conditions);
 		expect(filters).toHaveLength(4);
-		expect(filters.map(toCondition)).toEqual([{ field: "number", gte: "0" }, { field: "number", lt: "10" }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }]);
+		expect(filters.map((f) => toCondition(f))).toEqual([{ field: "number", gte: "0" }, { field: "number", lt: "10" }, { field: "choice", in: ["won"] }, { field: "owner", empty: true }]);
 		const fields = [{ ...stage, _id: "stage" }];
 		expect(fromConditions([{ field: "choice", eq: "won" }], fields)).toEqual([{ field: "choice", op: "anyOf", value: ["won"] }]);
 		expect(fromConditions([{ field: "checkbox", empty: false }], [{ ...field("checkbox"), _id: "c" }])).toEqual([{ field: "checkbox", op: "checked", value: "" }]);

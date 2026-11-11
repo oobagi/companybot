@@ -18,7 +18,7 @@ export interface AccessEntry {
 	level: AccessLevel;
 }
 
-export type PlaceKind = "channel" | "database" | "page";
+export type PlaceKind = "channel" | "database" | "page" | "folder" | "file";
 
 /** What no list means: anyone in the workspace can view and change it. */
 export const OPEN_ACCESS: readonly AccessEntry[] = [{ role: EVERYONE, level: "edit" }];
@@ -59,6 +59,8 @@ const verbs: Record<PlaceKind, Record<AccessLevel, string>> = {
 	channel: { view: "see", edit: "post in" },
 	database: { view: "see", edit: "change" },
 	page: { view: "see", edit: "edit" },
+	folder: { view: "see", edit: "change" },
+	file: { view: "see", edit: "change" },
 };
 
 /**
@@ -67,6 +69,15 @@ const verbs: Record<PlaceKind, Record<AccessLevel, string>> = {
  */
 export const placeDeniedMessage = (kind: PlaceKind, name: string, list: readonly AccessEntry[] | undefined, roles: readonly RoleLike[], need: AccessLevel) =>
 	`Only ${whoCan(list, roles, need)} can ${verbs[kind][need]} ${name}.`;
+
+/**
+ * Whether saving `next` takes away the person's own Edit (Post) there. Only Owners may do that, since
+ * nobody else could undo it: a Member setting #general to View would lock the team out with them.
+ */
+export const losesOwnEdit = (who: Access, next: readonly AccessEntry[] | undefined) => !who.owner && !reaches(levelIn(who, next), "edit");
+
+/** The refusal (and the app's hint) for a change that `losesOwnEdit`. */
+export const ownEditMessage = (kind: PlaceKind) => `You'd lose ${kind === "channel" ? "Post" : "edit"} access. Ask an Owner.`;
 
 /**
  * A list as saved: roles in the workspace (`roleIds`) or Everyone, each once, at most one level each.

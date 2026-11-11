@@ -1,6 +1,6 @@
 # Mobile design system
 
-Start with the [component library contract](components.md). The development app exposes a Components gallery through the root toolbar menu; verify components there before composing screens. Neutral surfaces, native action hierarchy and blue actions carry over to mobile. Use semantic color roles rather than adding feature-specific palettes. System typography respects the device's text size; custom touch controls use 48-point targets; system controls retain their native sizing (at least 44 points on iOS). Layout uses `spacing`, `radii`, `sizes` and `typography` from `@/design`.
+Start with the [component library contract](components.md). The development app exposes a Components gallery through the root toolbar menu; verify components there before composing screens. Desktop’s neutral canvas, ink actions, restrained borders and Phosphor content icons carry over to mobile. Native headers, menus and tab bars keep platform rendering. Blue is reserved for content links. Use semantic color roles rather than adding feature-specific palettes. System typography respects the device's text size; custom touch controls use 48-point targets; system controls retain their native sizing (at least 44 points on iOS). Layout uses `spacing`, `radii`, `sizes` and `typography` from `@/design`.
 
 Wrap the app once in `ThemeProvider`. It follows system appearance unless passed `appearance="light" | "dark"`. `useTheme()` returns `{ colors, spacing, radii, sizes, typography, dark }`; use those values for specialized layouts and navigation chrome. Keep domain data and navigation out of this layer.
 
@@ -8,13 +8,13 @@ Import the following from `@/components/ui`:
 
 | Component | Props beyond native defaults |
 | --- | --- |
-| `Text` | Native Text props; `variant`: body (default), title, heading, label, caption; `tone`: default, muted, link, danger, inverse, success |
+| `Text` | Native Text props; `variant`: body (default), title, heading, label, supporting, caption; `tone`: default, muted, link, danger, inverse, success |
 | `Button` | `label`, `onPress`, `disabled`, `loading`, `leading`, `testID`, accessibility label/hint/state, static View `style`; `variant`: primary (default), secondary, ghost, danger. Only capabilities supported by all native adapters are exposed. |
 | `IconButton` | Native Pressable props; required accessible `label`, icon `children`; static View `style` |
 | `Screen` | `children`, `scroll=false`, `nativeScroll=false`, `keyboard=false`, `keyboardOffset` (defaults to navigator header height), `edges=['left','right','bottom']`, `padded=true`, `contentStyle`, outer `style` |
 | `ScreenList` | FlatList props except inset overrides; owns inset policy and measures its outer viewport for correctly centered empty content |
 | `Stack` | Native View props; `gap`: spacing key (default lg); `horizontal=false` |
-| `Card` | Native View props; padded grouped surface |
+| `Card` | Native View props; plain bordered content container |
 | `Section` | `title?`, `description?`, `action?` ReactNode, `children`, `style?` |
 | `Field` | Native TextInput props; required `label`, optional `error`, `hint` |
 | `ListRow` | `title`, `description?`, `value?`, `disclosure?`, `leading?`, `trailing?`, `onPress?`, `onLongPress?`, `selected?`, `disabled?`, `accessibilityLabel?`, `style?` |

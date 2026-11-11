@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 // screen before. Hash-based so it works from the packaged app's file:// page.
 
 /** The app's top-level screens, the first segment of a path. */
-export const views = ["chat", "records", "pages", "settings"] as const;
+export const views = ["home", "chat", "inbox", "records", "pages", "files", "drive", "databases", "sites", "settings"] as const;
 
 const read = () => window.location.hash.slice(1) || "/chat";
 

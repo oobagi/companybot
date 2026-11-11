@@ -14,7 +14,8 @@ export function DocumentSurface({ protectedWork = false, onReadyChange, ...props
   useEffect(() => { onReadyChange?.(startup.phase === 'ready'); }, [onReadyChange, startup.phase]);
   useEffect(() => {
     if (startup.phase !== 'opening') return;
-    const timer = setTimeout(() => dispatch({ type: 'failed', attempt: startup.attempt, error: 'The editor did not finish opening. Check your connection and try again.' }), 15_000);
+    // Metro compiles the DOM bundle on first use; packaged builds already have it.
+    const timer = setTimeout(() => dispatch({ type: 'failed', attempt: startup.attempt, error: 'The editor did not finish opening. Check your connection and try again.' }), __DEV__ ? 60_000 : 15_000);
     return () => clearTimeout(timer);
   }, [startup.attempt, startup.phase]);
   return <View style={{ flex: 1, minHeight: 0 }}>

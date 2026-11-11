@@ -1,3 +1,4 @@
+import { ensureSeatActivity } from "../convex/chatDiscovery";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -79,7 +80,7 @@ async function dump(t: T) {
 async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, memberId: Id<"users">) {
 	return t.run(async (ctx) => {
 		const mine: string[] = [];
-		mine.push(await ctx.db.insert("arrangements", { workspaceId, userId: memberId, list: "tabs", ids: ["chat"] }));
+		mine.push(await ctx.db.insert("arrangements", { workspaceId, userId: memberId, list: "rail", ids: ["chat"] }));
 		await ctx.db.insert("arrangements", { workspaceId, list: "channels", ids: [] });
 		const now = Date.now();
 		const config = { name: "Helper", description: "", instructions: "Help.", model: "anthropic/claude-haiku-5.5", tools: [] };
@@ -97,6 +98,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 
 		const connectorInstallId = await ctx.db.insert("connectorInstalls", { workspaceId, connectorId: "notes", roles: [await builtInRoleIn(ctx, workspaceId, "member")], installedBy: ownerId });
 		await ctx.db.insert("connectorSourceLabels", { workspaceId, installId: connectorInstallId, name: "Notes" });
+		await ctx.db.insert("customConnectors", { workspaceId, connectorId: "custom-tickets", name: "Tickets", description: "", url: "https://mcp.example.com/mcp", connection: "workspace", auth: { type: "none" }, createdBy: ownerId, updatedBy: ownerId, updatedAt: 0 });
 		const connection = { workspaceId, connectorId: "notes", credentials: "sealed" };
 		mine.push(await ctx.db.insert("connectorConnections", { ...connection, userId: memberId, connectedBy: memberId }));
 		await ctx.db.insert("connectorConnections", { ...connection, userId: ownerId, connectedBy: ownerId });
@@ -115,6 +117,9 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		mine.push(await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: memberId }));
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, agentId });
 		await ctx.db.insert("chatMembers", { chatId: dm, workspaceId, userId: memberId });
+		for (const seat of (await ctx.db.query("chatMembers").collect()).filter((r) => r.workspaceId === workspaceId)) await ensureSeatActivity(ctx, (await ctx.db.get(seat.chatId))!, seat);
+		await ctx.db.insert("chatActivity", { workspaceId, chatId: channel, lastMessageAt: now });
+		await ctx.db.insert("sidebarSections", { workspaceId, tab: "chat", name: "Board", ids: [channel] });
 		const message = { chatId: channel, workspaceId, parts: [], status: "done" as const };
 		const said = await ctx.db.insert("chatMessages", { ...message, authorUserId: memberId, text: "Hi", mentions: { userIds: [], agentIds: [] } });
 		const mention = await ctx.db.insert("chatMessages", { ...message, authorUserId: ownerId, text: "@member", mentions: { userIds: [memberId], agentIds: [] } });
@@ -166,11 +171,16 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("recordMentions", { recordId, messageId: said, chatId: channel });
 		const device = (await ctx.db.query("mobilePushDevices").collect()).find((row) => row.userId === memberId)!;
 		mine.push(await ctx.db.insert("mobilePushDeliveries", { deviceId: device._id, userId: memberId, sessionId: device.sessionId, token: device.token, workspaceId, chatId: channel, messageId: said, state: "done", attempts: 1, nextAttemptAt: now, expiresAt: now + 86_400_000 }));
+		const counts = { checked: 1, converted: 1, cleared: 0, partly: 0, examples: [] };
+		const changeId = await ctx.db.insert("fieldChanges", { workspaceId, typeId, fieldId, from: { kind: "text" }, to: { kind: "text" }, status: "done", doneThrough: now, counts, userId: memberId, updatedAt: now, keepUntil: now + 1 });
+		await ctx.db.insert("fieldChangeValues", { changeId, recordId, old: "roof", new: "Roof" });
 		mine.push(await ctx.db.insert("wakeups", { workspaceId, agentId, chatId: channel, actorId: memberId, createdBy: memberId, note: "Chase it", recordId, typeId, foreign: false, status: "pending", at: now + 60_000 }));
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
 		await ctx.db.insert("pageImages", { workspaceId, pageId, storageId: await ctx.storage.store(new Blob(["x"])), url: `https://x.convex.cloud/api/storage/${pageId}` });
 		await ctx.db.insert("pageMoves", { workspaceId, pageId, n: 1, userId: memberId, from: "Pages", to: "Wiki" });
+		const folderId = await ctx.db.insert("pages", { workspaceId, kind: "folder", title: "Contracts", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
+		await ctx.db.insert("driveFiles", { workspaceId, parentId: folderId, name: "msa.pdf", type: "application/pdf", size: 1, storageId: await ctx.storage.store(new Blob(["%PDF-"])), archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		const trashedId = await ctx.db.insert("records", { workspaceId, typeId, title: "Old", values: { name: "Old" }, searchText: "old", archived: true, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("trash", { workspaceId, kind: "record", itemId: trashedId, name: "Old", typeId, deletedBy: memberId, deletedAt: now });
 		return mine;
@@ -217,7 +227,7 @@ const memberRow = (t: T, workspaceId: Id<"workspaces">, userId: Id<"users">) =>
 const seatsIn = (rows: Awaited<ReturnType<typeof dump>>, workspaceId: string, userId: string) =>
 	[...rows.values()]
 		.filter(({ table, row }) => table === "chatMembers" && row.workspaceId === workspaceId && row.userId === userId && rows.get(row.chatId as string)!.row.kind === "channel")
-		.map(({ row }) => row._id);
+		.flatMap(({ row }) => [row._id, ...[...rows.values()].filter((entry) => entry.table === "seatActivity" && entry.row.seatId === row._id).map((entry) => entry.row._id)]);
 
 /** The chats these seats are in. */
 const seatChats = (rows: Awaited<ReturnType<typeof dump>>, seats: string[]) => new Set(seats.map((id) => rows.get(id)!.row.chatId as string));
@@ -454,7 +464,7 @@ describe("erasing an account", () => {
 
 		const theirs = new Set<string>([...mineIn[A]!, ...mineIn[B]!, ...seatsIn(before, A, m.userId), ...seatsIn(before, B, m.userId), leftBehind]);
 		for (const [id, { table, row }] of before) {
-			const own = row.userId === m.userId && ["members", "preferences", "lastWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads", "mobilePushDevices", "mobilePushLimits"].includes(table);
+			const own = row.userId === m.userId && ["members", "preferences", "lastWorkspaces", "authAccounts", "authSessions", "connectorOAuthFlows", "uploads", "mobilePushDevices", "mobilePushLimits", "seatActivity"].includes(table);
 			const email = (table === "authRateLimits" && row.identifier === "m@co.com") || (table === "localSignInCodes" && row.email === "m@co.com");
 			if (email) theirs.add(id);
 			const child = (table === "authVerificationCodes" && !after.has(row.accountId as string)) || (table === "authRefreshTokens" && sessions.has(row.sessionId as string));

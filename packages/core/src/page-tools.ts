@@ -12,11 +12,16 @@ export interface PageStore {
 export interface PageRead {
 	/** None for a record's body nobody has written in yet. */
 	id?: string;
+	/** A folder (no content; its contents are `subpages` and `files`), or a page. */
+	kind?: "page" | "folder";
 	title: string;
 	parentId?: string | null;
-	ancestors?: { id: string; title: string }[];
-	subpages?: { id: string; title: string }[];
+	ancestors?: { id: string; title: string; record?: string }[];
+	subpages?: { id: string; kind?: "page" | "folder"; title: string }[];
 	subpagesMore?: boolean;
+	/** A folder's files. */
+	files?: { id: string; name: string; type: string }[];
+	filesMore?: boolean;
 	record?: string;
 	markdown: string;
 	blocks?: string;
@@ -54,18 +59,19 @@ export const readInput = z.object({
 export type PageReadInput = z.infer<typeof readInput>;
 
 export const findInput = z.object({
-	parent: z.string().nullable().optional().describe("List direct sub-pages of this page id or exact title; null lists top-level pages. Rows include parentId, so page through every level to read the tree."),
+	parent: z.string().nullable().optional().describe("List what's directly in this page or folder (id or exact title), or in a record's page by the record's id; null lists the top level of Drive. Rows include parentId and kind (page or folder), so page through every level to read the tree."),
 	search: z.string().optional().describe("Words in the title. Leave out to list pages by title."),
-	trashed: z.boolean().optional().describe("Pages in Archive instead"),
+	trashed: z.boolean().optional().describe("Pages and folders in Archive instead"),
 	cursor: z.string().optional().describe("From a previous result with more: true"),
 });
 export type PageFindInput = z.infer<typeof findInput>;
 
 export const writeInput = z.object({
-	action: z.union([z.literal("write"), z.literal("move")]).optional().describe("write (default) creates or edits a page; move changes its parent and keeps content and descendants"),
-	parent: z.string().nullable().optional().describe("Parent page id (not its title) for creation or action move; null moves to the top level. Record bodies cannot be nested."),
+	action: z.union([z.literal("write"), z.literal("move")]).optional().describe("write (default) creates or edits a page or folder; move changes its parent and keeps content and descendants"),
+	parent: z.string().nullable().optional().describe("Parent page or folder id (not its title), or a record's id to put the page in that record's page, for creation or action move; null moves to the top level of Drive. Folders go in folders only; a record's own page can't move."),
 	...writeTarget,
-	title: z.string().optional().describe("A new page's title, or a new title for a page (not a record's body)"),
+	kind: z.literal("folder").optional().describe("Create a folder (title, optional parent) instead of a page: it holds pages, files and folders, and has no content"),
+	title: z.string().optional().describe("A new page's or folder's title, or a new title for a page or folder (not a record's body)"),
 	markdown: z.string().max(MARKDOWN_MAX).optional().describe("Content in Markdown: headings, lists, - [ ] to-dos, > quotes, ``` code, --- dividers, tables, and pictures from the chat as ![caption](<file id>), copied into the page"),
 	blocks: z.string().max(500_000).optional().describe("JSON array from pages_read format blocks, edited with properties intact. Use instead of markdown; append or replace."),
 	mode: z.enum(["replace", "append"]).optional().describe("replace: the page becomes `markdown`; append (default): `markdown` goes at the end"),
@@ -90,18 +96,24 @@ function pageBinds(input: PageWriteInput): Bound[] {
 function writeLabel(input: PageWriteInput, output: unknown) {
 	const title = text(output, "title");
 	if (text(output, "error") || !title) return;
-	if (input.action === "move") return `Move page ${title}`;
 	if (input.restore) return `Restore a version of ${title}`;
-	if (input.trash !== undefined) return `${input.trash ? "Archive" : "Restore"} page ${title}`;
-	if (!input.page && !input.record) return `Create page ${title}`;
-	return input.markdown === undefined ? `Update page ${title}` : `Write page ${title}`;
+	return `${writeAction(input, text(output, "kind") === "folder" ? "folder" : "page")} ${title}`;
+}
+
+/** "Archive page": what a write does, before anything names its page. A folder is known from `kind` on creation, else from the result. */
+function writeAction(input: PageWriteInput, kind: "page" | "folder" = input.kind ?? "page") {
+	if (input.action === "move") return `Move ${kind}`;
+	if (input.restore) return "Restore a page version";
+	if (input.trash !== undefined) return input.trash ? `Archive ${kind}` : `Restore ${kind}`;
+	if (!input.page && !input.record) return `Create ${kind}`;
+	return input.markdown === undefined ? `Update ${kind}` : `Write ${kind}`;
 }
 
 export const pageTools: ToolDef[] = [
 	defineTool({
 		id: "pages.find",
 		title: "Find pages",
-		description: "The workspace's pages (wiki, how-tos, meeting notes): by title, or matching words in the title. Records' page bodies aren't listed: find the record, then read it with `record`.",
+		description: "The workspace's pages (wiki, how-tos, meeting notes) and Drive's folders (kind folder): by title, or matching words in the title. Records' page bodies aren't listed: find the record, then read it with `record`, or list the pages inside it with `parent` set to the record's id. Files are files_find.",
 		input: findInput,
 		readOnly: true,
 		execute: (input, { pages }) => pages.find(input),
@@ -113,7 +125,7 @@ export const pageTools: ToolDef[] = [
 	defineTool({
 		id: "pages.read",
 		title: "Read a page",
-		description: `List full history (history with cursor), preview an old version (version), or read a page, or a record's page body, as Markdown, ${PAGE_READ_MAX.toLocaleString("en-US")} characters at a time (more: true and next when there's more: call again with start), plus its latest versions with ids \`restore\` takes.`,
+		description: `List full history (history with cursor), preview an old version (version), or read a page, or a record's page body, as Markdown, ${PAGE_READ_MAX.toLocaleString("en-US")} characters at a time (more: true and next when there's more: call again with start), plus its latest versions with ids \`restore\` takes. A folder reads as what's in it: subpages (pages and folders) and files.`,
 		input: readInput,
 		readOnly: true,
 		async execute({ start = 0, ...input }, { pages }) {
@@ -130,7 +142,7 @@ export const pageTools: ToolDef[] = [
 		id: "pages.write",
 		title: "Write a page",
 		description:
-			"Create a page (title, optional parent and markdown), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Name pages by id (pages_find gives them). Archiving waits for confirmation. Other writes run right away in the person's own chats and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
+			"Create a page (title, optional parent and markdown; parent can be a record's id, to put it in that record's page) or a folder (kind folder), move it (action move, page, parent; null for top level), add to a page or a record's page body (append), rewrite it (replace), rename it, delete it (to Archive) or restore it, or bring back an old version. Name pages by id (pages_find gives them). Archiving waits for confirmation. Other writes run right away in the person's own chats and are saved in the page's history as you acting for the person, so it can be restored. Read a page before replacing it.",
 		input: writeInput,
 		// Acting as the person, like records.save: runs in their own chats, asks in runs following someone
 		// else's words, and Never rules and owner locks reach it. Archiving always asks.
@@ -139,5 +151,7 @@ export const pageTools: ToolDef[] = [
 		binds: pageBinds,
 		execute: (input, { pages }) => pages.write(input),
 		label: writeLabel,
+		action: writeAction,
+		actionKeys: ["action", "trash"],
 	}),
 ];

@@ -34,7 +34,7 @@ export function SavedScreen() {
       ListHeaderComponent={error || task.error ? <ErrorState message={task.error ?? error!} /> : undefined}
       renderItem={({ item }) => {
         const index = pins.indexOf(item.key);
-        const move = (direction: -1 | 1) => void task.run(() => change({ list: 'pinsOrder', command: { op: 'move', id: item.key, beforeId: direction < 0 ? pins[index - 1] : pins[index + 2] ?? null, fill: pins } }));
+        const move = (direction: -1 | 1) => void task.run(() => change({ list: 'rail', command: { op: 'move', id: item.key, beforeId: direction < 0 ? pins[index - 1] : pins[index + 2] ?? null, fill: pins } }));
         return <Stack gap="xs">{item.section && <Text variant="label" tone="muted" style={{ paddingTop: spacing.md }}>{item.section}</Text>}<SavedRow entry={item} busy={task.busy} onUp={index > 0 ? () => move(-1) : undefined} onDown={index >= 0 && index < pins.length - 1 ? () => move(1) : undefined} /></Stack>;
       }}
       ListEmptyComponent={!loaded || loading ? <Loading label="Loading saved items…" /> : <EmptyState title={search.trim() ? 'No matches' : 'Nothing saved yet'} description={search.trim() ? 'Try another name or load more saved items.' : 'Pin a conversation, page, database or record from its menu. Items you open also appear here.'} />}

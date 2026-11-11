@@ -5,7 +5,7 @@ import { PAGE_DEPTH_MAX } from "../convex/pageTree";
 import { IDLE_MS, readDoc, writeBlocks } from "../convex/pageOps";
 import { memberOf } from "../convex/lib";
 
-import { agentTurn, agentsOf, generalOf, settle, ownerAndMember, signIn, identityOf } from "./helpers";
+import { agentTurn, agentsOf, generalOf, settle, ownerAndMember, oldChild, signIn, identityOf } from "./helpers";
 
 beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
@@ -43,10 +43,24 @@ describe("nested pages", () => {
 		expect((await owner.query(api.pages.history, { pageId: child, ...opts })).page).toEqual([]);
 	});
 
+	it("gives a sub-page an agent makes exactly one block in its parent, which the server alone adds", async () => {
+		const { t, owner } = await ownerAndMember();
+		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+		const { companybot } = await agentsOf(owner);
+		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, companybot._id);
+		const made = await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Agent notes", parent: root, markdown: "Hello" } });
+		const child = (made as { id: Id<"pages"> }).id;
+		const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.flatMap((b) => b.firstChild?.type.name === "page" ? [b.firstChild.attrs.pageId] : []));
+		expect(await blocks()).toEqual([child]);
+		// Adding it again (a move to the same parent, a retried call) never makes a second.
+		await owner.mutation(api.pages.move, { pageId: child, parentId: root });
+		expect(await blocks()).toEqual([child]);
+	});
+
 	it("lets slash creation place the block at the cursor instead of appending a second copy", async () => {
 		const { t, owner } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Wiki" });
-		const child = await owner.mutation(api.pages.create, { title: "Untitled", parentId: root, insertInParent: false });
+		const child = await oldChild(t, owner, "Untitled", root);
 		expect(await t.run(async (ctx) => (await readDoc(ctx, root)).textContent)).toBe("");
 		expect((await owner.query(api.pages.children, { parentId: root, ...opts })).page.map((p) => p._id)).toEqual([child]);
 		await t.run(async (ctx) => {
@@ -78,7 +92,7 @@ describe("nested pages", () => {
 		expect((await owner.query(api.pages.children, opts)).page).toEqual([expect.objectContaining({ _id: root, hasChildren: true })]);
 	});
 
-	it("rejects cycles, foreign parents, record bodies and moves after membership is revoked", async () => {
+	it("rejects cycles, foreign parents, moving record bodies and moves after membership is revoked", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const root = await owner.mutation(api.pages.create, { title: "Root" });
 		const child = await owner.mutation(api.pages.create, { title: "Child", parentId: root });
@@ -91,9 +105,9 @@ describe("nested pages", () => {
 		const type = (await owner.query(api.recordTypes.list))[0]!;
 		const recordId = await owner.mutation(api.records.create, { typeId: type._id, values: { name: "Record" } });
 		const body = await owner.mutation(api.pages.create, { recordId });
-		await expect(owner.mutation(api.pages.create, { recordId, parentId: root })).rejects.toThrow("can't be nested");
-		await expect(owner.mutation(api.pages.create, { title: "No", parentId: body })).rejects.toThrow("Record bodies");
-		await expect(owner.mutation(api.pages.move, { pageId: body, parentId: root })).rejects.toThrow("Record bodies");
+		// A record's own page stays with its record; pages can go inside it (below).
+		await expect(owner.mutation(api.pages.create, { recordId, parentId: root })).rejects.toThrow("stays with its record");
+		await expect(owner.mutation(api.pages.move, { pageId: body, parentId: root })).rejects.toThrow("stays with its record");
 		await t.run(async (ctx) => {
 			const seat = await ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first();
 			await ctx.db.delete(seat!._id);
@@ -301,5 +315,83 @@ describe("nested pages", () => {
 		await member.mutation(api.pages.rename, { pageId: root, title: "Handbook" });
 		await member.mutation(api.pages.rename, { pageId: child, title: "Roof SOP" });
 		expect((await owner.query(api.pages.history, { pageId: root, ...opts })).page).toHaveLength(2);
+	});
+});
+
+describe("pages inside a record's page", () => {
+	async function setup() {
+		const { t, owner, member } = await ownerAndMember();
+		const type = (await owner.query(api.recordTypes.list)).find((d) => d.key === "deal")!;
+		const recordId = await owner.mutation(api.records.create, { typeId: type._id, values: { name: "Quartz" } });
+		const body = await owner.mutation(api.pages.create, { recordId });
+		return { t, owner, member, type, recordId, body };
+	}
+
+	it("nests like any page: a block in the record's page, its level, and a trail from the record", async () => {
+		const { t, owner, type, recordId, body } = await setup();
+		const child = await owner.mutation(api.pages.create, { title: "Call notes", parentId: body });
+		const leaf = await owner.mutation(api.pages.create, { title: "Follow-up", parentId: child });
+		const blocks = await t.run(async (ctx) => (await readDoc(ctx, body)).firstChild!.content.content.map((b) => b.firstChild!.toJSON()));
+		expect(blocks).toContainEqual(expect.objectContaining({ type: "page", attrs: { pageId: child } }));
+		expect((await owner.query(api.pages.children, { ...opts, parentId: body })).page).toEqual([expect.objectContaining({ _id: child, parentId: body, hasChildren: true })]);
+		// Drive's top level doesn't list it: it lives in the record.
+		expect((await owner.query(api.pages.children, opts)).page.map((p) => p._id)).not.toContain(child);
+		expect(await owner.query(api.pages.get, { pageId: leaf })).toMatchObject({
+			parentId: child,
+			ancestors: [{ _id: child, title: "Call notes" }],
+			record: { _id: recordId, title: "Quartz", typeKey: type.key, plural: type.plural },
+		});
+		expect(await owner.query(api.pages.get, { pageId: body })).toMatchObject({ title: "Quartz", recordId, record: { _id: recordId } });
+		// Moves in and out, like any page.
+		const loose = await owner.mutation(api.pages.create, { title: "Loose" });
+		await owner.mutation(api.pages.move, { pageId: loose, parentId: body });
+		expect(await owner.query(api.pages.get, { pageId: loose })).toMatchObject({ parentId: body, record: { _id: recordId } });
+		await owner.mutation(api.pages.move, { pageId: loose });
+		expect(await owner.query(api.pages.get, { pageId: loose })).toMatchObject({ parentId: null, record: null });
+		// The Move dialog finds the record's page by the record's name, and pages inside it with its name in their path.
+		expect(await owner.query(api.pages.search, { query: "Quartz" })).toContainEqual(expect.objectContaining({ _id: body, title: "Quartz", path: [type.plural] }));
+		expect(await owner.query(api.pages.search, { query: "Follow-up" })).toEqual([expect.objectContaining({ _id: leaf, path: ["Quartz", "Call notes"] })]);
+	});
+
+	it("follows the database's list, and goes to Archive and comes back with its record", async () => {
+		const { t, owner, member, type, recordId, body } = await setup();
+		const child = await owner.mutation(api.pages.create, { title: "Pricing", parentId: body });
+		expect(await member.query(api.pages.get, { pageId: child })).toMatchObject({ title: "Pricing" });
+		await owner.mutation(api.recordTypes.setAccess, { typeId: type._id, access: [] });
+		expect(await member.query(api.pages.get, { pageId: child })).toBeNull();
+		await owner.mutation(api.recordTypes.setAccess, { typeId: type._id, access: [{ role: "everyone", level: "view" }] });
+		expect(await member.query(api.pages.get, { pageId: child })).toMatchObject({ canEdit: false });
+		await expect(member.mutation(api.pages.rename, { pageId: child, title: "Mine" })).rejects.toThrow();
+
+		await owner.mutation(api.trash.move, { kind: "record", id: recordId });
+		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: true, canEdit: false, trash: { kind: "record", itemId: recordId } });
+		expect(await owner.query(api.pages.list, {})).not.toContainEqual(expect.objectContaining({ _id: child }));
+		await expect(owner.mutation(api.pages.rename, { pageId: child, title: "Late" })).rejects.toThrow("record is in Archive");
+		await owner.mutation(api.trash.restore, { kind: "record", id: recordId });
+		expect(await owner.query(api.pages.get, { pageId: child })).toMatchObject({ archived: false, canEdit: true });
+
+		// Deleting the record forever deletes the pages inside its page too.
+		await owner.mutation(api.trash.move, { kind: "record", id: recordId });
+		await owner.mutation(api.trash.purge, { id: recordId });
+		await settle(t);
+		expect(await t.run((ctx) => ctx.db.get(child))).toBeNull();
+	});
+
+	it("lets agents list, read and write pages inside a record's page by the record's id", async () => {
+		const { t, owner, recordId } = await setup();
+		const other = await owner.mutation(api.records.create, { typeId: (await owner.query(api.records.get, { recordId }))!.typeId, values: { name: "Fresh" } });
+		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, (await agentsOf(owner)).companybot._id);
+		const made = (await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Agent plan", parent: recordId } })) as { id: Id<"pages"> };
+		expect(made).not.toHaveProperty("error");
+		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: recordId } })).rows).toEqual([expect.objectContaining({ id: made.id, title: "Agent plan" })]);
+		const read = (await t.mutation(internal.pageTools.readFor, { turnId, record: recordId })) as { subpages: unknown[] };
+		expect(read.subpages).toEqual([{ id: made.id, kind: "page", title: "Agent plan" }]);
+		expect(await t.mutation(internal.pageTools.readFor, { turnId, page: made.id })).toMatchObject({ ancestors: [expect.objectContaining({ title: "Quartz", record: recordId })] });
+		// A record nobody has opened gets its page when an agent puts one inside it.
+		expect((await t.mutation(internal.pageTools.findFor, { turnId, input: { parent: other } })).rows).toEqual([]);
+		const inFresh = (await t.mutation(internal.pageTools.writeFor, { turnId, input: { title: "Kickoff", parent: other } })) as { id: Id<"pages"> };
+		expect(await owner.query(api.pages.get, { pageId: inFresh.id })).toMatchObject({ record: { _id: other } });
+		// The record's own page still can't move.
+		expect(await t.mutation(internal.pageTools.writeFor, { turnId, input: { record: recordId, parent: null } })).toEqual({ error: expect.stringContaining("stays with its record") });
 	});
 });

@@ -6,7 +6,7 @@ import { builtinTools } from "./builtin-tools";
 import { type ModelInfo, fallbackModels } from "./models";
 import { can, canUseConnector } from "./permissions";
 import { CONNECTOR_CALL, type ConnectorService, calledConnectorTool, connectorMetaTools } from "./connector-tools";
-import { findConnector } from "./connectors";
+import { type Connector, findConnector } from "./connectors";
 import { type ToolContext, type ToolDef, isGranted, modelToolName, toolGroup } from "./tools";
 import type { Access, Actor } from "./types";
 import type { WebTurn } from "./web";
@@ -15,26 +15,34 @@ export const defineAgent = (agent: AgentConfig) => agent;
 
 const builtinGroups = new Set(builtinTools.map((t) => toolGroup(t.id)));
 
-/** A grant names a built-in tool, a built-in group, or a catalog connector. */
-function isKnownGrant(grant: string) {
+/**
+ * Whether a tool id or grant is a connector's: anything outside the built-in groups. Its connector may
+ * be the catalog's or a workspace's own (custom), or gone; whether it loads is decided by install,
+ * role and connection (backend connectors.forTurn), never by this.
+ */
+export const isConnectorTool = (id: string) => !!toolGroup(id) && !builtinGroups.has(toolGroup(id));
+
+/** A grant names a built-in tool, a built-in group, or a catalog or workspace (`custom`) connector. */
+function isKnownGrant(grant: string, custom: readonly Connector[]) {
 	const group = toolGroup(grant);
 	if (!group) return false;
-	if (grant.endsWith(".*")) return builtinGroups.has(group) || !!findConnector(group);
-	return builtinTools.some((t) => t.id === grant) || !!findConnector(group);
+	if (grant.endsWith(".*")) return builtinGroups.has(group) || !!findConnector(group, custom);
+	return builtinTools.some((t) => t.id === grant) || !!findConnector(group, custom);
 }
 
 /**
  * Returns a message people can read, or null if the config is fine. `models` are the ones a
  * save may pick: the backend passes the gateway catalog plus the agent's current model.
+ * `custom`: the workspace's own connectors, which it may grant too.
  */
-export function validateAgentConfig(config: AgentConfig, models: readonly Pick<ModelInfo, "id">[] = fallbackModels): string | null {
+export function validateAgentConfig(config: AgentConfig, models: readonly Pick<ModelInfo, "id">[] = fallbackModels, custom: readonly Connector[] = []): string | null {
 	const nameError = agentNameError(config.name);
 	if (nameError) return nameError;
 	if (config.description.length > 200) return "Keep the description under 200 characters.";
 	if (config.instructions.length > 20_000) return "Instructions are too long (20,000 characters max).";
 	if (!models.some((m) => m.id === config.model)) return "Pick a model from the list.";
 	if (config.reasoning !== undefined && !reasonings.includes(config.reasoning)) return "Pick a reasoning level from the list.";
-	const unknown = config.tools.find((id) => !isKnownGrant(id));
+	const unknown = config.tools.find((id) => !isKnownGrant(id, custom));
 	if (unknown) return `Unknown tool: ${unknown}`;
 	return null;
 }
@@ -64,7 +72,7 @@ export function describeToolAccess(
 ): ToolAccess[] {
 	return agent.tools.flatMap((id): ToolAccess[] => {
 		const group = toolGroup(id);
-		if (findConnector(group)) {
+		if (isConnectorTool(id)) {
 			const state = connectors.find((p) => p.id === group);
 			if (!state) return [{ id, visible: false, reason: "not_installed" }];
 			if (!canUseConnector(actor, state.roles)) return [{ id, visible: false, reason: "role" }];
@@ -194,9 +202,9 @@ async function withRef(output: Promise<unknown>, ctx: ToolContext) {
 	return { ref: ctx.results.save(data), data };
 }
 
-/** Connectors an agent's grants reach, so the runner only connects to those. */
+/** Connectors an agent's grants reach, so the runner only connects to those (if installed and usable). */
 export const grantedConnectorIds = (agent: Pick<AgentConfig, "tools">) =>
-	[...new Set(agent.tools.map(toolGroup))].filter((group) => !!findConnector(group));
+	[...new Set(agent.tools.filter(isConnectorTool).map(toolGroup))];
 
 /**
  * The action a model call runs: the tool and its exact input, or null if it names no

@@ -4,16 +4,16 @@ import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { navigate } from "../../router";
 import { AgentIcon, AutomationIcon, ConnectorIcon, SkillIcon, ArchiveIcon } from "../../icons";
-import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, descriptionClass, disabledButtonClass, metadataClass, primaryButton, timeAgo, useDraft, useRun } from "../../ui";
+import { ConflictNotice, type Crumb, EmptyState, NotFound, Notice, Page, SaveBar, barButton, cardClass, compactButton, compactPrimaryButton, descriptionClass, disabledButtonClass, metadataClass, pillButton, timeAgo, useDraft, useRun } from "../../ui";
 import { TrashNotice } from "../Trash";
 import { Confirm, archiveQuestion, useConfirm } from "../chat/common";
 
 /** Each tab's description shows in the top bar. */
 export const customizeTabs = [
-	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do. Changing them takes a role that can change agents." },
-	{ id: "connectors", label: "Connectors", one: "Connector", icon: ConnectorIcon, description: "Connect outside services like Gmail or Calendar. Agents granted a connector use it for the person they're helping." },
-	{ id: "skills", label: "Skills", one: "Skill", icon: SkillIcon, description: "Instructions your agents load when a task calls for them. Agents see each skill's description, and read the rest only when they need it." },
-	{ id: "automations", label: "Automations", one: "Automation", icon: AutomationIcon, description: "Jobs that run on their own: on a schedule, when something happens here, or when another app sends a webhook. Each one asks an agent to do something." },
+	{ id: "agents", label: "Agents", one: "Agent", icon: AgentIcon, description: "What each agent knows and can do" },
+	{ id: "connectors", label: "Connectors", one: "Connector", icon: ConnectorIcon, description: "Outside apps your agents can use" },
+	{ id: "skills", label: "Skills", one: "Skill", icon: SkillIcon, description: "Instructions agents load when needed" },
+	{ id: "automations", label: "Automations", one: "Automation", icon: AutomationIcon, description: "Jobs agents run on their own" },
 ] as const;
 export type CustomizeTab = (typeof customizeTabs)[number]["id"];
 
@@ -69,9 +69,9 @@ export function Card(props: {
 			className="flex items-start justify-between gap-4 rounded-xl border border-neutral-200 p-4 text-left hover:bg-neutral-50"
 		>
 			<div className="min-w-0">
-				<h3 className="font-medium">
+				<p className="font-medium">
 					{props.title} <span className="text-xs font-normal text-neutral-400">{props.meta}</span>
-				</h3>
+				</p>
 				<p className={`line-clamp-2 ${descriptionClass}`}>{props.description}</p>
 				{props.status && <p className={`mt-1 ${metadataClass}`}>{props.status}</p>}
 			</div>
@@ -106,9 +106,7 @@ function InstallButton({
 			disabled={!canManage || busy}
 			title={canManage ? (installed ? "Remove" : undefined) : "None of your roles can install this"}
 			onClick={onToggle}
-			className={`shrink-0 rounded-full px-3 py-1 text-sm ${disabledButtonClass} ${
-				installed ? "border border-neutral-200 text-neutral-600" : "bg-neutral-900 text-white"
-			}`}
+			className={`${pillButton} ${installed ? "border border-neutral-200 text-neutral-600" : "bg-neutral-900 text-white"}`}
 		>
 			{installed ? "Installed" : "Install"}
 		</button>
@@ -127,6 +125,8 @@ export function Detail(props: {
 	busy?: boolean;
 	canManage: boolean;
 	onToggle: () => void;
+	/** In place of the install button: a custom connector's Edit and Remove. */
+	actions?: React.ReactNode;
 	children: React.ReactNode;
 }) {
 	const [confirming, setConfirming] = useState(false);
@@ -135,7 +135,7 @@ export function Detail(props: {
 			title={props.title}
 			description={`${props.description} · ${props.meta}`}
 			crumbs={customizeCrumbs(props.tab)}
-			actions={!props.trash && (props.confirmation && props.installed ? <button type="button" className={barButton} disabled={!props.canManage || props.busy} onClick={() => setConfirming(true)}><ArchiveIcon /> Archive</button> : <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={props.onToggle} />)}
+			actions={props.actions ?? (!props.trash && (props.confirmation && props.installed ? <button type="button" className={barButton} disabled={!props.canManage || props.busy} onClick={() => setConfirming(true)}><ArchiveIcon /> Archive</button> : <InstallButton installed={props.installed} canManage={props.canManage} busy={props.busy} onToggle={props.onToggle} />))}
 		>
 			{confirming && <Confirm title={`Archive “${props.title}”?`} action="Archive" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); props.onToggle(); }}>{props.confirmation}</Confirm>}
 			{props.trash && <TrashNotice trash={props.trash} />}
@@ -144,12 +144,13 @@ export function Detail(props: {
 	);
 }
 
-/** The page for making a new one: its fields, then Create. */
+/** The page for making a new one: its fields, with Discard and Create in the top bar. */
 export function NewItem({
 	tab,
 	noun,
 	error,
 	onCreate,
+	onDiscard,
 	children,
 }: {
 	tab: MadeTab;
@@ -157,17 +158,22 @@ export function NewItem({
 	noun: string;
 	error?: string;
 	onCreate: () => void;
+	onDiscard?: () => void;
 	children: React.ReactNode;
 }) {
 	return (
-		<Page title={`New ${noun}`} crumbs={customizeCrumbs(tab)}>
+		<Page
+			title={`New ${noun}`}
+			crumbs={customizeCrumbs(tab)}
+			actions={
+				<>
+					{onDiscard && <button type="button" className={compactButton} onClick={onDiscard}>Discard</button>}
+					<button type="button" className={compactPrimaryButton} onClick={onCreate}>Create</button>
+				</>
+			}
+		>
 			<Notice>{error}</Notice>
-			<div className="flex flex-col gap-5">
-				{children}
-				<button type="button" className={`${primaryButton} self-start`} onClick={onCreate}>
-					Create
-				</button>
-			</div>
+			<div className="flex flex-col gap-5">{children}</div>
 		</Page>
 	);
 }
@@ -177,6 +183,7 @@ export function NewItem({
  * people who can't change it, or while it's in Trash), Delete (to Trash), and Save. `children` go below the fields.
  */
 export function MadeItemDetail<T>({
+	id,
 	tab,
 	name,
 	createdByName,
@@ -189,6 +196,7 @@ export function MadeItemDetail<T>({
 	fields,
 	children,
 }: {
+	id: string;
 	tab: MadeTab;
 	name: string;
 	createdByName: string | null | undefined;
@@ -204,7 +212,7 @@ export function MadeItemDetail<T>({
 	fields: (value: T, onChange: (value: T) => void) => React.ReactNode;
 	children?: React.ReactNode;
 }) {
-	const draft = useDraft(saved, custom.version);
+	const draft = useDraft(`${tab}:${id}`, saved, custom.version);
 	const { error, run } = useRun();
 	const editable = canEdit && !trash;
 	const { confirm, dialog } = useConfirm();
@@ -228,11 +236,11 @@ export function MadeItemDetail<T>({
 		>
 			{dialog}
 			{trash && <TrashNotice trash={trash} />}
-			<ConflictNotice draft={draft} who={custom.updatedByName} />
+			{editable && <ConflictNotice draft={draft} who={custom.updatedByName} />}
 			<Notice>{error}</Notice>
 			{!canEdit && <CantEdit tab={tab} />}
 			<fieldset disabled={!editable} className="flex flex-col gap-5">
-				{fields(draft.value, draft.set)}
+				{fields(editable ? draft.value : saved, draft.set)}
 			</fieldset>
 			{children}
 			{editable && <SaveBar dirty={draft.dirty} onDiscard={draft.discard} onSave={() => run(onSave(draft.value, draft.base), draft.discard)} />}
@@ -243,10 +251,10 @@ export function MadeItemDetail<T>({
 /** Loading while `loaded` is false; after that, the item is gone (deleted, or a stale link). */
 export function Missing({ tab, loaded }: { tab: CustomizeTab; loaded: boolean }) {
 	const { one, icon: Icon } = customizeTabs.find((t) => t.id === tab)!;
-	// Connectors come with the app, so they're never in Trash.
+	// Connectors are never in Trash: removing one (custom or from the app) deletes it.
 	return (
 		<NotFound crumbs={customizeCrumbs(tab)} loaded={loaded} icon={<Icon />} title={`${one} not found`}>
-			{tab === "connectors" ? "It may have been removed from the app." : undefined}
+			{tab === "connectors" ? "It may have been removed." : undefined}
 		</NotFound>
 	);
 }

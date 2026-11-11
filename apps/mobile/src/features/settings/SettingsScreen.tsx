@@ -32,10 +32,11 @@ export default function SettingsScreen() {
   // Signing out performs the global discard check inside this task.
   const task = useTask({ guardWorkspace: false });
   const groups = [
-    { title: me?.workspace ?? 'Workspace', ids: ['general', 'members', 'permissions'] },
-    { title: 'Agents & tools', ids: ['agents', 'skills', 'automations', 'connectors', 'memory'] },
+    { title: 'Workspace', ids: ['general', 'members'] },
+    { title: 'Agents', ids: ['agents', 'skills', 'memory', 'permissions'] },
+    { title: 'Connections', ids: ['connectors', 'automations'] },
     { title: 'Activity', ids: ['activity', 'usage', 'archive'] },
-  ].map(group => ({ title: group.title, rows: settingsSections.filter(section => group.ids.includes(section.id)).map(section => ({ ...section, onPress: () => router.push({ pathname: '/settings/[section]', params: { section: section.id } }) })) }));
+  ].map(group => ({ title: group.title, rows: group.ids.map(id => settingsSections.find(section => section.id === id)!).map(section => ({ ...section, onPress: () => router.push({ pathname: '/settings/[section]', params: { section: section.id } }) })) }));
   const openAccount = () => router.push('/settings/preferences');
   const logOut = () => void task.run(async () => { if (await confirmDiscard()) { await beforeSignOut(); await signOut(); } });
   const name = prefs?.displayName || me?.email || 'Your account';

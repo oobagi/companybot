@@ -3,7 +3,7 @@
 Where agents run code, crunch spreadsheets, make charts and files, convert documents, and drive a real browser for sites with no API. Research, Oct 28 2026. **Not built yet.** Prices and limits are from vendor pages on that date; re-check before buying.
 
 ## Decision
-- **One provider for both editions: E2B.** Cloud uses E2B Cloud; Community and Enterprise self-host run the Apache-2.0 [E2B Runtime](https://github.com/e2b-dev/runtime). One adapter, one SDK, same behavior everywhere.
+- **One provider for Cloud and Community: E2B.** Cloud uses E2B Cloud; self-hosters run the Apache-2.0 [E2B Runtime](https://github.com/e2b-dev/runtime). One adapter, one SDK, same behavior everywhere.
 - **Fallback for Cloud: Vercel Sandbox**, if agent-browser doesn't run cleanly in an E2B template. It is the only one with first-party agent-browser support, but it is closed and cannot be self-hosted, so it can't be the only adapter.
 - **Sandbox is optional in Community.** Off until the self-hoster points us at an E2B runtime (needs a Linux host with hardware virtualization). Without it the tools don't appear.
 - **Not Daytona.** Its core went closed-source in June 2026 (below).
@@ -85,6 +85,5 @@ Keep it dead simple: the model gets a shell and files, not a menu of libraries. 
 
 ## Open questions
 - agent-browser on E2B (spike above).
-- E2B Embed under load: single node, plain HTTP, not called production-ready by E2B. Enterprise self-host needs the Terraform multi-node path or a Bring Your Own Cloud deal.
-- Cloud margin: sandbox minutes should count against the monthly AI allowance, priced at cost plus markup like models.
+- E2B Embed under load: single node, plain HTTP, not called production-ready by E2B. A large self-host needs the Terraform multi-node path or a Bring Your Own Cloud deal.
 - Whether Vercel Sandbox becomes the second Cloud adapter anyway, if Vercel's active-CPU billing wins at scale.

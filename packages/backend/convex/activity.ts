@@ -1,10 +1,11 @@
-import { actionLabel, findConnector, toolGroup } from "@companybot/core";
+import { actionLabel, toolGroup } from "@companybot/core";
+import { connectorIn } from "./connectorAccess";
 import type { PaginationOptions } from "convex/server";
 import { type ObjectType, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { query } from "./functions";
-import { type Namer, canSee, chatLabel, namer } from "./chatOps";
+import { type Namer, canSee, chatLabel, namer, recentVisibleChats } from "./chatOps";
 import { titleOf } from "./connectorTools";
 import { type Member, capped, erased, getMember, liveWorkspace } from "./lib";
 import { canReadReplyDetails, canReadSources, readReplyDetails } from "./replyPrivacy";
@@ -16,9 +17,8 @@ import { allowedHow } from "./schema";
 // the person the agent acted for may see (a private channel, their own inbox), so
 // only that person gets them.
 
-/** Most entries a list returns, and most rows it reads to find them. */
+/** Most entries returned, and read per accessible chat or actor. */
 const LIST_LIMIT = 100;
-const SCAN_LIMIT = 1_000;
 
 /** Written by the runner (agent.ts) as each tool call finishes. */
 const logArgs = {
@@ -60,29 +60,61 @@ export async function logCall(ctx: MutationCtx, { turnId, error, allowed, output
 	});
 }
 
-/** Recent agent activity the person can see, newest first, optionally for one agent. */
+/** One bounded history read, shared by the old array API and the screen's status API. */
+async function recentActivity(ctx: QueryCtx, member: Member, agentId?: Id<"agents">) {
+	const names = namer(ctx);
+	const labels = new Map<Id<"chats">, string | null>();
+	const replies = new Map<Id<"chatMessages">, boolean>();
+	const discovery = await recentVisibleChats(ctx, member);
+	const entries = new Map<string, Awaited<ReturnType<typeof toEntry>> & { chat: string }>();
+	let remaining = 1200;
+	let truncated = discovery.truncated;
+	// Continue beyond masked replies, up to a shared read budget. A full batch never
+	// means exhaustion: the status API tells the screen when unread history remains.
+	for (const chatId of [null, ...discovery.chats.map((chat) => chat._id)]) {
+		let before = Infinity;
+		let visible = 0;
+		while (visible < LIST_LIMIT && remaining > 0) {
+			const count = Math.min(50, remaining);
+			const rows = await (chatId
+				? ctx.db.query("agentActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId).lt("_creationTime", before))
+				: ctx.db.query("agentActivity").withIndex("by_workspace_actor", (q) => q.eq("workspaceId", member.workspaceId).eq("actorId", member.userId).lt("_creationTime", before))
+			).order("desc").take(count);
+			remaining -= rows.length;
+			for (const row of rows) {
+				if (agentId && row.agentId !== agentId) continue;
+				if (!labels.has(row.chatId)) labels.set(row.chatId, await visibleLabel(ctx, row.chatId, member, names));
+				const chat = labels.get(row.chatId);
+				if (!chat) continue;
+				if (row.replyId && !replies.has(row.replyId)) replies.set(row.replyId, await visibleReply(ctx, row, member));
+				if (!(row.replyId ? replies.get(row.replyId) : await visibleReply(ctx, row, member))) continue;
+				visible++;
+				if (!entries.has(row._id)) entries.set(row._id, { ...(await toEntry(ctx, row, member, names)), chat });
+			}
+			if (rows.length < count) break;
+			before = rows[rows.length - 1]!._creationTime;
+			if (!remaining) truncated = true;
+		}
+		if (!remaining) { truncated = true; break; }
+	}
+	return { entries: [...entries.values()].sort((a, b) => b.time - a.time).slice(0, LIST_LIMIT), truncated, budgetExhausted: remaining === 0 };
+}
+
+/** Kept for installed clients expecting an array; both APIs use the same bounded read. */
 export const list = query({
 	args: { agentId: v.optional(v.id("agents")) },
 	handler: async (ctx, { agentId }) => {
 		const member = await getMember(ctx);
 		if (!member) return [];
-		const names = namer(ctx);
-		const labels = new Map<Id<"chats">, string | null>();
-		const entries = [];
-		const rows = await ctx.db
-			.query("agentActivity")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))
-			.order("desc")
-			.take(SCAN_LIMIT);
-		for (const row of rows) {
-			if (agentId && row.agentId !== agentId) continue;
-			if (!labels.has(row.chatId)) labels.set(row.chatId, await visibleLabel(ctx, row.chatId, member, names));
-			const chat = labels.get(row.chatId);
-			if (!chat || !(await visibleReply(ctx, row, member))) continue;
-			entries.push({ ...(await toEntry(ctx, row, member, names)), chat });
-			if (entries.length >= LIST_LIMIT) break;
-		}
-		return entries;
+		const result = await recentActivity(ctx, member, agentId);
+		return result.entries;
+	},
+});
+export const recent = query({
+	args: { agentId: v.optional(v.id("agents")) },
+	handler: async (ctx, { agentId }) => {
+		const member = await getMember(ctx);
+		return member ? recentActivity(ctx, member, agentId) : { entries: [], truncated: false, budgetExhausted: false };
 	},
 });
 
@@ -110,7 +142,7 @@ async function visibleLabel(ctx: QueryCtx, chatId: Id<"chats">, member: Member, 
 
 async function toEntry(ctx: QueryCtx, row: Doc<"agentActivity">, member: Member, names: Namer) {
 	const mine = row.actorId === member.userId;
-	const connector = row.tool.includes(".") ? findConnector(toolGroup(row.tool)) : undefined;
+	const connector = row.tool.includes(".") ? await connectorIn(ctx, member.workspaceId, toolGroup(row.tool)) : undefined;
 	return {
 		_id: row._id,
 		time: row._creationTime,
@@ -151,7 +183,9 @@ function wakeLabel({ outcome, reason }: NonNullable<Doc<"agentActivity">["wake"]
 	return `Woke up: ${how}${reason ? `. ${reason}` : ""}`;
 }
 
-/** One bounded indexed page, applying the same chat visibility and output privacy as the app. */
+/** One bounded indexed page. Masked rows can make a page empty, but its continuation
+ * cursor is preserved and isDone stays false: consumers can keep advancing without
+ * rereading or skipping history. Unlike the recent list this API is explicitly paginated. */
 export async function activityPage(ctx: QueryCtx, member: Member, opts: PaginationOptions) {
 	const result = await ctx.db.query("agentActivity")
 		.withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId))

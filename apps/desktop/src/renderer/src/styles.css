@@ -5,6 +5,8 @@
 
 /* The shadcn-style color names Streamdown's classes use, mapped to our neutrals. */
 @theme inline {
+	/* The gap between a screen's top bar and its content (`pt-page-top`): one value for every screen. */
+	--spacing-page-top: 0.5rem;
 	--color-background: var(--color-white);
 	--color-foreground: var(--color-neutral-900);
 	--color-muted: var(--color-neutral-50);
@@ -15,6 +17,26 @@
 	--color-primary-foreground: var(--color-white);
 	/* Links in messages and replies: the same blue as @mentions (`.token`), the app's one accent, so they read as clickable. */
 	--color-link: var(--color-sky-700);
+	/* The app's body size (between text-sm and text-base), and a size under text-xs for a message's hover time. */
+	--text-body: 15px;
+	--text-2xs: 10px;
+	/* Choice option tints, Notion's: a soft background and dark text in the same hue (`optionTints` in views/records/fields.tsx). */
+	--color-option-brown: #eee0da;
+	--color-option-brown-ink: #442a1e;
+	--color-option-orange: #fadec9;
+	--color-option-orange-ink: #49290e;
+	--color-option-yellow: #fdecc8;
+	--color-option-yellow-ink: #402c1b;
+	--color-option-green: #dbeddb;
+	--color-option-green-ink: #1c3829;
+	--color-option-blue: #d3e5ef;
+	--color-option-blue-ink: #183347;
+	--color-option-purple: #e8deee;
+	--color-option-purple-ink: #412454;
+	--color-option-pink: #f5e0e9;
+	--color-option-pink-ink: #4c2337;
+	--color-option-red: #ffe2dd;
+	--color-option-red-ink: #5d1715;
 }
 
 html,
@@ -52,13 +74,104 @@ body {
 	}
 }
 
-/* Page headings stay below the title; inherit the app's typography. */
-.page-editor .bn-editor { font-family: inherit; }
-.page-editor .bn-editor h1 { font-size: 1.5rem; }
-.page-editor .bn-editor h2 { font-size: 1.25rem; }
-.page-editor .bn-editor h3 { font-size: 1.125rem; }
+/* The page editor (views/pages/PageEditor.tsx). Its menus and toolbars are the app's own
+   (editorComponents.tsx); what BlockNote's block CSS draws itself takes the app's font, size and
+   neutrals here. `page-editor` is on BlockNote's container and, through the editor's `domAttributes`,
+   on the editor element itself: a dragged block's preview is a clone BlockNote appends to <body> with
+   the editor element's classes, so it keeps every rule here. BlockNote's stylesheet loads first
+   (PageEditor.tsx imports it), so a tie in specificity goes to these. */
+.page-editor {
+	font-family: inherit;
+	font-size: var(--text-body);
+	--bn-colors-editor-text: var(--color-neutral-900);
+	--bn-colors-editor-background: transparent;
+	--bn-colors-border: var(--color-neutral-200);
+	--bn-colors-hovered-background: var(--color-neutral-100);
+	/* Placeholders and an empty toggle's prompt. */
+	--bn-colors-side-menu: var(--color-neutral-400);
+	--bn-border-radius: 8px;
+	/* Text and background colors (the Colors menus, their swatches, the colored text): the app's palette. */
+	--bn-colors-highlights-gray-text: var(--color-neutral-500);
+	--bn-colors-highlights-gray-background: var(--color-neutral-100);
+	--bn-colors-highlights-brown-text: var(--color-amber-900);
+	--bn-colors-highlights-brown-background: var(--color-amber-100);
+	--bn-colors-highlights-red-text: var(--color-red-600);
+	--bn-colors-highlights-red-background: var(--color-red-100);
+	--bn-colors-highlights-orange-text: var(--color-orange-600);
+	--bn-colors-highlights-orange-background: var(--color-orange-100);
+	--bn-colors-highlights-yellow-text: var(--color-yellow-600);
+	--bn-colors-highlights-yellow-background: var(--color-yellow-100);
+	--bn-colors-highlights-green-text: var(--color-green-700);
+	--bn-colors-highlights-green-background: var(--color-green-100);
+	--bn-colors-highlights-blue-text: var(--color-sky-700);
+	--bn-colors-highlights-blue-background: var(--color-sky-100);
+	--bn-colors-highlights-purple-text: var(--color-violet-700);
+	--bn-colors-highlights-purple-background: var(--color-violet-100);
+	--bn-colors-highlights-pink-text: var(--color-pink-700);
+	--bn-colors-highlights-pink-background: var(--color-pink-100);
+}
+/* Headings at the app's sizes through BlockNote's own `--level`, which sizes the block (its placeholder, its
+   line and where the + and ⋮⋮ sit), not the tag inside it, which would leave the rest at BlockNote's 3em. */
+.page-editor [data-content-type="heading"] { --level: 1.5rem; }
+.page-editor [data-content-type="heading"][data-level="2"] { --level: 1.25rem; }
+.page-editor [data-content-type="heading"][data-level="3"] { --level: 1.125rem; }
+/* Blocks don't animate: a block that changes type takes its new size at once (no BlockNote slide from the old one,
+   `data-prev-type`), and one that nests or un-nests takes its indent at once (BlockNote eases the margin). */
+.page-editor .bn-block-outer:not(.sortable-shift), .page-editor .bn-block-content, .page-editor .bn-block-content::before { transition: none; }
+.page-editor .bn-block-outer[data-prev-depth-change] { margin-left: 0; }
+.page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content { font-size: inherit; font-weight: inherit; }
+.page-editor .bn-block-outer[data-prev-type] > .bn-block > .bn-block-content[data-content-type="heading"] { font-size: var(--level); font-weight: 700; }
+/* Placeholders (on the empty block's ::after) plain, as the app's, not BlockNote's italic. */
+.page-editor .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after { font-style: normal; }
+/* Links as chat's: the link color, underlined on hover (page links, further down, and record chips are the exceptions). */
+.page-editor .bn-inline-content a[href]:not([href^="companybot://"]) { color: var(--color-link); }
+.page-editor .bn-inline-content a[href]:not([href^="companybot://"]):hover { text-decoration: underline; }
+/* A record link is chat's record chip (`recordTagButton`), the record icon drawn before its name (the icon's SVG, from `View`). */
+.page-editor .record-chip { cursor: pointer; }
+.page-editor .record-chip::before { content: ""; display: inline-block; width: 1em; height: 1em; margin-right: 0.25rem; vertical-align: -0.125em; background: currentColor; mask: var(--record-icon) center / contain no-repeat; }
+/* Nested blocks show by indentation alone: no BlockNote guide lines. */
+.page-editor .bn-block-group .bn-block-group .bn-block-outer::before { display: none; }
+/* A toggle's caret is a plain chevron (BlockNote's is Material's filled triangle); BlockNote turns the button when open. */
+.page-editor .bn-toggle-button { width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; padding: 0; color: var(--color-neutral-500); }
+.page-editor .bn-toggle-button > svg { display: none; }
+.page-editor .bn-toggle-button::before { content: ""; width: .45rem; height: .45rem; border-right: 1.5px solid; border-bottom: 1.5px solid; transform: translateX(-20%) rotate(-45deg); }
+/* An empty open toggle's prompt is placeholder text, not a button: no hover chip, text cursor, at the children's indent. */
+.page-editor .bn-toggle-add-block-button { font-size: inherit; padding: 0; margin-left: 1.5rem; cursor: text; }
+.page-editor .bn-toggle-add-block-button:hover { background: none; }
+/* A #channel chip opens the channel (PageEditor `mentions`); a person's is text. */
+.page-editor .token[data-kind] { cursor: pointer; }
+.page-editor .token[data-kind]:hover { text-decoration: underline; }
+/* Quote, divider, code, table, image and checked items in the app's neutrals, not BlockNote's grays. */
+.page-editor [data-content-type="quote"] blockquote { color: var(--color-neutral-600); border-left: 2px solid var(--color-neutral-300); }
+.page-editor [data-content-type="divider"] hr { border-top-color: var(--color-neutral-200); }
+.page-editor [data-content-type="checkListItem"][data-checked="true"] .bn-inline-content { color: var(--color-neutral-400); }
+.page-editor .bn-block-content[data-content-type="codeBlock"] { color: var(--color-neutral-900); background-color: var(--color-neutral-50); border: 1px solid var(--color-neutral-200); border-radius: 8px; font-size: var(--text-sm); }
+.page-editor .bn-block-content[data-content-type="codeBlock"] > pre { padding: .75rem 1rem; }
+.page-editor .bn-block-content[data-content-type="codeBlock"] > div > select { color: var(--color-neutral-500); top: .375rem; left: .75rem; }
+.page-editor .bn-block-content[data-content-type="codeBlock"]:hover > div > select, .page-editor .bn-block-content[data-content-type="codeBlock"] > div > select:focus { opacity: 1; }
+.page-editor [data-content-type="table"] :is(th, td) { border-color: var(--color-neutral-200); }
+.page-editor [data-content-type="table"] th { background-color: var(--color-neutral-50); font-weight: 600; }
+.page-editor .selectedCell::after { background-color: color-mix(in srgb, var(--color-sky-600) 10%, transparent); }
+.page-editor .column-resize-handle, .page-editor .bn-table-drop-cursor { background-color: var(--color-sky-600); }
+.page-editor [data-file-block] .bn-visual-media { border-radius: 8px; }
+.page-editor [data-file-block] .bn-add-file-button { color: var(--color-neutral-500); background-color: var(--color-neutral-50); border: 1px dashed var(--color-neutral-300); border-radius: 8px; }
+.page-editor .bn-editor[contenteditable="true"] [data-file-block] .bn-add-file-button:hover { background-color: var(--color-neutral-100); }
+.page-editor [data-file-block] .bn-add-file-button-text { font-size: var(--text-sm); }
+.page-editor [data-file-block] .bn-file-caption { color: var(--color-neutral-500); font-size: var(--text-sm); }
+/* The selected block (an image, a divider, a table; the drop target of a drag) in the app's accent, lightly. */
+.page-editor :is(.bn-block-content.ProseMirror-selectednode > *, .ProseMirror-selectednode > .bn-block-content > *, .bn-block-content .ProseMirror-selectednode, .bn-block-outer[data-drop-target="true"])::after {
+	background-color: color-mix(in srgb, var(--color-sky-600) 8%, transparent);
+	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-sky-600) 35%, transparent);
+}
 .page-editor .bn-block-content[data-content-type="page"] { width: 100%; }
-.page-editor .bn-editor a.page-block-link::before { display: none; }
+/* What only BlockNote's class names tell apart: the slash and emoji menus fill the room BlockNote
+   measures for them and scroll inside it, the colors menu scrolls, a table's + bars run its right
+   or bottom edge, and an upload's error line is red. */
+.page-editor .bn-suggestion-menu, .page-editor .bn-grid-suggestion-menu { max-height: inherit; }
+.page-editor .bn-color-picker-dropdown { overflow-y: auto; }
+.page-editor .bn-extend-button-add-remove-columns { height: 100%; width: 18px; margin-left: 4px; cursor: col-resize; }
+.page-editor .bn-extend-button-add-remove-rows { height: 18px; width: 100%; margin-top: 4px; cursor: row-resize; }
+.page-editor .bn-error-text { font-size: var(--text-sm); color: var(--color-red-600); }
 
 /* A header or footer over scrolling content (ui.tsx's Scroll): once something is scrolled
    under it, its background fades in, solid behind the bar and dissolving toward the content,
@@ -112,7 +225,8 @@ body {
 
 /* Page references remain ordinary, editable link marks; chat shows them the same way. */
 :is(.page-editor .bn-editor a, a.page-link)[href^="companybot://page/"] { color: inherit; text-decoration: none; cursor: pointer; }
-:is(.page-editor .bn-editor a, a.page-link)[href^="companybot://page/"]::before {
+/* A page block (PageBlock.tsx) draws its own icon, so it is left out here. */
+:is(.page-editor .bn-editor a, a.page-link)[href^="companybot://page/"]:not(.page-block-link)::before {
 	content: ""; display: inline-block; width: 1em; height: 1em; margin-right: .35em; vertical-align: -.12em;
 	background: currentColor; opacity: .5;
 	/* PageIcon (Phosphor FileText), external so the app's CSP permits the mask. */
@@ -138,3 +252,116 @@ body {
 	font-weight: 500;
 	padding-inline: 0.125rem;
 }
+/* A record in the composer: the app's grays, like its chip in a sent message (ui.tsx `recordTagButton`). */
+.token.record-token {
+	background: var(--color-neutral-100);
+	color: var(--color-neutral-800);
+}
+
+/* Drag to reorder (sortable.ts): the row you hold floats over the others, which slide out of its way. */
+.sorting,
+.sorting * {
+	cursor: grabbing !important;
+	user-select: none;
+}
+.sortable-shift {
+	transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sortable-shift.sortable-y {
+	transform: translate3d(0, var(--sort-shift, 0px), 0);
+}
+.sortable-shift.sortable-x {
+	transform: translate3d(var(--sort-shift, 0px), 0, 0);
+}
+.sortable-lifted,
+.sortable-landing {
+	position: relative;
+	z-index: 50;
+	filter: drop-shadow(0 6px 12px rgb(0 0 0 / 0.12));
+}
+.sortable-lifted {
+	scale: 1.03;
+}
+.sortable-landing {
+	scale: 1;
+	transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1), scale 160ms, filter 160ms, opacity 160ms;
+}
+/* A card's first and last rows curve with its corners (its radius, less its 1px border), so a row's
+   background (hover, a drop target) fills them without a sliver at the border. */
+.card-list > :first-child {
+	border-top-left-radius: calc(var(--radius-xl) - 1px);
+	border-top-right-radius: calc(var(--radius-xl) - 1px);
+}
+.card-list > :last-child {
+	border-bottom-left-radius: calc(var(--radius-xl) - 1px);
+	border-bottom-right-radius: calc(var(--radius-xl) - 1px);
+}
+/* A row in a card (ui.tsx `listClass`) lifts without growing, which would push its edges past the card's border;
+   it goes opaque and rounded so the rows sliding under it don't show through. */
+.card-list .sortable-lifted,
+.card-list .sortable-landing {
+	scale: 1;
+	border-radius: var(--radius-lg);
+	background: var(--color-white);
+}
+/* A board column dragged by its header (Board.tsx) lifts without growing, which would push its top out of the
+   board's scroll area, and goes opaque so the columns sliding under it don't show through. */
+.board-lane.sortable-lifted,
+.board-lane.sortable-landing {
+	scale: 1;
+	background: color-mix(in srgb, var(--color-neutral-100) 70%, var(--color-white));
+	/* Tighter than a row's, so it fits the room above the columns (Board.tsx) instead of being cut off. */
+	filter: drop-shadow(0 4px 6px rgb(0 0 0 / 0.12));
+}
+/* A board card's copy under the pointer while it's dragged (Board.tsx): lifted like a dragged row. Let go, it
+   settles into its place as a row does (`.sortable-landing`), or shrinks away into a sorted column. */
+.board-card-lifted {
+	scale: 1.03;
+	box-shadow: 0 8px 20px rgb(0 0 0 / 0.14);
+	transition: scale 160ms, box-shadow 160ms, opacity 160ms;
+}
+.board-card-landing {
+	transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.board-card-landing .board-card-lifted {
+	scale: 1;
+	box-shadow: var(--shadow-xs);
+}
+.board-card-landing.sortable-into .board-card-lifted {
+	scale: 0.92;
+	opacity: 0;
+}
+/* A page's block picked up by its ⋮⋮ (PageEditor.tsx) moves as it is: no card, no shadow, its own size and place
+   (BlockNote animates a block's margin, so no inset either); the + and ⋮⋮ stay out of the way until it's let go. */
+.page-editor .sortable-lifted,
+.page-editor .sortable-landing {
+	scale: 1;
+	filter: none;
+}
+.sorting .bn-side-menu {
+	visibility: hidden;
+}
+/* Let go over a folder (sortable.ts `onto`), the row shrinks and fades into it while the others close up. */
+.sortable-landing.sortable-into {
+	scale: 0.92;
+	opacity: 0;
+}
+/* A tree row picked up (Drive's sidebar): its guides stay out of the drag, so the lines hold still while the row steps between levels. */
+.sortable-lifted .tree-line,
+.sortable-lifted .tree-elbow,
+.sortable-landing .tree-line,
+.sortable-landing .tree-elbow {
+	visibility: hidden;
+}
+
+/* A sidebar tree's elbow into a nested row: the guide line's 1.5px stroke, turning right. */
+.tree-elbow {
+	border-bottom: 1.5px solid var(--color-neutral-300);
+	border-left: 1.5px solid var(--color-neutral-300);
+}
+
+/* The sidebar tree's straight line: the same border as the elbow, so where they overlap they match. */
+.tree-line {
+	border-left: 1.5px solid var(--color-neutral-300);
+}
+

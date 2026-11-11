@@ -20,8 +20,8 @@ export function SheetHeader({ title, onClose, busy = false, submit }: SheetHeade
       <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: spacing.sm }} modifiers={[fillMaxWidth()]}>
         {submit ? <TextButton enabled={!busy} onClick={busy ? undefined : onClose} modifiers={[...(stacked ? [] : [width(slotWidth)]), defaultMinSize({ minHeight: sizes.touch })]}><Text style={{ typography: 'bodyLarge' }}>Cancel</Text></TextButton> : <Spacer modifiers={[width(slotWidth)]} />}
         {stacked ? <Spacer modifiers={[weight(1)]} /> : heading}
-        {submit ? <TextButton enabled={!busy && !submit.disabled} onClick={busy || submit.disabled ? undefined : submit.onPress} modifiers={[...(stacked ? [] : [width(slotWidth)]), defaultMinSize({ minHeight: sizes.touch }), semantics({ contentDescription: busy ? 'Saving' : 'Done' })]}>
-          {busy ? <CircularProgressIndicator modifiers={[size(sizes.icon, sizes.icon)]} /> : <Text style={{ typography: 'bodyLarge', fontWeight: '600' }}>Done</Text>}
+        {submit ? <TextButton enabled={!busy && !submit.disabled} onClick={busy || submit.disabled ? undefined : submit.onPress} modifiers={[...(stacked ? [] : [width(slotWidth)]), defaultMinSize({ minHeight: sizes.touch }), semantics({ contentDescription: busy ? 'Saving' : submit.label ?? 'Done' })]}>
+          {busy ? <CircularProgressIndicator modifiers={[size(sizes.icon, sizes.icon)]} /> : <Text style={{ typography: 'bodyLarge', fontWeight: '600' }}>{submit.label ?? 'Done'}</Text>}
         </TextButton> : <IconButton enabled={!busy} onClick={busy ? undefined : onClose} modifiers={[size(sizes.touch, sizes.touch)]}>
           <Icon source={Close} size={sizes.icon} tint={colors.muted} contentDescription={`Close ${title}`} />
         </IconButton>}

@@ -17,10 +17,10 @@ export function SheetHeader({ title, onClose, busy = false, submit }: SheetHeade
     <VStack spacing={spacing.xs}>
       {stacked && heading}
       <HStack spacing={spacing.sm}>
-        {submit ? <Button role="cancel" label="Cancel" onPress={busy ? undefined : onClose} modifiers={[buttonStyle('plain'), font({ textStyle: 'body' }), tint(colors.link), disabled(busy), ...(stacked ? [] : [frame({ width: slotWidth })]), frame({ minHeight: sizes.touch })]} /> : <Spacer modifiers={[frame({ width: slotWidth })]} />}
+        {submit ? <Button role="cancel" label="Cancel" onPress={busy ? undefined : onClose} modifiers={[buttonStyle('plain'), font({ textStyle: 'body' }), tint(colors.text), disabled(busy), ...(stacked ? [] : [frame({ width: slotWidth })]), frame({ minHeight: sizes.touch })]} /> : <Spacer modifiers={[frame({ width: slotWidth })]} />}
         {stacked ? <Spacer /> : heading}
-        {submit ? <Button onPress={busy || submit.disabled ? undefined : submit.onPress} modifiers={[buttonStyle('plain'), tint(colors.link), disabled(busy || !!submit.disabled), accessibilityLabel('Done'), ...(busy ? [accessibilityValue('Saving')] : []), ...(stacked ? [] : [frame({ width: slotWidth })]), frame({ minHeight: sizes.touch })]}>
-          {busy ? <ProgressView modifiers={[controlSize('small')]} /> : <Text modifiers={[font({ textStyle: 'body', weight: 'semibold' })]}>Done</Text>}
+        {submit ? <Button onPress={busy || submit.disabled ? undefined : submit.onPress} modifiers={[buttonStyle('plain'), tint(colors.text), disabled(busy || !!submit.disabled), accessibilityLabel(submit.label ?? 'Done'), ...(busy ? [accessibilityValue('Saving')] : []), ...(stacked ? [] : [frame({ width: slotWidth })]), frame({ minHeight: sizes.touch })]}>
+          {busy ? <ProgressView modifiers={[controlSize('small')]} /> : <Text modifiers={[font({ textStyle: 'body', weight: 'semibold' })]}>{submit.label ?? 'Done'}</Text>}
         </Button> : <Button role="close" onPress={busy ? undefined : onClose} modifiers={[disabled(busy), accessibilityLabel(`Close ${title}`), ...(stacked ? [] : [frame({ width: slotWidth })]), frame({ minHeight: sizes.touch })]} />}
       </HStack>
     </VStack>

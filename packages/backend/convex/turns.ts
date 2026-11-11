@@ -1,3 +1,4 @@
+import { publicSearchChat } from "./chatDiscovery";
 import type { PlaceMessage, Skill } from "@companybot/core";
 import type { ModelMessage } from "ai";
 import { QUIET_WINDOW_MS, PROMPT_MESSAGE_CAP, THINKING_STEP, approxTokens, can, defaultReasoning, deniedMessage, calledTools, fallbackModels, responseOf, steerNote, stepsFor, withoutFileImages } from "@companybot/core";
@@ -28,6 +29,7 @@ import {
 	setActivity,
 	textForModel,
 } from "./chatOps";
+import { type RecordTags, recordTags, storeTags, syncRecordMentions } from "./recordTags";
 import { filesForModel, turnImages } from "./files";
 import { type Member, type Who, installedSkills, liveWorkspace, memberOf, nameOf, requireMember, timeZoneOf } from "./lib";
 import { previewMessage } from "./linkPreviews";
@@ -35,7 +37,7 @@ import { catalogModels } from "./modelCatalog";
 import { chatAccess } from "./placeAccess";
 import { recordOut } from "./recordTools";
 import { canReadReplyDetails, readReplyDetails, canReadReply, readReply, canReadSources } from "./replyPrivacy";
-import { inheritPlaces, notePlace, turnSources, writeSources } from "./replySources";
+import { inheritPlaces, notePlace, placeAudience, turnSources, type UsedPlace, writeSources } from "./replySources";
 import { messagePart, postDecision, replyStats, replyUsage } from "./schema";
 import { recordUsage } from "./usage";
 import { setWakeOutcome } from "./wakeups";
@@ -161,7 +163,39 @@ async function settleApproval(ctx: MutationCtx, turn: Doc<"agentTurns">) {
 }
 
 /**
- * Starts the oldest queued turn in a place, unless one is running (a stale one is failed first).
+ * Whether the agent is answering somewhere else in this chat right now (another thread, or the main
+ * chat). One agent runs one turn at a time in a chat: two at once, in two places, answer the same
+ * conversation without knowing about each other and contradict. The other waits, then starts when
+ * this one ends (startInChat), seeing what it said (turnContext `elsewhere`). A stale one doesn't count.
+ */
+async function busyElsewhere(ctx: QueryCtx, place: Place) {
+	const running = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_agent_chat", (q) => q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("status", "running"))
+		.collect();
+	return running.some((t) => t.threadId !== place.threadId && Date.now() - (t.startedAt ?? t._creationTime) < STALE_TURN_MS);
+}
+
+/** A turn ended: the agent's next waiting turn in this chat starts, its own place's first. */
+async function startInChat(ctx: MutationCtx, place: Place) {
+	await startNext(ctx, place);
+	if (await turnsAt(ctx, place, "running").first()) return;
+	const queued = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_agent_chat", (q) => q.eq("agentId", place.agentId).eq("chatId", place.chatId).eq("status", "queued"))
+		.take(20);
+	const tried = new Set([String(place.threadId)]);
+	for (const t of queued) {
+		if (tried.has(String(t.threadId))) continue;
+		tried.add(String(t.threadId));
+		await startNext(ctx, t);
+		if (await turnsAt(ctx, t, "running").first()) return;
+	}
+}
+
+/**
+ * Starts the oldest queued turn in a place, unless one is running (a stale one is failed first), or
+ * the agent is answering elsewhere in the chat (busyElsewhere).
  * A person turn starts as that person's newest queued here, once its quiet window is over, with the
  * older ones folded into it: its context covers all their messages.
  */
@@ -183,7 +217,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		}
 	}
 	let next = await turnsAt(ctx, place, "queued").first();
-	if (!next || (await waiting(ctx, next))) return;
+	if (!next || (await waiting(ctx, next)) || (await busyElsewhere(ctx, place))) return;
 	if (next.person) {
 		const actorId = next.actorId;
 		const theirs = (await turnsAt(ctx, place, "queued").collect()).filter((t) => t.person && t.actorId === actorId);
@@ -229,7 +263,7 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 	};
 	// Every reply starts hidden (quiet: not in the timeline, unread or the thread's replies) while the
 	// typing line shows the agent working, and shows once its message starts (show).
-	const replyId = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, quiet: true });
+	const replyId = await ctx.db.insert("chatMessages", { chatId: chat._id, workspaceId: chat.workspaceId, ...reply, searchPublic: publicSearchChat(chat), quiet: true });
 	await ctx.db.patch(next._id, { status: "running", replyId, sessionId: session._id, startedAt: Date.now(), step: { label: THINKING_STEP, at: Date.now() }, debouncing: undefined });
 	await ctx.scheduler.runAfter(0, internal.agent.respond, { turnId: next._id });
 }
@@ -248,8 +282,8 @@ function answerOf(turn: Doc<"agentTurns">, reply: Doc<"chatMessages"> | null) {
  * A session's finished, unsummarized turns as they replay to the model, oldest first. `steps` is JSON
  * (core replay.ts): a call's input or result can have keys Convex values can't.
  */
-async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member) {
-	const hiddenSummary = !!session.summary && (session.summaryPrivacy !== 1 || !!member && !(await canReadSources(ctx, member, session.summaryPlaces)));
+async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member?: Member, sharedHere?: Shared) {
+	const hiddenSummary = !!session.summary && (session.summaryPrivacy !== 1 || !!member && !(await summaryHere(ctx, member, session, sharedHere)));
 	const query = ctx.db.query("agentTurns").withIndex("by_session", (q) => q.eq("sessionId", session._id).gt("_creationTime", hiddenSummary ? 0 : session.summarizedUpTo ?? 0));
 	const replay = [];
 	let tokens = 0;
@@ -266,6 +300,8 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		bytes += reply ? getDocumentSize(reply) : 0;
 		if (bytes > REPLAY_BYTES) break;
 		if (member && reply && !(await canReadReply(ctx, member, reply))) continue;
+		// Where others see the reply, a private one stays out with its question: nothing it used carries over.
+		if (sharedHere && reply && !reply.sharedBy && !(await sharedHere(reply.usedPlaces))) continue;
 		const details = !member || await canReadReplyDetails(ctx, member, reply);
 		// Read one step at a time against the budget: a turn's steps can be many near-1 MiB rows.
 		const kept: Doc<"turnSteps">[] = [];
@@ -278,7 +314,7 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		const steps = kept.flatMap((s) => JSON.parse(s.messages) as ModelMessage[]);
 		const shown = JSON.stringify(member ? stepsFor(steps, { details, results: turn.actorId === member.userId }) : steps);
 		const answer = answerOf(turn, reply);
-		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) ? turn.prompt : "";
+		const prompt = turn.promptPlaces !== undefined && (!member || await canReadSources(ctx, member, turn.promptPlaces)) && (!sharedHere || await sharedHere(turn.promptPlaces)) ? turn.prompt : "";
 		const size = approxTokens(prompt + shown + answer);
 		if (hiddenSummary && tokens + size > KEEP_TOKENS) break;
 		if (member && reply) {
@@ -290,6 +326,18 @@ async function sessionTurns(ctx: QueryCtx, session: Doc<"agentSessions">, member
 		tokens += size;
 	}
 	return replay.reverse();
+}
+
+/** Checks whether sources fit everyone in the place; undefined in the asker's own 1:1 agent DM, where their private history replays. */
+type Shared = ((sources?: UsedPlace[]) => Promise<boolean>) | undefined;
+
+async function sharedCheck(ctx: QueryCtx, member: Member, chatId: Id<"chats">): Promise<Shared> {
+	return member.ownWrites ? undefined : await placeAudience(ctx, member, chatId);
+}
+
+/** The session summary replays only if the person can read what it used and, in a shared place, everyone there could. */
+async function summaryHere(ctx: QueryCtx, member: Member, session: Doc<"agentSessions">, sharedHere: Shared) {
+	return await canReadSources(ctx, member, session.summaryPlaces) && (!sharedHere || await sharedHere(session.summaryPlaces));
 }
 
 /** The running turn, its person (read fresh), and the chat, if they can still see it. */
@@ -335,7 +383,8 @@ export const turnContext = internalMutation({
 		const session = (await ctx.db.get(turn.sessionId))!;
 		const reply = (await ctx.db.get(turn.replyId))!;
 		const names = namer(ctx);
-		const summary = !foreign && session.summaryPrivacy === 1 && await canReadSources(ctx, member, session.summaryPlaces) ? session.summary ?? null : null;
+		const sharedHere = await sharedCheck(ctx, member, chat._id);
+		const summary = !foreign && session.summaryPrivacy === 1 && await summaryHere(ctx, member, session, sharedHere) ? session.summary ?? null : null;
 		if (summary) await inheritPlaces(ctx, member, session.summaryPlaces);
 		if (wakeup) {
 			if (!(await canReadSources(ctx, member, wakeup.usedPlaces))) throw new Error("This follow-up uses places you can no longer see.");
@@ -343,7 +392,7 @@ export const turnContext = internalMutation({
 		}
 
 		// Finished turns only, so never this (running) one.
-		const turns = (foreign ? [] : await sessionTurns(ctx, session, member)).map(({ prompt, steps, answer, stopped }) => ({ prompt, steps, answer, ...(stopped && { stopped }) }));
+		const turns = (foreign ? [] : await sessionTurns(ctx, session, member, sharedHere)).map(({ prompt, steps, answer, stopped }) => ({ prompt, steps, answer, ...(stopped && { stopped }) }));
 
 		// What's new: everything in the place after the last turn's reply started.
 		const last = (
@@ -373,7 +422,9 @@ export const turnContext = internalMutation({
 				.take(PROMPT_MESSAGE_CAP + 2)
 		).reverse();
 		const recent = [];
-		for (const m of window) if (!steered.has(m._id) && await readReply(ctx, member, m)) recent.push(m);
+		// Others' private replies stay out in a shared place too; the message this turn answers is its subject.
+		const here = async (m: Doc<"chatMessages">) => !sharedHere || !!m.sharedBy || await sharedHere(m.usedPlaces);
+		for (const m of window) if (!steered.has(m._id) && (m._id === turn.triggerId || await here(m)) && await readReply(ctx, member, m)) recent.push(m);
 		// A turn after an approval answers the decision, not a message.
 		const approval = turn.approvalId && (await ctx.db.get(turn.approvalId));
 		if (approval && !(await readReplyDetails(ctx, member, await ctx.db.get(approval.replyId)))) throw new Error("This approval uses places you can no longer see.");
@@ -382,16 +433,25 @@ export const turnContext = internalMutation({
 			if (trigger && await readReply(ctx, member, trigger)) recent.push(trigger);
 		}
 		const skills = await installedSkills(ctx, chat.workspaceId, turn.actorId, member);
-		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since);
-		const messages = await Promise.all(
-			recent
-				.filter((m) => !m.deleted)
-				// Another agent's reply still streaming keeps its text so far apart from the message.
-				.map(async (m) => {
-					const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
-					return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, agent._id, skills);
-				}),
-		);
+		const reacted = foreign || !last ? [] : await reactedSince(ctx, member, chat._id, turn.threadId, since, here);
+		const tags = recordTags(ctx, member);
+		const messages = (
+			await Promise.all(
+				recent
+					.filter((m) => !m.deleted)
+					// Another agent's reply still streaming keeps its text so far apart from the message. With nothing to
+					// show yet (a reply that started over), it's left out: as `""` it read as a reply that said nothing.
+					.map(async (m) => {
+						const stream = m.status === "streaming" && (await streamOf(ctx, m._id));
+						if (m.status === "streaming" && m._id !== turn.triggerId && !(stream && showable(stream.parts))) return null;
+						return toPlaceMessage(ctx, stream ? { ...m, text: stream.text, parts: stream.parts } : m, names, tags, agent._id, skills);
+					}),
+			)
+		).filter((m) => m !== null);
+
+		// What it said meanwhile in this chat's other threads or main chat: a separate session, so without this it
+		// can contradict itself (one game told two ways). Never for a foreign run.
+		const elsewhere = foreign ? [] : await saidElsewhere(ctx, member, turn, since, here, names, tags);
 
 		const threadParent = turn.threadId && (!foreign || turn.threadId === trigger?._id) && (await ctx.db.get(turn.threadId));
 		const parent = threadParent && await readReply(ctx, member, threadParent) ? threadParent : null;
@@ -428,12 +488,13 @@ export const turnContext = internalMutation({
 				private: chat.private,
 				topic: chat.topic ?? null,
 				thread: parent
-					? { parent: await toPlaceMessage(ctx, parent, names, agent._id), first }
+					? { parent: await toPlaceMessage(ctx, parent, names, tags, agent._id), first }
 					: null,
 				...(await placeMembers(ctx, chat, [member.userId, ...[parent, ...recent].flatMap((m) => (m ? [m.authorUserId, m.actingFor] : []))], names)),
 			},
 			messages,
-			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, agent._id))),
+			reacted: await Promise.all(reacted.map((m) => toPlaceMessage(ctx, m, names, tags, agent._id))),
+			elsewhere,
 			asked,
 			triggerId: turn.triggerId ?? null,
 			/** Nobody @mentioned it: how sure the dispatcher was, or which agent named it. */
@@ -478,6 +539,35 @@ export const turnContext = internalMutation({
 	},
 });
 
+/** How many of its replies elsewhere a turn sees, newest kept, and how far back. */
+const ELSEWHERE_MAX = 3;
+const ELSEWHERE_MS = 24 * 60 * 60_000;
+
+/**
+ * The agent's own replies in this chat outside this turn's place (the main chat, or another thread) since
+ * its last reply here, oldest first: what it already said in the same conversation. The same privacy as the
+ * rest of its context: only replies this turn's person may read, that fit a shared place.
+ */
+async function saidElsewhere(ctx: QueryCtx, member: Member, turn: Doc<"agentTurns">, since: number, here: (m: Doc<"chatMessages">) => Promise<boolean>, names: Namer, tags: RecordTags) {
+	const after = Math.max(since, Date.now() - ELSEWHERE_MS);
+	const done = await ctx.db
+		.query("agentTurns")
+		.withIndex("by_agent_chat", (q) => q.eq("agentId", turn.agentId).eq("chatId", turn.chatId).eq("status", "done"))
+		.order("desc")
+		.take(20);
+	const said: Doc<"chatMessages">[] = [];
+	for (const t of done) {
+		if (t.threadId === turn.threadId || !t.replyId) continue;
+		const reply = await ctx.db.get(t.replyId);
+		// The thread's own parent shows as the parent already.
+		if (!reply || reply._id === turn.threadId || reply.quiet || reply.deleted || reply.status !== "done" || !reply.text.trim() || reply._creationTime <= after) continue;
+		if (!(await here(reply)) || !(await readReply(ctx, member, reply))) continue;
+		said.push(reply);
+		if (said.length === ELSEWHERE_MAX) break;
+	}
+	return Promise.all(said.reverse().map(async (m) => ({ thread: !!m.threadId, message: await toPlaceMessage(ctx, m, names, tags, turn.agentId) })));
+}
+
 /** The agents one message went to before this pick, first first (router.apply runs them in turn). */
 async function picksBefore(ctx: QueryCtx, turn: Doc<"agentTurns">, names: Namer) {
 	const before: string[] = [];
@@ -501,7 +591,7 @@ async function handoffOf(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 const REACTED_MAX = 10;
 
 /** Messages in a place from `since` or before, reacted to after it, oldest first. */
-async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, since: number) {
+async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, since: number, here: (m: Doc<"chatMessages">) => Promise<boolean>) {
 	const rows = await ctx.db
 		.query("reactions")
 		.withIndex("by_chat", (q) => q.eq("chatId", chatId).gt("_creationTime", since))
@@ -510,13 +600,13 @@ async function reactedSince(ctx: QueryCtx, member: Member, chatId: Id<"chats">, 
 	const found: Doc<"chatMessages">[] = [];
 	for (const id of new Set(rows.map((r) => r.messageId))) {
 		const m = await ctx.db.get(id);
-		if (m && !m.deleted && !m.quiet && m.threadId === threadId && m._creationTime <= since && await readReply(ctx, member, m)) found.push(m);
+		if (m && !m.deleted && !m.quiet && m.threadId === threadId && m._creationTime <= since && await here(m) && await readReply(ctx, member, m)) found.push(m);
 		if (found.length === REACTED_MAX) break;
 	}
 	return found.sort((a, b) => a._creationTime - b._creationTime);
 }
 
-async function toPlaceMessage(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
+async function toPlaceMessage(ctx: QueryCtx, m: Doc<"chatMessages">, names: Namer, tags: RecordTags, self: Id<"agents">, skills: Skill[] = []): Promise<PlaceMessage> {
 	const { for: person, ...who } = await names.of(m);
 	const author = { ...who, name: label({ ...who, for: person }) };
 	const reactions = await reactionGroups(ctx, m._id, names);
@@ -528,7 +618,8 @@ async function toPlaceMessage(ctx: QueryCtx, m: Doc<"chatMessages">, names: Name
 	return {
 		id: m._id,
 		author,
-		text: textForModel(m, m.authorAgentId === self ? "You" : author.name),
+		// Tagged records as the agent writes them, by name if its person can see them (a source of the turn, then).
+		text: textForModel({ ...m, text: await tags.forModel(m.text) }, m.authorAgentId === self ? "You" : author.name),
 		time: m._creationTime,
 		...(m.editedAt && { edited: true }),
 		...(!m.threadId && m.replyCount && { replyCount: m.replyCount }),
@@ -751,7 +842,8 @@ export const steer = internalMutation({
 		const names = namer(ctx);
 		const skills = await installedSkills(ctx, turn.workspaceId, turn.actorId, member);
 		const actor = { id: turn.actorId, name: (await names.user(turn.actorId)).name, timeZone: await timeZoneOf(ctx, turn.actorId) };
-		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(ctx, m, names, turn.agentId, skills))), actor);
+		const tags = recordTags(ctx, member);
+		const note = steerNote(await Promise.all(messages.map((m) => toPlaceMessage(ctx, m, names, tags, turn.agentId, skills))), actor);
 		await ctx.db.patch(turnId, {
 			steered: [...(turn.steered ?? []), ...messages.map((m) => m._id)],
 			...(turn.prompt !== undefined && { prompt: `${turn.prompt}\n\n${note}`, ...(turn.promptPlaces !== undefined && { promptPlaces: [...new Set([...turn.promptPlaces, ...await turnSources(ctx, member)])] }) }),
@@ -791,6 +883,29 @@ async function endStream(ctx: MutationCtx, reply: Doc<"chatMessages">, end: Part
 	const stream = await streamOf(ctx, reply._id);
 	await ctx.db.patch(reply._id, { ...(stream && { text: stream.text, parts: stream.parts }), ...end });
 	if (stream) await ctx.db.delete(stream._id);
+}
+
+/**
+ * The records a finished reply tags (`[@Name](record:id)`, the agent's choice: nothing here looks for names),
+ * kept as ids when its person can see them, like a person's message (messages.sendMessage); the rest stay as
+ * the names it wrote. So "I added [@Summit Homes](record:…) to Clients" links the record, and the record lists the reply.
+ */
+async function tagReply(ctx: MutationCtx, turn: Doc<"agentTurns">, replyId: Id<"chatMessages">) {
+	const reply = await ctx.db.get(replyId);
+	const member = await memberOf(ctx, turn.actorId, turn.workspaceId);
+	if (!reply || !member || ![reply.text, ...reply.parts.map((p) => (p.type === "text" ? p.text : ""))].some((t) => t.includes("record:"))) return;
+	const { text, recordIds } = await storeTags(ctx, member, reply.text);
+	const ids = new Set(recordIds);
+	const parts = await Promise.all(
+		reply.parts.map(async (p) => {
+			if (p.type !== "text") return p;
+			const stored = await storeTags(ctx, member, p.text);
+			for (const id of stored.recordIds) ids.add(id);
+			return { ...p, text: stored.text };
+		}),
+	);
+	await ctx.db.patch(reply._id, { text, parts, mentions: { ...reply.mentions, ...(ids.size > 0 && { recordIds: [...ids] }) } });
+	await syncRecordMentions(ctx, reply, [...ids]);
 }
 
 /** The running cost on a place: the thread parent, or the chat's activity. */
@@ -926,6 +1041,7 @@ export const finishReply = internalMutation({
 		if (reply) {
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
 			await endStream(ctx, reply, { ...end, stats, ...(!shown && { quiet: true as const }) });
+			if (shown && !lost) await tagReply(ctx, turn, reply._id);
 			if (shown) await show(ctx, reply);
 			if (shown && !error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 			if (shown && !error) await ctx.scheduler.runAfter(1000, internal.mobileNotifications.enqueue, { messageId: reply._id });
@@ -937,11 +1053,13 @@ export const finishReply = internalMutation({
 		if (emoji && trigger && agent) await reactOnce(ctx, trigger, agent, emoji);
 		await setWakeOutcome(ctx, turn, error || stopped ? "failed" : shown ? "notified" : "ran");
 		await settleApproval(ctx, turn);
+		// A pick that waited for this one goes first: it's older than any handoff this turn makes, and an agent
+		// runs one turn at a time in a chat (startNext), so a handoff to it waits behind it.
+		await startThen(ctx, turn);
 		// Agents it @mentioned or named take the work on (chains.ts); an asked agent's answer goes back to the asker.
 		if (!error && !stopped) await handOff(ctx, (await ctx.db.get(turnId))!, decided?.to);
 		await answerAsk(ctx, turn, error ?? (stopped ? "it was stopped" : undefined));
-		await startNext(ctx, turn);
-		await startThen(ctx, turn);
+		await startInChat(ctx, turn);
 	},
 });
 

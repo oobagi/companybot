@@ -3,7 +3,8 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useMutation, useQuery } from "../../convex";
-import { Notice, descriptionClass, hintClass, primaryButton, secondaryButton, timeAgo, useRun } from "../../ui";
+import { Segmented } from "../../controls";
+import { Notice, actionButton, actionPrimaryButton, descriptionClass, hintClass, timeAgo, useRun } from "../../ui";
 import type { Message } from "./data";
 
 type ApprovalPart = Extract<Message["parts"][number], { type: "approval" }>;
@@ -16,17 +17,19 @@ type Approval = FunctionReturnType<typeof api.approvals.forReply>[number];
 export function HeldCall({ replyId, part }: { replyId: Message["_id"]; part: ApprovalPart }) {
 	// One subscription per reply, however many cards it holds: the client shares identical queries.
 	const approvals = useQuery(api.approvals.forReply, { replyId });
-	return <ApprovalCard part={part} approval={approvals?.find((a) => a.callId === part.id)} />;
+	// Loaded but not listed: past the cards one reply shows (approvals.APPROVALS_PER_REPLY).
+	return <ApprovalCard part={part} approval={approvals?.find((a) => a.callId === part.id)} unlisted={!!approvals && !approvals.some((a) => a.callId === part.id)} />;
 }
 
 /**
  * One held call. Shows the exact input that will run, every field in full; the person the
  * agent acts for answers. Answers are locked to what's shown here (`hash`), so nothing else can run.
  */
-function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approval | undefined }) {
+function ApprovalCard({ part, approval, unlisted }: { part: ApprovalPart; approval: Approval | undefined; unlisted: boolean }) {
 	const decide = useMutation(api.approvals.decide);
 	const { error, busy, run } = useRun();
 	const [raw, setRaw] = useState(false);
+	// Losing a race to another device or click resolves `{ decided: false }`: the card already shows the outcome.
 	const send = (approve: boolean, always = false) => {
 		if (!approval) return;
 		run(decide({ approvalId: approval._id, hash: approval.hash, approve, always: !!always }));
@@ -44,15 +47,21 @@ function ApprovalCard({ part, approval }: { part: ApprovalPart; approval: Approv
 				<p className="leading-relaxed">{approval?.ask ?? `I'd like to run ${part.tool}.`}</p>
 			)}
 			<div className="flex flex-col gap-2 rounded-xl bg-white px-3 py-2">
-				<div className="flex items-baseline justify-between gap-3 text-xs text-neutral-500">
+				<div className="flex items-center justify-between gap-3 text-xs text-neutral-500">
 					<span>{service}</span>
 					{approval && (
-						<button type="button" onClick={() => setRaw(!raw)} className="text-neutral-400 hover:text-neutral-600">
-							{raw ? "Fields" : "Raw"}
-						</button>
+						<Segmented
+							label="Show as"
+							options={[
+								{ value: "fields", label: "Fields" },
+								{ value: "raw", label: "Raw" },
+							]}
+							value={raw ? "raw" : "fields"}
+							onChange={(v) => setRaw(v === "raw")}
+						/>
 					)}
 				</div>
-				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields input={approval.input} /> : <p className={hintClass}>Loading…</p>}
+				{approval ? raw ? <Raw text={pretty(approval.input)} /> : <Fields fields={approval.fields} input={approval.input} /> : <p className={hintClass}>{unlisted ? "This reply holds too many requests to show them all. Ask the agent again." : "Loading…"}</p>}
 			</div>
 			{approval && <Status approval={approval} busy={busy} raw={raw} onDecide={send} />}
 			<Notice>{error}</Notice>
@@ -81,15 +90,15 @@ function Status({
 						className="flex flex-wrap items-center gap-2"
 						title={`Expires ${timeAgo(approval.expiresAt)}. Locked to this exact content (SHA-256 ${approval.hash}).`}
 					>
-						<button type="button" disabled={busy} onClick={() => onDecide(true)} className={`${primaryButton} py-1.5`}>
+						<button type="button" disabled={busy} onClick={() => onDecide(true)} className={actionPrimaryButton}>
 							Allow once
 						</button>
 						{approval.alwaysText && (
-							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={`${secondaryButton} bg-white py-1.5`}>
+							<button type="button" disabled={busy} onClick={() => onDecide(true, true)} className={actionButton}>
 								{approval.alwaysAutomation ? "Always for this automation" : "Always allow"}
 							</button>
 						)}
-						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={`${secondaryButton} bg-white py-1.5`}>
+						<button type="button" disabled={busy} onClick={() => onDecide(false)} className={actionButton}>
 							Deny
 						</button>
 					</div>
@@ -121,11 +130,13 @@ function Status({
 	}
 }
 
-/** Top-level fields, each in full: text as written (phone numbers laid out), numbers plain, anything else as JSON. */
-function Fields({ input }: { input: string }) {
-	const value: unknown = JSON.parse(input);
-	if (!value || typeof value !== "object" || Array.isArray(value)) return <Raw text={pretty(input)} />;
-	const entries = Object.entries(value);
+/**
+ * The call's fields, each in full, as the server named them for you (ids as names you can see): text as
+ * written (phone numbers laid out), numbers plain, anything else as JSON. Raw shows the exact input.
+ */
+function Fields({ fields, input }: { fields: Approval["fields"]; input: string }) {
+	if (!fields) return <Raw text={pretty(input)} />;
+	const entries = fields.map((f) => [f.key, f.value] as const);
 	if (entries.length === 0) return <p className={descriptionClass}>No input.</p>;
 	return (
 		<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
@@ -136,7 +147,7 @@ function Fields({ input }: { input: string }) {
 						{typeof v === "string" ? (
 							readableValue(v)
 						) : typeof v === "number" || typeof v === "boolean" ? (
-							v.toLocaleString()
+							typeof v === "boolean" ? (v ? "Yes" : "No") : v.toLocaleString()
 						) : (
 							<code className="text-xs">{JSON.stringify(v, null, 2)}</code>
 						)}

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useQuery } from "../../convex";
 import { CaretRightIcon, CheckIcon } from "../../icons";
+import { titleButton } from "../../ui";
 
 /** What each step asks, and how to do it. `agent` is the main agent's name. */
 const copy = (agent: string): Record<TutorialStep, { title: string; how: string }> => ({
@@ -36,7 +37,7 @@ export function GettingStarted({ agent }: { agent: string }) {
 			className="mx-3 mb-3 flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm"
 		>
 			{/* One control, one place: the caret on the right turns; the whole header is the button. */}
-			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className="group/fold -m-1 flex items-center justify-between rounded-lg p-1 text-left">
+			<button type="button" onClick={() => fold(!folded)} aria-expanded={!folded} className={`${titleButton} group/fold -m-1 flex items-center justify-between rounded-lg p-1`}>
 				<h2 className="min-w-0 truncate text-xs font-medium text-neutral-500 group-hover/fold:text-neutral-900">{title}</h2>
 				<CaretRightIcon className={`shrink-0 text-neutral-400 transition-transform group-hover/fold:text-neutral-700 ${folded ? "" : "rotate-90"}`} />
 			</button>
@@ -44,8 +45,8 @@ export function GettingStarted({ agent }: { agent: string }) {
 			<ol className="flex flex-col gap-1.5">
 				{steps.map((step, i) => (
 					<li key={step.id} className={`flex gap-2 ${i === current ? "text-neutral-900" : "text-neutral-400"}`}>
-						<span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${step.done ? "border-neutral-900 bg-neutral-900 text-white" : i === current ? "border-neutral-900" : "border-neutral-300"}`}>
-							{step.done && <CheckIcon weight="bold" />}
+						<span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border ${step.done ? "border-neutral-900 bg-neutral-900 text-white" : i === current ? "border-neutral-900" : "border-neutral-300"}`}>
+							{step.done && <CheckIcon weight="bold" size={10} />}
 						</span>
 						<span className="flex min-w-0 flex-col gap-0.5">
 							<span className={step.done ? "line-through" : i === current ? "font-medium" : ""}>{text[step.id].title}</span>

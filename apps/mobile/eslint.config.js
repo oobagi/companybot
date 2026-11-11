@@ -1,6 +1,8 @@
 // https://docs.expo.dev/guides/using-eslint/
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
+const expoRequire = require('node:module').createRequire(require.resolve('eslint-config-expo/package.json'));
+const typescriptParser = expoRequire.resolve('@typescript-eslint/parser');
 
 module.exports = defineConfig([
   expoConfig,
@@ -9,6 +11,9 @@ module.exports = defineConfig([
   },
   {
     files: ['src/**/*.{ts,tsx}'],
+    // Import analysis otherwise resolves the workspace's TS 7 parser and silently
+    // skips those checks. Use the same TS 6 parser as Expo's mobile lint config.
+    settings: { 'import/parsers': { '@typescript-eslint/parser': [], [typescriptParser]: ['.ts', '.tsx'] } },
     rules: {
       'no-restricted-imports': ['error', {
         paths: [

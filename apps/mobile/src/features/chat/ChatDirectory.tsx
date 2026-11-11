@@ -4,8 +4,10 @@ import type { Id } from '@companybot/backend/convex/_generated/dataModel';
 import { can } from '@companybot/core/permissions';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Switch } from 'react-native';
-import { Avatar, Badge, Button, EmptyState, ErrorState, Field, ListRow, Loading, Screen, Section, Stack, Text } from '@/components/ui';
+import { Switch, View } from 'react-native';
+import { ChannelIcon, PrivateChannelIcon } from '@/design/icons';
+import { useTheme } from '@/design';
+import { Avatar, Button, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, Text } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useMutation, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
@@ -16,6 +18,7 @@ import { Dialog } from './Dialog';
 import { chatTitle } from './types';
 
 export function ChatDirectory() {
+  const { colors, sizes, spacing } = useTheme();
   const chats = useQuery(api.chats.list);
   const arrangements = useArrangements();
   const me = useQuery(api.workspace.me);
@@ -30,27 +33,31 @@ export function ChatDirectory() {
   const channels = arrangements.order('channels', chats.channels).filter((c) => matches(chatTitle(c)));
   const agents = chats.agents.filter((a) => matches(a.name));
   const dms = chats.dms.filter((c) => (!c.agentId || c.parentId) && matches(chatTitle(c)));
+  const rows: ({ key: string; heading: string } | { key: string; title: string; leading: React.ReactNode; unread?: boolean; mentioned?: boolean; onPress: () => void })[] = [
+    ...(channels.length ? [{ key: 'channels', heading: 'Channels' }] : []),
+    ...channels.map(c => ({ key: c._id, title: c.label ?? c.name ?? chatTitle(c), leading: c.private ? <PrivateChannelIcon size={sizes.icon} color={colors.muted} /> : <ChannelIcon size={sizes.icon} color={colors.muted} />, unread: c.unread, mentioned: c.mentioned, onPress: () => open(c._id) })),
+    ...(agents.length || dms.length ? [{ key: 'messages', heading: 'Direct messages' }] : []),
+    ...agents.map(a => ({ key: a._id, title: a.name, leading: <Avatar name={a.name} image={a.image} agent />, unread: a.unread, mentioned: a.mentioned, onPress: () => { if (a.dmId) open(a.dmId); else void task.run(async () => open(await openDm({ userIds: [], agentIds: [a._id] }))); } })),
+    ...dms.map(c => ({ key: c._id, title: chatTitle(c), leading: <Avatar name={chatTitle(c)} agent={!!c.agentId} />, unread: c.unread, mentioned: c.mentioned, onPress: () => open(c._id) })),
+  ];
   return <><DirectoryHeader search={{ placeholder: 'Search chats', value: search, onChange: setSearch }} action={{ label: 'New message', onPress: () => setDialog('new') }} menu={[
     { label: 'Threads', icon: 'bubble.left.and.bubble.right', onPress: () => setDialog('threads') },
     ...(arrangements.writable ? [{ label: 'Organize channels', icon: 'arrow.up.arrow.down' as const, onPress: () => setDialog('organize') }] : []),
     { label: 'Browse channels', icon: 'number', onPress: () => setDialog('browse') },
     ...(me?.access && can(me.access, 'channels.edit') ? [{ label: 'New channel', icon: 'plus' as const, onPress: () => setDialog('channel') }] : []),
-  ]} /><Screen scroll edges={['left', 'right']}><Stack style={{ flexGrow: 1 }}>
-    {task.error && <ErrorState message={task.error} />}
-    {!agents.length && !channels.length && !dms.length ? <EmptyState title={search ? 'No chats found' : 'No conversations yet'} description={search ? 'Try a different name.' : 'Start a conversation with a teammate or agent.'} /> : <>
-    {!!agents.length && <Section title="Agents">{agents.map((a) => <ListRow key={a._id} title={a.name} description={a.description} leading={<Avatar name={a.name} image={a.image} agent />} trailing={<Badge label={a.mentioned ? 'Mention' : a.unread ? 'Unread' : 'Agent'} />} onPress={() => { if (a.dmId) open(a.dmId); else void task.run(async () => open(await openDm({ userIds: [], agentIds: [a._id] }))); }} />)}</Section>}
-    <Section title="Channels">
-      {channels.map((c) => <ListRow key={c._id} title={chatTitle(c)} description={c.private ? 'Private channel' : c.topic ?? undefined} trailing={c.mentioned ? <Badge label="Mention" /> : c.unread ? <Badge label="Unread" /> : undefined} onPress={() => open(c._id)} />)}
-      {!channels.length && <Text tone="muted">{search ? 'No matching channels.' : 'No channels yet.'}</Text>}
-    </Section>
-    <Section title="Direct messages">{dms.map((c) => <ListRow key={c._id} title={chatTitle(c)} description={c.parentId ? `Side chat · ${c.title}` : undefined} leading={<Avatar name={chatTitle(c)} agent={!!c.agentId} />} trailing={c.mentioned ? <Badge label="Mention" /> : c.unread ? <Badge label="Unread" /> : undefined} onPress={() => open(c._id)} />)}{!dms.length && <Text tone="muted">{search ? 'No matching messages.' : 'Start a conversation with your team.'}</Text>}</Section>
-    </>}
+  ]} /><Screen nativeScroll padded={false} edges={['left', 'right']}>
+    <ScreenList data={rows} keyExtractor={row => row.key} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: sizes.gutter, paddingBottom: spacing.xl }}
+      ListHeaderComponent={task.error ? <ErrorState message={task.error} /> : undefined}
+      ListEmptyComponent={<EmptyState title={search ? 'No chats found' : 'No conversations yet'} description={search ? 'Try a different name.' : 'Start a conversation with a teammate or agent.'} />}
+      renderItem={({ item }) => 'heading' in item
+        ? <Text variant="supporting" tone="muted" accessibilityRole="header" style={{ paddingTop: spacing.xl, paddingBottom: spacing.sm, fontWeight: '500' }}>{item.heading}</Text>
+        : <ListRow title={item.title} leading={item.leading} accessibilityLabel={`${item.title}${item.mentioned ? ', mentioned you' : item.unread ? ', unread' : ''}`} trailing={item.mentioned ? <Text variant="supporting" tone="link">@</Text> : item.unread ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: colors.text }} /> : undefined} onPress={item.onPress} />} />
     {dialog === 'organize' && <ReorderSheet title="Organize channels" list="channels" items={chats.channels.map(channel => ({ _id: channel._id, title: chatTitle(channel) }))} onClose={() => setDialog(undefined)} />}
     {dialog === 'threads' && <ActiveThreads onClose={() => setDialog(undefined)} />}
     {dialog === 'new' && <NewMessage onClose={() => setDialog(undefined)} onOpen={open} />}
     {dialog === 'channel' && <NewChannel onClose={() => setDialog(undefined)} onOpen={open} />}
     {dialog === 'browse' && <BrowseChannels onClose={() => setDialog(undefined)} onOpen={open} />}
-  </Stack></Screen></>;
+  </Screen></>;
 }
 
 function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (id: Id<'chats'>) => void }) {
@@ -75,10 +82,11 @@ function NewChannel({ onClose, onOpen }: { onClose: () => void; onOpen: (id: Id<
   const [privateChannel, setPrivate] = useState(false);
   const task = useTask();
   const guard = useDraftGuard({ dirty: !!name || !!topic || privateChannel, busy: task.busy, onClose });
-  return <Dialog title="New channel" onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy}>{guard.dialog}<Field label="Name" value={name} onChangeText={setName} editable={!task.busy} autoCapitalize="none" /><Field label="Topic" value={topic} onChangeText={setTopic} editable={!task.busy} multiline />
+  const save = () => void task.run(async () => { const id = await create({ name: name.trim(), topic: topic.trim(), private: privateChannel }); guard.complete(); onClose(); onOpen(id); });
+  return <EditorSheet title="New channel" size="content" onClose={() => void guard.close()} dismissible={guard.dismissible} busy={task.busy} submit={{ label: 'Create', disabled: !name.trim(), onPress: save }}>{guard.dialog}<Field label="Name" value={name} onChangeText={setName} editable={!task.busy} autoCapitalize="none" /><Field label="Topic" value={topic} onChangeText={setTopic} editable={!task.busy} multiline />
     <ListRow title="Private channel" description="Only invited members can read it." trailing={<Switch accessibilityLabel="Private channel" value={privateChannel} disabled={task.busy} onValueChange={setPrivate} />} />
-    {task.error && <ErrorState message={task.error} />}<Button label="Create channel" loading={task.busy} disabled={!name.trim()} onPress={() => void task.run(async () => { const id = await create({ name: name.trim(), topic: topic.trim(), private: privateChannel }); onClose(); onOpen(id); })} />
-  </Dialog>;
+    {task.error && <ErrorState message={task.error} />}
+  </EditorSheet>;
 }
 
 function BrowseChannels({ onClose, onOpen }: { onClose: () => void; onOpen: (id: Id<'chats'>) => void }) {

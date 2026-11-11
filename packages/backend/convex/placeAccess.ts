@@ -1,4 +1,4 @@
-import { type AccessEntry, type AccessLevel, type PlaceKind, EVERYONE, cleanAccess, isRestricted, levelIn, placeDeniedMessage, reaches, whoCan } from "@companybot/core";
+import { type AccessEntry, type AccessLevel, type PlaceKind, EVERYONE, cleanAccess, isRestricted, levelIn, losesOwnEdit, ownEditMessage, placeDeniedMessage, reaches, whoCan } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -22,6 +22,11 @@ export const reach = (member: Member, list: AccessList) => levelIn(member, list)
 export function requireAccess(member: Member, kind: PlaceKind, name: string, list: AccessList, need: AccessLevel, asked?: string) {
 	const level = reach(member, list);
 	if (!reaches(level, need)) throw new ConvexError(placeDeniedMessage(kind, level ? name : (asked ?? `this ${kind}`), list, member.workspaceRoles, need));
+}
+
+/** Refuses a list change that would take the person's own Edit (Post) away; Owners always keep it. */
+export function requireKeepsEdit(member: Member, kind: PlaceKind, next: AccessList) {
+	if (losesOwnEdit(member, next)) throw new ConvexError(ownEditMessage(kind));
 }
 
 /** A channel's list. DMs and side chats are their members' alone, so they have none. */

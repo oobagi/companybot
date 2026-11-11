@@ -10,14 +10,10 @@ export type ViewConfig = Pick<FunctionArgs<typeof api.databaseViews.save>, 'filt
 export type SavedView = FunctionReturnType<typeof api.databaseViews.list>[number];
 export type Refs = Record<string, { name: string; archived?: true }>;
 
-export const defaultView = (database: Database): ViewConfig => ({ filters: [], columns: database.fields.filter(f => !f.archived).slice(0, 5).map(f => f.key), layout: database.display?.layout ?? 'table', groupBy: database.display?.groupBy });
-/** All-records layout belongs to the database. Device preferences retain only personal filters/columns/sort. */
-export const allRecordsView = (local: ViewConfig, display: Database['display'], columns: string[] = local.columns): ViewConfig => ({ ...local, columns, layout: display.layout, groupBy: display.groupBy });
-/** Send only controls the person changed; a concurrent grouping change must survive a layout save. */
-export const changedDisplay = (next: ViewConfig, baseline: ViewConfig) => ({
-  ...((next.layout ?? 'table') !== (baseline.layout ?? 'table') ? { layout: next.layout ?? 'table' } : {}),
-  ...(next.groupBy && next.groupBy !== baseline.groupBy ? { groupBy: next.groupBy } : {}),
-});
+/** Used only when creating the database's first real saved view. */
+export const defaultView = (database: Database): ViewConfig => ({ filters: [], columns: ['name', ...database.fields.filter(f => !f.archived && f.key !== 'name').slice(0, 4).map(f => f.key)], layout: 'table' });
+/** Ordered saved views are the only destinations, including a view named All. */
+export const activeView = (views: readonly SavedView[], selected?: string) => views.find(view => view._id === selected) ?? views[0];
 export const sortable = (field: Field) => !field.multiple && field.kind !== 'link' && field.kind !== 'checkbox';
 export const groupable = (field: Field) => field.kind === 'choice' && !field.multiple;
 export function valueText(field: Field | undefined, value: FieldValue | null | undefined, refs: Refs = {}): string {

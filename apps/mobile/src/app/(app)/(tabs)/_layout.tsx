@@ -8,7 +8,7 @@ export default function TabsLayout() {
   const chats = useQuery(api.chats.list);
   const unread = chats ? [...chats.channels, ...chats.dms].filter(c => c.unread).length : 0;
   return (
-    <NativeTabs tintColor={colors.link}>
+    <NativeTabs tintColor={colors.text}>
       <NativeTabs.Trigger name="(chats)" testID="tab-chats">
         <NativeTabs.Trigger.Label>Chats</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: 'bubble.left.and.bubble.right', selected: 'bubble.left.and.bubble.right.fill' }} md="chat" />

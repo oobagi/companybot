@@ -16,10 +16,9 @@ import { api } from '@/lib/api';
 import { useMutation, usePaginatedQuery, useQuery, useWorkspace } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { DatabaseForm, FieldForm } from './DatabaseForms';
-import { allRecordsView, changedDisplay, defaultView, groupable, type Database, type ViewConfig } from './model';
+import { activeView, groupable, type Database } from './model';
 import { ViewEditor } from './ViewEditor';
 import { useDeviceView } from './useDeviceView';
-import { normalizeViewConfig } from './deviceView';
 import { AccessSheet } from '@/features/access/AccessSheet';
 
 export function DatabaseScreen({ typeId }: { typeId: string }) {
@@ -37,66 +36,62 @@ function DatabaseContent({ database }: { database: Database }) {
   const settings = useQuery(api.workspace.settings);
   const views = useQuery(api.databaseViews.list, { typeId: database._id });
   const setAccess = useMutation(api.recordTypes.setAccess);
-  const setDisplay = useMutation(api.recordTypes.setDisplay);
   const arrangements = useArrangements();
-  const changeArrangement = useMutation(api.arrangements.change);
-  const storedColumns = arrangements.rows.find(row => row.list === 'columns' && row.entityId === database._id)?.ids;
-  const columns = (storedColumns?.length ? storedColumns : defaultView(database).columns).filter(key => database.fields.some(field => field.key === key && !field.archived));
   const canArrange = !!me?.access && can(me.access, 'sidebar.arrange');
-  const [selected, setSelected] = useState('');
-  const [selectedVersion, setSelectedVersion] = useState<number>();
-  const [sharedConfig, setSharedConfig] = useState<ViewConfig>(() => defaultView(database));
-  const device = useDeviceView(workspace!.id, database, settings?.currency);
-  const config = selected ? normalizeViewConfig(sharedConfig, database, settings?.currency ?? 'USD') : allRecordsView(device.config, database.display, columns);
-  const setConfig = (next: ViewConfig) => { if (selected) setSharedConfig(next); else device.set(next); };
+  const [selected, setSelected] = useState<string>();
+  const orderedViews = arrangements.order('views', views ?? [], database._id);
+  const current = activeView(orderedViews, selected);
+  const device = useDeviceView(workspace!.id, database, settings?.currency, current);
+  const config = device.config;
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<'view' | 'database' | 'create' | 'field' | 'access' | 'organize'>();
-  const { spacing } = useTheme();
+  const { spacing, sizes } = useTheme();
   const editable = database.canEdit;
   const liveFields = database.fields.filter(f => !f.archived);
   const groupField = liveFields.find(f => f.key === config.groupBy && groupable(f)) ?? liveFields.find(groupable);
   const searchResults = useQuery(api.records.search, search.trim() ? { typeId: database._id, query: search.trim() } : 'skip');
   const board = config.layout === 'board' && !search.trim();
-  const { results, status, loadMore } = usePaginatedQuery(api.records.list, board || search.trim() || !device.loaded ? 'skip' : { typeId: database._id, filters: config.filters, sort: config.sort }, { initialNumItems: 25 });
+  const { results, status, loadMore } = usePaginatedQuery(api.records.list, board || search.trim() || !current || !device.loaded ? 'skip' : { typeId: database._id, filters: config.filters, sort: config.sort }, { initialNumItems: 25 });
   // Selective filters may return empty/short pages without exhausting their indexed scan.
   useEffect(() => { if (!board && !search.trim() && status === 'CanLoadMore' && results.length < 25) loadMore(25); }, [board, search, status, results.length, loadMore]);
   const rows = search.trim() ? searchResults ?? [] : results;
   const missing = [...new Set(rows.flatMap(row => row.unresolved))].slice(0, 200);
   const resolved = useQuery(api.records.refs, missing.length ? { ids: missing } : 'skip');
-  const current = views?.find(view => view._id === selected);
-  // A deleted shared view returns to All records, matching desktop navigation.
-  if (views !== undefined && selected && selectedVersion !== undefined && !current) { setSelected(''); setSelectedVersion(undefined); }
-  // Capture a base once after creating/saving a view; later remote versions never silently rebase a local draft.
-  if (current && selectedVersion === undefined) setSelectedVersion(current.version);
   const sortField = config.sort && liveFields.find(field => field.key === config.sort?.field);
   const header = <Stack gap="sm">
-    <ChoicePicker label="View" presentation="compact" disabled={views === undefined} value={selected || 'all'} options={[{ value: 'all', label: 'All records' }, ...arrangements.order('views', views ?? [], database._id).map(v => ({ value: v._id, label: v.name }))]} onChange={value => {
-      if (typeof value !== 'string' || !value) return;
-      const view = views?.find(v => v._id === value); setSelected(view?._id ?? ''); setSelectedVersion(view?.version); if (view) setSharedConfig({ filters: view.filters, sort: view.sort, columns: view.columns, layout: view.layout ?? 'table', groupBy: view.groupBy });
+    <ChoicePicker label="View" presentation="compact" disabled={views === undefined} value={current?._id ?? ''} options={orderedViews.map(v => ({ value: v._id, label: v.name }))} onChange={value => {
+      if (typeof value === 'string' && orderedViews.some(view => view._id === value)) setSelected(value);
     }} />
+    {device.local && <Text variant="supporting" tone={device.baseVersion !== current?.version ? 'danger' : 'muted'}>{device.baseVersion !== current?.version ? 'This shared view changed. Your device options are kept; reset them in View options before saving for everyone.' : 'View options apply on this device.'}</Text>}
     {search.trim() && <Text variant="caption" tone="muted">Top 20 search matches. View filters and sorting are paused while searching.</Text>}
     {!search.trim() && sortField && <Text variant="caption" tone="muted">Sorted by {sortField.label}. Records without a value aren’t shown.</Text>}
     {pin.error && <ErrorState message={pin.error} />}
     {device.error && <ErrorState message={device.error} />}
   </Stack>;
-  if (!device.loaded || !arrangements.loaded) return <Screen><Loading label="Opening database…" /></Screen>;
+  if (views === undefined || !arrangements.loaded || (current && !device.loaded && mode !== 'view')) return <Screen><Loading label="Opening database…" /></Screen>;
   return <Screen nativeScroll={!board} padded={false}>
     <RouterStack.Screen options={{ title: database.plural }} />
     <DirectoryHeader workspaceSwitcher={false} search={{ placeholder: `Search ${database.plural.toLowerCase()}`, value: search, onChange: setSearch }} action={editable ? { label: `New ${database.name.toLowerCase()}`, onPress: () => setMode('create') } : undefined} menu={[
       { label: pin.label, disabled: pin.disabled, onPress: pin.onPress },
       ...(canArrange ? [{ label: 'Organize views', onPress: () => setMode('organize') }] : []),
-      { label: 'View options', onPress: () => setMode('view') },
+      ...(current || editable ? [{ label: current ? 'View options' : 'Add view', onPress: () => setMode('view') }] : []),
       { label: 'Who can access', onPress: () => setMode('access') },
       ...(database.canManage ? [{ label: 'Add field', onPress: () => setMode('field') }, { label: 'Edit database', onPress: () => setMode('database') }] : []),
     ]} />
-    <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>{header}</View>
-    {board ? groupField ? <Board key={JSON.stringify([database._id, groupField.key, config.filters, config.sort])} database={database} config={config} group={groupField} /> : <EmptyState title="Choose a field for this board" description="Boards group records by a single-choice field." action={database.canManage ? <Button label="Add field" onPress={() => setMode('field')} /> : undefined} /> : <ScreenList data={rows} keyExtractor={item => item._id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }} ItemSeparatorComponent={Divider}
+    {current && <View style={{ paddingHorizontal: sizes.gutter, paddingBottom: spacing.sm }}>{header}</View>}
+    {!current ? <EmptyState title="No views yet" description="A view shows this database’s records as a list or board." action={editable ? <Button label="Add view" onPress={() => setMode('view')} /> : undefined} /> : board ? groupField ? <Board key={JSON.stringify([database._id, groupField.key, config.filters, config.sort])} database={database} config={config} group={groupField} /> : <EmptyState title="Choose a field for this board" description="Boards group records by a single-choice field." action={database.canManage ? <Button label="Add field" onPress={() => setMode('field')} /> : undefined} /> : <ScreenList data={rows} keyExtractor={item => item._id} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingHorizontal: sizes.gutter, paddingBottom: spacing.lg }} ItemSeparatorComponent={Divider}
       renderItem={({ item }) => <RecordCard row={item} database={database} config={config} refs={{ ...item.refs, ...resolved }} presentation="row" />}
       onEndReached={() => { if (!board && !search.trim() && status === 'CanLoadMore') loadMore(25); }} onEndReachedThreshold={0.5}
       ListEmptyComponent={search.trim() ? searchResults === undefined ? <Loading label="Searching records…" /> : <EmptyState title="No matches" description="Try a different name or text." /> : status === 'LoadingFirstPage' || status === 'LoadingMore' || status === 'CanLoadMore' ? <Loading label="Loading records…" /> : <EmptyState title={config.filters.length || config.sort ? 'No matching records' : `No ${database.plural.toLowerCase()} yet`} description={config.filters.length || config.sort ? 'Adjust this view’s filters or sorting to see more records.' : editable ? `Use the plus button to add your first ${database.name.toLowerCase()}.` : 'Records added by your team will appear here.'} />}
       ListFooterComponent={rows.length && !search.trim() ? status === 'CanLoadMore' ? <Button label="Load more" variant="ghost" onPress={() => loadMore(25)} /> : status === 'LoadingMore' ? <Loading layout="inline" label="Loading more…" /> : undefined : undefined} />}
-    {mode === 'view' && <ViewEditor database={database} value={config} view={editable ? current : undefined} baseVersion={selectedVersion} sharedDisplay={!selected ? { editable: canArrange } : undefined} onApply={async (next, id, baseline) => { if (!selected && id === undefined) { const display = changedDisplay(next, baseline ?? config); if (Object.keys(display).length) await setDisplay({ typeId: database._id, display }); const previous = baseline?.columns ?? config.columns; const seed = storedColumns?.length ? undefined : previous; for (const key of next.columns.filter(key => !previous.includes(key))) await changeArrangement({ list: 'columns', entityId: database._id, command: { op: 'add', id: key, seed } }); for (const key of previous.filter(key => !next.columns.includes(key))) await changeArrangement({ list: 'columns', entityId: database._id, command: { op: 'remove', id: key, seed } }); } setConfig(next); if (id !== undefined) { setSelected(id); setSelectedVersion(undefined); if (id) setSharedConfig(next); } }} onClose={() => setMode(undefined)} canSave={editable} />}
-    {mode === 'organize' && <ReorderSheet title="Organize views" list="views" entityId={database._id} items={(views ?? []).map(view => ({ _id: view._id, title: view.name }))} currentId={selected} loading={views === undefined} onClose={() => setMode(undefined)} />}
+    {mode === 'view' && <ViewEditor database={database} value={config} view={current} baseVersion={device.baseVersion} hasDeviceChanges={device.local} onReset={device.reset} onApply={async (next, id) => {
+      if (id === undefined) await device.set(next);
+      else {
+        if (id === current?._id || id === '') await device.reset();
+        setSelected(id || undefined);
+      }
+    }} onClose={() => setMode(undefined)} canSave={editable} />}
+    {mode === 'organize' && <ReorderSheet title="Organize views" list="views" entityId={database._id} items={(views ?? []).map(view => ({ _id: view._id, title: view.name }))} currentId={current?._id} loading={views === undefined} onClose={() => setMode(undefined)} />}
     {mode === 'database' && database.canManage && <DatabaseForm database={database} onClose={() => setMode(undefined)} />}
     {mode === 'access' && <AccessSheet access={database.access} onSave={database.canManage ? entries => setAccess({ typeId: database._id, access: entries ?? [] }) : undefined} onClose={() => setMode(undefined)} />}
     {mode === 'field' && database.canManage && <FieldForm database={database} onClose={() => setMode(undefined)} />}

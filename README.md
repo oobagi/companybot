@@ -75,7 +75,7 @@ No Convex account needed: outside the team, `pnpm dev` runs an anonymous local b
 
 ```sh
 pnpm test && pnpm typecheck
-pnpm --filter @companybot/desktop preview:web   # the UI in a browser at localhost:5173
+pnpm dev --web      # the same app in a browser (vite prints the address)
 ```
 
 Server secrets (AI Gateway key, sign-in email, encryption key) are listed in [`.env.example`](.env.example). More in [Architecture → Run](wiki/architecture.md#run).
@@ -93,14 +93,14 @@ Models run through the Vercel AI Gateway, so agents can use any provider.
 
 ## Contributing
 
-Issues and PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Outside contributors sign the [CLA](CLA.md) once, by commenting on their first PR.
+Issues and PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 Found a security issue? Please follow [SECURITY.md](SECURITY.md) instead of opening an issue.
 
 ## License
 
-[AGPL-3.0](LICENSE). Anyone can self-host. If you run a changed version as a service, you must publish your changes. A paid Cloud edition and an Enterprise license are planned; see [Product → Open source](wiki/product.md#open-source).
+[AGPL-3.0](LICENSE). Anyone can self-host. If you run a changed version as a service, you must publish your changes.
 
 ## Mobile pilot
 
-Run `pnpm dev:mobile` after installing dependencies. See [mobile architecture and native setup](wiki/mobile.md). Requires Node 24+ and the pinned pnpm version.
+Run `pnpm dev --mobile` after installing dependencies. See [mobile architecture and native setup](wiki/mobile.md). Requires Node 24+ and the pinned pnpm version.

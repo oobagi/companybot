@@ -1,7 +1,7 @@
 {
   "name": "@companybot/desktop",
   "productName": "Companybot",
-  "version": "0.1.0-alpha.9",
+  "version": "0.1.0-alpha.10",
   "description": "AI-first team chat. Agents are teammates.",
   "author": "Jaden Watson",
   "license": "AGPL-3.0-only",
@@ -12,14 +12,16 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --config electron-builder.yml --publish never",
-    "preview:web": "vite --config vite.web.config.ts",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts",
+    "preview:web": "vite preview --config vite.web.config.ts",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "lint": "oxlint --report-unused-disable-directives src"
   },
   "//": "Everything is bundled by electron-vite, so the packaged app ships no node_modules. Keep all packages in devDependencies.",
   "devDependencies": {
     "@blocknote/core": "^0.57.0",
-    "@blocknote/mantine": "^0.57.0",
     "@blocknote/react": "^0.57.0",
     "@companybot/backend": "workspace:*",
     "@companybot/core": "workspace:*",
@@ -52,12 +54,15 @@
     "electron-vite": "^6.0.0",
     "emojibase-data": "^18.0.0",
     "happy-dom": "^21.0.4",
+    "oxlint": "^1.91.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-test-renderer": "19.3.1",
     "streamdown": "^2.7.1",
     "tailwindcss": "^4.3.4",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "@shadcn/lint": "^0.2.5",
+    "docx-preview": "^0.4.1"
   },
   "dependencies": {
     "@streamdown/code": "^2.0.0"

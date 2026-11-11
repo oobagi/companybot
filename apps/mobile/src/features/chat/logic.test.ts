@@ -37,6 +37,7 @@ describe('persistent links on mobile', () => {
     expect(contentDestination('#/customize/agents/agent1')).toEqual({ kind: 'path', path: '/settings/agents', params: { itemId: 'agent1' } });
     expect(contentDestination('#/settings/trash')).toEqual({ kind: 'path', path: '/settings/archive' });
     expect(contentDestination('companybot://page/page1')).toEqual({ kind: 'path', path: '/pages/page1' });
+    expect(contentDestination('companybot://record/record1')).toEqual({ kind: 'path', path: '/record/record1' });
   });
   it('rejects executable schemes, protocol-relative links and encoded path traversal', () => {
     for (const url of ['javascript:alert(1)', 'data:text/html,hi', '//outside.example', '#/pages/%2e%2e', '#/chat/a%2fb', '#/pages/%', 'https:\n//example.com']) expect(() => contentDestination(url)).toThrow();

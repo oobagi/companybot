@@ -1,5 +1,7 @@
 import { Avatar } from '@/components/ui/Avatar';
-import { SettingsList, type SettingsRowData } from '@/components/ui/SettingsList';
+import { SettingsList } from '@/components/ui/SettingsList';
+import { ActivityIcon, AgentIcon, ArchiveIcon, AutomationIcon, ConnectorIcon, MembersIcon, MemoryIcon, PermissionsIcon, SettingsIcon, SkillIcon, UsageIcon } from '@/design/icons';
+import { useTheme } from '@/design';
 type SettingsGroup = { title: string; rows: { id: string; label: string; description: string; onPress: () => void }[] };
 type SettingsContentProps = {
   name: string;
@@ -12,32 +14,23 @@ type SettingsContentProps = {
   error?: string | null;
 };
 
-const icons: Record<string, SettingsRowData['icon']> = {
-  general: { ios: 'gearshape', android: 'settings', web: 'settings' },
-  members: { ios: 'person.2', android: 'group', web: 'group' },
-  permissions: { ios: 'lock.shield', android: 'admin_panel_settings', web: 'admin_panel_settings' },
-  agents: { ios: 'cpu', android: 'smart_toy', web: 'smart_toy' },
-  skills: { ios: 'books.vertical', android: 'menu_book', web: 'menu_book' },
-  automations: { ios: 'bolt', android: 'bolt', web: 'bolt' },
-  connectors: { ios: 'puzzlepiece.extension', android: 'extension', web: 'extension' },
-  memory: { ios: 'brain.head.profile', android: 'psychology', web: 'psychology' },
-  activity: { ios: 'clock.arrow.circlepath', android: 'history', web: 'history' },
-  usage: { ios: 'chart.bar', android: 'bar_chart', web: 'bar_chart' },
-  archive: { ios: 'archivebox', android: 'archive', web: 'archive' },
-};
+const icons = { general: SettingsIcon, members: MembersIcon, permissions: PermissionsIcon, agents: AgentIcon, skills: SkillIcon, automations: AutomationIcon, connectors: ConnectorIcon, memory: MemoryIcon, activity: ActivityIcon, usage: UsageIcon, archive: ArchiveIcon };
 
 /** Domain data and callbacks composed from the shared custom settings library. */
 export function SettingsContent({ name, email, image, onAccount, groups, onSignOut, signingOut, error }: SettingsContentProps) {
+  const { colors, sizes } = useTheme();
   return <SettingsList testID="settings-groups" sections={[
     { id: 'account', rows: [{
       id: 'account', title: name, subtitle: email && email !== name ? email : undefined,
       leading: <Avatar name={name} image={image} />, onPress: onAccount,
       accessibilityHint: 'Edit your profile and preferences',
     }] },
-    ...groups.map(group => ({ id: group.rows[0]?.id ?? group.title, title: group.title, rows: group.rows.map(row => ({
-      id: row.id, title: row.label, icon: icons[row.id], onPress: row.onPress,
+    ...groups.map(group => ({ id: group.rows[0]?.id ?? group.title, title: group.title, rows: group.rows.map(row => {
+      const Icon = icons[row.id as keyof typeof icons];
+      return ({
+      id: row.id, title: row.label, leading: Icon ? <Icon size={sizes.icon} color={colors.muted} /> : undefined, onPress: row.onPress,
       accessibilityHint: row.description, testID: `settings-${row.id}`,
-    })) })),
+    }); }) })),
     { id: 'session', footer: error ?? undefined, rows: [{
       id: 'sign-out', testID: 'settings-sign-out', title: signingOut ? 'Signing out…' : 'Sign out',
       onPress: onSignOut, disabled: signingOut, destructive: true,

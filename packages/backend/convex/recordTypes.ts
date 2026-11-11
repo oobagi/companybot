@@ -1,14 +1,12 @@
 import { can } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./functions";
-import { type Member, checkPermission, getMember, requireInWorkspace, requireMember, requirePermission } from "./lib";
-import { accessInfo, reach, requireAccess, savedAccess } from "./placeAccess";
-import { createType, fieldsOf, fieldsShown, requireType, typesOf, updateType } from "./recordOps";
+import { checkPermission, getMember, requireInWorkspace, requireMember } from "./lib";
+import { accessInfo, reach, requireAccess, requireKeepsEdit, savedAccess } from "./placeAccess";
+import { createType, fieldsOf, fieldsShown, typesOf, updateType } from "./recordOps";
 import { canReadSources } from "./replyPrivacy";
 import { changeAccessSources } from "./replySources";
-import { accessArg, databaseDisplay } from "./schema";
+import { accessArg } from "./schema";
 
 // Databases: the workspace's data model. People with `fields.edit` add types; fields
 // are in fields.ts. Each has a Who can access list (placeAccess.ts). See wiki/data.md.
@@ -36,7 +34,6 @@ export const list = query({
 					name: t.name,
 					plural: t.plural,
 					version: t.version ?? 0,
-					display: t.display ?? { layout: "table" as const },
 					...access,
 					canEdit: level === "edit" && can(member, "records.edit"),
 					canManage: manage,
@@ -45,6 +42,8 @@ export const list = query({
 							_id: f._id,
 							...(await shown(f)),
 							archived: f.archived,
+							/** Its kind, one/several or linked database is changing: values are converting, and it can't be edited until it's done. */
+							...(f.change && { changing: true as const }),
 							canEdit: manage,
 						})),
 					),
@@ -77,6 +76,7 @@ export const setAccess = mutation({
 		requireAccess(member, "database", type.plural, type.access, "edit");
 		if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
 		const list = await savedAccess(ctx, member, access);
+		requireKeepsEdit(member, "database", list);
 		await changeAccessSources(ctx, member, type, { access: list });
 		// Everyone at Edit is the default: store nothing.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
@@ -84,37 +84,19 @@ export const setAccess = mutation({
 	},
 });
 
-type Display = { layout?: "table" | "board"; groupBy?: string };
-
-/** Each change names only what it sets, so two people changing layout and grouping at once don't undo each other. */
-async function saveDisplay(ctx: MutationCtx, member: Member, typeId: Id<"recordTypes">, change: Display) {
-	// Arranging a database you can open: View is enough, as for its order in the sidebar.
-	const type = await requireType(ctx, member, typeId);
-	if (type.archived) throw new ConvexError("This database is in Archive. Restore it to make changes.");
-	if (change.groupBy && !(await groupable(ctx, typeId, change.groupBy))) throw new ConvexError("Group a board by a live choice field that holds one option.");
-	const display = { layout: change.layout ?? type.display?.layout ?? "table", groupBy: change.groupBy ?? type.display?.groupBy };
-	await ctx.db.patch(typeId, { display });
-}
-
-const groupable = async (ctx: MutationCtx, typeId: Id<"recordTypes">, key: string) => {
-	const field = (await fieldsOf(ctx, typeId)).find((f) => f.key === key && !f.archived);
-	return !!field && field.kind === "choice" && !field.multiple;
-};
-
+/**
+ * COMPAT(0.1.0-alpha.11): alpha.10 apps send their All tab's layout, grouping and widths here, though only while
+ * `list` says `canSetDisplay`, which it no longer does. All is a saved view now (migrations.allView). Delete with `display` (schema.ts).
+ */
 export const setDisplay = mutation({
-	args: { typeId: v.id("recordTypes"), display: v.object({ layout: v.optional(databaseDisplay.fields.layout), groupBy: v.optional(v.string()) }) },
-	handler: async (ctx, { typeId, display }) => saveDisplay(ctx, await requirePermission(ctx, "sidebar.arrange"), typeId, display),
+	args: { typeId: v.id("recordTypes"), display: v.any() },
+	handler: async () => {
+		throw new ConvexError("Update Companybot to change this view.");
+	},
 });
 
-/** COMPAT(0.1.0-alpha.10): one-time import of this computer's old choice; delete with `arrangements.migrate`. Anything that can never succeed is skipped, not thrown, so the importer can clear the key. */
+/** COMPAT(0.1.0-alpha.11): alpha.10 apps import this computer's old All tab layout once; there's nothing to import it into now. Delete with `arrangements.migrate`. */
 export const migrateDisplay = mutation({
-	args: { databaseKey: v.string(), display: databaseDisplay },
-	handler: async (ctx, { databaseKey, display }) => {
-		const member = await requireMember(ctx);
-		if (!can(member, "sidebar.arrange")) return;
-		const type = await ctx.db.query("recordTypes").withIndex("by_workspace", (q) => q.eq("workspaceId", member.workspaceId).eq("key", databaseKey)).unique();
-		if (!type || type.archived || type.display || !reach(member, type.access)) return;
-		const groupBy = display.groupBy && (await groupable(ctx, type._id, display.groupBy)) ? display.groupBy : undefined;
-		await ctx.db.patch(type._id, { display: { layout: display.layout, groupBy } });
-	},
+	args: { databaseKey: v.string(), display: v.any() },
+	handler: async () => {},
 });

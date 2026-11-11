@@ -3,9 +3,11 @@ import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
+import { readDoc } from "../convex/pageOps";
 
-import { agentTurn, agentsOf, generalOf, modules, signIn, messagesIn } from "./helpers";
+import { agentTurn, agentsOf, generalOf, modules, oldChild, signIn, messagesIn } from "./helpers";
 import { seedAutomation } from "./legacyFixtures";
 import "./connectorFixtures";
 
@@ -45,22 +47,6 @@ describe("migrations", () => {
 		expect(brief.nextRunAt).toBeGreaterThan(1_000);
 		expect(brief).toMatchObject({ definition: { trigger: { type: "schedule", cron: "0 8 * * 1-5" } }, lastScheduledAt: 1_000 });
 		expect([made.lastRunDate, brief.lastRunDate]).toEqual([undefined, undefined]);
-	});
-
-	it("clears the retired welcome from old turns", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
-		migrationsTest.register(t);
-		const owner = await signIn(t, "owner@co.com");
-		const turnId = await agentTurn(t, owner, (await generalOf(owner))._id, (await agentsOf(owner)).companybot._id);
-		await t.run((ctx) => ctx.db.patch(turnId, { welcome: "new_workspace" }));
-		vi.useFakeTimers();
-		try {
-			await t.mutation(internal.migrations.runAll);
-			await t.finishAllScheduledFunctions(vi.runAllTimers);
-		} finally {
-			vi.useRealTimers();
-		}
-		expect(await t.run(async (ctx) => (await ctx.db.query("agentTurns").collect()).filter((turn) => turn.welcome).length)).toBe(0);
 	});
 
 	it("moves agents on the old default model to the new one, and leaves models picked on purpose", async () => {
@@ -297,6 +283,110 @@ describe("migrations", () => {
 	});
 });
 
+// COMPAT(0.1.0-alpha.10): delete with migrations.recordRanks.
+it("gives records from before boards' manual order a place in it, newest first", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Deals" });
+	for (const name of ["Old", "New"]) await owner.mutation(api.records.create, { typeId, values: { name } });
+	await t.run(async (ctx) => {
+		for (const r of await ctx.db.query("records").collect()) await ctx.db.patch(r._id, { rank: undefined });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const listed = await owner.query(api.records.list, { typeId, sort: { field: "manualOrder", order: "asc" }, paginationOpts: { numItems: 10, cursor: null } });
+	expect(listed.page.map((r) => r.title)).toEqual(["New", "Old"]);
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.dropViewNotice.
+it("clears views' old notes about removed filters", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const typeId = await owner.mutation(api.recordTypes.create, { plural: "Deals" });
+	const id = await t.run(async (ctx) => {
+		const type = (await ctx.db.get(typeId))!;
+		return ctx.db.insert("databaseViews", { workspaceId: type.workspaceId, typeId: type._id, name: "Open", filters: [], columns: [], version: 1, notice: "“Stage” changed, so its filter was removed." });
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const view = (await t.run((ctx) => ctx.db.get(id)))!;
+	expect(view.notice).toBeUndefined();
+	expect(view.name).toBe("Open");
+});
+
+// COMPAT(0.1.0-alpha.11): delete with migrations.allView.
+it("turns each database's All tab into a saved view, first in order, from its shared layout and columns", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const create = async (plural: string) => {
+		const typeId = await owner.mutation(api.recordTypes.create, { plural });
+		for (const label of ["Phone", "Email", "City", "Notes", "Source"]) await owner.mutation(api.fields.create, { typeId, label, kind: "text" });
+		return typeId;
+	};
+	const deals = await create("Deals");
+	const stage = await owner.mutation(api.fields.create, { typeId: deals, label: "Stage", kind: "choice", options: [{ label: "Won" }] });
+	const notes = await create("Notes");
+	const leads = await create("Leads");
+	// Made since the deploy: it has its own All already.
+	const fresh = await create("Jobs");
+	const viewsOf = (typeId: Id<"recordTypes">) => owner.query(api.databaseViews.list, { typeId });
+	const order = (typeId: Id<"recordTypes">) => t.run(async (ctx) => (await ctx.db.query("arrangements").collect()).find((r) => r.list === "views" && r.entityId === typeId)?.ids);
+	// Before: no All views; Deals had a board, widths and its own columns, and a view ordered first; Leads a view named "all".
+	const [won, all] = await t.run(async (ctx) => {
+		for (const typeId of [deals, notes, leads]) for (const v of await ctx.db.query("databaseViews").withIndex("by_type", (q) => q.eq("typeId", typeId)).collect()) await ctx.db.delete(v._id);
+		const workspaceId = (await ctx.db.get(deals))!.workspaceId;
+		await ctx.db.patch(deals, { display: { layout: "board", groupBy: stage.key, widths: { name: 300, phone: 90, gone: 200 } } });
+		await ctx.db.patch(leads, { display: { layout: "table" } });
+		await ctx.db.insert("arrangements", { workspaceId, list: "columns", entityId: deals, ids: ["phone", "name", "gone", stage.key] });
+		const won = await ctx.db.insert("databaseViews", { workspaceId, typeId: deals, name: "Won", filters: [], columns: ["name"], version: 1 });
+		await ctx.db.insert("arrangements", { workspaceId, list: "views", entityId: deals, ids: [won] });
+		const all = await ctx.db.insert("databaseViews", { workspaceId, typeId: leads, name: "all", filters: [], columns: ["name", "city"], version: 1 });
+		return [won, all];
+	});
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		// Safe to run again: nothing is added twice.
+		await t.mutation(internal.migrations.allView, { reset: true });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	const dealViews = await viewsOf(deals);
+	const dealsAll = dealViews.find((v) => v.name === "All")!;
+	expect(dealsAll).toMatchObject({ filters: [], columns: ["phone", "name", stage.key], layout: "board", groupBy: stage.key, widths: { name: 300, phone: 90 }, version: 1 });
+	expect(dealViews).toHaveLength(2);
+	expect(await order(deals)).toEqual([dealsAll._id, won]);
+	// Never customized: Name and the next four fields, as the app showed it.
+	expect(await viewsOf(notes)).toEqual([expect.objectContaining({ name: "All", columns: ["name", "phone", "email", "city", "notes"] })]);
+	const leadViews = await viewsOf(leads);
+	expect(leadViews.map((v) => v.name)).toEqual(["all", "All 2"]);
+	expect(await order(leads)).toEqual([leadViews[1]!._id]);
+	expect(leadViews.find((v) => v._id === all)).toMatchObject({ columns: ["name", "city"] });
+	expect((await viewsOf(fresh)).map((v) => v.name)).toEqual(["All"]);
+	await t.run(async (ctx) => {
+		for (const typeId of [deals, notes, leads, fresh]) expect((await ctx.db.get(typeId))!.display).toBeUndefined();
+		expect((await ctx.db.query("arrangements").collect()).filter((r) => r.list === "columns")).toEqual([]);
+	});
+});
+
 // COMPAT(0.1.0-alpha.10): delete with migrations.channelTopics.
 it("cuts channel topics from before the 250-character cap", async () => {
 	const t = convexTest({ schema, modules, transactionLimits: true });
@@ -482,4 +572,83 @@ it("copies profiles onto memberships, moves last used out of preferences, and co
 	});
 	expect(counts.general[0]).toBe(counts.general[1]);
 	expect(counts.channel).toEqual([1, 1]);
+});
+
+// COMPAT(0.1.0-alpha.10): delete with migrations.pageChildBlocks.
+it("gives sub-pages from before pages were blocks exactly one block in their parent, once", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const root = await owner.mutation(api.pages.create, { title: "Wiki" });
+	const old = await oldChild(t, owner, "Old guide", root);
+	const placed = await owner.mutation(api.pages.create, { title: "New guide", parentId: root });
+	const blocks = () => t.run(async (ctx) => (await readDoc(ctx, root)).firstChild!.content.content.flatMap((b) => b.firstChild?.type.name === "page" ? [b.firstChild.attrs.pageId as string] : []));
+	expect(await blocks()).toEqual([placed]);
+	vi.useFakeTimers();
+	try {
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		await t.mutation(internal.migrations.runAll);
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+	} finally {
+		vi.useRealTimers();
+	}
+	expect((await blocks()).sort()).toEqual([old, placed].sort());
+});
+
+
+it.each([false, true])("moves legacy pin order into the personal rail without losing existing order (rail exists: %s)", async (hasRail) => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	prosemirrorSync.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+	await t.run(async (ctx) => {
+		await ctx.db.insert("arrangements", { workspaceId, userId: owner.userId, list: "pinsOrder", ids: ["page:one", "chat:two"] });
+		if (hasRail) await ctx.db.insert("arrangements", { workspaceId, userId: owner.userId, list: "rail", ids: ["drive", "chat:two", "page:new"] });
+	});
+	const rows = () => t.run(async (ctx) => (await ctx.db.query("arrangements").collect()).filter((row) => row.userId === owner.userId));
+	const expected = hasRail ? ["drive", "chat:two", "page:new", "page:one"] : ["page:one", "chat:two"];
+	vi.useFakeTimers();
+	for (let run = 0; run < 2; run++) {
+		await t.mutation(internal.migrations.pinOrderToRail, { reset: true });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect(await rows()).toEqual([expect.objectContaining({ list: "rail", ids: expected })]);
+	}
+	// A still-installed pilot sends its old list name; newer clients see the change.
+	await owner.mutation(api.arrangements.change, { list: "pinsOrder", command: { op: "move", id: "page:one", beforeId: "chat:two" } });
+	const updated = (await owner.query(api.arrangements.get))!.rows;
+	expect(updated.find((row) => row.list === "rail")!.ids).toEqual(hasRail ? ["drive", "page:one", "chat:two", "page:new"] : ["page:one", "chat:two"]);
+	expect((await rows()).some((row) => row.list === "pinsOrder")).toBe(false);
+});
+
+it("imports a legacy pilot's pin order into the canonical rail only once", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	const owner = await signIn(t, "owner@co.com");
+	await owner.mutation(api.arrangements.migrate, { list: "pinsOrder", ids: ["page:one", "chat:two"] });
+	await owner.mutation(api.arrangements.migrate, { list: "pinsOrder", ids: ["chat:two", "page:one"] });
+	const rows = (await owner.query(api.arrangements.get))!.rows;
+	expect(rows).toContainEqual({ list: "rail", ids: ["page:one", "chat:two"] });
+	expect(rows.some((row) => row.list === "pinsOrder")).toBe(false);
+});
+
+it("retains both pin orders if combining them would exceed the arrangement limit", async () => {
+	const t = convexTest({ schema, modules, transactionLimits: true });
+	migrationsTest.register(t);
+	const owner = await signIn(t, "owner@co.com");
+	const workspaceId = (await owner.query(api.workspace.me))!.workspaceId!;
+	await t.run(async (ctx) => {
+		await ctx.db.insert("arrangements", { workspaceId, userId: owner.userId, list: "pinsOrder", ids: ["page:legacy"] });
+		await ctx.db.insert("arrangements", { workspaceId, userId: owner.userId, list: "rail", ids: Array.from({ length: 4000 }, (_, i) => `page:${i}`) });
+	});
+	const before = await t.run((ctx) => ctx.db.query("arrangements").collect());
+	vi.useFakeTimers();
+	const report = vi.spyOn(console, "error").mockImplementation(() => {});
+	try {
+		await t.mutation(internal.migrations.pinOrderToRail, { reset: true });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		expect((await t.query(internal.migrations.status)).find((row) => row.name.endsWith("pinOrderToRail"))?.error).toContain("too large");
+		expect(await t.run((ctx) => ctx.db.query("arrangements").collect())).toEqual(before);
+	} finally { report.mockRestore(); }
 });

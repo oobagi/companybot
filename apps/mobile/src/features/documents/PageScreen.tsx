@@ -34,10 +34,10 @@ export function PageScreen({ pageId }: { pageId: string }) {
   if (!page) return <Screen><EmptyState title="Page not found" description="It may have been removed or you no longer have access." /></Screen>;
   const actions: Action[] = [
     { id: 'pin', title: pin.label, disabled: pin.disabled, icon: 'pin' },
-    { id: 'history', title: 'History', icon: 'clock.arrow.circlepath' },
+    ...(page.kind !== 'folder' ? [{ id: 'history', title: 'History', icon: 'clock.arrow.circlepath' as const }] : []),
     ...(page.recordId ? [{ id: 'record', title: 'Open record', icon: 'doc.text' as const }] : []),
     { id: 'access', title: 'Who can access', icon: 'lock' },
-    ...(!page.recordId ? [{ id: 'children', title: 'Sub-pages', icon: 'folder' as const }] : []),
+    ...(!page.recordId && page.kind !== 'folder' ? [{ id: 'children', title: 'Sub-pages', icon: 'folder' as const }] : []),
     ...(page.ancestors.length ? [{ id: 'ancestors', title: 'Parent pages', icon: 'folder' as const, items: page.ancestors.map(ancestor => ({ id: `parent:${ancestor._id}`, title: ancestor.title || 'Untitled' })) }] : []),
     ...(page.canEdit && !page.archived && !page.recordId ? [
       { id: 'rename', title: 'Rename', icon: 'pencil' as const },
@@ -60,14 +60,14 @@ export function PageScreen({ pageId }: { pageId: string }) {
     });
     else if (action === 'history' || action === 'access' || action === 'children' || action === 'rename' || action === 'move' || action === 'create' || action === 'organize') setPanel(action);
   };
-  return <Screen keyboard contentStyle={{ gap: theme.spacing.sm }}>
+  return <Screen keyboard={page.kind !== 'folder'} nativeScroll={page.kind === 'folder'} padded={page.kind !== 'folder'} contentStyle={{ gap: theme.spacing.sm }}>
     <RouterStack.Screen options={{ title: page.recordId ? 'Notes' : page.title || 'Untitled' }} />
     <HeaderMenu label="Page actions" actions={actions.map(action => ({ ...action, disabled: action.disabled || task.busy }))} onAction={perform} />
     {pin.error && <ErrorState message={pin.error} />}
     {dialog}
     {page.archived && <Badge label="Archived · read only" tone="warning" />}
     {task.error && <ErrorState message={task.error} />}
-    <DocumentEditor pageId={page._id} editable={page.canEdit} />
+    {page.kind === 'folder' ? <PageChildren parentId={page._id} /> : <DocumentEditor pageId={page._id} editable={page.canEdit} />}
     {panel === 'organize' && <PageOrganizer parentId={page._id} onClose={() => setPanel(undefined)} />}
     {panel === 'access' && <AccessSheet access={page.access} following={page.parentId && !page.recordId ? page.ownAccess === null : undefined} description={page.recordId ? 'This page follows its database. Change access in the database’s menu.' : undefined} onSave={page.canManageAccess && !page.archived ? entries => setAccess({ pageId: page._id, access: entries }) : undefined} onClose={() => setPanel(undefined)} />}
     {panel === 'rename' && <RenamePage pageId={page._id} title={page.title} onClose={() => setPanel(undefined)} />}

@@ -1,11 +1,13 @@
+import { refreshAudience } from "./chatDiscovery";
 import { type ReplyMode, THREAD_HOURS_DEFAULT, TOPIC_MAX, can, replyModeOf, replyModes } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { activityOf, addToChat, insertChat, agentOfDm, availableName, dropSeat, chatMembersOf, findOrCreateDm, label, latestMentionSince, markChatRead, membership, namer, requireActiveAgents, requireChat, requireManagedChannel, requireWorkspaceUsers, sideChatTitle, titleFrom, type Namer, type Participant, visibleChat } from "./chatOps";
 import { mutation, query } from "./functions";
-import { type Member, checkPermission, getMember, requireMember, toActor } from "./lib";
-import { type AccessList, accessInfo, chatAccess, reach, savedAccess } from "./placeAccess";
+import { type Member, checkPermission, getMember, preferencesOf, requireMember, toActor } from "./lib";
+import { type AccessList, accessInfo, chatAccess, reach, requireKeepsEdit, savedAccess } from "./placeAccess";
+import { recordTags } from "./recordTags";
 import { canReadReply, canReadSources } from "./replyPrivacy";
 import { changeAccessSources, writeSources } from "./replySources";
 import { accessArg } from "./schema";
@@ -183,11 +185,12 @@ export const activeThreads = query({
 				.take(ACTIVE_THREADS_PER_CHANNEL)));
 		}
 		const newest = parents.sort((a, b) => b.lastReplyAt! - a.lastReplyAt!).slice(0, ACTIVE_THREADS_MAX);
-		return Promise.all(newest.map(async (m) => ({ chatId: m.chatId, messageId: m._id, title: await canReadReply(ctx, member, m) ? threadTitle(m) : "🔒 Private reply", lastReplyAt: m.lastReplyAt! })));
+		const tags = recordTags(ctx, member);
+		return Promise.all(newest.map(async (m) => ({ chatId: m.chatId, messageId: m._id, title: await canReadReply(ctx, member, m) ? threadTitle((await tags.forPeople(m.text)).text, m.deleted) : "🔒 Private reply", lastReplyAt: m.lastReplyAt! })));
 	},
 });
 
-const threadTitle = (m: Doc<"chatMessages">) => (m.deleted ? "Deleted message" : titleFrom(m.text) || "Thread");
+const threadTitle = (text: string, deleted?: boolean) => (deleted ? "Deleted message" : titleFrom(text) || "Thread");
 
 /** A chat's alert: its newest unread message meant for you. */
 export type Alert = {
@@ -212,6 +215,7 @@ export const alerts = query({
 		const member = await getMember(ctx);
 		if (!member) return null;
 		const names = namer(ctx);
+		const tags = recordTags(ctx, member);
 		const alerts: Alert[] = [];
 		for (const { chat, message } of await alertMessages(ctx, member.userId, member.workspaceId)) {
 			const author = label(await names.of(message));
@@ -221,7 +225,7 @@ export const alerts = query({
 				messageId: message._id,
 				...(message.threadId && { threadId: message.threadId }),
 				title: chat.kind === "channel" ? `${author} in #${chat.name}` : author,
-				text: await canReadReply(ctx, member, message) ? message.text.slice(0, 200) : "🔒 Private reply",
+				text: await canReadReply(ctx, member, message) ? (await tags.forPeople(message.text)).text.slice(0, 200) : "🔒 Private reply",
 			});
 		}
 		return alerts;
@@ -289,6 +293,7 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 		name,
 		...(args.topic?.trim() && { topic: checkedTopic(args.topic) }),
 		private: args.private,
+		searchPublic: !args.private,
 		archived: false,
 		createdBy: member.userId,
 		memberCount: 0,
@@ -334,11 +339,13 @@ export const setAccess = mutation({
 		if (chat.archived) throw new ConvexError("This channel is in Archive.");
 		const list: AccessList = await savedAccess(ctx, member, access);
 		if (chat.isDefault && !list.some((e) => e.role === "everyone")) throw new ConvexError(`Everyone is in #${chat.name}, so everyone keeps at least View.`);
+		requireKeepsEdit(member, "channel", list);
 		// Everyone at Post is the default: store nothing, as for a channel nobody restricted.
 		const open = list.length === 1 && list[0]!.role === "everyone" && list[0]!.level === "edit";
 		const users = chat.private ? (await chatMembersOf(ctx, chat._id)).flatMap((m) => m.userId ? [m.userId] : []) : undefined;
 		await changeAccessSources(ctx, member, chat, { access: list, users });
 		await ctx.db.patch(chat._id, { access: open ? undefined : list });
+		await refreshAudience(ctx, { ...chat, access: open ? undefined : list });
 	},
 });
 
@@ -446,6 +453,7 @@ export const createSideChat = mutation({
 		const chatId = await insertChat(ctx, {
 			workspaceId: member.workspaceId,
 			kind: "dm",
+			searchPublic: false,
 			private: true,
 			dmKey: parent.dmKey,
 			parentId,

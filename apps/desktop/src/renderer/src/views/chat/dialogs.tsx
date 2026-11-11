@@ -5,8 +5,9 @@ import { api } from "../../api";
 import { type ReplyMode, replyModeLabels, replyModes } from "@companybot/core/router";
 import { Checkbox, Select } from "../../controls";
 import { useMutation, useQuery } from "../../convex";
-import { Field, Form, Loading, Notice, descriptionClass, inputClass, primaryButton, secondaryButton, useRun } from "../../ui";
-import { AgentBadge, Avatar, Modal, archiveQuestion, useConfirm } from "./common";
+import { Form, Loading, Notice, Section, Setting, Settings, actionButton, compactButton, compactControlClass, compactPrimaryButton, descriptionClass, iconDangerButton, listClass, primaryButton, secondaryButton, useRun, wideControlClass } from "../../ui";
+import { ArchiveIcon, PlusIcon, SignOutIcon, UserMinusIcon } from "../../icons";
+import { AgentBadge, Avatar, DialogButtons, MenuItem, Modal, archiveQuestion, useConfirm } from "./common";
 import { navigate } from "../../router";
 import { ProfileLink } from "./Profile";
 import { type ChatDetails, type Participant, chatTitle, useDirectory } from "./data";
@@ -21,23 +22,26 @@ export function CreateChannel({ onClose, onOpen }: { onClose: () => void; onOpen
 	return (
 		<Modal title="New channel" onClose={onClose}>
 			<Form onSubmit={() => run(create({ name, topic: topic.trim() || undefined, private: isPrivate }).then((id) => (onOpen(id), onClose())))}>
-				<Field label="Name">
-					<input value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={inputClass} />
-				</Field>
-				<Field label="Topic">
-					<input value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="Optional. What's this channel about?" className={inputClass} />
-				</Field>
-				<label className="flex items-start gap-2 text-sm">
-					<Checkbox checked={isPrivate} onChange={setPrivate} className="mt-0.5" />
-					<span>
-						<span className="font-medium">Private</span>
-						<span className="block text-neutral-500">Only people added can see it.</span>
-					</span>
-				</label>
+				<Settings>
+					<Setting label="Name">
+						<input aria-label="Name" value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. sales" className={wideControlClass} />
+					</Setting>
+					<Setting label="Topic" hint="Optional. What's this channel about?">
+						<input aria-label="Topic" value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="What's it about?" className={wideControlClass} />
+					</Setting>
+					<Setting label="Private" hint="Only people added can see it.">
+						<Checkbox checked={isPrivate} onChange={setPrivate} label="Private" />
+					</Setting>
+				</Settings>
 				<Notice>{error}</Notice>
-				<button type="submit" disabled={!name.trim()} className={`${primaryButton} self-end`}>
-					Create
-				</button>
+				<DialogButtons>
+					<button type="button" onClick={onClose} className={secondaryButton}>
+						Cancel
+					</button>
+					<button type="submit" disabled={!name.trim()} className={primaryButton}>
+						Create
+					</button>
+				</DialogButtons>
 			</Form>
 		</Modal>
 	);
@@ -68,7 +72,7 @@ export function BrowseChannels({ onClose, onOpen }: { onClose: () => void; onOpe
 							<button
 								type="button"
 								onClick={() => run(join({ chatId: c._id }), () => (onOpen(c._id), onClose()))}
-								className={secondaryButton}
+								className={actionButton}
 							>
 								Join
 							</button>
@@ -86,7 +90,7 @@ function Picker({ options, picked, onChange }: { options: Participant[]; picked:
 	const shown = options.filter((o) => o.name.toLowerCase().includes(filter.toLowerCase()));
 	return (
 		<div className="flex flex-col gap-2">
-			<input value={filter} autoFocus onChange={(e) => setFilter(e.target.value)} placeholder="Search" className={inputClass} />
+			<input value={filter} autoFocus onChange={(e) => setFilter(e.target.value)} placeholder="Search" aria-label="Search" className={`${compactControlClass} w-full`} />
 			<ul className="-mx-2 flex max-h-72 flex-col overflow-y-auto">
 				{shown.map((o) => (
 					<li key={o.id}>
@@ -135,9 +139,14 @@ export function NewMessage({ onClose, onOpen }: { onClose: () => void; onOpen: (
 			)}
 			<Picker options={[...people, ...agents]} picked={picked} onChange={setPicked} />
 			<Notice>{error}</Notice>
-			<button type="button" disabled={picked.length === 0} onClick={() => void open()} className={`${primaryButton} self-end`}>
-				Message
-			</button>
+			<DialogButtons>
+				<button type="button" onClick={onClose} className={secondaryButton}>
+					Cancel
+				</button>
+				<button type="button" disabled={picked.length === 0} onClick={() => void open()} className={primaryButton}>
+					Message
+				</button>
+			</DialogButtons>
 		</Modal>
 	);
 }
@@ -153,61 +162,82 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 	const isChannel = chat.kind === "channel";
 	const me = useQuery(api.workspace.me);
 	const removeMember = useMutation(api.chats.removeMember);
+	const leave = useMutation(api.chats.leave);
+	const archive = useMutation(api.trash.move);
 	const { error, run } = useRun();
 	const { confirm, dialog } = useConfirm();
+	const left = () => (onClose(), onLeft());
 	// Managers remove others (you leave instead); everyone stays in the default channel. The server checks the same.
 	const removable = (m: Participant) => isChannel && chat.canManage && m.id !== me?.userId && !(chat.isDefault && m.type === "user");
+	const people = chat.members.filter((m) => m.type === "user").length;
+	const agents = chat.members.length - people;
+	const count = [people && `${people} ${people === 1 ? "person" : "people"}`, agents && `${agents} ${agents === 1 ? "agent" : "agents"}`].filter(Boolean).join(", ");
 	return (
-		<Modal title={chatTitle(chat)} onClose={onClose}>
+		<Modal
+			title={chatTitle(chat)}
+			size={isChannel ? "lg" : "md"}
+			onClose={onClose}
+			menu={
+				isChannel && !chat.isDefault
+					? (close) => (
+							<>
+								{chat.canManage && !chat.trash && (
+									<MenuItem onClick={() => (close(), confirm(archiveQuestion(`#${chat.name}`, () => archive({ kind: "channel", id: chat._id }).then(left), "The channel will close to new messages. Its messages and files are kept.")))}>
+										<ArchiveIcon /> Archive channel
+									</MenuItem>
+								)}
+								<MenuItem danger onClick={() => (close(), run(leave({ chatId: chat._id }), left))}>
+									<SignOutIcon /> Leave channel
+								</MenuItem>
+							</>
+						)
+					: undefined
+			}
+		>
 			{dialog}
-			{adding ? (
-				<AddMembers chat={chat} onDone={() => setAdding(false)} />
-			) : (
-				<>
-					{isChannel && chat.canManage && <EditChannel chat={chat} />}
-					{isChannel && !chat.canManage && chat.topic && <p className="text-sm text-neutral-600">{chat.topic}</p>}
-					{isChannel && !chat.canManage && chat.replyMode === "relevant" && <p className={descriptionClass}>{replyHints.relevant}</p>}
-					{isChannel && chat.access && <ChannelAccess chat={chat} access={chat.access} />}
-					<section className="flex flex-col gap-2">
-						<div className="flex items-center justify-between">
-							<h3 className="text-sm font-medium">{chat.members.length} {chat.members.length === 1 ? "member" : "members"}</h3>
-							{isChannel && (
-								<button type="button" onClick={() => setAdding(true)} className="text-sm text-neutral-500 hover:text-neutral-900">
-									Add people or agents
+			<Notice>{error}</Notice>
+			{isChannel && (chat.canManage ? <EditChannel chat={chat} /> : <AboutChannel chat={chat} />)}
+			{isChannel && chat.access && <ChannelAccess chat={chat} access={chat.access} />}
+			<Section
+				title={count ? `Members · ${count}` : "Members"}
+				action={
+					isChannel && (
+						<button type="button" onClick={() => setAdding(true)} className={compactButton}>
+							<PlusIcon /> Add
+						</button>
+					)
+				}
+			>
+				<ul className={listClass}>
+					{chat.members.map((m) => (
+						<li key={`${m.type}:${m.id}`} className="flex min-h-12 items-center gap-3 px-4 py-2">
+							<Avatar name={m.name} image={m.image} agent={m.type === "agent"} size="sm" />
+							<span className="flex-1 truncate text-sm">
+								<ProfileLink who={m} className="hover:underline">{m.name}</ProfileLink>
+							</span>
+							{m.type === "agent" && <AgentBadge />}
+							{removable(m) && (
+								<button
+									type="button"
+									onClick={() =>
+										confirm({
+											title: `Remove ${m.name} from #${chat.name}?`,
+											action: "Remove",
+											onConfirm: () => removeMember({ chatId: chat._id, ...(m.type === "user" ? { userId: m.id as Id<"users"> } : { agentId: m.id as Id<"agents"> }) }),
+										})
+									}
+									aria-label={`Remove ${m.name} from the channel`}
+									title="Remove from channel"
+									className={iconDangerButton}
+								>
+									<UserMinusIcon />
 								</button>
 							)}
-						</div>
-						<ul className="flex flex-col gap-1">
-							{chat.members.map((m) => (
-								<li key={`${m.type}:${m.id}`} className="flex items-center gap-3 py-1">
-									<Avatar name={m.name} image={m.image} agent={m.type === "agent"} size="sm" />
-									<span className="flex-1 truncate text-sm">
-										<ProfileLink who={m} className="hover:underline">{m.name}</ProfileLink>
-									</span>
-									{m.type === "agent" && <AgentBadge />}
-									{removable(m) && (
-										<button
-											type="button"
-											onClick={() =>
-												confirm({
-													title: `Remove ${m.name} from #${chat.name}?`,
-													action: "Remove",
-													onConfirm: () => removeMember({ chatId: chat._id, ...(m.type === "user" ? { userId: m.id as Id<"users"> } : { agentId: m.id as Id<"agents"> }) }),
-												})
-											}
-											className="text-xs text-neutral-400 hover:text-red-700"
-										>
-											Remove from channel
-										</button>
-									)}
-								</li>
-							))}
-						</ul>
-						<Notice>{error}</Notice>
-					</section>
-					{isChannel && !chat.isDefault && <LeaveButton chat={chat} onLeft={() => (onClose(), onLeft())} />}
-				</>
-			)}
+						</li>
+					))}
+				</ul>
+			</Section>
+			{adding && <AddMembers chat={chat} onClose={() => setAdding(false)} />}
 		</Modal>
 	);
 }
@@ -215,12 +245,7 @@ export function ChannelDetails({ chat, onClose, onLeft }: { chat: ChatDetails; o
 /** Who can see and post in a channel. People who manage it change it; everyone sees who's on it. */
 function ChannelAccess({ chat, access }: { chat: ChatDetails; access: NonNullable<ChatDetails["access"]> }) {
 	const setAccess = useMutation(api.chats.setAccess);
-	return (
-		<section className="flex flex-col gap-2">
-			<h3 className="text-sm font-medium">Who can access</h3>
-			<WhoCanAccess access={access} editLabel="Post" onSave={chat.canManage ? (next) => setAccess({ chatId: chat._id, access: next }) : undefined} />
-		</section>
-	);
+	return <WhoCanAccess kind="channel" access={access} onSave={chat.canManage ? (next) => setAccess({ chatId: chat._id, access: next }) : undefined} />;
 }
 
 const replyHints: Record<ReplyMode, string> = {
@@ -228,96 +253,78 @@ const replyHints: Record<ReplyMode, string> = {
 	relevant: "Agents here also answer, or react, when a message looks meant for them.",
 };
 
+/** The channel's settings, for people who can't change them. */
+function AboutChannel({ chat }: { chat: ChatDetails }) {
+	return (
+		<Settings title="Channel">
+			{chat.topic && <Setting label="Topic" hint={chat.topic}>{null}</Setting>}
+			<Setting label="Agents reply" hint={replyHints[chat.replyMode]}>
+				<span className="text-neutral-500">{replyModeLabels[chat.replyMode]}</span>
+			</Setting>
+		</Settings>
+	);
+}
+
+/** Name, topic and how agents reply: they save together, with Save under them. */
 function EditChannel({ chat }: { chat: ChatDetails }) {
 	const update = useMutation(api.chats.updateChannel);
-	const [name, setName] = useState(chat.name ?? "");
-	const [topic, setTopic] = useState(chat.topic ?? "");
-	const [replyMode, setReplyMode] = useState<ReplyMode>(chat.replyMode);
-	const { error, run } = useRun();
-	const dirty = name !== (chat.name ?? "") || topic !== (chat.topic ?? "") || replyMode !== chat.replyMode;
+	const saved = { name: chat.name ?? "", topic: chat.topic ?? "", replyMode: chat.replyMode };
+	const [value, setValue] = useState(saved);
+	const { error, busy, run } = useRun();
+	const dirty = value.name !== saved.name || value.topic !== saved.topic || value.replyMode !== saved.replyMode;
 	return (
-		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, name, topic, replyMode }))}>
-			<Field label="Name">
-				<input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-			</Field>
-			<Field label="Topic">
-				<input value={topic} maxLength={TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} className={inputClass} />
-			</Field>
-			<Field label="Agents reply" hint={replyHints[replyMode]}>
-				<Select className={inputClass} value={replyMode} options={replyModes.map((m) => ({ value: m, label: replyModeLabels[m] }))} onChange={setReplyMode} />
-			</Field>
+		<Form className="flex flex-col gap-3" onSubmit={() => run(update({ chatId: chat._id, ...value }))}>
+			<Settings title="Channel">
+				<Setting label="Name">
+					<input aria-label="Name" value={value.name} onChange={(e) => setValue({ ...value, name: e.target.value })} className={wideControlClass} />
+				</Setting>
+				<Setting label="Topic">
+					<input aria-label="Topic" value={value.topic} maxLength={TOPIC_MAX} placeholder="What's it about?" onChange={(e) => setValue({ ...value, topic: e.target.value })} className={wideControlClass} />
+				</Setting>
+				<Setting label="Agents reply" hint={replyHints[value.replyMode]}>
+					<Select label="Agents reply" className={wideControlClass} value={value.replyMode} options={replyModes.map((m) => ({ value: m, label: replyModeLabels[m] }))} onChange={(replyMode) => setValue({ ...value, replyMode })} />
+				</Setting>
+			</Settings>
 			<Notice>{error}</Notice>
 			{dirty && (
-				<button type="submit" className={`${primaryButton} self-end`}>
-					Save
-				</button>
+				<DialogButtons>
+					<button type="button" onClick={() => setValue(saved)} className={compactButton}>
+						Discard
+					</button>
+					<button type="submit" disabled={busy || !value.name.trim()} className={compactPrimaryButton}>
+						Save
+					</button>
+				</DialogButtons>
 			)}
 		</Form>
 	);
 }
 
-function AddMembers({ chat, onDone }: { chat: ChatDetails; onDone: () => void }) {
+function AddMembers({ chat, onClose }: { chat: ChatDetails; onClose: () => void }) {
 	const addMembers = useMutation(api.chats.addMembers);
 	const { people, agents } = useDirectory();
 	const inChat = new Set(chat.members.map((m) => `${m.type}:${m.id}`));
 	const options = [...people, ...agents].filter((p) => !inChat.has(`${p.type}:${p.id}`));
 	const [picked, setPicked] = useState<string[]>([]);
-	const { error, run } = useRun();
+	const { error, busy, run } = useRun();
 	const of = (type: Participant["type"]) => options.filter((o) => o.type === type && picked.includes(o.id)).map((o) => o.id);
 	return (
-		<>
-			{options.length === 0 ? (
-				<p className={descriptionClass}>Everyone's already here.</p>
-			) : (
-				<Picker options={options} picked={picked} onChange={setPicked} />
-			)}
+		<Modal title={`Add to #${chat.name}`} onClose={onClose}>
+			{options.length === 0 ? <p className={descriptionClass}>Everyone's already here.</p> : <Picker options={options} picked={picked} onChange={setPicked} />}
 			<Notice>{error}</Notice>
-			<div className="flex justify-end gap-2">
-				<button type="button" onClick={onDone} className={secondaryButton}>
-					Back
+			<DialogButtons>
+				<button type="button" onClick={onClose} className={secondaryButton}>
+					Cancel
 				</button>
 				<button
 					type="button"
-					disabled={picked.length === 0}
-					onClick={() =>
-						run(
-							addMembers({ chatId: chat._id, userIds: of("user") as Id<"users">[], agentIds: of("agent") as Id<"agents">[] }),
-							onDone,
-						)
-					}
+					disabled={busy || picked.length === 0}
+					onClick={() => run(addMembers({ chatId: chat._id, userIds: of("user") as Id<"users">[], agentIds: of("agent") as Id<"agents">[] }), onClose)}
 					className={primaryButton}
 				>
 					Add
 				</button>
-			</div>
-		</>
-	);
-}
-
-/** Leave, and for its managers, delete (to Trash). */
-function LeaveButton({ chat, onLeft }: { chat: ChatDetails; onLeft: () => void }) {
-	const leave = useMutation(api.chats.leave);
-	const remove = useMutation(api.trash.move);
-	const { error, run } = useRun();
-	const { confirm, dialog } = useConfirm();
-	return (
-		<>
-			<Notice>{error}</Notice>
-			{dialog}
-			<div className="flex gap-4 text-sm">
-				<button type="button" onClick={() => run(leave({ chatId: chat._id }), onLeft)} className="text-red-600 hover:text-red-800">
-					Leave channel
-				</button>
-				{chat.canManage && !chat.trash && (
-					<button
-						type="button"
-						onClick={() => confirm(archiveQuestion(`#${chat.name}`, () => remove({ kind: "channel", id: chat._id }).then(onLeft), "The channel will close to new messages. Its messages and files are kept."))}
-						className="text-neutral-600 hover:text-neutral-900"
-					>
-						Archive channel
-					</button>
-				)}
-			</div>
-		</>
+			</DialogButtons>
+		</Modal>
 	);
 }
