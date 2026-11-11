@@ -1,3 +1,4 @@
+import { OAuthConsent } from "./views/OAuthConsent";
 import { setFormDraftPerson } from "./ui";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
@@ -52,7 +53,7 @@ export function App() {
 		else if (draftMe !== undefined) setFormDraftPerson(draftMe?.userId ?? null);
 	}, [isLoading, isAuthenticated, draftMe?.userId]);
 	// Signed out, the landing comes first; Get started opens sign-in.
-	const [started, setStarted] = useState(false);
+	const [started, setStarted] = useState(() => window.location.hash.startsWith("#/oauth/authorize/"));
 	if (isLoading) return null;
 	if (isAuthenticated) return <Workspace />;
 	return started ? <SignIn onBack={() => setStarted(false)} /> : <Landing onStart={() => setStarted(true)} />;
@@ -135,8 +136,10 @@ function Workspace() {
 }
 
 function Opened() {
+	const route = useRoute();
 	const me = useQuery(api.workspace.me);
 	if (!me?.access) return null;
+	if (route[0] === "oauth" && route[1] === "authorize") return <OAuthConsent request={route[2] ?? ""} />;
 	return <LoadedArrangements userId={me.userId}><Shell email={me.email} access={me.access} workspace={me.workspace ?? ""} /></LoadedArrangements>;
 }
 

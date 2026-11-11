@@ -143,6 +143,12 @@ async function leaveErased(ctx: MutationCtx, row: Doc<"members">) {
 }
 
 export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
+	integrationOAuthClients: { keep: "Public OAuth client metadata, not user data. Expires after 30 inactive days; integrationMaintenance sweeps it." },
+	integrationEvents: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	integrationOAuthCodes: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
+	integrationRefreshTokens: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
+	integrationAudit: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
+	integrationWebhooks: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
 	connectorArtifacts: {
 		workspace: { index: "by_workspace", eq: ["workspaceId"] },
 		member: { index: "by_user", eq: ["userId", "workspaceId"] },

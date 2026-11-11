@@ -3,6 +3,8 @@
 // such a claim goes stale silently once they can (tests/parity.test.ts refuses it).
 // Mixed entries name the covered subset and the authority decision that stays human-only.
 export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = {
+	"integrationOAuth.approve": { humanOnly: "OAuth consent requires the person to grant or deny an outside application access." },
+	"integrationWebhooks.remove": { humanOnly: "A person withdraws an external data delivery grant directly." },
 	"integrationTokens.create": { humanOnly: "A person grants a credential to an outside client directly, including its scopes and expiration." },
 	"integrationTokens.revoke": { humanOnly: "A person directly withdraws an outside client's credential." },
 	"recordTypes.setDisplay": { humanOnly: "COMPAT(0.1.0-alpha.11): refuses every call; views are changed with databaseViews.save." },

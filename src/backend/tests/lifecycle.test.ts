@@ -84,7 +84,13 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("arrangements", { workspaceId, list: "channels", ids: [] });
 		const now = Date.now();
 		const membership = (await ctx.db.query("members").collect()).find(m => m.userId === memberId && m.workspaceId === workspaceId)!;
-		mine.push(await ctx.db.insert("integrationTokens", { workspaceId, userId: memberId, memberId: membership._id, name: "Test", hash: `hash-${workspaceId}`, prefix: "cb_test", scopes: ["workspace:read"], expiresAt: now + 86400000, receipts: [] }));
+		const integrationTokenId = await ctx.db.insert("integrationTokens", { workspaceId, userId: memberId, memberId: membership._id, name: "Test", hash: `hash-${workspaceId}`, prefix: "cb_test", scopes: ["workspace:read"], expiresAt: now + 86400000, receipts: [] });
+		mine.push(integrationTokenId);
+		const clientId = await ctx.db.insert("integrationOAuthClients", { name: "Example", redirects: ["https://example.com/callback"], expiresAt: now + 86400000 });
+		mine.push(await ctx.db.insert("integrationOAuthCodes", { workspaceId, userId: memberId, tokenId: integrationTokenId, clientId, hash: `code-${workspaceId}`, redirect: "https://example.com/callback", resource: "https://example.com/mcp", challenge: "test", expiresAt: now + 86400000, used: false }));
+		mine.push(await ctx.db.insert("integrationRefreshTokens", { workspaceId, userId: memberId, tokenId: integrationTokenId, hash: `refresh-${workspaceId}`, used: false, expiresAt: now + 86400000 }));
+		mine.push(await ctx.db.insert("integrationAudit", { workspaceId, userId: memberId, memberId: membership._id, tokenId: integrationTokenId, requestId: "request", transport: "http", operation: "workspace_get", status: 200, expiresAt: now + 86400000 }));
+		mine.push(await ctx.db.insert("integrationWebhooks", { workspaceId, userId: memberId, memberId: membership._id, tokenId: integrationTokenId, url: "https://example.com/webhook", secret: "encrypted", cursor: null, since: now, nextAt: now, attempts: 0, disabled: false }));
 		const config = { name: "Helper", description: "", instructions: "Help.", model: "anthropic/claude-haiku-5.5", tools: [] };
 		const agentId = await ctx.db.insert("agents", { workspaceId, ...config, archived: false, version: 1, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("agentVersions", { agentId, version: 1, config, savedBy: memberId });
@@ -134,6 +140,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 
 		const turn = { workspaceId, chatId: channel, agentId, triggerId: said, actorId: memberId };
 		const turnId = await ctx.db.insert("agentTurns", { ...turn, replyId: said, status: "done" });
+		await ctx.db.insert("integrationEvents", { workspaceId, sequence: 0, kind: "message.created", resource: said, expiresAt: now + 86400000 });
 		mine.push(await ctx.db.insert("connectorArtifacts", { workspaceId, userId: memberId, memberId: membership._id, turnId, replyId: said, callId: "c1", storageId: await ctx.storage.store(new Blob(["media"])), mimeType: "application/octet-stream" }));
 		const sessionId = await ctx.db.insert("agentSessions", { workspaceId, agentId, chatId: channel });
 		await ctx.db.insert("agentChains", { workspaceId, actorId: memberId, chatId: channel, turns: 2, hops: 0, pairs: [], epoch: 0, status: "running" });

@@ -8,7 +8,10 @@ import { upload, uploadOptions } from "./images";
 import { callback } from "./oauth";
 
 import { handle as integrationHttp } from "./integrationHttp";
+import { handle as integrationOAuthHttp } from "./integrationOAuthHttp";
 const http = httpRouter();
+for (const method of ["GET", "POST", "OPTIONS"] as const) http.route({ pathPrefix: "/integrations/oauth/", method, handler: integrationOAuthHttp });
+for (const path of ["/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource/api/v1"]) for (const method of ["GET", "OPTIONS"] as const) http.route({ path, method, handler: integrationOAuthHttp });
 for (const method of ["GET", "POST", "OPTIONS", "DELETE"] as const) http.route({ path: "/mcp", method, handler: integrationHttp });
 for (const method of ["GET", "POST", "OPTIONS"] as const) http.route({ pathPrefix: "/api/v1/", method, handler: integrationHttp });
 auth.addHttpRoutes(http);

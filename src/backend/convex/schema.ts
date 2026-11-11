@@ -239,12 +239,34 @@ const automationDefinition = v.object({
 });
 
 export default defineSchema({
+	integrationOAuthClients: defineTable({ name: v.string(), redirects: v.array(v.string()), expiresAt: v.number(), metadataUrl: v.optional(v.string()), cacheUntil: v.optional(v.number()), validatedUntil: v.optional(v.number()) }).index("by_expiry", ["expiresAt"]).index("by_url", ["metadataUrl"]),
+	integrationOAuthCodes: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), tokenId: v.id("integrationTokens"), hash: v.string(),
+		clientId: v.id("integrationOAuthClients"), redirect: v.string(), challenge: v.string(), resource: v.string(), expiresAt: v.number(), used: v.boolean(),
+	}).index("by_hash", ["hash"]).index("by_expiry", ["expiresAt"]).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]),
+	integrationRefreshTokens: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), tokenId: v.id("integrationTokens"), hash: v.string(), used: v.boolean(), expiresAt: v.number(),
+	}).index("by_hash", ["hash"]).index("by_expiry", ["expiresAt"]).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]),
+	integrationAudit: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"), tokenId: v.id("integrationTokens"),
+		requestId: v.string(), transport: v.string(), operation: v.string(), status: v.optional(v.number()), expiresAt: v.number(),
+	}).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]).index("by_expiry", ["expiresAt"]),
+	integrationEvents: defineTable({
+		workspaceId: v.id("workspaces"), sequence: v.number(), kind: v.string(), resource: v.union(v.id("records"), v.id("pages"), v.id("chatMessages")), expiresAt: v.number(),
+	}).index("by_workspace", ["workspaceId", "sequence"]).index("by_expiry", ["expiresAt"]),
+	integrationWebhooks: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"), tokenId: v.id("integrationTokens"),
+		url: v.string(), secret: v.string(), cursor: v.union(v.string(), v.null()), since: v.number(),
+		nextAt: v.number(), attempts: v.number(), disabled: v.boolean(), lastStatus: v.optional(v.number()),
+		pending: v.optional(v.object({ id: v.string(), at: v.number(), cursor: v.string() })),
+	}).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]).index("by_due", ["disabled", "nextAt"]),
 	connectorArtifacts: defineTable({
 		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"), turnId: v.id("agentTurns"),
 		replyId: v.id("chatMessages"), callId: v.string(), storageId: v.id("_storage"), mimeType: v.string(),
 	}).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]).index("by_turn", ["turnId"]),
 	integrationTokens: defineTable({
 		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"),
+		oauth: v.optional(v.object({ clientId: v.id("integrationOAuthClients"), resource: v.string(), expiresAt: v.number() })),
 		name: v.string(), hash: v.string(), prefix: v.string(), scopes: v.array(v.string()), expiresAt: v.number(),
 		lastUsedAt: v.optional(v.number()), lastOperation: v.optional(v.string()), windowAt: v.optional(v.number()), requests: v.optional(v.number()),
 		receipts: v.array(v.object({ key: v.string(), operation: v.string(), fingerprint: v.string(), at: v.number(), result: v.any() })),
@@ -266,6 +288,7 @@ export default defineSchema({
 	modelCatalog: defineTable({ models: v.array(modelInfo), imageModels: v.optional(v.array(imageModelInfo)), fetchedAt: v.number() }),
 
 	workspaces: defineTable({
+		integrationEventSequence: v.optional(v.number()),
 		name: v.string(),
 		version: v.optional(v.number()),
 		/** ISO 4217: the default for new amounts. Each amount stores its own. Unset means DEFAULT_CURRENCY. */
@@ -675,6 +698,7 @@ export default defineSchema({
 	// Written by a person (authorUserId) or an agent (authorAgentId), never both.
 	chatMessages: defineTable({
 		external: v.optional(v.string()),
+		externalTokenId: v.optional(v.id("integrationTokens")),
 		/** Restricted sources, checked live for every viewer. Records use their database. */
 		usedPlaces,
 		sharedBy: v.optional(v.id("users")),

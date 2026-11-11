@@ -24,4 +24,7 @@ crons.interval("field changes", { minutes: 15 }, internal.fieldChanges.sweep, {}
 // AI Gateway's model list, for the agent model picker (modelCatalog.ts).
 crons.interval("model catalog", { hours: 24 }, internal.modelCatalog.refresh);
 
+crons.interval("integration retention", { hours: 1 }, internal.integrationMaintenance.sweep, {});
+crons.interval("integration notifications", { minutes: 1 }, internal.integrationWebhooks.tick, {});
+
 export default crons;

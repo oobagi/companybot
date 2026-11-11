@@ -1,3 +1,4 @@
+import { integrationEvent } from "./integrationEventLog";
 import { emojiOf } from "@companybot/core";
 import { previewUrl } from "@companybot/core/link-preview";
 import { taggedRecordIds } from "@companybot/core/record-mentions";
@@ -114,6 +115,14 @@ export const page = query({
 		return readMessages(ctx, visible.member, chatId, threadId, paginationOpts);
 	},
 });
+
+/** Shared viewer-safe single message lookup for external clients. */
+export async function readMessage(ctx: QueryCtx, member: Member, messageId: Id<"chatMessages">) {
+	const message = await ctx.db.get(messageId);
+	if (!message || message.workspaceId !== member.workspaceId || message.quiet) throw new ConvexError("Message not found.");
+	await requireChat(ctx, member, message.chatId);
+	return toMessage(ctx, message, member, namer(ctx, { images: true }), recordTags(ctx, member));
+}
 
 /** Shared viewer-safe timeline for the app and external integrations. */
 export async function readMessages(ctx: QueryCtx, member: Member, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, paginationOpts: { numItems: number; cursor: string | null }): Promise<PaginationResult<Message>> {
@@ -355,6 +364,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }), ...(skillIds.length > 0 && { skillIds }) },
 		status: "done",
 	});
+	await integrationEvent(ctx, member.workspaceId, "message.created", messageId);
 	const sent = (await ctx.db.get(messageId))!;
 	await addUserMentions(ctx, sent);
 	if (!external) await previewMessage(ctx, sent);
@@ -464,8 +474,9 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 		usedPlaces: sources.length ? sources : undefined,
 		...(sources.length && { repliedTo: who.member.userId }),
 	});
+	await integrationEvent(ctx, who.member.workspaceId, "message.updated", messageId);
 	await syncRecordMentions(ctx, message, recordIds);
-	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
+	if (!message.external) await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
 /**
@@ -499,6 +510,7 @@ export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"c
 	const message = await requireOwn(ctx, who, messageId);
 	await deleteAttachments(ctx, message);
 	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, linkPreviews: undefined, deleted: true });
+	await integrationEvent(ctx, who.member.workspaceId, "message.deleted", messageId);
 	await clearMessageLinks(ctx, messageId);
 }
 
@@ -532,5 +544,6 @@ export const share = mutation({
 		if (!message.usedPlaces?.length || message.sharedBy) return;
 		if (message.status === "streaming") throw new ConvexError("Wait until the reply finishes before sharing it.");
 		await ctx.db.patch(messageId, { sharedBy: member.userId });
+		await integrationEvent(ctx, member.workspaceId, "message.updated", messageId);
 	},
 });

@@ -1,3 +1,4 @@
+import { integrationEvent } from "./integrationEventLog";
 import {
 	FIELDS_PER_TYPE_MAX,
 	DEFAULT_CURRENCY,
@@ -151,6 +152,7 @@ export function fieldsShown(ctx: QueryCtx, member: Member) {
 
 /** Changes go through here, so this is where record automations will hook in (`fireEvent`). */
 export async function logChange(ctx: MutationCtx, who: Who, entry: Omit<Doc<"recordHistory">, "_id" | "_creationTime" | "workspaceId" | "userId" | "agentId">) {
+	if (entry.recordId) await integrationEvent(ctx, who.member.workspaceId, `record.${entry.action}`, entry.recordId);
 	return ctx.db.insert("recordHistory", {
 		workspaceId: who.member.workspaceId,
 		userId: who.member.userId,

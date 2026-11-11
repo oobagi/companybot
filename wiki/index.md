@@ -9,7 +9,7 @@ One line per page: `- [Title](path.md) — what it covers`. Keep this file a tab
 - [Drive](drive.md) — folders and files beside pages: the tree, listings, uploads, viewers (PDF, Word, Excel, PowerPoint, CSV, text), access inheritance, Archive, agent file tools; what's still an issue (native sheets, slides, sites)
 - [Chat](chat.md) — channels, DMs, threads, reactions; when agents reply, agents working together (handoffs, asks, loop limits), what they're fed, the chat API
 - [Permissions](permissions.md) — who can access each channel, database and page; what asks, Allow once / Always / Deny, per-person rules, roles, workspace locks, automation grants, where it shows up, how others do it
-- [External API and MCP](integrations.md) — scoped API tokens, HTTP/OpenAPI operations, inbound MCP, rich connector results, limits and compatibility
+- [External API and MCP](integrations.md) — scoped API tokens, OAuth consent, HTTP/OpenAPI operations, inbound MCP, event webhooks, request history, rich connector results and limits
 - [Extending](extending.md) — how to add tools, connectors, skills, permissions, roles, memory rules; keeping the in-app help docs current; invariants to keep
 - [Testing](testing.md) — what to test and what not to (behavior, not wording or markup), how to write one, where tests live, how to run them
 - [Releases](releases.md) — cutting a release, CI, signing secrets, in-app updates, how the web app ships

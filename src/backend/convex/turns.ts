@@ -1,3 +1,4 @@
+import { integrationEvent } from "./integrationEventLog";
 import { autonomyProblem, isHandoff } from "./agentPolicy";
 import { publicSearchChat } from "./chatDiscovery";
 import type { PlaceMessage, Skill } from "@companybot/core";
@@ -1051,7 +1052,7 @@ export const finishReply = internalMutation({
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
 			await endStream(ctx, reply, { ...end, stats, ...(!shown && { quiet: true as const }) });
 			if (shown && !lost) await tagReply(ctx, turn, reply._id);
-			if (shown) await show(ctx, reply);
+			if (shown) { await show(ctx, reply); await integrationEvent(ctx, turn.workspaceId, "message.updated", reply._id); }
 			if (shown && !error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 		}
 		await ctx.db.patch(turnId, { status: error ? "error" : "done", step: undefined, decision: decided });
