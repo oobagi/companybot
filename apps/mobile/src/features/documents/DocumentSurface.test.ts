@@ -7,7 +7,7 @@ import type DocumentDOM from './Editor.dom';
 
 // Keep the native WebView boundary controllable while exercising the real surface
 // lifecycle, callbacks and recovery UI. The actual DOM editor has separate tests.
-const boundary = vi.hoisted(() => ({ props: undefined as ComponentProps<typeof DocumentDOM> | undefined, mounts: 0 }));
+const boundary = vi.hoisted(() => ({ props: undefined as ComponentProps<typeof DocumentDOM> | undefined, mounts: 0, unmounts: 0 }));
 vi.mock('react-native', () => ({ View: ({ children }: { children: ReactNode }) => createElement('div', null, children) }));
 vi.mock('@/design', () => ({ useTheme: () => ({ colors: { background: 'white' } }) }));
 vi.mock('@/components/ui', () => ({
@@ -18,7 +18,7 @@ vi.mock('./Editor.dom', async () => {
   const { useEffect } = await import('react');
   return { default: function MockDocumentDOM(props: ComponentProps<typeof DocumentDOM>) {
     boundary.props = props;
-    useEffect(() => { boundary.mounts++; }, []);
+    useEffect(() => { boundary.mounts++; return () => { boundary.unmounts++; }; }, []);
     return createElement('div', null, 'WebView');
   } };
 });
@@ -27,10 +27,10 @@ let root: Root | undefined;
 let host: HTMLDivElement;
 afterEach(async () => {
   await act(async () => root?.unmount());
-  host?.remove(); root = undefined; boundary.props = undefined; boundary.mounts = 0;
+  host?.remove(); root = undefined; boundary.props = undefined; boundary.mounts = 0; boundary.unmounts = 0;
 });
 
-it('gates controls after process loss, ignores late status and confirms before remounting protected work', async () => {
+it.each(['onContentProcessDidTerminate', 'onRenderProcessGone'] as const)('disposes the failed editor on %s and requires confirmation before replacing protected work', async (event) => {
   const status = vi.fn(async () => {});
   const ready = vi.fn();
   const recover = vi.fn(async () => false);
@@ -44,7 +44,8 @@ it('gates controls after process loss, ignores late status and confirms before r
   await act(async () => { await boundary.props!.onStatus(false, null); });
   expect(ready).toHaveBeenLastCalledWith(true);
   const deadView = boundary.props!;
-  await act(async () => { Reflect.apply(deadView.dom!.onContentProcessDidTerminate!, null, []); });
+  await act(async () => { Reflect.apply(deadView.dom![event]!, null, []); });
+  expect(boundary.unmounts).toBe(1);
   expect(ready).toHaveBeenLastCalledWith(false);
   expect(host.textContent).toContain('closed unexpectedly');
   const reports = status.mock.calls.length;

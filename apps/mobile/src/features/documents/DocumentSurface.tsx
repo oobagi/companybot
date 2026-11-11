@@ -37,12 +37,13 @@ export function DocumentSurface({ protectedWork = false, onReadyChange, onReload
     } finally { recovering.current = false; }
   };
   return <View style={{ flex: 1, minHeight: 0 }}>
-    <DocumentDOM key={startup.attempt} {...props} dom={{ ...props.dom, onContentProcessDidTerminate: processLost, onRenderProcessGone: processLost }} onStatus={async (dirty, error) => {
+    {/* A terminated native view cannot be reused or left accessible under the recovery UI. */}
+    {startup.phase !== 'interrupted' && <DocumentDOM key={startup.attempt} {...props} dom={{ ...props.dom, onContentProcessDidTerminate: processLost, onRenderProcessGone: processLost }} onStatus={async (dirty, error) => {
       if (attempt.current !== startup.attempt || interrupted.current) return;
       dispatch(error && !dirty ? { type: 'failed', attempt: startup.attempt, error } : { type: 'ready', attempt: startup.attempt });
       if (startup.phase !== 'ready' && error && !dirty) return;
       await props.onStatus(dirty, error);
-    }} />
+    }} />}
     {startup.phase !== 'ready' && <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.colors.background }}>
       {startup.phase !== 'opening' ? <ErrorState layout="screen" message={startup.error!} onRetry={protectedWork && !(startup.phase === 'interrupted' && onReloadSaved) ? undefined : () => { void retry(); }} /> : <Loading label="Opening editor…" />}
     </View>}
