@@ -22,7 +22,7 @@ import { type MutationCtx, type QueryCtx, internalAction, internalMutation, inte
 import { fireEvent } from "./automationRuns";
 import { emailDomain, emailProvider, SmsRejectedError, smsProvider, smsStatusUrl } from "./channelProviders";
 import { namer } from "./chatOps";
-import { callContact, callData } from "./callData";
+import { callContact, callData, callPreview } from "./callData";
 import { commentsOf } from "./inboxComments";
 import { notify } from "./notifications";
 import { mutation, query } from "./functions";
@@ -78,6 +78,7 @@ export const list = query({
 				if (!names.has(c.agentId)) names.set(c.agentId, await agentName(ctx, c.agentId));
 				const record = await recordShown(ctx, member, c.recordId, visible);
 				const contact = c.channel === "call" ? callContact(c, record) : null;
+				const latestCall = contact ? await ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").first() : null;
 				return {
 					/** Who answers it, with their picture: its agent, or who on staff it's assigned to. */
 					assignee: c.mode === "agent" ? await people.agent(c.agentId) : c.takenBy ? await people.user(c.takenBy) : null,
@@ -94,7 +95,7 @@ export const list = query({
 					mine: c.mode === "staff" && c.takenBy === member.userId,
 					needsStaff: c.needsStaff ?? null,
 					lastAt: c.lastAt,
-					preview: c.preview,
+					preview: latestCall?.call ? callPreview(latestCall) : c.preview,
 					record,
 				};
 			}),

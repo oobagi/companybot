@@ -342,3 +342,22 @@ body {
 	border-left: 1.5px solid var(--color-neutral-300);
 }
 
+/* The floating phone keeps its place while it closes, so reveal and hide reverse smoothly. */
+.phone-panel {
+	transform-origin: var(--phone-origin);
+	transition: translate 500ms var(--ease-spring), scale 240ms var(--ease-spring), opacity 180ms ease-out, visibility 240ms;
+	visibility: hidden;
+	opacity: 0;
+	scale: 0.94;
+}
+.phone-panel[data-shown="true"] {
+	visibility: visible;
+	opacity: 1;
+	scale: 1;
+}
+.phone-panel[data-dragging="true"] {
+	transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	.phone-panel { transition: none; }
+}

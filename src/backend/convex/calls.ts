@@ -8,7 +8,7 @@ import { conversationWith, linkRecord, recordShown } from "./inbox";
 import { type Member, type Who, checkPermission, getMember, liveWorkspace, memberOf, nameOf, requireInWorkspace, requireLiveAgent, requirePermission } from "./lib";
 import { requireRecord } from "./recordOps";
 import { recordUsage } from "./usage";
-import { callContact, callData } from "./callData";
+import { callContact, callData, callPreview } from "./callData";
 
 // Calls use the Inbox's conversation, message, comments and record link. Only media crosses LiveKit.
 // Like image generation, admission holds the maximum cost against a monthly budget, then settles usage.
@@ -252,7 +252,7 @@ async function finish(ctx: MutationCtx, m: Message, uncertain = false, outcome?:
 	await ctx.db.patch(m._id, { call: { ...m.call, active: false, state, endedAt: now } });
 	const c = await ctx.db.get(m.conversationId);
 	if (c && await liveWorkspace(ctx, m.workspaceId)) {
-		await ctx.db.patch(c._id, { lastAt: now, preview: `${m.direction === "in" ? "Incoming" : "Outgoing"} call: ${state}` });
+		await ctx.db.patch(c._id, { lastAt: now, preview: callPreview({ ...m, call: { ...m.call, active: false, state, endedAt: now } }) });
 		await recordUsage(ctx, { workspaceId: m.workspaceId, agentId: c.agentId, userId: m.call.userId, kind: "phone", costUsd: m.call.rateUsd * (uncertain ? HOLD_MINUTES : m.call.connectedAt !== undefined || m.call.dispatched ? Math.min(HOLD_MINUTES, Math.max(1, Math.ceil((now - m._creationTime) / 60_000))) : 0) });
 	}
 }

@@ -31,3 +31,19 @@ export function callData(m: Doc<"inboxMessages">) {
 		connectedAt: answeredAt,
 	};
 }
+
+/** Plain call history for the Inbox list, including calls saved by older clients. */
+export function callPreview(m: Doc<"inboxMessages">) {
+	const call = callData(m);
+	const direction = call.direction === "in" ? "Incoming call" : "Outgoing call";
+	if (call.active) return direction;
+	if (call.state === "unknown") return `${direction} · Outcome unknown`;
+	if (call.status === "completed") {
+		const seconds = call.duration;
+		return seconds === null ? direction : `${direction} · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+	}
+	if (call.status === "missed") return "Missed call";
+	if (call.status === "no-answer") return `${direction} · No answer`;
+	if (call.status === "declined") return `${direction} · Declined`;
+	return `${direction} · Failed`;
+}

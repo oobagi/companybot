@@ -313,8 +313,8 @@ export function Phone({ enabled, children }: { enabled: boolean; children: React
 		<PhoneContext.Provider value={enabled ? phone : null}>
 			{children}
 			<div ref={audio} className="hidden" />
-			{enabled && shown && (
-				<FloatingPanel onClose={() => setShown(false)} title={mine ? "On a call" : incoming ? "Incoming call" : "Phone"}>
+			{enabled && (
+				<FloatingPanel shown={shown} onClose={() => setShown(false)} title={mine ? "On a call" : incoming ? "Incoming call" : "Phone"}>
 					<PhonePanel
 						phone={phone}
 						numbers={numbers ?? []}
@@ -354,7 +354,7 @@ const readCorner = (): Corner => {
  * (where the throw would carry it, not just where it's dropped), and settles with a little overshoot.
  * Pop out moves the same panel into a small window of its own, kept on top; closing that window brings it back.
  */
-function FloatingPanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function FloatingPanel({ shown, title, onClose, children }: { shown: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
 	const panel = useRef<HTMLDivElement>(null);
 	const [corner, setCorner] = useState<Corner>(readCorner);
 	const [size, setSize] = useState<{ w: number; h: number }>();
@@ -371,6 +371,15 @@ function FloatingPanel({ title, onClose, children }: { title: string; onClose: (
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, [popped]);
+	useEffect(() => {
+		if (!shown) {
+			setPopped(undefined);
+			setDrag(undefined);
+			grab.current = undefined;
+		} else {
+			panel.current?.querySelector<HTMLInputElement>('input[type="tel"]')?.focus();
+		}
+	}, [shown]);
 	useEffect(() => {
 		const resize = () => setView({ w: window.innerWidth, h: window.innerHeight });
 		window.addEventListener("resize", resize);
@@ -467,8 +476,12 @@ function FloatingPanel({ title, onClose, children }: { title: string; onClose: (
 			ref={panel}
 			role="dialog"
 			aria-label="Phone"
-			style={{ "--x": `${pos.x}px`, "--y": `${pos.y}px` } as React.CSSProperties}
-			className={`fixed top-0 left-0 z-50 flex w-80 translate-x-(--x) translate-y-(--y) flex-col overflow-hidden rounded-3xl border border-neutral-200 bg-white text-body text-neutral-900 shadow-2xl ${size ? "" : "invisible"} ${drag ? "" : "transition-transform duration-500 ease-spring"}`}
+			aria-hidden={!shown}
+			inert={!shown}
+			data-shown={shown && !!size}
+			data-dragging={!!drag}
+			style={{ "--x": `${pos.x}px`, "--y": `${pos.y}px`, "--phone-origin": corner.replace("-", " ") } as React.CSSProperties}
+			className="phone-panel fixed top-0 left-0 z-50 flex w-80 translate-x-(--x) translate-y-(--y) flex-col overflow-hidden rounded-3xl border border-neutral-200 bg-white text-body text-neutral-900 shadow-2xl"
 		>
 			{header}
 			{children}
@@ -642,7 +655,7 @@ function PhonePanel(props: {
 				</div>
 			)}
 			<div className="relative flex w-full items-center">
-				<input ref={numberRef} aria-label="Phone number" type="tel" autoFocus placeholder="Enter a number" value={asTyped(props.digits)} onChange={(e) => props.onDigits(e.target.value.replace(/[^\d+*#]/g, ""))} className="h-12 min-w-0 flex-1 bg-transparent px-9 text-center font-light tabular-nums outline-none placeholder:text-lg placeholder:text-neutral-300" />
+				<input ref={numberRef} aria-label="Phone number" type="tel" placeholder="Enter a number" value={asTyped(props.digits)} onChange={(e) => props.onDigits(e.target.value.replace(/[^\d+*#]/g, ""))} className="h-12 min-w-0 flex-1 bg-transparent px-9 text-center font-light tabular-nums outline-none placeholder:text-lg placeholder:text-neutral-300" />
 				<button type="button" aria-label="Delete" title="Delete" disabled={!props.digits} className={`absolute right-0 ${dialDeleteButton}`} onClick={() => props.onDigits(props.digits.slice(0, -1))}>
 					<BackspaceIcon />
 				</button>
