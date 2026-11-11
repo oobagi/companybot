@@ -10,17 +10,27 @@ const drafts = new Map<string, Draft>();
 const listeners = new Set<() => void>();
 const loading = new Set<string>();
 const writes = new Map<string, Promise<void>>();
+// Persistence status must not replace the Draft object that owns an in-flight send.
+const saveErrors = new Map<string, string>();
 const publish = () => listeners.forEach((listener) => listener());
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 export const readDraft = (key: string) => drafts.get(key) ?? empty;
+function persistDraft(key: string, draft: Draft) {
+  const value = serializeDraft(draft, Date.now());
+  const write = (writes.get(key) ?? Promise.resolve()).then(() => AsyncStorage.setItem(key, value)).then(() => {
+    if (writes.get(key) === write) { saveErrors.delete(key); publish(); }
+  }, error => {
+    if (writes.get(key) === write) { saveErrors.set(key, errorMessage(error)); publish(); }
+  });
+  writes.set(key, write);
+  void write.finally(() => { if (writes.get(key) === write) writes.delete(key); });
+  return write;
+}
 function writeDraft(key: string, after: Draft) {
   const before = readDraft(key);
   drafts.set(key, after);
   if (after.text !== before.text || after.mentions !== before.mentions || after.files !== before.files) {
-    const value = serializeDraft(after, Date.now());
-    const write = (writes.get(key) ?? Promise.resolve()).then(() => AsyncStorage.setItem(key, value)).catch(() => {});
-    writes.set(key, write);
-    void write.finally(() => { if (writes.get(key) === write) writes.delete(key); });
+    void persistDraft(key, after);
   }
   publish();
 }
@@ -33,6 +43,7 @@ export const sendChatDraft = (key: string, send: (draft: Draft) => Promise<unkno
 
 export function useChatDraft(key: string) {
   const draft = useSyncExternalStore(subscribe, () => readDraft(key), () => empty);
+  const saveError = useSyncExternalStore(subscribe, () => saveErrors.get(key), () => undefined);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (readDraft(key).ready || loading.has(key)) return;
@@ -44,5 +55,7 @@ export function useChatDraft(key: string) {
       drafts.set(key, { ...readDraft(key), ready: false, loadError: errorMessage(error) });
     }).finally(() => { loading.delete(key); publish(); });
   }, [key, attempt]);
-  return { ...draft, retryLoad: () => setAttempt(value => value + 1) };
+  return { ...draft, saveError, retryLoad: () => setAttempt(value => value + 1), retrySave: () => {
+    if (readDraft(key).ready && !writes.has(key)) return persistDraft(key, readDraft(key));
+  } };
 }

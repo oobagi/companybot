@@ -101,6 +101,7 @@ export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?:
     {!busy && <ComposerAttachments files={draft.files.map(file => ({ key: file.key, name: file.name, ready: !!file.file, error: file.error }))} onRemove={removeFile} />}
     <ComposerDetails issues={[
       ...(draft.loadError ? [{ label: 'Draft unavailable', message: `Your saved draft could not be read. Retry before composing a message. ${draft.loadError}`, onRetry: draft.retryLoad }] : []),
+      ...(draft.saveError ? [{ label: 'Draft not saved on device', message: `Keep the app open and retry. Restarting could lose recent edits or bring back a draft you already sent. Retrying only updates device storage; it will not send a message. ${draft.saveError}`, onRetry: draft.retrySave }] : []),
       ...(draft.sendError ? [{ label: 'Message not sent', message: `Your draft and attachments are kept. ${draft.sendError}` }] : []),
       ...(fileError ? [{ label: 'Attachment issue', message: fileError }] : []),
       ...(dictation.error ? [{ label: 'Dictation issue', message: dictation.error }] : []),

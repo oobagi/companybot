@@ -21,7 +21,7 @@ async function mount(draftKey: string) {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root!.render(createElement(Probe, { draftKey })));
 }
-afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); root = undefined; vi.clearAllMocks(); });
+afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); root = undefined; vi.resetAllMocks(); });
 
 it('does not overwrite an unread saved message after a storage read failure', async () => {
   const key = 'failed-chat-draft-read';
@@ -71,4 +71,90 @@ it('keeps a retried draft read in its original conversation after navigation', a
   expect(current.text).toBe('New chat draft');
   expect(readDraft('draft-read-old-chat').text).toBe('Old chat draft');
   expect(disk.setItem).not.toHaveBeenCalled();
+});
+
+
+it('reports failed persistence and retries the latest in-memory draft', async () => {
+  const key = 'failed-chat-draft-write';
+  disk.getItem.mockResolvedValue(null);
+  disk.setItem.mockRejectedValue(new Error('Device storage is full'));
+  await mount(key);
+  await act(async () => changeDraft(key, draft => ({ ...draft, text: 'Keep this message' })));
+  expect(current.text).toBe('Keep this message');
+  expect(current.saveError).toBeDefined();
+  await act(async () => changeDraft(key, draft => ({ ...draft, text: 'Keep this newer message' })));
+  expect(current.saveError).toBeDefined();
+  let stored = '';
+  disk.setItem.mockImplementation(async (_key: string, value: string) => { stored = value; });
+  await act(async () => current.retrySave());
+  expect(current.saveError).toBeUndefined();
+  expect(JSON.parse(stored).text).toBe('Keep this newer message');
+});
+
+it('clears a delivered message even if an earlier draft write fails during sending', async () => {
+  const key = 'draft-write-fails-during-send';
+  disk.getItem.mockResolvedValue(null);
+  let failWrite!: (error: Error) => void;
+  let stored = '';
+  disk.setItem.mockImplementation(async (_key: string, value: string) => { stored = value; });
+  disk.setItem.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { failWrite = reject; }));
+  await mount(key);
+  await act(async () => changeDraft(key, draft => ({ ...draft, text: 'Send this once' })));
+  let acknowledge!: () => void;
+  const send = vi.fn(() => new Promise<void>(resolve => { acknowledge = resolve; }));
+  let sending!: Promise<boolean>;
+  await act(async () => { sending = sendChatDraft(key, send); });
+  await act(async () => failWrite(new Error('Write failed')));
+  expect(current.saveError).toBeDefined();
+  expect(current.sending).toBe(true);
+  await act(async () => { acknowledge(); await sending; });
+  expect(current.text).toBe('');
+  expect(current.sending).toBeUndefined();
+  expect(current.saveError).toBeUndefined();
+  expect(JSON.parse(stored).text).toBe('');
+  expect(send).toHaveBeenCalledOnce();
+});
+
+it('retries clearing a sent draft without sending the message again', async () => {
+  const key = 'failed-sent-draft-clear';
+  let stored = serializeDraft({ text: 'Already sent', mentions: [], files: [], ready: true }, Date.now());
+  disk.getItem.mockResolvedValue(stored);
+  disk.setItem.mockRejectedValue(new Error('Cannot clear draft'));
+  await mount(key);
+  const send = vi.fn(async () => {});
+  await act(async () => { await sendChatDraft(key, send); });
+  expect(current.text).toBe('');
+  expect(current.saveError).toBeDefined();
+  expect(JSON.parse(stored).text).toBe('Already sent');
+  disk.setItem.mockImplementation(async (_key: string, value: string) => { stored = value; });
+  await act(async () => current.retrySave());
+  expect(current.saveError).toBeUndefined();
+  expect(JSON.parse(stored).text).toBe('');
+  expect(send).toHaveBeenCalledOnce();
+});
+
+it('keeps a persistence warning until the newest queued edit is saved', async () => {
+  const key = 'draft-edited-during-storage-retry';
+  disk.getItem.mockResolvedValue(null);
+  disk.setItem.mockRejectedValue(new Error('Unavailable'));
+  await mount(key);
+  await act(async () => changeDraft(key, draft => ({ ...draft, text: 'First version' })));
+  expect(current.saveError).toBeDefined();
+  let finishRetry!: () => void;
+  let finishLatest!: () => void;
+  let stored = '';
+  disk.setItem.mockImplementationOnce((_key: string, value: string) => new Promise<void>(resolve => {
+    finishRetry = () => { stored = value; resolve(); };
+  })).mockImplementationOnce((_key: string, value: string) => new Promise<void>(resolve => {
+    finishLatest = () => { stored = value; resolve(); };
+  }));
+  await act(async () => { void current.retrySave(); });
+  await act(async () => changeDraft(key, draft => ({ ...draft, text: 'Latest version' })));
+  await act(async () => finishRetry());
+  expect(JSON.parse(stored).text).toBe('First version');
+  expect(current.text).toBe('Latest version');
+  expect(current.saveError).toBeDefined();
+  await act(async () => finishLatest());
+  expect(JSON.parse(stored).text).toBe('Latest version');
+  expect(current.saveError).toBeUndefined();
 });
