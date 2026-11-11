@@ -403,4 +403,23 @@ describe("staff calls in Inbox", () => {
 		await t.finishAllScheduledFunctions(vi.runAllTimers);
 		expect((await row(t, id))!.call).toMatchObject({ active: false, state: "no-answer" });
 	});
+	it("closes a connected call at the limit when no end webhook arrives", async () => {
+		const { t, owner, agentId } = await fixture();
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		await t.action(internal.phoneProvider.dial, { id });
+		const room = (await row(t, id))!.call!.room;
+		vi.setSystemTime(Date.now() + 1_801_000);
+		await t.mutation(internal.calls.watch, { id, room });
+		await t.action(internal.phoneProvider.close, { id, room });
+		await t.finishAllScheduledFunctions(vi.runAllTimers);
+		const m = (await row(t, id))!;
+		expect(m.call).toMatchObject({ active: false, state: "completed" });
+		expect((await owner.query(api.calls.current))!.calls).toHaveLength(0);
+		const card = (await owner.query(api.inbox.get, { id: m.conversationId }))!.messages[0]!.call!;
+		expect(card.status).toBe("completed");
+		expect(card.duration).toBeGreaterThanOrEqual(1800);
+		expect(card.duration).toBeLessThan(1811);
+		expect(await t.mutation(internal.calls.connected, { id })).toBe(false);
+	});
+
 });

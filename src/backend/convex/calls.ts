@@ -164,9 +164,10 @@ export const forRecord = query({
 	handler: async (ctx, { recordId }) => {
 		const member = await requirePermission(ctx, "inbox.use");
 		const record = await requireRecord(ctx, member, recordId);
+		const contactRecord = await recordShown(ctx, member, recordId);
 		const cs = await ctx.db.query("inboxConversations").withIndex("by_record", (q) => q.eq("recordId", recordId)).take(20);
 		const rows = (await Promise.all(cs.filter((c) => c.channel === "call").map((c) => ctx.db.query("inboxMessages").withIndex("by_conversation", (q) => q.eq("conversationId", c._id)).order("desc").take(20)))).flat();
-		return { phones: await phonesOf(ctx, record), calls: await Promise.all(rows.filter((m) => m.call).sort((a, b) => b._creationTime - a._creationTime).slice(0, 20).map(async (m) => ({ ...shown(m), ...callContact(cs.find((c) => c._id === m.conversationId)!, record), by: m.call?.userId ? await nameOf(ctx, m.call.userId) : null }))) };
+		return { phones: await phonesOf(ctx, record), calls: await Promise.all(rows.filter((m) => m.call).sort((a, b) => b._creationTime - a._creationTime).slice(0, 20).map(async (m) => ({ ...shown(m), ...callContact(cs.find((c) => c._id === m.conversationId)!, contactRecord), by: m.call?.userId ? await nameOf(ctx, m.call.userId) : null }))) };
 	},
 });
 
