@@ -14,13 +14,13 @@ export function FeedbackExample({ kind }: { kind: 'Empty' | 'Loading' | 'Error' 
       ? <Loading label="Loading pages…" />
       : retried
         ? <EmptyState title="Ready to try again" description="Retry was handled by the example." />
-        : <ErrorState layout="screen" message="We couldn’t load this page. Your changes are safe." onRetry={() => setRetried(true)} />;
+        : <ErrorState layout="screen" message="We couldn’t load this page. Check your connection and try again. Any recovery drafts saved on this device will remain available." onRetry={() => setRetried(true)} />;
   return <View style={{ flex: 1 }}>
     <View style={{ paddingHorizontal: spacing.lg }}><ChoicePicker label="Container" presentation="compact" options={[
       { value: 'static', label: 'Static screen' },
       { value: 'scroll', label: 'Scrolling screen' },
       { value: 'list', label: 'Virtualized list' },
-    ]} value={container} onChange={value => { if (typeof value === 'string') setContainer(value); }} /></View>
+    ]} value={container} onChange={value => { if (typeof value === 'string') { setContainer(value); setRetried(false); } }} /></View>
     {container === 'list' ? <Screen nativeScroll padded={false}><ScreenList data={[]} renderItem={() => null} ListEmptyComponent={content} /></Screen>
       : <Screen key={container} scroll={container === 'scroll'}>{content}</Screen>}
   </View>;
