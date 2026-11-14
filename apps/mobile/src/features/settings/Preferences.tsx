@@ -21,6 +21,7 @@ export default function Preferences() {
   const prefs = useQuery(api.preferences.get);
   const me = useQuery(api.workspace.me);
   const erase = useMutation(api.workspace.eraseAccount);
+  const update = useMutation(api.preferences.update);
   const { signOut } = useAuthActions();
   const notifications = useNotifications();
   const { beforeSignOut } = notifications;
@@ -36,6 +37,7 @@ export default function Preferences() {
   return <>
     <EditToolbarButton label="Edit profile" onPress={edit} disabled={task.busy} />
     <Screen nativeScroll padded={false}>
+      {task.error && !deleting && <ErrorState message={task.error} />}
       <SettingsList sections={[
         { id: 'profile', title: 'Profile', rows: [
           { id: 'identity', title: name, subtitle: me?.email && prefs.displayName ? me.email : undefined, leading: <Avatar name={name} image={prefs.image} size="lg" />, onPress: edit, disabled: task.busy, accessibilityHint: 'Edit your profile and preferences' },
@@ -45,6 +47,9 @@ export default function Preferences() {
         { id: 'notifications', title: 'Notifications', rows: [
           { id: 'conversations', title: 'Conversations', value: conversationOptions.find(o => o.value === prefs.notify)?.label, onPress: edit, disabled: task.busy },
           { id: 'device', title: 'On this device', value: deviceNotificationStatus(notifications), onPress: () => setDeviceNotifications(true), disabled: task.busy },
+        ] },
+        { id: 'drive', title: 'Drive', rows: [
+          { id: 'foldersFirst', title: 'Folders on top', subtitle: 'Show folders above pages and files', kind: 'toggle', value: prefs.foldersFirst, disabled: task.busy, onValueChange: on => void task.run(() => update({ foldersFirst: on })) },
         ] },
         { id: 'account', title: 'Account', rows: [{ id: 'erase', title: 'Erase account', destructive: true, disabled: task.busy, onPress: () => { task.clear(); setConfirmation(''); setDeleting(true); } }] },
       ]} />

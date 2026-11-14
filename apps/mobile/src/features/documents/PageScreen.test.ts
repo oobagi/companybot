@@ -17,13 +17,15 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('react-native', () => ({ View: ({ children }: { children: ReactNode }) => createElement('div', null, children), ScrollView: ({ children }: { children: ReactNode }) => createElement('div', null, children) }));
 vi.mock('@expo/material-symbols/add.xml', () => ({ default: 1 }));
+vi.mock('@/features/drive/DriveListing', () => ({ DriveList: () => null, pickFiles: async () => [], useDriveLevel: () => ({ rows: [] }) }));
+vi.mock('@/features/drive/uploads', () => ({ useDriveUploads: () => ({ uploads: [], start: () => {}, dismiss: () => {} }) }));
 vi.mock('expo-router', () => ({ Stack: { Screen: () => null }, router: { push: vi.fn(), replace: vi.fn() } }));
 vi.mock('@/design', () => ({ useTheme: () => ({ sizes: { gutter: 20 }, spacing: { sm: 8, lg: 20 } }) }));
 vi.mock('@/features/pins/usePins', () => ({ usePinAction: () => ({ label: 'Pin', onPress: vi.fn() }) }));
 vi.mock('@/features/arrangements/useArrangements', () => ({ useArrangements: () => ({ writable: false, order: (_key: string, rows: unknown[]) => rows }) }));
 vi.mock('@/features/access/AccessSheet', () => ({ AccessSheet: () => null }));
 vi.mock('./DocumentEditor', () => ({ DocumentEditor: () => createElement('p', null, 'Document'), VersionDocument: () => createElement('p', null, 'Version content') }));
-vi.mock('./PagesScreen', () => ({ PageChildren: () => null, PageOrganizer: () => null, NewPage: () => null, openPage: vi.fn() }));
+vi.mock('./PagesScreen', () => ({ PageChildren: () => null, PageOrganizer: () => null, NewPage: () => null, openPage: vi.fn(), useDriveNew: () => ({ items: [], sheet: null, error: undefined }) }));
 vi.mock('./Confirm', () => ({ useDocumentConfirm: () => ({ confirm: fixture.confirm, dialog: null }) }));
 vi.mock('@/components/ui/ContentToolbar', () => ({ ContentToolbar: () => null }));
 vi.mock('@/lib/useTask', () => ({ useTask: () => ({ busy: false, error: undefined, clear: vi.fn(), run: async (job: () => Promise<unknown>) => job() }) }));

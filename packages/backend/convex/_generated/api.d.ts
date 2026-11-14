@@ -8,20 +8,9 @@
  * @module
  */
 
-import type * as integrationOAuth from "../integrationOAuth.js";
-import type * as integrationOAuthHttp from "../integrationOAuthHttp.js";
-import type * as integrationAudit from "../integrationAudit.js";
-import type * as integrationEventLog from "../integrationEventLog.js";
-import type * as integrationEvents from "../integrationEvents.js";
-import type * as integrationWebhooks from "../integrationWebhooks.js";
-import type * as integrationNetwork from "../integrationNetwork.js";
-import type * as integrationMaintenance from "../integrationMaintenance.js";
-import type * as integrationTokens from "../integrationTokens.js";
-import type * as integrationOps from "../integrationOps.js";
-import type * as integrationHttp from "../integrationHttp.js";
-import type * as connectorArtifacts from "../connectorArtifacts.js";
 import type * as activity from "../activity.js";
 import type * as agent from "../agent.js";
+import type * as agentPolicy from "../agentPolicy.js";
 import type * as agents from "../agents.js";
 import type * as alertOps from "../alertOps.js";
 import type * as approvals from "../approvals.js";
@@ -38,6 +27,7 @@ import type * as chatOps from "../chatOps.js";
 import type * as chatTools from "../chatTools.js";
 import type * as chats from "../chats.js";
 import type * as connectorAccess from "../connectorAccess.js";
+import type * as connectorArtifacts from "../connectorArtifacts.js";
 import type * as connectorNetwork from "../connectorNetwork.js";
 import type * as connectorTools from "../connectorTools.js";
 import type * as connectors from "../connectors.js";
@@ -56,6 +46,17 @@ import type * as functions from "../functions.js";
 import type * as http from "../http.js";
 import type * as imageGen from "../imageGen.js";
 import type * as images from "../images.js";
+import type * as integrationAudit from "../integrationAudit.js";
+import type * as integrationEventLog from "../integrationEventLog.js";
+import type * as integrationEvents from "../integrationEvents.js";
+import type * as integrationHttp from "../integrationHttp.js";
+import type * as integrationMaintenance from "../integrationMaintenance.js";
+import type * as integrationNetwork from "../integrationNetwork.js";
+import type * as integrationOAuth from "../integrationOAuth.js";
+import type * as integrationOAuthHttp from "../integrationOAuthHttp.js";
+import type * as integrationOps from "../integrationOps.js";
+import type * as integrationTokens from "../integrationTokens.js";
+import type * as integrationWebhooks from "../integrationWebhooks.js";
 import type * as invites from "../invites.js";
 import type * as lib from "../lib.js";
 import type * as lifecycle from "../lifecycle.js";
@@ -113,21 +114,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  connectorArtifacts: typeof connectorArtifacts;
-  integrationOAuth: typeof integrationOAuth;
-  integrationOAuthHttp: typeof integrationOAuthHttp;
-  integrationAudit: typeof integrationAudit;
-  integrationEventLog: typeof integrationEventLog;
-  integrationEvents: typeof integrationEvents;
-  integrationWebhooks: typeof integrationWebhooks;
-  integrationNetwork: typeof integrationNetwork;
-  integrationMaintenance: typeof integrationMaintenance;
-  integrationTokens: typeof integrationTokens;
-  integrationOps: typeof integrationOps;
-  integrationHttp: typeof integrationHttp;
-
   activity: typeof activity;
   agent: typeof agent;
+  agentPolicy: typeof agentPolicy;
   agents: typeof agents;
   alertOps: typeof alertOps;
   approvals: typeof approvals;
@@ -144,6 +133,7 @@ declare const fullApi: ApiFromModules<{
   chatTools: typeof chatTools;
   chats: typeof chats;
   connectorAccess: typeof connectorAccess;
+  connectorArtifacts: typeof connectorArtifacts;
   connectorNetwork: typeof connectorNetwork;
   connectorTools: typeof connectorTools;
   connectors: typeof connectors;
@@ -162,6 +152,17 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   imageGen: typeof imageGen;
   images: typeof images;
+  integrationAudit: typeof integrationAudit;
+  integrationEventLog: typeof integrationEventLog;
+  integrationEvents: typeof integrationEvents;
+  integrationHttp: typeof integrationHttp;
+  integrationMaintenance: typeof integrationMaintenance;
+  integrationNetwork: typeof integrationNetwork;
+  integrationOAuth: typeof integrationOAuth;
+  integrationOAuthHttp: typeof integrationOAuthHttp;
+  integrationOps: typeof integrationOps;
+  integrationTokens: typeof integrationTokens;
+  integrationWebhooks: typeof integrationWebhooks;
   invites: typeof invites;
   lib: typeof lib;
   lifecycle: typeof lifecycle;

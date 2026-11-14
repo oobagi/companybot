@@ -12,6 +12,8 @@ vi.mock('expo-router', () => ({ router: { push: vi.fn() }, usePreventRemove: () 
 vi.mock('@/features/arrangements/ReorderSheet', () => ({ ReorderSheet: () => null }));
 vi.mock('@/features/arrangements/useArrangements', () => ({ useArrangements: () => ({}) }));
 vi.mock('@/features/session/DirectoryHeader', () => ({ DirectoryHeader: () => null }));
+vi.mock('@/features/drive/DriveListing', () => ({ DriveList: () => null, pickFiles: async () => [], useDriveLevel: () => ({ rows: [] }) }));
+vi.mock('@/features/drive/uploads', () => ({ useDriveUploads: () => ({ uploads: [], start: () => {}, dismiss: () => {} }) }));
 vi.mock('@/design/icons', () => ({ PageIcon: () => null, FolderIcon: () => null }));
 vi.mock('@/design', () => ({ useTheme: () => ({}) }));
 vi.mock('@/lib/convex', () => ({ useMutation: () => fixture.create, useQuery: () => undefined, usePaginatedQuery: () => undefined }));

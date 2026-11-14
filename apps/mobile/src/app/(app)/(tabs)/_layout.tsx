@@ -14,9 +14,9 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Icon sf={{ default: 'bubble.left.and.bubble.right', selected: 'bubble.left.and.bubble.right.fill' }} md="chat" />
         {unread > 0 && <NativeTabs.Trigger.Badge>{unread > 99 ? '99+' : String(unread)}</NativeTabs.Trigger.Badge>}
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="pages" testID="tab-pages">
-        <NativeTabs.Trigger.Label>Pages</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf={{ default: 'doc.on.doc', selected: 'doc.on.doc.fill' }} md="description" />
+      <NativeTabs.Trigger name="pages" testID="tab-drive">
+        <NativeTabs.Trigger.Label>Drive</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf={{ default: 'folder', selected: 'folder.fill' }} md="folder" />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="databases" testID="tab-databases">
         <NativeTabs.Trigger.Label>Databases</NativeTabs.Trigger.Label>

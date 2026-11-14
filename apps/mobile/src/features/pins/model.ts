@@ -1,12 +1,12 @@
 import type { Arrangement } from '@companybot/core/arrangements';
 
-export type PinKind = 'chat' | 'page' | 'db' | 'rec';
+export type PinKind = 'chat' | 'page' | 'file' | 'db' | 'rec';
 export type PinKey = `${PinKind}:${string}`;
-export type PinEntry = { key: PinKey; title: string; description: string; path: `/chat/${string}` | `/pages/${string}` | `/database/${string}` | `/record/${string}`; unread?: boolean; mentioned?: boolean };
+export type PinEntry = { key: PinKey; title: string; description: string; path: `/chat/${string}` | `/pages/${string}` | `/files/${string}` | `/database/${string}` | `/record/${string}`; unread?: boolean; mentioned?: boolean };
 
 /** Personal arrangements may contain old or malformed keys. Never turn them into routes. */
 export function splitPin(value: string): { kind: PinKind; id: string } | undefined {
-  const match = /^(chat|page|db|rec):([^:/?#%\s]+)$/.exec(value);
+  const match = /^(chat|page|file|db|rec):([^:/?#%\s]+)$/.exec(value);
   return match ? { kind: match[1] as PinKind, id: match[2] } : undefined;
 }
 
@@ -27,12 +27,12 @@ export function routeTarget(pathname: string): { kind: PinKind; id: string } | u
   let id: string;
   try { id = decodeURIComponent(rawId); } catch { return undefined; }
   if (!id || /[:/?#%\s]/.test(id)) return undefined;
-  const kind = ({ chat: 'chat', pages: 'page', database: 'db', record: 'rec' } as const)[section as 'chat' | 'pages' | 'database' | 'record'];
+  const kind = ({ chat: 'chat', pages: 'page', files: 'file', database: 'db', record: 'rec' } as const)[section as 'chat' | 'pages' | 'files' | 'database' | 'record'];
   return kind ? { kind, id } : undefined;
 }
 
-export function pageEntry(key: PinKey, page: { _id: string; title: string; archived: boolean; recordId: string | null } | null | undefined): PinEntry | undefined {
-  return page && !page.archived && !page.recordId ? { key, title: page.title || 'Untitled', description: 'Page', path: `/pages/${page._id}` } : undefined;
+export function pageEntry(key: PinKey, page: { _id: string; title: string; kind?: 'page' | 'folder'; archived: boolean; recordId: string | null } | null | undefined): PinEntry | undefined {
+  return page && !page.archived && !page.recordId ? { key, title: page.title || 'Untitled', description: page.kind === 'folder' ? 'Folder' : 'Page', path: `/pages/${page._id}` } : undefined;
 }
 
 export function recordEntry(key: PinKey, records: readonly { _id: string; title: string }[] | undefined): PinEntry | undefined {
@@ -43,4 +43,9 @@ export function recordEntry(key: PinKey, records: readonly { _id: string; title:
 /** records.titles intentionally resolves at most 50 ids per request. */
 export function recordBatches(ids: readonly string[]): string[][] {
   return Array.from({ length: Math.ceil(ids.length / 50) }, (_, index) => ids.slice(index * 50, (index + 1) * 50));
+}
+
+export function fileEntry(key: PinKey, files: readonly { _id: string; name: string }[] | undefined): PinEntry | undefined {
+  const file = files?.find(row => row._id === splitPin(key)?.id);
+  return file ? { key, title: file.name, description: 'File', path: `/files/${file._id}` } : undefined;
 }

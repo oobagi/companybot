@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { pageEntry, recordBatches, recordEntry, routeTarget, savedKeys, splitPin } from './model';
+import { fileEntry, pageEntry, recordBatches, recordEntry, routeTarget, savedKeys, splitPin } from './model';
 
 it('uses desktop personal pin order, drops orphan order entries, and excludes pins from recents', () => {
   expect(savedKeys([
@@ -39,4 +39,13 @@ it('does not silently truncate the fifty-first pinned record at the server title
   expect(batches.map(batch => batch.length)).toEqual([50, 50, 23]);
   expect(batches.flat()).toEqual(ids);
   expect(recordBatches([])).toEqual([]);
+});
+
+it('keeps desktop file pins: they open the file screen and drop once the file is gone or hidden', () => {
+  expect(splitPin('file:abc')).toEqual({ kind: 'file', id: 'abc' });
+  expect(routeTarget('/files/abc')).toEqual({ kind: 'file', id: 'abc' });
+  expect(savedKeys([{ list: 'pins', ids: ['file:abc', 'file:bad/id'] } as never]).pins).toEqual(['file:abc']);
+  expect(fileEntry('file:abc', [{ _id: 'abc', name: 'Plan.pdf' }])).toEqual({ key: 'file:abc', title: 'Plan.pdf', description: 'File', path: '/files/abc' });
+  expect(fileEntry('file:abc', [])).toBeUndefined();
+  expect(pageEntry('page:f', { _id: 'f', title: 'Clients', kind: 'folder', archived: false, recordId: null })?.description).toBe('Folder');
 });

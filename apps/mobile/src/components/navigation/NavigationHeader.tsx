@@ -10,9 +10,11 @@ import type { Action } from '@/components/ui/ActionMenu';
 import { menuIcon } from '@/components/ui/menuIcon';
 
 export type HeaderAction = { label: string; onPress: () => void; disabled?: boolean; icon?: Action['icon'] };
+/** The + button: one action, or a menu of them when `items` is given. */
+export type HeaderAddAction = HeaderAction & { items?: HeaderAction[] };
 export type NavigationHeaderProps = {
   search?: { placeholder: string; value: string; onChange: (value: string) => void };
-  action?: HeaderAction;
+  action?: HeaderAddAction;
   menu?: HeaderAction[];
   /** Caller supplies identity and behavior; the header never reads account data. */
   leading?: HeaderAction & { image?: string | null; icon: ComponentProps<typeof Stack.Toolbar.Button>['icon'] };
@@ -59,7 +61,7 @@ export function NavigationHeader({ search, action, menu = [], leading }: Navigat
   if (Platform.OS === 'web') return <>
     <Row horizontal style={{ flexWrap: 'wrap' }}>
       {leading && <Button label={leading.label} onPress={leading.onPress} disabled={leading.disabled} variant="ghost" />}
-      {action && <Button {...action} />}
+      {action && (action.items ? <ActionMenu label={action.label} actions={action.items.map((item, index) => ({ id: String(index), title: item.label, icon: item.icon, disabled: item.disabled }))} onAction={id => action.items?.[Number(id)]?.onPress()} /> : <Button label={action.label} onPress={action.onPress} disabled={action.disabled} />)}
       {menu.length > 0 && <ActionMenu label="More actions" actions={menu.map((item, index) => ({ id: String(index), title: item.label, icon: item.icon, disabled: item.disabled }))} onAction={id => menu[Number(id)]?.onPress()} />}
     </Row>
     {search && <Field label={search.placeholder} value={search.value} onChangeText={search.onChange} autoCapitalize="none" />}
@@ -77,7 +79,9 @@ export function NavigationHeader({ search, action, menu = [], leading }: Navigat
       {menu.length > 0 && <Stack.Toolbar.Menu icon={process.env.EXPO_OS === 'ios' ? 'ellipsis' : More} accessibilityLabel="More actions">
         {menu.map(item => <Stack.Toolbar.MenuAction key={item.label} icon={menuIcon(item.icon)} onPress={item.onPress} disabled={item.disabled}>{item.label}</Stack.Toolbar.MenuAction>)}
       </Stack.Toolbar.Menu>}
-      {action && <Stack.Toolbar.Button icon={process.env.EXPO_OS === 'ios' ? 'plus' : Add} accessibilityLabel={action.label} onPress={action.onPress} disabled={action.disabled}>{action.label}</Stack.Toolbar.Button>}
+      {action && (action.items ? <Stack.Toolbar.Menu icon={process.env.EXPO_OS === 'ios' ? 'plus' : Add} accessibilityLabel={action.label} disabled={action.disabled}>
+        {action.items.map(item => <Stack.Toolbar.MenuAction key={item.label} icon={menuIcon(item.icon)} onPress={item.onPress} disabled={item.disabled}>{item.label}</Stack.Toolbar.MenuAction>)}
+      </Stack.Toolbar.Menu> : <Stack.Toolbar.Button icon={process.env.EXPO_OS === 'ios' ? 'plus' : Add} accessibilityLabel={action.label} onPress={action.onPress} disabled={action.disabled}>{action.label}</Stack.Toolbar.Button>)}
     </Stack.Toolbar>
   </>;
 }

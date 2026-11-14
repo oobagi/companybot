@@ -12,7 +12,10 @@ import { useMutation, usePaginatedQuery, useQuery } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DocumentEditor, VersionDocument } from './DocumentEditor';
-import { NewPage, openPage, PageChildren, PageOrganizer } from './PagesScreen';
+import { NewPage, openPage, PageChildren, PageOrganizer, useDriveNew } from './PagesScreen';
+import { DriveList } from '@/features/drive/DriveListing';
+import { MoveToFolder } from '@/features/drive/MoveToFolder';
+import { useDriveUploads } from '@/features/drive/uploads';
 import { useDocumentConfirm } from './Confirm';
 import { AccessSheet } from '@/features/access/AccessSheet';
 import { useArrangements } from '@/features/arrangements/useArrangements';
@@ -30,8 +33,12 @@ export function PageScreen({ pageId }: { pageId: string }) {
   const task = useTask();
   const { confirm, dialog } = useDocumentConfirm();
   const theme = useTheme();
+  const folderId = page?.kind === 'folder' ? page._id : undefined;
+  const uploads = useDriveUploads(folderId);
+  const create = useDriveNew(folderId, uploads.start);
   if (page === undefined) return <Screen><Loading /></Screen>;
   if (!page) return <Screen><EmptyState title="Page not found" description="It may have been removed or you no longer have access." /></Screen>;
+  const noun = page.kind === 'folder' ? 'folder' : 'page';
   const actions: Action[] = [
     { id: 'pin', title: pin.label, disabled: pin.disabled, icon: 'pin' },
     ...(page.kind !== 'folder' ? [{ id: 'history', title: 'History', icon: 'clock.arrow.circlepath' as const }] : []),
@@ -42,20 +49,23 @@ export function PageScreen({ pageId }: { pageId: string }) {
     ...(page.canEdit && !page.archived && !page.recordId ? [
       { id: 'rename', title: 'Rename', icon: 'pencil' as const },
       { id: 'move', title: 'Move to…', icon: 'folder' as const },
-      { id: 'create', title: 'New sub-page', icon: 'plus' as const },
-      { id: 'archive', title: 'Archive page', icon: 'archivebox' as const, destructive: true },
+      ...(page.kind === 'folder'
+        ? create.items.map((item, i) => ({ id: `new:${i}`, title: item.label, icon: item.icon }))
+        : [{ id: 'create', title: 'New sub-page', icon: 'plus' as const }]),
+      { id: 'archive', title: `Archive ${noun}`, icon: 'archivebox' as const, destructive: true },
     ] : []),
-    ...(arrangements.writable && !page.recordId && !page.archived ? [{ id: 'organize', title: 'Organize sub-pages', icon: 'arrow.up.arrow.down' as const }] : []),
-    ...(page.trash?.canRestore ? [{ id: 'restore', title: 'Restore page', icon: 'arrow.uturn.backward' as const }] : []),
+    ...(arrangements.writable && !page.recordId && !page.archived ? [{ id: 'organize', title: page.kind === 'folder' ? 'Organize this folder' : 'Organize sub-pages', icon: 'arrow.up.arrow.down' as const }] : []),
+    ...(page.trash?.canRestore ? [{ id: 'restore', title: `Restore ${noun}`, icon: 'arrow.uturn.backward' as const }] : []),
   ];
   const perform = (action: string) => {
     if (action === 'pin') pin.onPress();
     else if (action === 'record' && page.recordId) router.push(`/record/${page.recordId}`);
     else if (action.startsWith('parent:')) openPage(action.slice(7));
+    else if (action.startsWith('new:')) create.items[Number(action.slice(4))]?.onPress();
     else if (action === 'restore' && page.trash?.canRestore) void task.run(() => restore({ kind: page.trash!.kind, id: page.trash!.itemId }));
     else if (action === 'archive') void task.run(async () => {
-      if (!await confirm({ title: `Archive ${page.title || 'Untitled'}?`, body: 'Its sub-pages will be archived with it. You can restore them from Archive.', action: 'Archive', danger: true })) return;
-      await archive({ kind: 'page', id: page._id });
+      if (!await confirm({ title: `Archive ${page.title || 'Untitled'}?`, body: page.kind === 'folder' ? 'Everything in it will be archived with it. You can restore it from Archive.' : 'Its sub-pages will be archived with it. You can restore them from Archive.', action: 'Archive', danger: true })) return;
+      await archive({ kind: page.kind, id: page._id });
       router.replace(page.parentId ? { pathname: '/pages/[pageId]', params: { pageId: page.parentId } } : '/pages');
     });
     else if (action === 'history' || action === 'access' || action === 'children' || action === 'rename' || action === 'move' || action === 'create' || action === 'organize') setPanel(action);
@@ -69,8 +79,10 @@ export function PageScreen({ pageId }: { pageId: string }) {
       {page.archived && <Badge label="Archived · read only" tone="warning" />}
       {task.error && <ErrorState message={task.error} />}
     </View>}
-    {page.kind === 'folder' ? <PageChildren parentId={page._id} /> : <DocumentEditor pageId={page._id} editable={page.canEdit} />}
-    {panel === 'organize' && <PageOrganizer parentId={page._id} onClose={() => setPanel(undefined)} />}
+    {create.error && <ErrorState message={create.error} />}
+    {page.kind === 'folder' ? <DriveList parentId={page._id} uploads={uploads.uploads} onDismissUpload={uploads.dismiss} onSelectPage={openPage} empty={{ title: 'Nothing here yet', description: page.canEdit && !page.archived ? 'Use the menu to write a page, make a folder or upload files.' : 'Pages, folders and files put here will show up.' }} /> : <DocumentEditor pageId={page._id} editable={page.canEdit} />}
+    {create.sheet}
+    {panel === 'organize' && <PageOrganizer parentId={page._id} withFiles={page.kind === 'folder'} onClose={() => setPanel(undefined)} />}
     {panel === 'access' && <AccessSheet access={page.access} following={page.parentId && !page.recordId ? page.ownAccess === null : undefined} description={page.recordId ? 'This page follows its database. Change access in the database’s menu.' : undefined} onSave={page.canManageAccess && !page.archived ? entries => setAccess({ pageId: page._id, access: entries }) : undefined} onClose={() => setPanel(undefined)} />}
     {panel === 'rename' && <RenamePage pageId={page._id} title={page.title} editable={page.canEdit && !page.archived && !page.recordId} onClose={() => setPanel(undefined)} />}
     {panel === 'move' && <MovePage pageId={page._id} parentId={page.parentId} kind={page.kind} editable={page.canEdit && !page.archived && !page.recordId} onClose={() => setPanel(undefined)} />}
@@ -109,33 +121,8 @@ function RenamePage({ pageId, title, editable, onClose }: { pageId: Id<'pages'>;
 }
 
 function MovePage({ pageId, parentId, kind, editable, onClose }: { pageId: Id<'pages'>; parentId: Id<'pages'> | null; kind: 'page' | 'folder'; editable: boolean; onClose: () => void }) {
-  const [search, setSearch] = useState('');
-  const searching = !!search.trim();
-  const matches = useQuery(api.pages.search, searching ? { query: search.trim() } : 'skip');
-  const roots = usePaginatedQuery(api.pages.children, {}, { initialNumItems: 30 });
-  const arrangements = useArrangements();
   const move = useMutation(api.pages.move);
-  const task = useTask();
-  const loading = searching ? matches === undefined : roots.status === 'LoadingFirstPage';
-  const destinations = (searching ? matches ?? [] : arrangements.order('pages', roots.results))
-    .filter(row => row._id !== pageId && row.kind === 'folder');
-  const choose = (target?: Id<'pages'>) => {
-    if (!editable || task.busy || target === (parentId ?? undefined)) return;
-    if (target && !destinations.some(row => row._id === target && row.canEdit)) return;
-    void task.run(async () => { await move({ pageId, parentId: target }); onClose(); });
-  };
-  return <EditorSheet title={kind === 'folder' ? 'Move folder' : 'Move page'} scroll={false} busy={task.busy} onClose={onClose}>
-    <Text tone="muted">Choose a folder. Everything inside moves with this {kind}.</Text>
-    {!editable && <Text tone="muted">This page is read only and cannot be moved.</Text>}
-    <Field label="Find destination" value={search} onChangeText={setSearch} editable={editable && !task.busy} autoCorrect={false} />
-    {task.error && <ErrorState message={task.error} />}
-    <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ flexGrow: 1 }}>
-      <ListRow title="Top level" selected={!parentId} disabled={!editable || task.busy || !parentId} onPress={() => choose()} />
-      {loading ? <Loading label="Loading destinations…" /> : destinations.map(row => <ListRow key={row._id} title={row.title || 'Untitled'} description={'path' in row ? row.path.join(' / ') : undefined} selected={row._id === parentId} disabled={!editable || task.busy || row._id === parentId || !row.canEdit} onPress={() => choose(row._id)} />)}
-      {!loading && !destinations.length && <EmptyState title={searching ? 'No matching destinations' : 'No destinations yet'} description="Try searching for a folder, or move to the top level." />}
-      {!searching && (roots.status === 'CanLoadMore' || roots.status === 'LoadingMore') && <Button label="More destinations" variant="ghost" disabled={!editable || task.busy} loading={roots.status === 'LoadingMore'} onPress={() => roots.loadMore(30)} />}
-    </ScrollView>
-  </EditorSheet>;
+  return <MoveToFolder title={kind === 'folder' ? 'Move folder' : 'Move page'} noun={kind} itemId={pageId} parentId={parentId} editable={editable} onMove={target => move({ pageId, parentId: target })} onClose={onClose} />;
 }
 
 function PageHistory({ pageId, canRestore, onClose }: { pageId: Id<'pages'>; canRestore: boolean; onClose: () => void }) {
