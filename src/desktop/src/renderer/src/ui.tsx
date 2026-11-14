@@ -549,6 +549,10 @@ export const phoneCallerButton = "flex flex-col items-center gap-3 rounded-2xl p
 export const callBarNameButton = "max-w-40 truncate pl-1 font-medium hover:underline max-sm:hidden";
 /** A call conversation's green Call, where a composer's Send would be. */
 export const roundCallButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-neutral-200 disabled:text-neutral-400";
+/** Play or pause on a call recording's bar: the icon alone, a soft circle on hover. */
+export const playerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-900 hover:bg-neutral-300/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-neutral-500 disabled:text-neutral-400 disabled:hover:bg-transparent";
+/** Summary or Transcript on a call's entry: a word, dark with a line under it when it's the one showing. */
+export const callTabButton = "relative flex h-7 items-center gap-1.5 rounded-sm text-sm font-medium text-neutral-500 hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 aria-selected:text-neutral-900 aria-selected:after:absolute aria-selected:after:inset-x-0 aria-selected:after:-bottom-px aria-selected:after:h-0.5 aria-selected:after:rounded-full aria-selected:after:bg-neutral-900";
 /** A call in a record's call history. */
 export const callRowButton = "-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-neutral-100";
 /** A small round × in a card's corner (a pending file, a link preview). */

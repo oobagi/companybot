@@ -6,13 +6,14 @@ import { createPortal } from "react-dom";
 import type { Room } from "livekit-client";
 import { api, errorMessage } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PhoneOutgoingIcon, PlayIcon, PopInIcon, PopOutIcon, SpeakerIcon } from "../icons";
+import { BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PauseIcon, PhoneOutgoingIcon, PlayIcon, PopInIcon, PopOutIcon, ReloadIcon, SpeakerIcon, SpinnerIcon, WarningIcon } from "../icons";
 import { navigate } from "../router";
 import {
 	answerButton,
 	callBarButton,
 	callBarHangUpButton,
 	callBarNameButton,
+	callTabButton,
 	compactButton,
 	declineButton,
 	dialDeleteButton,
@@ -22,8 +23,10 @@ import {
 	phoneCallerButton,
 	phoneToolButton,
 	placeCallButton,
+	playerButton,
 	roundCallButton,
 	rowButton,
+	smallButton,
 	smallIconButton,
 	titleBarButton,
 } from "../ui";
@@ -577,6 +580,14 @@ function PhonePanel(props: {
 					{keypad && sent ? `${nameOf(mine)} · ` : ""}
 					{status}
 				</p>
+				{mine.recording?.status === "recording" && (
+					<p role="status" className="-mt-3 flex items-center gap-1.5 text-xs text-neutral-500">
+						<span aria-hidden="true" className="size-1.5 rounded-full bg-red-500" /> Recording
+					</p>
+				)}
+				{(mine.recording?.status === "unavailable" || mine.recording?.status === "failed") && (
+					<p role="status" className="-mt-3 text-center text-xs text-amber-700">{mine.recording.error || "Recording is unavailable for this call."}</p>
+				)}
 				{incoming && (
 					<div className="flex w-full items-center gap-2 rounded-xl bg-neutral-100 py-1.5 pr-1.5 pl-3 text-sm">
 						<PhoneIncomingIcon className="text-neutral-500" />
@@ -743,11 +754,323 @@ export function CallIcon({ call, size = "md" }: { call: CallInfo; size?: "sm" | 
 	);
 }
 
-/** A call in a conversation, as the Inbox shows it: who called whom, how it went, and its recording and transcript (coming soon). */
-export function CallEntry({ call, answeredBy }: { call: CallInfo; answeredBy?: string | null }) {
+type CallEntryInfo = NonNullable<NonNullable<FunctionReturnType<typeof api.inbox.get>>["messages"][number]["call"]>;
+
+/** The recording that's playing: starting another pauses it, so two calls never talk over each other. */
+let sounding: HTMLAudioElement | null = null;
+const SKIP_SECONDS = 5;
+
+/** A recording's place in time: drag or click to move, arrow keys skip five seconds, Home and End jump to the ends. */
+function Scrubber({ time, duration, playing, onSeek }: { time: number; duration: number; playing: boolean; onSeek: (seconds: number) => void }) {
+	const disabled = !duration;
+	const percent = disabled ? 0 : Math.min(100, (time / duration) * 100);
+	const point = (e: React.PointerEvent<HTMLDivElement>) => {
+		const box = e.currentTarget.getBoundingClientRect();
+		onSeek(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)) * duration);
+	};
+	const key = (e: React.KeyboardEvent) => {
+		const to =
+			e.key === "ArrowRight" || e.key === "ArrowUp" ? time + SKIP_SECONDS
+				: e.key === "ArrowLeft" || e.key === "ArrowDown" ? time - SKIP_SECONDS
+					: e.key === "PageUp" ? time + duration / 10
+						: e.key === "PageDown" ? time - duration / 10
+							: e.key === "Home" ? 0
+								: e.key === "End" ? duration
+									: null;
+		if (to === null || disabled) return;
+		e.preventDefault();
+		onSeek(Math.min(duration, Math.max(0, to)));
+	};
+	return (
+		<div
+			role="slider"
+			tabIndex={disabled ? -1 : 0}
+			aria-label="Seek"
+			aria-disabled={disabled}
+			aria-valuemin={0}
+			aria-valuemax={Math.floor(duration)}
+			aria-valuenow={Math.floor(time)}
+			aria-valuetext={disabled ? "Not loaded" : `${clock(Math.floor(time))} of ${clock(Math.floor(duration))}`}
+			className={`group relative flex h-8 min-w-0 flex-1 touch-none items-center outline-none ${disabled ? "" : "cursor-pointer"}`}
+			onPointerDown={(e) => {
+				if (disabled || e.button !== 0) return;
+				e.currentTarget.setPointerCapture(e.pointerId);
+				point(e);
+			}}
+			onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && point(e)}
+			onKeyDown={key}
+		>
+			<div className="h-1 w-full overflow-hidden rounded-full bg-neutral-300">
+				<div className={`h-full rounded-full bg-neutral-900 ${playing ? "transition-[width] duration-200 ease-linear group-active:transition-none" : ""}`} style={{ width: `${percent}%` }} />
+			</div>
+			{!disabled && (
+				<span
+					aria-hidden="true"
+					className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neutral-900 opacity-0 ring-neutral-500 ring-offset-2 ring-offset-neutral-200 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-visible:ring-2 group-active:opacity-100"
+					style={{ left: `${percent}%` }}
+				/>
+			)}
+		</div>
+	);
+}
+
+/**
+ * A call's recording: play, seek, time. Nothing loads until Play is pressed; that asks for a short-lived
+ * private link. A link that expires mid-listen is renewed once, at the same spot; after that it's a Reload.
+ */
+function CallRecording({ id }: { id: Id<"inboxMessages"> }) {
+	const playback = useAction(api.callRecordings.playback);
+	const audio = useRef<HTMLAudioElement>(null);
+	/** The newest link request; an older one's answer is dropped. */
+	const asked = useRef(0);
+	/** Where a fresh link picks up, and whether it plays. */
+	const resume = useRef<{ at: number; play: boolean } | null>(null);
+	const renewed = useRef(false);
+	const [url, setUrl] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [playing, setPlaying] = useState(false);
+	const [time, setTime] = useState(0);
+	const [duration, setDuration] = useState(0);
+	const [error, setError] = useState("");
+	useEffect(() => {
+		const el = audio.current;
+		return () => {
+			asked.current++;
+			el?.pause();
+			if (sounding === el) sounding = null;
+		};
+	}, []);
+	const load = async (at: number, play: boolean) => {
+		const mine = ++asked.current;
+		setError("");
+		setBusy(true);
+		try {
+			const result = await playback({ id });
+			if (mine !== asked.current) return;
+			resume.current = { at, play };
+			setUrl(result.url);
+		} catch (e) {
+			if (mine !== asked.current) return;
+			setUrl(null);
+			setBusy(false);
+			setError(errorMessage(e));
+		}
+	};
+	const toggle = () => {
+		const el = audio.current;
+		if (!el) return;
+		if (!url) void load(time, true);
+		else if (el.paused) void el.play().catch(() => {});
+		else el.pause();
+	};
+	const seek = (seconds: number) => {
+		if (audio.current) audio.current.currentTime = seconds;
+		setTime(seconds);
+	};
+	return (
+		<div className="flex flex-col gap-1.5">
+			<div role="group" aria-label="Call recording" className="flex h-11 items-center gap-2 rounded-xl bg-neutral-200/70 pr-3.5 pl-1.5">
+				<button type="button" aria-label={busy && !url ? "Loading recording" : playing ? "Pause" : "Play recording"} title={playing ? "Pause" : "Play"} disabled={busy && !url} className={playerButton} onClick={toggle}>
+					{busy ? <SpinnerIcon className="animate-spin" /> : playing ? <PauseIcon weight="fill" /> : <PlayIcon weight="fill" />}
+				</button>
+				<Scrubber time={time} duration={url ? duration : 0} playing={playing} onSeek={seek} />
+				<span className="shrink-0 text-xs text-neutral-500 tabular-nums">
+					{clock(Math.floor(time))}
+					{duration > 0 && ` / ${clock(Math.floor(duration))}`}
+				</span>
+				<audio
+					ref={audio}
+					src={url ?? undefined}
+					preload="metadata"
+					className="hidden"
+					onLoadedMetadata={(e) => {
+						const el = e.currentTarget;
+						const length = Number.isFinite(el.duration) ? el.duration : 0;
+						setDuration(length);
+						setBusy(false);
+						const next = resume.current;
+						resume.current = null;
+						if (!next) return;
+						if (next.at > 0 && next.at < length) el.currentTime = next.at;
+						else setTime(0);
+						// Browsers that refuse to start sound this long after the click leave it loaded; Play starts it.
+						if (next.play) void el.play().catch(() => {});
+					}}
+					onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setDuration(e.currentTarget.duration)}
+					// A fresh link starts at zero before it picks up where it was: that jump stays off the bar.
+					onTimeUpdate={(e) => !resume.current && setTime(e.currentTarget.currentTime)}
+					onPlay={(e) => {
+						if (sounding && sounding !== e.currentTarget) sounding.pause();
+						sounding = e.currentTarget;
+						setPlaying(true);
+					}}
+					onPlaying={() => {
+						renewed.current = false;
+						setBusy(false);
+					}}
+					onWaiting={() => setBusy(true)}
+					onCanPlay={() => setBusy(false)}
+					onPause={() => setPlaying(false)}
+					onEnded={() => setPlaying(false)}
+					onError={() => {
+						if (!url) return;
+						setPlaying(false);
+						if (!renewed.current) {
+							renewed.current = true;
+							void load(time, playing);
+							return;
+						}
+						asked.current++;
+						setUrl(null);
+						setBusy(false);
+						setError("Couldn't play the recording. Reload it to check access and try again.");
+					}}
+				/>
+			</div>
+			{error && (
+				<div className="flex items-start gap-2 px-1 text-sm text-red-600">
+					<p role="alert" className="min-w-0 flex-1 break-words">{error}</p>
+					<button type="button" className={smallButton} disabled={busy} onClick={() => void load(time, true)}>
+						<ReloadIcon /> Reload
+					</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+/** Where the recording is, while there's nothing to play yet: the player's bar, saying what it's waiting on. */
+function RecordingStatus({ call }: { call: CallEntryInfo }) {
+	const status = call.recording?.status;
+	if (status === "recording" || status === "processing")
+		return (
+			<p role="status" className="flex h-11 items-center gap-2.5 rounded-xl bg-neutral-200/70 px-3.5 text-sm text-neutral-600">
+				{status === "recording" ? <span aria-hidden="true" className="size-2 rounded-full bg-red-500 motion-safe:animate-pulse" /> : <SpinnerIcon className="animate-spin text-neutral-500" />}
+				{status === "recording" ? "Recording this call…" : call.active ? "Preparing recording…" : "Saving recording…"}
+			</p>
+		);
+	if (status === "failed")
+		return (
+			<p role="status" className="flex items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm break-words text-amber-800">
+				<WarningIcon className="mt-0.5 shrink-0" /> {call.recording?.error || "The recording couldn't be saved."}
+			</p>
+		);
+	return <p role="status" className="text-sm text-neutral-500">No recording for this call.</p>;
+}
+
+type Note = "summary" | "transcript";
+const noteNames: Record<Note, string> = { summary: "Summary", transcript: "Transcript" };
+
+/**
+ * A call's summary and transcript, one at a time in a bounded panel, so a long call never stretches the conversation.
+ * The summary shows first. The transcript stays out of the conversation's data and loads when its tab is first opened.
+ */
+function CallNotes({ call }: { call: CallEntryInfo }) {
+	const fetchTranscript = useAction(api.callRecordings.transcript);
+	const retry = useMutation(api.callRecordings.retry);
+	const { transcript, summary } = call;
+	const notes = (["summary", "transcript"] as const).filter((n) => call[n]);
+	const [tab, setTab] = useState<Note | null>(summary ? "summary" : null);
+	const [wanted, setWanted] = useState(false);
+	const [request, setRequest] = useState(0);
+	const [text, setText] = useState<string | null>(null);
+	const [loadError, setLoadError] = useState("");
+	const [retrying, setRetrying] = useState(false);
+	const [retryError, setRetryError] = useState("");
+	const transcriptReady = transcript?.status === "ready";
+	useEffect(() => {
+		setText(null);
+		setLoadError("");
+		if (!wanted || !transcriptReady) return;
+		let ignore = false;
+		void fetchTranscript({ id: call.id }).then(
+			(result) => { if (!ignore) setText(result.text); },
+			(e) => { if (!ignore) setLoadError(errorMessage(e)); },
+		);
+		return () => { ignore = true; };
+	}, [call.id, wanted, request, transcriptReady, fetchTranscript]);
+	const show = (note: Note) => {
+		setTab(note);
+		if (note === "transcript") setWanted(true);
+	};
+	const retryFailed = async () => {
+		setRetryError("");
+		setRetrying(true);
+		try { await retry({ id: call.id }); }
+		catch (e) { setRetryError(errorMessage(e)); }
+		finally { setRetrying(false); }
+	};
+	const failed = transcript?.status === "failed" || summary?.status === "failed";
+	const state = tab && call[tab];
+	// What the open tab says while it has no text: waiting, working, or what went wrong.
+	const waiting =
+		!state ? null
+			: state.status === "failed" ? { tone: "bad" as const, text: state.error || (tab === "summary" ? "The summary couldn't be generated." : "The call couldn't be transcribed.") }
+				: state.status === "processing" ? { tone: "busy" as const, text: tab === "summary" ? "Writing summary…" : "Transcribing call…" }
+					: state.status !== "ready" ? { tone: "quiet" as const, text: tab === "transcript" ? "Waiting to transcribe the recording…" : transcript?.status === "failed" ? "A summary needs the transcript first." : "Summary will follow the transcript." }
+						: tab === "transcript" && loadError ? { tone: "bad" as const, text: loadError }
+							: tab === "transcript" && text === null ? { tone: "busy" as const, text: "Loading transcript…" }
+								: null;
+	const body = tab === "summary" ? summary?.text || "No summary available." : text || "No speech detected.";
+	return (
+		<div className="flex flex-col gap-2">
+			<div
+				role="tablist"
+				aria-label="Call notes"
+				className="flex gap-4 border-b border-neutral-200"
+				onKeyDown={(e) => {
+					if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+					const next = notes[(notes.indexOf(tab ?? notes[0]!) + (e.key === "ArrowRight" ? 1 : notes.length - 1)) % notes.length]!;
+					e.preventDefault();
+					show(next);
+					e.currentTarget.querySelector<HTMLButtonElement>(`[data-note="${next}"]`)?.focus();
+				}}
+			>
+				{notes.map((note) => (
+					<button key={note} type="button" role="tab" id={`${call.id}-${note}-tab`} data-note={note} aria-selected={tab === note} aria-controls={`${call.id}-notes`} tabIndex={note === (tab ?? notes[0]) ? 0 : -1} className={callTabButton} onClick={() => show(note)}>
+						{noteNames[note]}
+						{call[note]?.status === "failed" && (
+							<>
+								<span aria-hidden="true" className="size-1.5 rounded-full bg-amber-500" />
+								<span className="sr-only">(failed)</span>
+							</>
+						)}
+					</button>
+				))}
+			</div>
+			{tab && (
+				<div role="tabpanel" id={`${call.id}-notes`} aria-labelledby={`${call.id}-${tab}-tab`} className="flex flex-col items-start gap-2 text-sm">
+					{waiting ? (
+						<p role="status" className={`flex items-start gap-2 break-words ${waiting.tone === "bad" ? "text-amber-700" : "text-neutral-500"}`}>
+							{waiting.tone === "busy" && <SpinnerIcon className="mt-0.5 shrink-0 animate-spin" />}
+							{waiting.tone === "bad" && <WarningIcon className="mt-0.5 shrink-0" />}
+							{waiting.text}
+						</p>
+					) : (
+						<p tabIndex={0} className="max-h-56 w-full overflow-y-auto rounded-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500">{body}</p>
+					)}
+					{waiting && tab === "transcript" && loadError && transcriptReady ? (
+						<button type="button" className={smallButton} onClick={() => setRequest((n) => n + 1)}>
+							<ReloadIcon /> Reload transcript
+						</button>
+					) : (
+						waiting && failed && (
+							<button type="button" className={smallButton} disabled={retrying} onClick={() => void retryFailed()}>
+								<ReloadIcon /> {retrying ? "Retrying…" : "Try again"}
+							</button>
+						)
+					)}
+					{retryError && <p role="alert" className="break-words text-red-600">{retryError}</p>}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/** A call's outcome and private recording, transcript, and summary in the same Inbox entry. */
+export function CallEntry({ call, answeredBy }: { call: CallEntryInfo; answeredBy?: string | null }) {
 	useTick(call.state === "connected");
-	const { text, seconds, answered } = callStatus(call, answeredBy);
-	const done = answered && call.state !== "connected";
+	const { text, answered } = callStatus(call, answeredBy);
 	return (
 		<div className="flex w-80 max-w-full flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
 			<div className="flex items-center gap-3">
@@ -757,16 +1080,8 @@ export function CallEntry({ call, answeredBy }: { call: CallInfo; answeredBy?: s
 					<p className="truncate text-sm text-neutral-500 tabular-nums">{text}</p>
 				</div>
 			</div>
-			{done && (
-				<div title="Call recordings are coming soon" className="flex flex-col gap-2">
-					<div className="flex items-center gap-3 rounded-xl bg-neutral-200/70 px-3 py-2 text-neutral-400">
-						<PlayIcon weight="fill" />
-						<span className="h-1 flex-1 rounded-full bg-neutral-300" />
-						<span className="text-xs tabular-nums">0:00 / {clock(seconds)}</span>
-					</div>
-					<p className="text-sm text-neutral-400 italic">Recording and transcript · Coming soon</p>
-				</div>
-			)}
+			{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
+			{(call.summary || call.transcript) && <CallNotes key={`notes:${call.id}`} call={call} />}
 		</div>
 	);
 }
