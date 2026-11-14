@@ -6,6 +6,7 @@
 //   pnpm dev            set up (first run only), then start backend + app
 //   pnpm dev --web      the same, with the app in a browser (http://localhost:5173) instead of Electron
 //   pnpm dev --setup    set up only
+//   pnpm dev --mobile   start the local backend and Expo (iOS simulator)
 //   pnpm dev --reset    wipe this checkout's local data first
 //
 // First run: installs packages, creates the local deployment (state in .convex/),
@@ -26,6 +27,8 @@ const SHARED_SECRETS = ["AI_GATEWAY_API_KEY"];
 const STATE = ".convex/local/default/config.json";
 
 const args = process.argv.slice(2);
+const mobile = args.includes("--mobile");
+const web = args.includes("--web");
 const log = (msg) => console.log(`▸ ${msg}`);
 const fail = (msg) => {
 	console.error(`\n✗ ${msg}`);
@@ -50,13 +53,11 @@ if (!existsSync("node_modules")) {
 	execFileSync("pnpm", ["install"], { stdio: "inherit" });
 }
 
-const web = args.includes("--web");
-
-// pnpm sometimes skips Electron's download (e.g. a fast install from its store). The browser needs none.
-const electron = execFileSync("node", ["-p", "require.resolve('electron/package.json')"], { cwd: "src/desktop", encoding: "utf8" })
+// pnpm sometimes skips Electron's download (e.g. a fast install from its store).
+const electron = !mobile && !web && execFileSync("node", ["-p", "require.resolve('electron/package.json')"], { cwd: "apps/desktop", encoding: "utf8" })
 	.trim()
 	.replace(/package\.json$/, "");
-if (!web && !existsSync(`${electron}path.txt`)) {
+if (electron && !existsSync(`${electron}path.txt`)) {
 	log("Downloading Electron");
 	execFileSync("node", ["install.js"], { cwd: electron, stdio: "inherit" });
 }
@@ -126,10 +127,11 @@ if (args.includes("--setup")) {
 }
 
 // 3. Backend + app together; Ctrl-C stops both.
-log(`Starting backend (http://127.0.0.1:${ports.cloud}) and ${web ? "the app in your browser (vite prints its address)" : "the desktop app"}. Sign in with any email; no code needed.`);
+log(`Starting backend (http://127.0.0.1:${ports.cloud}) and ${mobile ? "Expo" : web ? "the web app" : "the desktop app"}. Sign in with any email; no code needed.`);
 const env = { ...process.env };
+if (mobile) env.EXPO_PUBLIC_CONVEX_URL = `http://127.0.0.1:${ports.cloud}`;
 delete env.ELECTRON_RUN_AS_NODE; // Set in some terminals (T3 Code); makes Electron run as plain Node.
-const dev = spawn("npx", ["convex", "dev", "--start", web ? "pnpm dev:web" : "pnpm dev:desktop"], { stdio: "inherit", env });
+const dev = spawn("npx", ["convex", "dev", "--start", mobile ? "pnpm dev:mobile" : web ? "pnpm dev:web" : "pnpm dev:desktop"], { stdio: "inherit", env });
 dev.on("exit", (code) => process.exit(code ?? 0));
 process.on("SIGINT", () => dev.kill("SIGINT"));
 
@@ -168,5 +170,14 @@ function waitFor(child, pattern, what) {
 		child.stdout.on("data", onData);
 		child.stderr.on("data", onData);
 		child.once("exit", (code) => reject(new Error(`Backend exited (${code}) while waiting for ${what}:\n${output}`)));
-	}).catch((e) => fail(e.message));
+	}).catch(async (e) => {
+		if (child.exitCode === null && child.signalCode === null) {
+			const stopped = new Promise(resolve => child.once("exit", resolve));
+			try {
+				process.kill(-child.pid, "SIGINT");
+				await stopped;
+			} catch {}
+		}
+		fail(e.message);
+	});
 }

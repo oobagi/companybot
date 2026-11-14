@@ -3,7 +3,7 @@
 	"framework": null,
 	"installCommand": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 npx --yes pnpm@11.21.0 install --frozen-lockfile",
 	"buildCommand": "npx --yes pnpm@11.21.0 build:web",
-	"outputDirectory": "src/desktop/dist-web",
+	"outputDirectory": "apps/desktop/dist-web",
 	"headers": [
 		{
 			"source": "/(.*)",

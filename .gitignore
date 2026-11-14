@@ -2,8 +2,8 @@ node_modules/
 dist/
 out/
 build/
-src/desktop/release/
-src/desktop/dist-web/
+apps/desktop/release/
+apps/desktop/dist-web/
 coverage/
 backups/
 *.tsbuildinfo

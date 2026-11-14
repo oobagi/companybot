@@ -24,9 +24,9 @@ jobs:
 
       - name: Check tag matches app version
         run: |
-          version=$(node -p "require('./src/desktop/package.json').version")
+          version=$(node -p "require('./apps/desktop/package.json').version")
           if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
-            echo "Tag $GITHUB_REF_NAME doesn't match src/desktop/package.json version $version" >&2
+            echo "Tag $GITHUB_REF_NAME doesn't match apps/desktop/package.json version $version" >&2
             exit 1
           fi
 
@@ -67,7 +67,7 @@ jobs:
           security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application"
 
       - name: Build, sign, and notarize
-        working-directory: src/desktop
+        working-directory: apps/desktop
         env:
           # Signs with the Developer ID now in the keychain.
           CSC_NAME: "Jaden Watson (792PGAG6C5)"
@@ -96,10 +96,10 @@ jobs:
           # v1.2.0-alpha.1 → a GitHub prerelease. Only installs on a prerelease pick these up.
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
-            src/desktop/release/*.dmg
-            src/desktop/release/*.zip
-            src/desktop/release/*.blockmap
-            src/desktop/release/*-mac.yml
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/*-mac.yml
           fail_on_unmatched_files: true
 
       - name: Remove signing keychain

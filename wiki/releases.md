@@ -10,7 +10,7 @@ pnpm release alpha   # or beta, 1.2.3-alpha.1
 ```
 Add `--notes file.md` to publish notes (committed as `release-notes/v<version>.md`, shown above GitHub's PR list); `--next` prints the version a bump would make.
 
-From a clean `main` that matches origin. It runs checks, snapshots prod, deploys the prod backend, runs pending migrations, bumps `src/desktop/package.json` in a `release/vX.Y.Z` PR, waits for CI to pass and the PR to merge, then tags `vX.Y.Z` and pushes the tag. `main` is protected: nothing lands on it, admins included, without a PR whose `check` job passed. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
+From a clean `main` that matches origin. It runs checks, snapshots prod, deploys the prod backend, runs pending migrations, bumps `apps/desktop/package.json` in a `release/vX.Y.Z` PR, waits for CI to pass and the PR to merge, then tags `vX.Y.Z` and pushes the tag. `main` is protected: nothing lands on it, admins included, without a PR whose `check` job passed. `.github/workflows/release.yml` then builds, signs, notarizes, and publishes to GitHub Releases.
 
 Alpha/beta versions publish as GitHub prereleases. Installs on a prerelease update to newer prereleases and stable versions; stable installs ignore prereleases. `patch` from a prerelease ships that version as stable (0.2.0-alpha.3 → 0.2.0).
 
@@ -33,10 +33,10 @@ Same Apple Developer account as yap. Set them in companybot with `gh secret set 
 - `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`
 
 ## Build locally
-`pnpm package:desktop` (signs with your keychain's Developer ID if present). Output: `src/desktop/release/`.
+`pnpm package:desktop` (signs with your keychain's Developer ID if present). Output: `apps/desktop/release/`.
 
 ## App icon
-`src/desktop/resources/icon.png` (1024px; electron-builder makes the `.icns`). Its source is `icon.svg` beside it, the repo logo (`.github/assets/logo.svg`) on Apple's icon grid. After editing the SVG, render it to a 1024px PNG with a transparent background.
+`apps/desktop/resources/icon.png` (1024px; electron-builder makes the `.icns`). Its source is `icon.svg` beside it, the repo logo (`.github/assets/logo.svg`) on Apple's icon grid. After editing the SVG, render it to a 1024px PNG with a transparent background.
 
 ## Web app
 The web build (`pnpm build:web`, [Architecture](architecture.md#web-and-desktop)) isn't part of `pnpm release`: once a Vercel project is linked, it redeploys from `main` on its own and every browser gets it on its next load. It talks to the same prod backend, which `pnpm release` deploys.

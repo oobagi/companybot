@@ -10,7 +10,7 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 
 ## Scope
 
-- The desktop app (`src/desktop`) and the Convex backend (`src/backend`).
+- The desktop app (`apps/desktop`) and the Convex backend (`packages/backend`).
 - Especially: crossing workspaces, getting around permissions or approvals, agents acting beyond what the person who asked may do, and leaked connector credentials.
 
 ## Supported versions

@@ -19,3 +19,6 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm test:scale
+      - run: pnpm --filter @companybot/mobile check:dependencies
+      - run: pnpm --filter @companybot/mobile export
+      - run: pnpm --filter @companybot/mobile lint

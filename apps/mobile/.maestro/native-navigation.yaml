@@ -1,0 +1,34 @@
+# Run against a signed-in local development workspace.
+# Read-only: checks native tabs, navigation chrome, menus and sheet dismissal.
+appId: com.companybot.mobile
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: tab-chats
+    timeout: 60000
+- tapOn:
+    id: tab-pages
+- tapOn: New page
+- assertVisible: Title
+- tapOn: Close New page
+- tapOn:
+    id: tab-databases
+- assertVisible: Search databases
+- tapOn:
+    id: tab-settings
+- assertVisible: Account
+- tapOn:
+    id: settings-general
+- assertVisible: Currency
+- tapOn: Edit
+- assertVisible: Name
+- tapOn: Close Edit workspace
+- tapOn: Back
+- tapOn:
+    id: tab-chats
+- tapOn: More actions
+- assertVisible: Browse channels
+- tapOn: Browse channels
+- assertVisible: Browse channels
+- tapOn: Close Browse channels

@@ -84,9 +84,9 @@ Server secrets (AI Gateway key, sign-in email, encryption key) are listed in [`.
 
 | Part | What |
 |---|---|
-| [`src/desktop`](src/desktop) | Electron + React app (Tailwind, BlockNote, Phosphor icons) |
-| [`src/backend`](src/backend) | [Convex](https://convex.dev) backend: data, auth, agents, tools |
-| [`src/core`](src/core) | Shared types and logic |
+| [`apps/desktop`](apps/desktop) | Electron + React app (Tailwind, BlockNote, Phosphor icons) |
+| [`packages/backend`](packages/backend) | [Convex](https://convex.dev) backend: data, auth, agents, tools |
+| [`packages/core`](packages/core) | Shared types and logic |
 | [`wiki/`](wiki/index.md) | How everything works and why. Start at the [index](wiki/index.md). |
 
 Models run through the Vercel AI Gateway, so agents can use any provider.
@@ -100,3 +100,7 @@ Found a security issue? Please follow [SECURITY.md](SECURITY.md) instead of open
 ## License
 
 [AGPL-3.0](LICENSE). Anyone can self-host. If you run a changed version as a service, you must publish your changes.
+
+## Mobile pilot
+
+Run `pnpm dev --mobile` after installing dependencies. See [mobile architecture and native setup](wiki/mobile.md). Requires Node 24+ and the pinned pnpm version.

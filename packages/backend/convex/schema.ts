@@ -1,0 +1,1672 @@
+import { accessLevels, builtInRoles, fieldKinds, fileTypes, permissions, reasonings, replyModes, risks, trashKinds, usageKinds, wakeOutcomes } from "@companybot/core";
+import { arrangementLists, sectionTabs, type ArrangementList, type SectionTab } from "@companybot/core/arrangements";
+import { authTables } from "@convex-dev/auth/server";
+import { defineSchema, defineTable } from "convex/server";
+import { type Infer, v } from "convex/values";
+import { columnWidths, viewConfig } from "./recordValidators";
+
+/** One of `values`, each a literal. */
+const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
+
+const usedPlaces = v.optional(v.array(v.union(v.id("recordTypes"), v.id("pages"), v.id("driveFiles"), v.id("chats"), v.id("users"), v.id("connectorInstalls"))));
+export const arrangementList = oneOf(Object.keys(arrangementLists) as ArrangementList[]);
+export const sectionTab = oneOf(Object.keys(sectionTabs) as SectionTab[]);
+export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.literal("board")), groupBy: v.optional(v.string()), widths: v.optional(columnWidths) });
+
+export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
+
+// Retired: one of "owner" or "member" per person, before roles were workspace data. migrations.customRoles moves them.
+// COMPAT(0.1.0-alpha.10): once that has run on prod, drop the fields that use it, then this.
+const legacyRole = v.union(v.literal("owner"), v.literal("member"));
+
+export const permission = oneOf(Object.keys(permissions) as (keyof typeof permissions)[]);
+
+export const wakeOutcome = oneOf(wakeOutcomes);
+
+/**
+ * Who can access a place (core place-access.ts): Everyone or a role, each at View or Edit. Unset is
+ * Everyone at Edit; on a page, its parent's (a record's page follows its database).
+ */
+export const accessEntry = v.object({ role: v.union(v.literal("everyone"), v.id("roles")), level: oneOf(accessLevels) });
+const access = v.optional(v.array(accessEntry));
+/** A Who can access list as the app sends it: role ids are checked against the workspace's (placeAccess `savedAccess`). */
+export const accessArg = v.array(v.object({ role: v.string(), level: oneOf(accessLevels) }));
+
+export const agentConfig = v.object({
+	name: v.string(),
+	description: v.string(),
+	instructions: v.string(),
+	model: v.string(),
+	/** Unset on agents and versions saved before it existed: `defaultReasoning`. */
+	reasoning: v.optional(oneOf(reasonings)),
+	tools: v.array(v.string()),
+});
+
+/** A file on a message: its name, the type its bytes say it is, and (pictures) its size in pixels. */
+export const fileInfo = v.object({
+	name: v.string(),
+	type: oneOf(fileTypes),
+	size: v.number(),
+	width: v.optional(v.number()),
+	height: v.optional(v.number()),
+});
+export const attachment = v.object({ storageId: v.id("_storage"), ...fileInfo.fields });
+
+export const toolStatus = v.union(v.literal("running"), v.literal("done"), v.literal("error"));
+
+export const messagePart = v.union(
+	v.object({ type: v.literal("text"), text: v.string() }),
+	/** `label`: what it did, for people ("Send SMS with Fake CRM"; core `callLabel`). Older parts lack it. */
+	/** `opens`: what its line opens: a thread the call made (chat.ask_agent's "Scout asked Quill →"), or with `kind: "message"` a message it sent (chat.manage's "Companybot posted in #sales →"). */
+	v.object({
+		type: v.literal("tool"),
+		id: v.string(),
+		name: v.string(),
+		label: v.optional(v.string()),
+		status: toolStatus,
+		opens: v.optional(v.object({ chatId: v.id("chats"), messageId: v.id("chatMessages"), kind: v.optional(v.literal("message")) })),
+	}),
+	/** Props were validated against the widget's schema when the agent placed it. */
+	v.object({ type: v.literal("widget"), id: v.string(), widget: v.object({ type: v.string(), props: v.any() }) }),
+	/**
+	 * A tool call held for approval (`id` is the tool call's id). The app reads its state from `approvals`.
+	 * `why`: the agent's words at the top of the card, what it will do and why (core whyPrompt). Unset if
+	 * writing them failed, and on cards from before them: the card says the ask instead.
+	 */
+	v.object({ type: v.literal("approval"), id: v.string(), approvalId: v.id("approvals"), tool: v.string(), why: v.optional(v.string()) }),
+);
+
+/** A turn's place in a chain of agents (chains.ts). */
+export const chainRef = v.object({
+	id: v.id("agentChains"),
+	/** Asks inside asks: 0 for an @mention handoff from a person's turn. */
+	depth: v.number(),
+	/** The agents from the chain's start to this turn's, its own last; as of `epoch`. */
+	path: v.array(v.id("agents")),
+	epoch: v.number(),
+});
+
+export const approvalStatus = v.union(
+	v.literal("pending"),
+	v.literal("approved"),
+	v.literal("running"),
+	v.literal("done"),
+	v.literal("failed"),
+	v.literal("denied"),
+);
+
+/**
+ * A tool call's operation key (approvals.withReceipt): the approval it runs from, or the model's call id. Every
+ * write a built-in makes for a call carries it, so the same call never writes twice.
+ */
+export const opArg = v.union(v.object({ approval: v.id("approvals") }), v.object({ call: v.string() }));
+export type Op = Infer<typeof opArg>;
+
+export const trashKind = oneOf(trashKinds);
+
+/** core's Risk. */
+export const risk = oneOf(risks);
+
+/** core's AllowedHow: why a call that would ask ran. */
+export const allowedHow = v.object({
+	how: v.union(v.literal("once"), v.literal("always"), v.literal("automation")),
+	by: v.id("users"),
+	at: v.number(),
+	automation: v.optional(v.string()),
+	/** The rule that allowed it (Always or an automation grant). Gone if it was removed since. */
+	ruleId: v.optional(v.id("permissionRules")),
+});
+
+/** What a reply used, as the runner reports it. Tokens and cost are summed over its model calls. */
+export const replyUsage = v.object({
+	model: v.string(),
+	steps: v.number(),
+	inputTokens: v.number(),
+	cachedInputTokens: v.number(),
+	outputTokens: v.number(),
+	contextTokens: v.number(),
+	costUsd: v.number(),
+	durationMs: v.number(),
+	firstTokenMs: v.optional(v.number()),
+});
+
+/** A dispatcher pick (router.ts): its model, how sure it was (Jev's chance of "reply"; none from a language model), and the call's cost. */
+export const dispatchInfo = v.object({
+	model: v.string(),
+	band: v.union(v.literal("clearly"), v.literal("probably"), v.literal("might")),
+	probability: v.optional(v.number()),
+	/** Jev's chance of each choice for this agent ({ reply, quiet }), for the reply's stats. */
+	probabilities: v.optional(v.record(v.string(), v.number())),
+	/** The whole decision call's, which covers every agent in the channel. Recorded once, as kind "router". */
+	costUsd: v.number(),
+	/** Set when another agent named it in its decision (`to`), in place of a dispatcher: that agent's name. */
+	by: v.optional(v.string()),
+});
+
+/** How a turn ended (core `postDecision`): its reaction, what it would add, to whom, and its message. */
+export const postDecision = v.object({
+	emoji: v.union(v.string(), v.null()),
+	new_point: v.string(),
+	to: v.string(),
+	message: v.string(),
+});
+
+export const replyStats = v.object({
+	...replyUsage.fields,
+	/** The conversation's running total once this reply finished, summaries included. */
+	conversationCostUsd: v.number(),
+	/** What the pictures it made cost (imageGen.ts), apart from `costUsd`: they're in `usage` as kind "image", not "chat". */
+	imageCostUsd: v.optional(v.number()),
+	/** What its web searches cost (turns.addSearchCost), apart from `costUsd`: they're in `usage` as kind "search". */
+	searchCostUsd: v.optional(v.number()),
+	/** Added to the `usage` table (usage.ts). Replies from before it are counted once by migrations.usageThisMonth. */
+	counted: v.optional(v.boolean()),
+	/** Set when the dispatcher picked the agent: shown with the reply, apart from `costUsd` (it's kind "router" in `usage`). */
+	dispatch: v.optional(dispatchInfo),
+});
+
+// Shared settings carry a `version` that goes up on every save. A save sends the
+// version it started from; if someone saved in between, it's refused as a conflict.
+
+/** core's ScheduleTrigger, or (COMPAT, see core's LegacySchedule) its LegacySchedule. */
+const scheduleTrigger = v.union(
+	v.object({ type: v.literal("schedule"), cron: v.string() }),
+	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()), cron: v.optional(v.string()) }),
+);
+
+/** core's CustomTrigger. */
+export const customTrigger = v.union(
+	scheduleTrigger,
+	v.object({ type: v.literal("webhook") }),
+	v.object({ type: v.literal("event"), event: v.literal("message.posted"), channelId: v.string() }),
+	v.object({ type: v.literal("event"), event: v.literal("member.joined") }),
+);
+
+/** core's FieldValue. Empty values aren't stored. Currency is core's Money. */
+export const fieldValue = v.union(
+	v.string(),
+	v.number(),
+	v.boolean(),
+	v.array(v.string()),
+	v.object({ minor: v.number(), currency: v.string() }),
+);
+
+/** core's FieldKind. */
+export const fieldKind = oneOf(fieldKinds);
+
+/** core's FieldShape, with the linked database by id: what a field's values depend on. */
+export const fieldShape = v.object({
+	kind: fieldKind,
+	options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
+	linkTypeId: v.optional(v.id("recordTypes")),
+	multiple: v.optional(v.boolean()),
+});
+
+/** core's ChangeCounts. */
+export const changeCounts = v.object({ checked: v.number(), converted: v.number(), cleared: v.number(), partly: v.number(), examples: v.array(v.string()) });
+
+/** core's AutomationAudience. */
+export const audience = v.union(v.literal("creator"), v.literal("subscribers"), v.literal("channel"));
+
+/** core's ModelInfo. */
+export const modelInfo = v.object({
+	id: v.string(),
+	name: v.string(),
+	provider: v.string(),
+	contextWindow: v.optional(v.number()),
+	input: v.optional(v.number()),
+	output: v.optional(v.number()),
+	vision: v.optional(v.boolean()),
+});
+export const imageModelInfo = v.object({
+	id: v.string(),
+	name: v.string(),
+	provider: v.string(),
+	multimodal: v.optional(v.boolean()),
+	perImage: v.optional(v.number()),
+});
+
+// Stored definitions keep retired library installs independent of shipped catalogs.
+const skillDefinition = v.object({ id: v.string(), name: v.string(), description: v.string(), version: v.string(), instructions: v.string() });
+const automationDefinition = v.object({
+	id: v.string(), name: v.string(), description: v.string(), details: v.string(), version: v.string(), publisher: v.string(),
+	connectors: v.array(v.string()), prompt: v.string(),
+	trigger: v.union(
+		scheduleTrigger,
+		v.object({ type: v.literal("event"), event: v.union(v.literal("message.posted"), v.literal("member.joined")), label: v.string(), channelId: v.optional(v.string()) }),
+		v.object({ type: v.literal("webhook"), webhookEvent: v.optional(v.literal("call.ended")), label: v.string(), sample: v.object({ id: v.string(), event: v.optional(v.string()), person: v.optional(v.object({ email: v.string() })), data: v.optional(v.record(v.string(), v.any())) }) }),
+	),
+});
+
+export default defineSchema({
+	integrationOAuthClients: defineTable({ name: v.string(), redirects: v.array(v.string()), expiresAt: v.number(), metadataUrl: v.optional(v.string()), cacheUntil: v.optional(v.number()), validatedUntil: v.optional(v.number()) }).index("by_expiry", ["expiresAt"]).index("by_url", ["metadataUrl"]),
+	integrationOAuthCodes: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), tokenId: v.id("integrationTokens"), hash: v.string(),
+		clientId: v.id("integrationOAuthClients"), redirect: v.string(), challenge: v.string(), resource: v.string(), expiresAt: v.number(), used: v.boolean(),
+	}).index("by_hash", ["hash"]).index("by_expiry", ["expiresAt"]).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]),
+	integrationRefreshTokens: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), tokenId: v.id("integrationTokens"), hash: v.string(), used: v.boolean(), expiresAt: v.number(),
+	}).index("by_hash", ["hash"]).index("by_expiry", ["expiresAt"]).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]),
+	integrationAudit: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"), tokenId: v.id("integrationTokens"),
+		requestId: v.string(), transport: v.string(), operation: v.string(), status: v.optional(v.number()), expiresAt: v.number(),
+	}).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]).index("by_expiry", ["expiresAt"]),
+	integrationEvents: defineTable({
+		workspaceId: v.id("workspaces"), sequence: v.number(), kind: v.string(), resource: v.union(v.id("records"), v.id("pages"), v.id("chatMessages")), expiresAt: v.number(),
+	}).index("by_workspace", ["workspaceId", "sequence"]).index("by_expiry", ["expiresAt"]),
+	integrationWebhooks: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"), tokenId: v.id("integrationTokens"),
+		url: v.string(), secret: v.string(), cursor: v.union(v.string(), v.null()), since: v.number(),
+		nextAt: v.number(), attempts: v.number(), disabled: v.boolean(), lastStatus: v.optional(v.number()),
+		pending: v.optional(v.object({ id: v.string(), at: v.number(), cursor: v.string() })),
+	}).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]).index("by_due", ["disabled", "nextAt"]),
+	connectorArtifacts: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"), turnId: v.id("agentTurns"),
+		replyId: v.id("chatMessages"), callId: v.string(), storageId: v.id("_storage"), mimeType: v.string(),
+	}).index("by_workspace", ["workspaceId"]).index("by_user", ["userId", "workspaceId"]).index("by_turn", ["turnId"]),
+	integrationTokens: defineTable({
+		workspaceId: v.id("workspaces"), userId: v.id("users"), memberId: v.id("members"),
+		oauth: v.optional(v.object({ clientId: v.id("integrationOAuthClients"), resource: v.string(), expiresAt: v.number() })),
+		name: v.string(), hash: v.string(), prefix: v.string(), scopes: v.array(v.string()), expiresAt: v.number(),
+		lastUsedAt: v.optional(v.number()), lastOperation: v.optional(v.string()), windowAt: v.optional(v.number()), requests: v.optional(v.number()),
+		receipts: v.array(v.object({ key: v.string(), operation: v.string(), fingerprint: v.string(), at: v.number(), result: v.any() })),
+	}).index("by_hash", ["hash"]).index("by_workspace", ["workspaceId", "userId"]).index("by_user", ["userId", "workspaceId"]),
+	...authTables,
+	// Convex Auth's, plus `erasedAt`.
+	users: defineTable({
+		...authTables.users.validator.fields,
+		/** Set when the account is erased (workspace.eraseAccount): the row stays, scrubbed, so history shows a former member, and a sign-in from before acts as nobody. */
+		erasedAt: v.optional(v.number()),
+	})
+		.index("email", ["email"])
+		.index("phone", ["phone"]),
+
+	// Local backends only (`pnpm dev`): the latest sign-in code per email, read back by the app.
+	localSignInCodes: defineTable({ email: v.string(), code: v.string() }).index("by_email", ["email"]),
+	// AI Gateway's models that can run an agent, and those that make pictures, one row (modelCatalog.ts).
+	// `imageModels` is unset on a row from before it, until the next refresh.
+	modelCatalog: defineTable({ models: v.array(modelInfo), imageModels: v.optional(v.array(imageModelInfo)), fetchedAt: v.number() }),
+
+	workspaces: defineTable({
+		integrationEventSequence: v.optional(v.number()),
+		name: v.string(),
+		version: v.optional(v.number()),
+		/** ISO 4217: the default for new amounts. Each amount stores its own. Unset means DEFAULT_CURRENCY. */
+		currency: v.optional(v.string()),
+		/** Whether agents read and write memories. Off keeps them, unused. Unset means on. */
+		memory: v.optional(v.boolean()),
+		/** What agents make pictures with (an AI Gateway model id). Unset means core's defaultImageModel. */
+		imageModel: v.optional(v.string()),
+		/** What decides whether agents reply in "When relevant" channels (core router.ts); unset: ROUTER_MODEL. */
+		routerModel: v.optional(v.string()),
+		/** Master switch for proactive replies and agent collaboration; absent preserves legacy behavior. */
+		agentAutonomy: v.optional(v.boolean()),
+		/** Also requires agentAutonomy. Includes mentions, named handoffs, and private asks. */
+		agentHandoffs: v.optional(v.boolean()),
+		/** USD agents may spend on pictures a month; 0 turns them off. Unset means IMAGE_BUDGET_DEFAULT_USD. */
+		imageBudgetUsd: v.optional(v.number()),
+		/** Hours a thread stays under its channel in the sidebar after its last reply (core `threadWindows`; 0 forever). Unset means THREAD_HOURS_DEFAULT. */
+		threadHours: v.optional(v.number()),
+		/** Set when an owner deletes it: every access refuses at once, then a cascade deletes its rows (lifecycle.ts). */
+		deleting: v.optional(v.boolean()),
+		/** Set while an owner resets it: every access refuses, as when deleting, until its reset cascade seeds it again (workspace.resetWorkspace). */
+		resetting: v.optional(v.boolean()),
+		/** Its last reset: who started it, and when. */
+		lastReset: v.optional(v.object({ by: v.id("users"), at: v.number() })),
+		/** Its logo (images.ts). Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
+	}),
+
+	// A workspace's roles (core permissions.ts). Owner and Member are built in: Owner has every
+	// permission and can't change; Member is what new people get. Owners make the rest.
+	roles: defineTable({
+		workspaceId: v.id("workspaces"),
+		name: v.string(),
+		/**
+		 * Stored switches (core `roleSwitches`). Member: only what an owner flipped from each
+		 * permission's default, so new permissions arrive as their default. Custom roles: what's on
+		 * (absent is off). Owner: none; it has everything.
+		 */
+		switches: v.array(v.object({ permission, on: v.boolean() })),
+		builtIn: v.optional(oneOf(builtInRoles)),
+	}).index("by_workspace", ["workspaceId"]),
+
+	members: defineTable({
+		workspaceId: v.id("workspaces"),
+		userId: v.id("users"),
+		/** Their roles; they get every switch any of them has. Empty when the only one was deleted (they get the baseline). Optional only until migrations.customRoles ran. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
+		roles: v.optional(v.array(v.id("roles"))),
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
+		role: v.optional(legacyRole),
+		/** Normalized for bounded invitation checks. Every row has it; optional only in the type. */
+		email: v.optional(v.string()),
+		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
+		tutorial: v.optional(v.object({ done: v.array(v.string()), dismissed: v.optional(v.boolean()) })),
+		/**
+		 * Copies of their profile (`memberProfile`), so lists of members read only this table. Kept in step
+		 * wherever it changes: preferences.savePreferences, joining, erasing the account.
+		 */
+		// COMPAT(0.1.0-alpha.10): once migrations.memberProfiles has run on prod, make name and timeZone required.
+		name: v.optional(v.string()),
+		image: v.optional(v.id("_storage")),
+		/** Resolved: the zone they picked, else their computer's, else UTC. */
+		timeZone: v.optional(v.string()),
+	})
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_email", ["workspaceId", "email"]),
+
+	// One per email per workspace. Only someone signed in with that email can accept it.
+	invites: defineTable({
+		workspaceId: v.id("workspaces"),
+		email: v.string(),
+		/** What they'll have when they join. Every row has some once migrations.customRoles ran. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
+		roles: v.optional(v.array(v.id("roles"))),
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
+		role: v.optional(legacyRole),
+		/** Missing on invites from before invite emails. */
+		invitedBy: v.optional(v.id("users")),
+	})
+		.index("by_email", ["email"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_email", ["workspaceId", "email"]),
+
+	// Each invite email sent, so a workspace can't flood an inbox (`inviteEmailProblem`).
+	inviteEmails: defineTable({
+		workspaceId: v.id("workspaces"),
+		email: v.string(),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_email", ["workspaceId", "email"]),
+
+	// Each workspace has its own agents. Every save also writes an agentVersions row.
+	agents: defineTable({
+		workspaceId: v.id("workspaces"),
+		...agentConfig.fields,
+		/** In Trash (the `trash` table says who deleted it, and when): hidden from chat, runs nothing. */
+		archived: v.boolean(),
+		version: v.number(),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Its picture (images.ts): not part of its config, so versions and restores leave it alone. Unset shows its initials. */
+		image: v.optional(v.id("_storage")),
+	}).index("by_workspace", ["workspaceId"]).index("by_workspace_active", ["workspaceId", "archived"]),
+
+	agentVersions: defineTable({
+		agentId: v.id("agents"),
+		version: v.number(),
+		config: agentConfig,
+		savedBy: v.id("users"),
+	}).index("by_agent", ["agentId", "version"]),
+
+	memories: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		scope: v.union(v.literal("workspace"), v.literal("personal")),
+		ownerId: v.union(v.id("users"), v.null()),
+		content: v.string(),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Set when the agent made the last change, acting for `updatedBy`. */
+		updatedByAgent: v.optional(v.boolean()),
+		/** Who first saved it. Missing on memories from before it was kept: read as `updatedBy`. */
+		createdBy: v.optional(v.id("users")),
+		/** True while a team memory is in Archive (the `trash` table says who deleted it, and when); unset otherwise, which reads filter on by index. */
+		archived: v.optional(v.literal(true)),
+		version: v.number(),
+		/** Retained for stored rows: no migration cleared this retired cleanup timestamp. */
+		createdTs: v.optional(v.commitTs()),
+	})
+		.index("by_workspace", ["workspaceId", "archived"])
+		// One person's personal memories in a workspace (team memories have no owner).
+		.index("by_owner", ["ownerId", "workspaceId"])
+		.index("by_workspace_scope", ["workspaceId", "scope", "archived"])
+		// Newest first within a scope, across owners (lists), or one owner's personal memories (never in Archive).
+		.index("by_agent_scope", ["agentId", "scope", "archived"])
+		.index("by_agent_owner", ["agentId", "scope", "ownerId"])
+		// Agent search over every memory, however many (memoryOps.searchMemories).
+		.searchIndex("search_content", { searchField: "content", filterFields: ["agentId", "scope", "ownerId", "archived"] }),
+
+	// What a memory said before each edit, newest kept (MEMORY_VERSIONS_MAX), so a wrong edit can be undone.
+	memoryVersions: defineTable({
+		memoryId: v.id("memories"),
+		/** The memory's version this content was. */
+		version: v.number(),
+		content: v.string(),
+		/** Who saved this content, and when. */
+		savedBy: v.id("users"),
+		savedByAgent: v.optional(v.boolean()),
+		savedAt: v.number(),
+	}).index("by_memory", ["memoryId", "version"]),
+
+	// Navigation lists: absent user = shared; absent workspace = account-wide workspace order.
+	arrangements: defineTable({
+		workspaceId: v.optional(v.id("workspaces")),
+		userId: v.optional(v.id("users")),
+		list: arrangementList,
+		entityId: v.optional(v.union(v.id("pages"), v.id("recordTypes"))),
+		ids: v.array(v.string()),
+	}).index("by_list", ["workspaceId", "userId", "list", "entityId"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_entity", ["entityId"]),
+
+	// Sections people add to a tab's sidebar (core `sectionTabs`), shared by the workspace like Discord's
+	// categories (sidebarSections.ts). `ids`: what it holds, in order; each item is in one of its tab's
+	// sections at most. Their order is the `sectionOrder` arrangement; who folds one, `folded`.
+	sidebarSections: defineTable({
+		workspaceId: v.id("workspaces"),
+		tab: sectionTab,
+		name: v.string(),
+		ids: v.array(v.string()),
+	}).index("by_workspace", ["workspaceId", "tab"]),
+
+	// Personal preferences follow the person across devices.
+	preferences: defineTable({
+		userId: v.id("users"),
+		/** What agents and teammates call you. */
+		displayName: v.string(),
+		sendWith: v.union(v.literal("enter"), v.literal("mod-enter")),
+		/** Desktop notifications and the dock badge: DMs and mentions (default), mentions only, or off. */
+		notify: v.optional(notify),
+		/** The time zone they picked. Left out means automatic: `deviceTimeZone`. */
+		timeZone: v.optional(v.string()),
+		/** Their computer's time zone, reported by the app. */
+		deviceTimeZone: v.optional(v.string()),
+		// COMPAT(0.1.0-alpha.10): moved to `lastWorkspaces`; once migrations.lastWorkspaces has run on prod, drop this field.
+		workspaceId: v.optional(v.id("workspaces")),
+		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
+		image: v.optional(v.id("_storage")),
+		/** Recents under their pins on the rail. Left out means shown. */
+		showRecents: v.optional(v.boolean()),
+		/** Drive shows each level's folders above its pages and files, as Finder can (off: one order by hand). */
+		foldersFirst: v.optional(v.boolean()),
+	}).index("by_user", ["userId"]),
+
+	// The workspace someone used last: only a hint for a device opening for the first time. Each device keeps
+	// its own. Apart from `preferences` so switching workspace touches nothing member lists read.
+	lastWorkspaces: defineTable({
+		userId: v.id("users"),
+		workspaceId: v.id("workspaces"),
+	})
+		.index("by_user", ["userId"])
+		.index("by_workspace", ["workspaceId"]),
+
+	// Files people uploaded (images.ts), not yet attached to anything. Attaching one uses its row up;
+	// rows nobody claims go after a day, with their files (images.sweepUploads).
+	uploads: defineTable({
+		storageId: v.id("_storage"),
+		userId: v.id("users"),
+		/** The workspace the app had open. */
+		workspaceId: v.optional(v.id("workspaces")),
+		createdAt: v.number(),
+		/** Set for a file for a message (files.ts), unset for a picture; each is only claimed as its own kind. */
+		file: v.optional(fileInfo),
+	})
+		.index("by_storage", ["storageId"])
+		.index("by_user", ["userId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_created", ["createdAt"]),
+
+	// Connectors: someone with connectors.manage installs one and picks which roles may use it. Owners always can.
+	connectorInstalls: defineTable({
+		workspaceId: v.id("workspaces"),
+		connectorId: v.string(),
+		/** The roles that may use it. Owners always can. */
+		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop the legacy "owner"/"member" names.
+		roles: v.array(v.union(v.id("roles"), legacyRole)),
+		installedBy: v.id("users"),
+	}).index("by_workspace", ["workspaceId", "connectorId"]),
+
+	// A workspace's own connector (#257): an MCP server someone with connectors.manage added. Once added
+	// it's installed and used like a catalog connector (`connectorsIn`, customConnectors.ts). No secrets:
+	// keys and tokens live in connectorConnections like any connector's.
+	customConnectors: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** "custom-<slug>": its tools are "<connectorId>.<tool>". Never changes, so grants and rules keep it. */
+		connectorId: v.string(),
+		name: v.string(),
+		description: v.string(),
+		/** A Streamable HTTP MCP server (no SSE: see core `CustomConnectorInput`). */
+		url: v.string(),
+		connection: v.union(v.literal("workspace"), v.literal("personal")),
+		auth: v.union(
+			v.object({ type: v.literal("none") }),
+			v.object({ type: v.literal("api_key"), header: v.string(), prefix: v.optional(v.string()), label: v.string() }),
+			v.object({ type: v.literal("oauth") }),
+		),
+		createdBy: v.id("users"),
+		updatedBy: v.id("users"),
+		updatedAt: v.number(),
+	}).index("by_workspace", ["workspaceId", "connectorId"]),
+
+	// Display labels for deleted source ids; no credentials or connector data. Kept until workspace deletion/reset.
+	connectorSourceLabels: defineTable({
+		workspaceId: v.id("workspaces"),
+		installId: v.id("connectorInstalls"),
+		name: v.string(),
+	}).index("by_install", ["installId"]).index("by_workspace", ["workspaceId"]),
+
+	// An account connected to a connector: the workspace's (userId null) or one person's.
+	// Credentials are AES-GCM encrypted with CONNECTIONS_KEY and never leave the server.
+	connectorConnections: defineTable({
+		workspaceId: v.id("workspaces"),
+		connectorId: v.string(),
+		userId: v.union(v.id("users"), v.null()),
+		credentials: v.string(),
+		connectedBy: v.id("users"),
+		/** Set when the last attempt to use it failed, so the app can say so. */
+		error: v.optional(v.string()),
+	})
+		.index("by_workspace", ["workspaceId", "connectorId", "userId"])
+		.index("by_user", ["userId", "workspaceId"]),
+
+	// A connector sign-in in progress: started in the app, finished by /oauth/callback.
+	// `data` holds the encrypted OAuthState (client, PKCE verifier). One use; expires.
+	connectorOAuthFlows: defineTable({
+		state: v.string(),
+		connectorId: v.string(),
+		userId: v.id("users"),
+		/** The workspace it connects in. Missing on sign-ins started before people could be in several. */
+		workspaceId: v.optional(v.id("workspaces")),
+		/**
+		 * The membership and install it started under. Saving checks both are still the ones there,
+		 * so a sign-in from before a removal and rejoin, or an uninstall and reinstall, can't connect.
+		 * Missing on sign-ins started before this; those are refused (they expire in 15 minutes anyway).
+		 */
+		memberId: v.optional(v.id("members")),
+		connectorInstallId: v.optional(v.id("connectorInstalls")),
+		data: v.string(),
+		expiresAt: v.number(),
+	})
+		.index("by_state", ["state"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_install", ["connectorInstallId"]),
+
+	skillInstalls: defineTable({
+		usedPlaces,
+		/** Personal owner; team rows have audience team and no owner. */
+		// COMPAT(0.1.0-alpha.10): after skillAudience runs on prod, make audience required.
+		audience: v.optional(v.union(v.literal("team"), v.literal("personal"))),
+		ownerId: v.optional(v.id("users")),
+		definition: v.optional(skillDefinition),
+		workspaceId: v.id("workspaces"),
+		skillId: v.string(),
+		/** Set for skills people made (id "custom-…"); retired library ones use definition. Shared setting: versioned. */
+		custom: v.optional(
+			v.object({
+				name: v.string(),
+				/** Who made it. Missing on skills owners made before members could. */
+				createdBy: v.optional(v.id("users")),
+				description: v.string(),
+				instructions: v.string(),
+				version: v.number(),
+				updatedBy: v.id("users"),
+				updatedAt: v.number(),
+			}),
+		),
+		/** Skills: in Archive (the `trash` table says who deleted it, and when). Agents don't see it. */
+		archived: v.optional(v.boolean()),
+	}).index("by_workspace", ["workspaceId", "skillId"]).index("by_owner", ["ownerId", "workspaceId"]),
+
+	// ---- Chat: channels, DMs (people and agents), threads, reactions. See wiki/chat.md. ----
+
+	// A channel (named, public or private) or a DM (fixed set of people and agents).
+	chats: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		kind: v.union(v.literal("channel"), v.literal("dm")),
+		/** Channels only: lowercase, no "#", unique per workspace. */
+		name: v.optional(v.string()),
+		topic: v.optional(v.string()),
+		/** Private channels are visible to their members only. DMs are always private. */
+		private: v.boolean(),
+		/** DMs only: sorted participant keys ("u:<id>", "a:<id>") joined by ",", to find an existing DM. A side chat copies its parent's. */
+		dmKey: v.optional(v.string()),
+		/** Side chats only: a separate conversation with an agent, under the person's agent DM (`parentId`). */
+		parentId: v.optional(v.id("chats")),
+		/** Side chats only: what it's about, from its first message until renamed. */
+		title: v.optional(v.string()),
+		/** The channel everyone joins (#general). Can't be left or made private. */
+		isDefault: v.optional(v.boolean()),
+		/** In Trash (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		// COMPAT(0.1.0-alpha.10): moved to `chatActivity`. Once migrations.chatActivity has run on prod, drop these two and the fallback in chatOps `activityOf`.
+		lastMessageAt: v.optional(v.number()),
+		/** Search discovery; maintained with chat visibility. */
+		searchPublic: v.optional(v.boolean()),
+		costUsd: v.optional(v.number()),
+		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
+		replyMode: v.optional(oneOf(replyModes)),
+		/** Channels: who can see and post (Post is `edit`), on top of a private channel's members. */
+		access,
+		/** Its `chatMembers` rows, people and agents: kept ±1 where seats change (chatOps addToChat, dropSeat). */
+		// COMPAT(0.1.0-alpha.10): once migrations.chatMemberCounts has run on prod, make this required and drop `seatCount`.
+		memberCount: v.optional(v.number()),
+		/** While migrations.chatMemberCounts counts a big chat over several transactions: seats so far, up to `after` (a seat's _creationTime). */
+		seatCount: v.optional(v.object({ counted: v.number(), after: v.number() })),
+	})
+		.index("by_workspace", ["workspaceId", "kind"])
+		.index("by_dm_key", ["workspaceId", "dmKey"])
+		.index("by_name", ["workspaceId", "name", "archived"]),
+
+	// Native push registrations are installation- and auth-session-bound, never client-selected users.
+	mobilePushDevices: defineTable({
+		userId: v.id("users"), sessionId: v.id("authSessions"), installationId: v.string(),
+		token: v.string(), platform: v.union(v.literal("ios"), v.literal("android")), updatedAt: v.number(),
+	}).index("by_user", ["userId"]).index("by_installation", ["installationId"]).index("by_token", ["token"]).index("by_updated", ["updatedAt"]),
+	mobilePushLimits: defineTable({ userId: v.id("users"), windowAt: v.number(), count: v.number() }).index("by_user", ["userId"]).index("by_window", ["windowAt"]),
+	// Two global worker leases bound concurrency even if a previous action is still running.
+	mobilePushWorkers: defineTable({ kind: v.union(v.literal("send"), v.literal("receipt")), leaseUntil: v.number() }).index("by_kind", ["kind"]),
+	mobilePushDeliveries: defineTable({
+		deviceId: v.id("mobilePushDevices"), userId: v.id("users"), sessionId: v.id("authSessions"),
+		workspaceId: v.id("workspaces"), chatId: v.id("chats"), messageId: v.id("chatMessages"),
+		// Token snapshot: rotation/account switching must never retarget an already queued message.
+		token: v.string(), state: v.union(v.literal("pending"), v.literal("sending"), v.literal("receipt"), v.literal("done")),
+		attempts: v.number(), nextAttemptAt: v.number(), expiresAt: v.number(), ticketId: v.optional(v.string()),
+	}).index("by_state_time", ["state", "nextAttemptAt"])
+		.index("by_message_device", ["messageId", "deviceId"])
+		.index("by_device", ["deviceId"]).index("by_user", ["userId", "workspaceId"])
+		.index("by_workspace", ["workspaceId"]).index("by_chat", ["chatId"]).index("by_expiry", ["expiresAt"]),
+	// Discovery activity changes independently of a seat's read state.
+	seatActivity: defineTable({
+		workspaceId: v.id("workspaces"), chatId: v.id("chats"), seatId: v.id("chatMembers"),
+		userId: v.id("users"), activityAt: v.number(), restricted: v.boolean(),
+	}).index("by_seat", ["seatId"]).index("by_chat", ["chatId"]).index("by_workspace", ["workspaceId"])
+		.index("by_user", ["userId", "workspaceId"])
+		.index("by_activity", ["workspaceId", "userId", "activityAt"])
+		.index("by_private_activity", ["workspaceId", "userId", "restricted", "activityAt"]),
+
+	// What changes with every message in a chat, apart from it, so the many queries that read a chat's
+	// name, members or access don't re-run on each one (chatOps `activityOf`). Made with the chat.
+	chatActivity: defineTable({
+		chatId: v.id("chats"),
+		pendingAt: v.optional(v.number()),
+		/** COMPAT(0.1.0-alpha.10): discoveryChatActivity backfills these index keys. */
+		workspaceId: v.optional(v.id("workspaces")), kind: v.optional(v.union(v.literal("channel"), v.literal("dm"))), searchPublic: v.optional(v.boolean()),
+		/** The main timeline's newest shown message. */
+		lastMessageAt: v.number(),
+		/** USD spent on agent replies and summaries here (main timeline). */
+		costUsd: v.optional(v.number()),
+	}).index("by_chat", ["chatId"]).index("by_search_activity", ["workspaceId", "kind", "searchPublic", "lastMessageAt"]),
+
+	// Who's in a chat: one person or one agent per row.
+	chatMembers: defineTable({
+		chatId: v.id("chats"),
+		workspaceId: v.id("workspaces"),
+		userId: v.optional(v.id("users")),
+		agentId: v.optional(v.id("agents")),
+		/** People only: newest message time they've seen in the main timeline. */
+		lastReadAt: v.optional(v.number()),
+		/** People only: when they closed this DM (chats.closeDm). Out of their sidebar until a newer message, or they open it again. */
+		closedAt: v.optional(v.number()),
+	})
+		.index("by_chat", ["chatId"])
+		.index("by_workspace", ["workspaceId", "userId"])
+		.index("by_user", ["userId", "chatId"])
+		.index("by_agent", ["agentId", "chatId"]),
+
+	// A message in a chat's main timeline, or in a thread (threadId = the parent message).
+	// Written by a person (authorUserId) or an agent (authorAgentId), never both.
+	chatMessages: defineTable({
+		external: v.optional(v.string()),
+		externalTokenId: v.optional(v.id("integrationTokens")),
+		/** Restricted sources, checked live for every viewer. Records use their database. */
+		usedPlaces,
+		sharedBy: v.optional(v.id("users")),
+		/** The asker, even when the reply is just the agent speaking (not actingFor). */
+		repliedTo: v.optional(v.id("users")),
+		chatId: v.id("chats"),
+		workspaceId: v.id("workspaces"),
+		threadId: v.optional(v.id("chatMessages")),
+		authorUserId: v.optional(v.id("users")),
+		authorAgentId: v.optional(v.id("agents")),
+		/** A delivered message from an agent, on this person's behalf. */
+		actingFor: v.optional(v.id("users")),
+		text: v.string(),
+		/** COMPAT(0.1.0-alpha.10): old messages are backfilled by searchAudience. */
+		searchPublic: v.optional(v.boolean()),
+		parts: v.array(messagePart),
+		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
+		attachments: v.optional(v.array(attachment)),
+		/** Cards for the first links in its text (linkPreviews.ts), in text order. `hidden`: the sender took it down. */
+		linkPreviews: v.optional(v.array(v.object({ previewId: v.id("linkPreviews"), hidden: v.optional(v.boolean()) }))),
+		/** Who was @mentioned. Mentioned agents get a turn. `recordIds`: records the message references. `skillIds`: skills named with `/`. */
+		mentions: v.object({
+			userIds: v.array(v.id("users")),
+			agentIds: v.array(v.id("agents")),
+			recordIds: v.optional(v.array(v.id("records"))),
+			skillIds: v.optional(v.array(v.string())),
+		}),
+		status: v.union(v.literal("streaming"), v.literal("done"), v.literal("error")),
+		error: v.optional(v.string()),
+		/** An agent reply someone stopped partway (turns.stop): who. What it wrote and did so far stays. */
+		stoppedBy: v.optional(v.id("users")),
+		/** Agent replies only, once finished. `conversationCostUsd` is the chat's (or thread's) running total. */
+		stats: v.optional(replyStats),
+		editedAt: v.optional(v.number()),
+		/** Deleted messages keep their row (threads hang off them) but lose their content. */
+		deleted: v.optional(v.boolean()),
+		/** Thread parents only. */
+		replyCount: v.optional(v.number()),
+		lastReplyAt: v.optional(v.number()),
+		/** Thread parents only: the last 3 to reply, newest first. Unset on parents from before it. */
+		replyAuthors: v.optional(v.array(v.object({ userId: v.optional(v.id("users")), agentId: v.optional(v.id("agents")) }))),
+		/** Thread parents only: USD spent on agent replies and summaries in the thread. */
+		costUsd: v.optional(v.number()),
+		/** Server-written provenance. `foreign` snapshots whose words the run follows; absent on older messages, which ask. */
+		automation: v.optional(v.object({ id: v.string(), name: v.string(), foreign: v.optional(v.boolean()) })),
+		/** Not in the timeline: an agent's reply until it has something to show (turns.ts `show`), and an ask (chains.ts). */
+		quiet: v.optional(v.boolean()),
+		/**
+		 * When it was shown in the timeline (chatOps `shownAt`), what lists page and sort by: when it was sent, when an
+		 * agent's reply was shown, or when a reply took in messages sent after it began (turns.steer), so it shows below
+		 * them. Unset while quiet. COMPAT(0.1.0-alpha.10): older rows have none until migrations.messageShownAt.
+		 */
+		publishedAt: v.optional(v.number()),
+		/**
+		 * A chain of agents paused here (chains.ts): a line like "Agents kept replying to each other, so they've paused.",
+		 * written as the agent whose handoff it held. `by`: who pressed Continue or Stop.
+		 */
+		pause: v.optional(
+			v.object({
+				chainId: v.id("agentChains"),
+				status: v.union(v.literal("paused"), v.literal("continued"), v.literal("stopped")),
+				by: v.optional(v.id("users")),
+			}),
+		),
+	})
+		/** A timeline or thread without its quiet rows (`quiet` unset), or only them: lists never step over hidden replies. */
+		.index("by_chat_thread_quiet", ["chatId", "threadId", "quiet"])
+		/** The same, in the order shown: what the app pages by, so a reply shown late is on the newest page. */
+		.index("by_chat_shown", ["chatId", "threadId", "quiet", "publishedAt"])
+		/** Thread parents, newest reply first: the sidebar's active threads. Messages without replies have no `lastReplyAt` and sort first. */
+		.index("by_chat_lastReply", ["chatId", "lastReplyAt"])
+		.index("by_workspace", ["workspaceId"])
+		.searchIndex("search_text", { searchField: "text", filterFields: ["workspaceId", "chatId", "searchPublic"] }),
+
+	// What a link looked like when we fetched it (linkUnfurl.ts), one row per URL per workspace, shared
+	// by every message that posts it and refetched when a day old. The picture is our own copy.
+	linkPreviews: defineTable({
+		workspaceId: v.id("workspaces"),
+		url: v.string(),
+		/** None of these: the page had nothing to show (or couldn't be read); asked again after an hour. */
+		title: v.optional(v.string()),
+		description: v.optional(v.string()),
+		siteName: v.optional(v.string()),
+		image: v.optional(v.id("_storage")),
+		fetchedAt: v.number(),
+	}).index("by_workspace_url", ["workspaceId", "url"]),
+
+	// A reply's content while it streams (turns.updateReply). Its many writes a second re-run only
+	// the streaming bubble's query, not every message list; it moves onto the message when it ends.
+	replyStreams: defineTable({
+		messageId: v.id("chatMessages"),
+		text: v.string(),
+		parts: v.array(messagePart),
+	}).index("by_message", ["messageId"]),
+
+	// Who's typing where: one row per person per place (chat + thread), its `at` bumped every
+	// few seconds while they type, deleted when they send. Stale after TYPING_MS (typing.ts).
+	typing: defineTable({
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		userId: v.id("users"),
+		at: v.number(),
+	})
+		.index("by_place", ["chatId", "threadId", "at"])
+		.index("by_user", ["userId", "chatId", "threadId"])
+		.index("by_workspace", ["workspaceId", "userId"])
+		.index("by_at", ["at"]),
+
+	// One emoji from one person or agent on one message.
+	reactions: defineTable({
+		messageId: v.id("chatMessages"),
+		chatId: v.id("chats"),
+		emoji: v.string(),
+		userId: v.optional(v.id("users")),
+		agentId: v.optional(v.id("agents")),
+	})
+		.index("by_message", ["messageId", "emoji", "userId", "agentId"])
+		// Newest in a chat: what was reacted to since an agent's last reply (turns.turnContext).
+		.index("by_chat", ["chatId"]),
+
+	// A person @mentioned in a message (main timeline or a thread), so unread mentions are found
+	// by index however much else was said since. `at`: the message's _creationTime. Gone when it's deleted.
+	userMentions: defineTable({
+		userId: v.id("users"),
+		chatId: v.id("chats"),
+		messageId: v.id("chatMessages"),
+		at: v.number(),
+	})
+		.index("by_user_chat", ["userId", "chatId", "at"])
+		.index("by_message", ["messageId", "userId"]),
+
+	// Queue of agent replies. One `running` per agent per place (chat + thread); the rest wait.
+	agentTurns: defineTable({
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		agentId: v.id("agents"),
+		/** The message that mentioned the agent (or any message, in an agent DM). Unset on old welcome turns, and the approvals that follow one. */
+		triggerId: v.optional(v.id("chatMessages")),
+		/** The agent acts as this person: their roles, connector connections, and access. */
+		actorId: v.id("users"),
+		/** The streaming reply, once running. */
+		replyId: v.optional(v.id("chatMessages")),
+		/** The agent's session for this place, once running. */
+		sessionId: v.optional(v.id("agentSessions")),
+		/** The exact user message sent to the model this turn. Replayed as-is in later turns. */
+		prompt: v.optional(v.string()),
+		/** Sources of the stored prompt, independent of a shared answer. Missing means unknown: omit it. */
+		promptPlaces: usedPlaces,
+		/** Nobody @mentioned the agent: the router queued it (router.ts), or a hop (chains.ts). Its reply is quiet. */
+		routed: v.optional(v.literal(true)),
+		/** Explicit collaboration provenance, including resumed chains and later follow-ups. */
+		handoff: v.optional(v.literal(true)),
+		/**
+		 * The dispatcher's pick, for its prompt and its reply's stats. One message's picks run one after
+		 * another, best fit first, so each sees what the ones before posted: `after` is the pick it waits for,
+		 * `then` the one waiting for it (router.apply). Unset on routed turns from before it.
+		 */
+		dispatch: v.optional(
+			v.object({
+				...dispatchInfo.fields,
+				after: v.optional(v.id("agentTurns")),
+				then: v.optional(v.id("agentTurns")),
+			}),
+		),
+		/** The turn's decision, as it made it; unset if it made none (it failed, was stopped, or stopped for an approval). */
+		decision: v.optional(postDecision),
+		/** Another agent handed it this (chains.ts): its chain, how deep in asks, and the agents from the chain's start to this one. */
+		chain: v.optional(chainRef),
+		/** Answering another agent's private ask (chat.ask_agent): when it ends, this wakeup gives the asker the answer. */
+		ask: v.optional(v.object({ wakeupId: v.id("wakeups") })),
+		status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+		/**
+		 * A person's own message asked (their agent DM, an @mention: messages.send). It waits a quiet
+		 * window (core QUIET_WINDOW_MS) before it starts, and starting folds that person's other such
+		 * turns queued here into it (turns.mergeQueued), so a burst gets one reply.
+		 */
+		person: v.optional(v.literal(true)),
+		/** A person turn still in its quiet window: it doesn't start until its timer (turns.startQueued) clears this. */
+		debouncing: v.optional(v.literal(true)),
+		/**
+		 * Folded into this turn (status `done`, no reply): before it ran (turns.mergeQueued), its message was
+		 * in that turn's window; or while it ran (turns.steer), its message reached it as a steer.
+		 */
+		mergedInto: v.optional(v.id("agentTurns")),
+		/**
+		 * Its person's messages that reached it while it ran (turns.steer), appended to its prompt. They're
+		 * after its reply began, so the next turn's window leaves them out: nothing is answered twice.
+		 */
+		steered: v.optional(v.array(v.id("chatMessages"))),
+		startedAt: v.optional(v.number()),
+		/** Set when the turn follows a decision on this approval: it runs the call if approved, then tells the agent. */
+		approvalId: v.optional(v.id("approvals")),
+		/** A wake turn (wakeups.ts): its input is the wakeup, and `wakeLogId` is its line in Activity. */
+		wakeupId: v.optional(v.id("wakeups")),
+		wakeLogId: v.optional(v.id("agentActivity")),
+		/** What its pictures cost so far (imageGen.ts), for its reply's stats. */
+		imageCostUsd: v.optional(v.number()),
+		/** What its web searches cost so far (turns.addSearchCost), for its reply's stats. */
+		searchCostUsd: v.optional(v.number()),
+		/**
+		 * What its finished model calls used so far, saved after each one (turns.saveUsage) with its cost
+		 * already recorded, so a turn whose action dies keeps what it paid and its stats.
+		 */
+		usage: v.optional(v.object({ ...replyUsage.fields, counted: v.optional(v.boolean()) })),
+		/**
+		 * What it's doing now, while running ("Searching records for Acme…", "Thinking…"), for the line
+		 * under the composer (typing.ts). Unset while it writes, and once it ends. Never model reasoning.
+		 */
+		step: v.optional(v.object({ label: v.string(), at: v.number() })),
+		/**
+		 * Someone pressed Stop while it ran (turns.stop): the runner ends it at the next chance (agent.ts
+		 * `turnStop`), and finishReply marks its reply stopped. Stays `running` until then, so the queue waits.
+		 */
+		stopping: v.optional(v.object({ by: v.id("users"), at: v.number() })),
+	})
+		.index("by_place", ["agentId", "chatId", "threadId", "status"])
+		// One agent runs one turn at a time in a chat, across its threads (turns.startNext).
+		.index("by_agent_chat", ["agentId", "chatId", "status"])
+		.index("by_session", ["sessionId"])
+		.index("by_workspace", ["workspaceId"])
+		// Also: who's replying in a place right now (typing.ts).
+		.index("by_chat", ["chatId", "threadId", "status"])
+		// A channel's recent "might be for you" picks, for their hourly cap (router.ts).
+		.index("by_chat_dispatch", ["chatId", "dispatch.band"]),
+
+	// What a tool call did, keyed by its operation key (the model's call id, or `approval-<id>`), so a rerun
+	// of the same call never does it twice (approvals.ts). A built-in's write commits it with its effect;
+	// a connector write or a multi-step built-in claims it first (`started`) and settles it after (`done`).
+	// Done ones go 30 days later (approvals.forgetReceipts); started ones (outcome unknown) stay with their turn.
+	toolReceipts: defineTable({
+		turnId: v.id("agentTurns"),
+		callId: v.string(),
+		actorId: v.id("users"),
+		state: v.union(v.literal("started"), v.literal("done")),
+		/** A connector call's result (clipped JSON), returned to a repeat of the same call. Only its person sees it. */
+		output: v.optional(v.string()),
+	})
+		.index("by_turn", ["turnId", "callId"])
+		.index("by_state", ["state"])
+		.index("by_actor", ["actorId"]),
+
+	// A turn's tool steps as its model had them (core replay.ts keptStep): its calls and their results,
+	// as JSON ModelMessage[] (a call's input can have any keys). Later turns in its session replay them
+	// (turns.ts sessionTurns); results only to the person it acted for, as in the activity log.
+	turnSteps: defineTable({
+		workspaceId: v.id("workspaces"),
+		turnId: v.id("agentTurns"),
+		actorId: v.id("users"),
+		messages: v.string(),
+	})
+		.index("by_turn", ["turnId"])
+		.index("by_actor", ["actorId"]),
+
+	// Agents handing work to each other for one person (chains.ts, core handoffs.ts): the budget its
+	// handoffs spend, reset when that person writes in it or presses Continue. Made at the first handoff.
+	agentChains: defineTable({
+		workspaceId: v.id("workspaces"),
+		/** Who the agents act for: the person whose message started it. */
+		actorId: v.id("users"),
+		/** Where it started. */
+		chatId: v.id("chats"),
+		turns: v.number(),
+		hops: v.number(),
+		pairs: v.array(v.object({ a: v.id("agents"), b: v.id("agents"), n: v.number() })),
+		/** Bumped by each reset: handoffs from turns of an older epoch start a fresh path. */
+		epoch: v.number(),
+		status: v.union(v.literal("running"), v.literal("paused"), v.literal("stopped")),
+		/** While paused: its line, and the handoffs it held, queued on Continue. */
+		pauseId: v.optional(v.id("chatMessages")),
+		held: v.optional(
+			v.array(
+				v.object({
+					agentId: v.id("agents"),
+					chatId: v.id("chats"),
+					threadId: v.optional(v.id("chatMessages")),
+					triggerId: v.id("chatMessages"),
+					depth: v.number(),
+					dispatched: v.optional(v.boolean()),
+					dispatch: v.optional(dispatchInfo),
+				}),
+			),
+		),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_chat", ["chatId"]),
+
+	// One agent's ongoing context in one place (chat + thread). Append-only: past turns
+	// replay exactly as sent, so prompt caching hits. Older turns fold into `summary`.
+	agentSessions: defineTable({
+		summaryPlaces: usedPlaces,
+		/** Old summaries could contain prompts whose answers had been shared. Only the new format is trusted. */
+		summaryPrivacy: v.optional(v.literal(1)),
+		compactingPlaces: usedPlaces,
+		/** A compaction begun before prompt isolation cannot produce a trusted summary. */
+		compactingPrivacy: v.optional(v.literal(1)),
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** Summary of turns created at or before `summarizedUpTo` (a turn's _creationTime). */
+		summary: v.optional(v.string()),
+		summarizedUpTo: v.optional(v.number()),
+		compacting: v.optional(v.boolean()),
+		/** USD spent on this session's replies and summaries. */
+		costUsd: v.optional(v.number()),
+	})
+		.index("by_place", ["agentId", "chatId", "threadId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_chat", ["chatId"]),
+
+	// The activity log: every tool call an agent made, acting for `actorId`. Readable by
+	// whoever can see the chat it happened in; `output` only by the person it acted for.
+	agentActivity: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		actorId: v.id("users"),
+		/** Unset on a wake's line until (unless) it queues a turn. */
+		turnId: v.optional(v.id("agentTurns")),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** Unset on a wake's line. */
+		replyId: v.optional(v.id("chatMessages")),
+		/** Same id as the reply's tool part, so the app can open one from the other. A wake's line: the wakeup's id. */
+		callId: v.string(),
+		tool: v.string(),
+		/** False only for read-only tools. */
+		changes: v.boolean(),
+		/** JSON, cut to ACTIVITY_MAX_CHARS. */
+		input: v.string(),
+		/** Only `actorId` sees it (activity.ts). Cleared when their account is erased. */
+		output: v.optional(v.string()),
+		error: v.optional(v.string()),
+		status: v.union(v.literal("done"), v.literal("error")),
+		/** Calls that would have asked: who allowed it and how. */
+		allowed: v.optional(allowedHow),
+		/** One line per wake (wakeups.ts): what woke and how it went. `tool` is "wakeups.wake". */
+		wake: v.optional(v.object({ wakeupId: v.id("wakeups"), outcome: wakeOutcome, reason: v.optional(v.string()) })),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_actor", ["workspaceId", "actorId"])
+		.index("by_chat", ["chatId"])
+		.index("by_reply", ["replyId"])
+		.index("by_actor", ["actorId"]),
+
+	// An agent waking later, in a place, as a person: when (a time, maybe repeating, or a job finishing,
+	// #114) and what (a note: a follow-up's task; none: look around, #162's heartbeat). One table and one
+	// path to a turn (wakeups.ts `wake`) for all of them.
+	wakeups: defineTable({
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** Who it runs for, with their access, read fresh at each wake. */
+		actorId: v.id("users"),
+		/** Who set it up: may cancel it, like the actor and owners. */
+		createdBy: v.id("users"),
+		/** What to do when it wakes. None: look around for anything worth doing (#162). */
+		note: v.optional(v.string()),
+		recordId: v.optional(v.id("records")),
+		/** The record's database, so deleting one forever cancels its records' wakeups. */
+		typeId: v.optional(v.id("recordTypes")),
+		/** Made in a run that followed others' words: its turns ask before `inside` actions (permissions.md). */
+		foreign: v.boolean(),
+		/** `pending` until its last wake (or its job's) or it's cancelled; one that repeats stays pending between wakes. */
+		status: v.union(v.literal("pending"), v.literal("fired"), v.literal("cancelled")),
+		reason: v.optional(v.string()),
+		/**
+		 * When: a time (`at`; with structured `repeat` it's re-armed after each wake, `times` wakes in all or
+		 * forever), or a job finishing (`jobId`, #114).
+		 */
+		at: v.optional(v.number()),
+		// COMPAT(0.1.0-alpha.10): drop every after wakeupDurations migrates numeric intervals. The fire fallback reads it until migration finishes; remove both together.
+		every: v.optional(v.number()),
+		repeat: v.optional(v.object({ years: v.optional(v.number()), months: v.optional(v.number()), weeks: v.optional(v.number()), days: v.optional(v.number()), hours: v.optional(v.number()), minutes: v.optional(v.number()) })),
+		anchor: v.optional(v.object({local: v.string(), timeZone: v.string()})),
+		times: v.optional(v.number()),
+		/** Wakes so far. */
+		wakes: v.optional(v.number()),
+		jobId: v.optional(v.string()),
+		/** A job's result (#114), JSON, for the wake turn. */
+		result: v.optional(v.string()),
+		/** An ask's answer (chat.ask_agent): the agent asked, and its wake turn's reply is shown, finishing the original one. */
+		answer: v.optional(v.object({ agentId: v.id("agents") })),
+		/** Due while its agent, record or chat is in Archive: wakes when it's restored (trashOps). */
+		held: v.optional(v.boolean()),
+		/** The scheduled `fire`, so moving or cancelling it can cancel that too (best effort: `fire` re-checks). */
+		scheduledId: v.optional(v.id("_scheduled_functions")),
+		lastWokeAt: v.optional(v.number()),
+		/** When it fired for good or was cancelled; forgotten 30 days later. */
+		settledAt: v.optional(v.number()),
+	})
+		.index("by_workspace", ["workspaceId", "status", "at"])
+		.index("by_actor", ["workspaceId", "actorId", "status"])
+		.index("by_agent", ["agentId", "status"])
+		.index("by_record", ["recordId", "status"])
+		.index("by_type", ["typeId"])
+		.index("by_chat", ["chatId"])
+		.index("by_held", ["workspaceId", "held"])
+		.index("by_job", ["jobId"])
+		.index("by_settled", ["settledAt"]),
+
+	// A tool call an agent held for approval, shown as a card in its reply (see core approvals.ts).
+	// Locked to `hash` (SHA-256 of the exact tool + input): the approver confirms that hash,
+	// and the runner re-checks it before running, so only the approved content can run.
+	approvals: defineTable({
+		workspaceId: v.id("workspaces"),
+		agentId: v.id("agents"),
+		/** The person the agent acted for. Only they can decide, and the call runs as them. */
+		actorId: v.id("users"),
+		chatId: v.id("chats"),
+		threadId: v.optional(v.id("chatMessages")),
+		/** The turn that asked, and its reply holding the card. */
+		turnId: v.id("agentTurns"),
+		replyId: v.id("chatMessages"),
+		callId: v.string(),
+		tool: v.string(),
+		/** Canonical JSON (approvals.canonicalJson) of the exact input. Never clipped: this is what runs. */
+		input: v.string(),
+		/**
+		 * The revisions of what the call's effect depends on when it was held (core `ToolDef.binds`), as canonical
+		 * JSON, hashed with the input; unset when it depends on nothing. `claim` refuses a call whose targets changed since.
+		 */
+		bound: v.optional(v.string()),
+		hash: v.string(),
+		status: approvalStatus,
+		expiresAt: v.number(),
+		decidedAt: v.optional(v.number()),
+		/** Approved calls: the result (JSON, clipped) or error. Shown only to the actor, like the activity log; cleared when their account is erased. */
+		result: v.optional(v.string()),
+		error: v.optional(v.string()),
+		/** Risk when it asked. Optional because old stored approvals have no backfill migration; they cannot offer Always. */
+		risk: v.optional(risk),
+		/** Set for automation calls, so Always grants stay scoped to that install. */
+		automationInstallId: v.optional(v.id("automationInstalls")),
+		/** Set when the actor chose "Always allow": a rule was saved too. */
+		always: v.optional(v.boolean()),
+		/**
+		 * Running a call whose effect isn't one transaction (a connector's, an async built-in's): cut off, its
+		 * outcome is unknown, not "nothing changed".
+		 */
+		outside: v.optional(v.boolean()),
+		/** With `failed`: it may or may not have happened. A field, not a status, so older apps still show the error. */
+		outcome: v.optional(v.literal("unknown")),
+	})
+		.index("by_call", ["turnId", "callId"])
+		.index("by_reply", ["replyId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_actor", ["actorId"]),
+
+	// Automations people make and retained library installs; each picks the agent that runs it.
+	automationInstalls: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
+		definition: v.optional(automationDefinition),
+		workspaceId: v.id("workspaces"),
+		automationId: v.string(),
+		agentId: v.id("agents"),
+		enabled: v.boolean(),
+		/** Schedules run in this time zone: the maker's or installer's, when they set it up. */
+		timeZone: v.string(),
+		installedBy: v.id("users"),
+		/** The schedule run it last did, or when its schedule was set or it was resumed: runs after it are due (core `scheduleDue`). */
+		lastScheduledAt: v.optional(v.number()),
+		nextRunAt: v.optional(v.number()),
+		consecutiveFailures: v.optional(v.number()),
+		eventKey: v.optional(v.string()),
+		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
+		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
+		lastRunDate: v.optional(v.string()),
+		lastRunAt: v.optional(v.number()),
+		/**
+		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
+		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
+		 */
+		lastOutcome: v.optional(v.object({ text: v.string(), failed: v.optional(v.boolean()), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
+		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
+		// has run on prod, drop this. Nothing reads it.
+		lastResult: v.optional(v.string()),
+		/** Who it runs for; automationAudiences backfilled existing installs in alpha.6. */
+		audience,
+		/** Audience "channel": post each run here, once. */
+		channelId: v.optional(v.id("chats")),
+		/** Who picked the channel. Library automations' channel runs act as them (or another owner if they've left); ones people make act as their maker. */
+		channelSetBy: v.optional(v.id("users")),
+		/** Webhook automations: the secret in their URL (`/automations/<token>`). */
+		webhookToken: v.optional(v.string()),
+		/** Set for automations people made (id "custom-…"); retired library ones use definition. Shared setting: versioned. */
+		custom: v.optional(
+			v.object({
+				name: v.string(),
+				prompt: v.string(),
+				trigger: customTrigger,
+				version: v.number(),
+				updatedBy: v.id("users"),
+				updatedAt: v.number(),
+			}),
+		),
+		/** Automations: in Archive (the `trash` table says who deleted it, and when). Nothing triggers it. */
+		archived: v.optional(v.boolean()),
+	})
+		.index("by_workspace", ["workspaceId", "automationId"])
+		.index("by_due", ["nextRunAt"])
+		.index("by_event", ["workspaceId", "eventKey"])
+		.index("by_webhook", ["webhookToken"]),
+
+	// People who turned on an automation whose audience is "subscribers".
+	automationSubscriptions: defineTable({
+		installId: v.id("automationInstalls"),
+		userId: v.id("users"),
+	})
+		.index("by_install", ["installId", "userId"])
+		.index("by_user", ["userId"]),
+
+	// ---- Permissions: per-person rules and owner locks on agent actions. See wiki/permissions.md. ----
+	// An action is one tool: "<connector>.<tool>" on one connector install, or a built-in's id.
+	// Read fresh for every call (permissions.check); never copied into a session.
+
+	// One person's Always or Never for one action. With `automationInstallId`, an Always granted
+	// when they turned that automation on: it applies to that automation's runs only.
+	permissionRules: defineTable({
+		workspaceId: v.id("workspaces"),
+		userId: v.id("users"),
+		action: v.string(),
+		/** Connector actions: the install it was set on. Uninstalling deletes it. */
+		connectorInstallId: v.optional(v.id("connectorInstalls")),
+		automationInstallId: v.optional(v.id("automationInstalls")),
+		setting: v.union(v.literal("always"), v.literal("never")),
+		setAt: v.number(),
+	})
+		.index("by_user", ["userId", "action"])
+		.index("by_workspace", ["workspaceId", "userId"])
+		.index("by_automation", ["automationInstallId"])
+		.index("by_connector", ["connectorInstallId"]),
+
+	// An owner's lock on one action, for everyone (core LockSetting).
+	permissionLocks: defineTable({
+		workspaceId: v.id("workspaces"),
+		action: v.string(),
+		connectorInstallId: v.optional(v.id("connectorInstalls")),
+		lock: v.union(v.literal("ask"), v.literal("block"), v.literal("none")),
+		setBy: v.id("users"),
+		setAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId", "action"])
+		.index("by_connector", ["connectorInstallId"]),
+
+	// The tools a connector's server last listed, so settings can show its actions before
+	// anyone uses them. Display only: calls are always decided on the live tool.
+	connectorTools: defineTable({
+		workspaceId: v.id("workspaces"),
+		connectorId: v.string(),
+		tools: v.array(v.object({ name: v.string(), title: v.optional(v.string()), description: v.string(), risk })),
+	}).index("by_workspace", ["workspaceId", "connectorId"]),
+
+	// ---- End permissions ----
+
+	// Webhook delivery ids. Keep the automationEvents table name to avoid a migration.
+	automationEvents: defineTable({
+		installId: v.id("automationInstalls"),
+		eventId: v.string(),
+	}).index("by_install", ["installId", "eventId"]),
+
+	// ---- Databases and records. See wiki/data.md. ----
+
+	// A database created by the team. Existing keys stay stable.
+	recordTypes: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
+		// COMPAT(0.1.0-alpha.11): the old All tab's shared layout. Once migrations.allView has run on prod, drop this and `databaseDisplay`. Only that migration reads it.
+		display: v.optional(databaseDisplay),
+		version: v.optional(v.number()),
+		workspaceId: v.id("workspaces"),
+		/** Stable, unique per workspace. */
+		key: v.string(),
+		name: v.string(),
+		plural: v.string(),
+		/** In Trash (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		/** Who can see and change it, its records and their pages. */
+		access,
+	}).index("by_workspace", ["workspaceId", "key"]),
+
+	// Named sorting, filtering and columns, shared with the workspace.
+	databaseViews: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		...viewConfig,
+		/** Saved as they're dropped (databaseViews.setWidth), not with the rest: no version change, no history. */
+		widths: v.optional(columnWidths),
+		version: v.number(),
+		// COMPAT(0.1.0-alpha.10): drop once migrations.dropViewNotice has run on prod. Views no longer carry a note.
+		notice: v.optional(v.string()),
+	}).index("by_type", ["typeId"]),
+
+	// A field on a database. Its values live on `records.values[key]`; renaming keeps the key.
+	recordFields: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		key: v.string(),
+		label: v.string(),
+		kind: fieldKind,
+		/** One of core's `fieldIcons`; without one the app shows the kind's icon. */
+		icon: v.optional(v.string()),
+		/** Removed options stay, `retired`, so records using them keep their meaning. `color`: one of core's `optionColors`. */
+		options: v.optional(v.array(v.object({ id: v.string(), label: v.string(), retired: v.optional(v.boolean()), color: v.optional(v.string()) }))),
+		linkTypeId: v.optional(v.id("recordTypes")),
+		multiple: v.optional(v.boolean()),
+		/**
+		 * Set while its kind, one/several or linked database is changing (fieldChanges.ts): values are
+		 * converting in the background, so the field and its values can't be edited until it's unset.
+		 */
+		change: v.optional(v.id("fieldChanges")),
+		/** Display order. */
+		position: v.number(),
+		/** In Trash: its values stay on every record but can't be set, filtered or sorted. */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+	})
+		.index("by_type", ["typeId", "key"])
+		.index("by_type_kind", ["typeId", "kind"]),
+
+	records: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		/** `values.name`, kept here for display. */
+		title: v.string(),
+		values: v.record(v.string(), fieldValue),
+		/** Title and other text values, for the search index. */
+		searchText: v.string(),
+		/** In Trash (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Set when an agent made the last change, acting for `updatedBy`. */
+		updatedByAgent: v.optional(v.id("agents")),
+		/**
+		 * Its place in the database's manual order (core `rank`): boards without a sort list by it, and dragging a
+		 * card sets it. Starts by creation time, newest first. COMPAT(0.1.0-alpha.10): required once migrations.recordRanks has run on prod.
+		 */
+		rank: v.optional(v.string()),
+	})
+		.index("by_type", ["typeId", "archived"])
+		.index("by_type_rank", ["typeId", "archived", "rank"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_type_updated", ["typeId", "archived", "updatedAt"])
+		// Every record of a database by creation time, in Archive or not: a field change converts them in this order.
+		.index("by_type_created", ["typeId"])
+		.searchIndex("search", { searchField: "searchText", filterFields: ["workspaceId", "typeId", "archived"] }),
+
+	// A page: a standalone doc (wiki, SOP, meeting notes) or a record's body. Its content lives
+	// in the prosemirrorSync component, keyed by the page's id (pageSync.ts). See wiki/pages.md.
+	pages: defineTable({
+		/** Sources retained across edits and later audience changes. Older rows have none. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		/** Set for a record's body; standalone pages have none. */
+		recordId: v.optional(v.id("records")),
+		/**
+		 * A folder in Drive: a page row with no content, holding pages, files and other folders (driveFiles.ts).
+		 * Unset is a page. Folders sit in folders or at the top level; pages hold sub-pages only.
+		 */
+		kind: v.optional(v.literal("folder")),
+		/** Only standalone pages have one: inside a page (a record's too, as sub-pages) or a folder. */
+		parentId: v.optional(v.id("pages")),
+		/** Standalone pages only: a record's body shows the record's name. A folder's name. */
+		title: v.string(),
+		/** In Trash (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Standalone pages: who can see and edit it. Unset follows its parent (inside a record's page, its database); a top-level page's is Everyone at Edit. */
+		access,
+	})
+		.index("by_workspace", ["workspaceId", "recordId", "archived", "title"])
+		.index("by_parent", ["workspaceId", "parentId", "recordId", "archived", "title"])
+		.searchIndex("search_title", { searchField: "title", filterFields: ["workspaceId", "archived"] }),
+
+	pageMoves: defineTable({
+		workspaceId: v.id("workspaces"),
+		pageId: v.id("pages"),
+		n: v.number(),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		/** Where it moved from and to: a page, or null for the top level. Unset only on an old row no page matched. */
+		fromId: v.optional(v.union(v.id("pages"), v.null())),
+		toId: v.optional(v.union(v.id("pages"), v.null())),
+		// COMPAT(0.1.0-alpha.10): titles, as rows held them before ids. Once migrations.pageMoveIds has run on prod, drop these. Nothing reads them.
+		from: v.optional(v.string()),
+		to: v.optional(v.string()),
+	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
+
+	// A page's history: one row per run of edits, like Notion's: whoever started it, and
+	// anyone else who edited meanwhile. Its content is the component's snapshot at `version`; the rest are pruned.
+	pageVersions: defineTable({
+		pageId: v.id("pages"),
+		/** Counts up per page, so the oldest past PAGE_VERSIONS_MAX are found by index. */
+		n: v.number(),
+		/** The component's document version this one ends at. */
+		version: v.number(),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		/** Others who edited while it was open (an agent, for whom), in order. */
+		others: v.optional(v.array(v.object({ userId: v.id("users"), agentId: v.optional(v.id("agents")) }))),
+		editedAt: v.number(),
+		/** Set when it restored an older version: that version's time. */
+		restored: v.optional(v.number()),
+	}).index("by_page", ["pageId", "n"]),
+
+	// Pictures in a page: uploaded (pages.addImage), or pasted from another page in the workspace
+	// (pageOps.adoptImages). Kept while the page is, even once out of its content, so restoring an
+	// older version brings them back. The file goes with the last page that has it.
+	// A file in Drive (driveFiles.ts): uploaded like a chat file (files.upload), then put in a folder or at the
+	// top level. Its type is what its bytes said. Who can access follows its folder unless it sets its own.
+	driveFiles: defineTable({
+		/** Sources retained across edits and later audience changes. */
+		usedPlaces,
+		workspaceId: v.id("workspaces"),
+		/** The folder it's in; unset at Drive's top level. Never a page. */
+		parentId: v.optional(v.id("pages")),
+		...fileInfo.fields,
+		storageId: v.id("_storage"),
+		/** In Archive (the `trash` table says who deleted it, and when). */
+		archived: v.boolean(),
+		createdBy: v.id("users"),
+		updatedAt: v.number(),
+		updatedBy: v.id("users"),
+		/** Who can see and change it. Unset follows its folder; a top-level file's is Everyone at Edit. */
+		access,
+	})
+		.index("by_workspace", ["workspaceId", "archived", "name"])
+		.index("by_parent", ["workspaceId", "parentId", "archived", "name"])
+		.index("by_storage", ["storageId"])
+		.searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId", "archived"] }),
+
+	pageImages: defineTable({ workspaceId: v.id("workspaces"), pageId: v.id("pages"), storageId: v.id("_storage"), url: v.string() })
+		.index("by_page", ["pageId", "url"])
+		.index("by_url", ["workspaceId", "url"])
+		.index("by_storage", ["storageId"]),
+
+	// The index behind filtering and sorting on any field: one row per value of a live
+	// record (core's indexEntries). Archived records have none. Never read for display.
+	// Rows linking to an archived record stay; queries treat that target as gone.
+	recordValues: defineTable({
+		recordId: v.id("records"),
+		fieldId: v.id("recordFields"),
+		str: v.optional(v.string()),
+		num: v.optional(v.number()),
+		/** Link fields: the record linked to. Also answers "what links here". */
+		ref: v.optional(v.id("records")),
+		/** The record's _creationTime, so equal values list newest first and combined filters can merge by it. */
+		at: v.number(),
+	})
+		.index("by_record", ["recordId", "fieldId"])
+		// Ending in `at` then `recordId`, so records sharing a value and creation time still page in a fixed order.
+		.index("by_field_str", ["fieldId", "str", "at", "recordId"])
+		.index("by_field_num", ["fieldId", "num", "at", "recordId"])
+		// Currency: `str` is the code and `num` the amount in its smallest unit, so amounts sort within their currency.
+		.index("by_field_money", ["fieldId", "str", "num", "at", "recordId"])
+		// A field's rows by creation time: the name field's lists every live record, newest first.
+		.index("by_field_at", ["fieldId", "at", "recordId"])
+		.index("by_ref", ["ref", "fieldId", "at", "recordId"]),
+
+	// Every change to a record or field, oldest to newest: who (or which agent, acting
+	// for whom), and each value's old → new. Undo applies a change in reverse.
+	recordHistory: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		recordId: v.optional(v.id("records")),
+		fieldId: v.optional(v.id("recordFields")),
+		subject: v.optional(v.string()),
+		action: v.union(
+			v.literal("created"),
+			v.literal("updated"),
+			v.literal("archived"),
+			v.literal("restored"),
+			v.literal("database.created"),
+			v.literal("database.updated"),
+			v.literal("database.archived"),
+			v.literal("database.restored"),
+			v.literal("view.created"),
+			v.literal("view.updated"),
+			v.literal("view.deleted"),
+			v.literal("field.created"),
+			v.literal("field.updated"),
+			v.literal("field.archived"),
+			v.literal("field.restored"),
+		),
+		/** Records: changed values by field key. Fields: changed settings ("label", "icon", "options", "colors"). */
+		changes: v.array(v.object({ key: v.string(), old: v.optional(fieldValue), new: v.optional(fieldValue) })),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		/** Set on an undo: the change it reversed. */
+		undoes: v.optional(v.id("recordHistory")),
+		/** Set once this change has been undone. */
+		undoneBy: v.optional(v.id("recordHistory")),
+	})
+		.index("by_record", ["recordId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_type", ["typeId"])
+		.index("by_field", ["fieldId"]),
+
+	// A change to a field's kind, one/several or linked database, converting every record's value in
+	// batches (fieldChanges.ts). Forward changes keep each changed record's old value so the change can
+	// be undone; undoing is a change too (`undoes`), and keeps none.
+	fieldChanges: defineTable({
+		workspaceId: v.id("workspaces"),
+		typeId: v.id("recordTypes"),
+		fieldId: v.id("recordFields"),
+		from: fieldShape,
+		to: fieldShape,
+		/** Set on an undo: the change it reverses. */
+		undoes: v.optional(v.id("fieldChanges")),
+		/** Set once this change has been undone (or is being). */
+		undoneBy: v.optional(v.id("fieldChanges")),
+		status: v.union(v.literal("running"), v.literal("done")),
+		/** Records created at or before this have been converted. */
+		doneThrough: v.number(),
+		counts: changeCounts,
+		/** Its line in the field's history. */
+		historyId: v.optional(v.id("recordHistory")),
+		userId: v.id("users"),
+		agentId: v.optional(v.id("agents")),
+		finishedAt: v.optional(v.number()),
+		/** Forward changes: old values are kept until then, so it can be undone. */
+		keepUntil: v.optional(v.number()),
+		/** Its kept values were deleted (keepUntil passed): it can't be undone. */
+		forgotten: v.optional(v.boolean()),
+		/** Its latest scheduled run, so `resume` can tell a failed run from a slow one. */
+		run: v.optional(v.id("_scheduled_functions")),
+		updatedAt: v.number(),
+		error: v.optional(v.string()),
+	})
+		.index("by_field", ["fieldId"])
+		.index("by_type", ["typeId"])
+		.index("by_workspace", ["workspaceId"])
+		.index("by_history", ["historyId"])
+		.index("by_status", ["status", "updatedAt"])
+		.index("by_keep", ["keepUntil"]),
+
+	// A record's value before a field change rewrote it, and what it wrote, so undo restores it exactly
+	// (unless the record changed since). Only records whose value changed have one.
+	fieldChangeValues: defineTable({
+		changeId: v.id("fieldChanges"),
+		recordId: v.id("records"),
+		old: v.optional(fieldValue),
+		new: v.optional(fieldValue),
+	})
+		.index("by_change", ["changeId", "recordId"])
+		.index("by_record", ["recordId"]),
+
+	// A chat message that references a record, so the record can show where it was discussed.
+	recordMentions: defineTable({
+		recordId: v.id("records"),
+		messageId: v.id("chatMessages"),
+		chatId: v.id("chats"),
+	})
+		.index("by_record", ["recordId"])
+		.index("by_message", ["messageId"])
+		.index("by_chat", ["chatId"]),
+
+	// What's in Archive: one row per deleted record, database, field, page, channel, agent, or skill or automation people made (trash.ts).
+	// The item itself stays, `archived`, until it's restored or deleted for good: by `trash.manage`,
+	// or after TRASH_DAYS by `trash.sweep`. See wiki/data.md#trash.
+	trash: defineTable({
+		workspaceId: v.id("workspaces"),
+		kind: trashKind,
+		/** The item's row id: record, database, field, page or folder, file, chat, agent, or skill or automation install. */
+		itemId: v.string(),
+		/** Its name when deleted, for listing and search. */
+		name: v.string(),
+		/** Page or folder deletion included live children (sub-pages, or a folder's contents), captured when it entered Trash. */
+		includesSubpages: v.optional(v.boolean()),
+		/** Records and fields: their database. */
+		typeId: v.optional(v.id("recordTypes")),
+		deletedBy: v.id("users"),
+		/** Set when an agent deleted it, acting for `deletedBy`. */
+		agentId: v.optional(v.id("agents")),
+		deletedAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId", "deletedAt"])
+		.index("by_kind", ["workspaceId", "kind", "deletedAt"])
+		.index("by_item", ["itemId"])
+		.index("by_type", ["typeId"])
+		.index("by_deleted", ["deletedAt"])
+		.searchIndex("search", { searchField: "name", filterFields: ["workspaceId", "kind"] }),
+
+	// What AI cost, by month (UTC "2026-10"): one row per person, agent, kind and model, added to by
+	// `recordUsage` (usage.ts) as each paid call finishes, so the Usage screen reads a few rows, not messages.
+	usage: defineTable({
+		workspaceId: v.id("workspaces"),
+		month: v.string(),
+		/** Who it ran for. Unset for calls that ran for nobody in particular. */
+		userId: v.optional(v.id("users")),
+		agentId: v.optional(v.id("agents")),
+		kind: oneOf(usageKinds),
+		model: v.optional(v.string()),
+		costUsd: v.number(),
+	})
+		.index("by_month_kind", ["workspaceId", "month", "kind"])
+		.index("by_bucket", ["workspaceId", "month", "userId", "agentId", "kind", "model"])
+		.index("by_user", ["workspaceId", "userId", "month"]),
+
+	// A picture call's estimated cost, held against the monthly image budget while the gateway works
+	// (imageGen.ts), so parallel calls can't all pass it. Settled into `usage`, or released on failure or after HOLD_MS.
+	imageHolds: defineTable({ workspaceId: v.id("workspaces"), costUsd: v.number() }).index("by_workspace", ["workspaceId"]),
+
+	// A cascade deleting what belonged to something that went (cascade.ts): one page of one
+	// edge of lifecycle.ts per run, resumed from `edge` and `cursor`. `key` names what's going,
+	// so rejoining or reinstalling waits until its old rows are gone.
+	cascades: defineTable({
+		scope: v.union(v.literal("role"), v.literal("workspace"), v.literal("reset"), v.literal("member"), v.literal("user"), v.literal("connectorInstall"), v.literal("automationInstall"), trashKind),
+		root: v.object({
+			roleId: v.optional(v.id("roles")),
+			/** With `roleId`: what a pending invite left with no role gets instead (Member). */
+			fallbackRoleId: v.optional(v.id("roles")),
+			workspaceId: v.optional(v.id("workspaces")),
+			userId: v.optional(v.id("users")),
+			connectorId: v.optional(v.string()),
+			connectorInstallId: v.optional(v.id("connectorInstalls")),
+			automationInstallId: v.optional(v.id("automationInstalls")),
+			pageId: v.optional(v.id("pages")),
+			recordId: v.optional(v.id("records")),
+			typeId: v.optional(v.id("recordTypes")),
+			fieldId: v.optional(v.id("recordFields")),
+			chatId: v.optional(v.id("chats")),
+			agentId: v.optional(v.id("agents")),
+		}),
+		key: v.string(),
+		/** The edge it's on, as "table.index" ("" before the first). */
+		edge: v.string(),
+		cursor: v.union(v.string(), v.null()),
+		/** Rows to read next, when the last page didn't fit in one run (cascade.ts). */
+		rows: v.optional(v.number()),
+		updatedAt: v.number(),
+		/** Its latest scheduled run, so `resume` can tell a failed run from a slow one. */
+		run: v.optional(v.id("_scheduled_functions")),
+		/** Runs that failed in a row, and the last one's error. */
+		attempts: v.optional(v.number()),
+		error: v.optional(v.string()),
+		/** Set after MAX_ATTEMPTS failures: `resume` leaves it until someone fixes the cause and runs `cascade:retry`. */
+		stuck: v.optional(v.boolean()),
+	})
+		.index("by_key", ["key"])
+		.index("by_updated", ["stuck", "updatedAt"]),
+});
