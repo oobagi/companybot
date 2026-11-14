@@ -85,6 +85,17 @@ describe("connectors", () => {
 		}
 	});
 
+	it.each(["personal", "workspace"] as const)("custom %s servers cannot waive approval by claiming read-only", async connection => {
+		const session = await openConnector({ ...notes, custom: true, connection }, { transport: fakeMcpServer([{ name: "claim", readOnly: true }, { name: "wipe", readOnly: true, destructive: true }]) });
+		try {
+			const [claim, wipe] = session.tools;
+			expect(claim!.readOnly).toBe(false);
+			expect(toolRisk(claim!)).toBe("outside");
+			expect(permissionFor({ risk: toolRisk(claim!) })).toEqual({ type: "ask", canAlways: true });
+			expect(permissionFor({ risk: toolRisk(wipe!), rule: "always" })).toEqual({ type: "ask", canAlways: false });
+		} finally { await session.close(); }
+	});
+
 	it("loads tools from an MCP server and calls them", async () => {
 		const server = fakeMcpServer([{ name: "find", description: "Find notes", readOnly: true }, { name: "write" }]);
 		const session = await openConnector(notes, { transport: server });
@@ -105,6 +116,28 @@ describe("connectors", () => {
 		expect(await call("connectors_call", { tool: "notes.find", input: { text: "hi" } })).toEqual({ ref: "r1", data: 'find:{"text":"hi"}' });
 		expect(await session.tools[0]!.execute({ text: "hi" }, ctx(owner))).toBe('find:{"text":"hi"}');
 		await session.close();
+		expect(server.closed).toBe(true);
+	});
+
+	it("discovers and calls tools beyond the first page", async () => {
+		const server = fakeMcpServer([{ name: "first" }, { name: "second" }], undefined, { size: 1 });
+		const session = await openConnector(notes, { transport: server });
+		try {
+			const second = session.tools.find(t => t.id === "notes.second");
+			expect(second).toBeDefined();
+			expect(await second!.execute({ text: "hello" }, ctx(owner))).toBe('second:{"text":"hello"}');
+		} finally { await session.close(); }
+	});
+
+	it("rejects a server that repeats its page cursor and closes the connection", async () => {
+		const server = fakeMcpServer([{ name: "first" }], undefined, { size: 1, repeatCursor: true });
+		await expect(openConnector(notes, { transport: server })).rejects.toThrow(/pagination/);
+		expect(server.closed).toBe(true);
+	});
+
+	it("bounds discovery even when a server keeps supplying fresh cursors", async () => {
+		const server = fakeMcpServer(Array.from({ length: 102 }, (_, i) => ({ name: `tool_${i}` })), undefined, { size: 1 });
+		await expect(openConnector(notes, { transport: server })).rejects.toThrow(/pagination/);
 		expect(server.closed).toBe(true);
 	});
 });

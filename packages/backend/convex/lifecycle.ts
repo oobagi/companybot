@@ -143,6 +143,24 @@ async function leaveErased(ctx: MutationCtx, row: Doc<"members">) {
 }
 
 export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
+	integrationOAuthClients: { keep: "Public OAuth client metadata, not user data. Expires after 30 inactive days; integrationMaintenance sweeps it." },
+	integrationEvents: { workspace: { index: "by_workspace", eq: ["workspaceId"] } },
+	integrationOAuthCodes: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
+	integrationRefreshTokens: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
+	integrationAudit: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
+	integrationWebhooks: { workspace: { index: "by_workspace", eq: ["workspaceId"] }, member: { index: "by_user", eq: ["userId", "workspaceId"] }, user: { index: "by_user", eq: ["userId"] } },
+	connectorArtifacts: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+		childOf: { table: "agentTurns", index: "by_turn", field: "turnId" },
+		files: ["storageId"],
+	},
+	integrationTokens: {
+		workspace: { index: "by_workspace", eq: ["workspaceId"] },
+		member: { index: "by_user", eq: ["userId", "workspaceId"] },
+		user: { index: "by_user", eq: ["userId"] },
+	},
 	// ---- Convex Auth ----
 	users: {
 		keep: "Never deleted: ~20 tables point at people. Erasing an account (workspace.eraseAccount) scrubs it at once to `{ erasedAt }`, so they show as a former member and a sign-in from before acts as nobody.",

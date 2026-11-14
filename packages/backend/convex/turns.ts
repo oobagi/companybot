@@ -1,3 +1,5 @@
+import { integrationEvent } from "./integrationEventLog";
+import { autonomyProblem, isHandoff } from "./agentPolicy";
 import { publicSearchChat } from "./chatDiscovery";
 import type { PlaceMessage, Skill } from "@companybot/core";
 import type { ModelMessage } from "ai";
@@ -63,7 +65,7 @@ type Place = { agentId: Id<"agents">; chatId: Id<"chats">; threadId?: Id<"chatMe
 export async function enqueueTurn(
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
-	turn: Place & { actorId: Id<"users">; person?: true; routed?: true; dispatch?: Doc<"agentTurns">["dispatch"]; chain?: Doc<"agentTurns">["chain"]; ask?: Doc<"agentTurns">["ask"] } & (
+	turn: Place & { actorId: Id<"users">; person?: true; routed?: true; handoff?: true; dispatch?: Doc<"agentTurns">["dispatch"]; chain?: Doc<"agentTurns">["chain"]; ask?: Doc<"agentTurns">["ask"] } & (
 			// After an approval, the original turn's trigger: none if it followed an old welcome turn.
 			| { triggerId: Id<"chatMessages">; approvalId?: Id<"approvals"> }
 			| { triggerId: Id<"chatMessages"> | undefined; approvalId: Id<"approvals">; wakeupId?: Id<"wakeups"> }
@@ -226,9 +228,9 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 		if (newest.debouncing && Date.now() - newest._creationTime < STALE_TURN_MS) return;
 		next = newest;
 		// A follow-up to a pick is a pick too (queueFollowUps), unless one of the messages it covers asked the agent directly.
-		if (next.routed && theirs.some((t) => !t.routed)) {
-			await ctx.db.patch(next._id, { routed: undefined, dispatch: undefined });
-			next = { ...next, routed: undefined, dispatch: undefined };
+		if ((next.routed || next.handoff) && theirs.some((t) => !t.routed && !t.handoff)) {
+			await ctx.db.patch(next._id, { routed: undefined, dispatch: undefined, handoff: undefined });
+			next = { ...next, routed: undefined, dispatch: undefined, handoff: undefined };
 		}
 		await mergeQueued(ctx, next);
 	}
@@ -240,13 +242,17 @@ async function startNext(ctx: MutationCtx, { agentId, chatId, threadId }: Place)
 			? "its chat was deleted"
 			: !(await canReplyAs(ctx, chat, await memberOf(ctx, next.actorId, chat.workspaceId)))
 				? "its person can no longer post there"
-				: null;
+				: await autonomyProblem(ctx, next);
 	if (!chat || problem) {
 		await ctx.db.patch(next._id, { status: "error" });
 		await startThen(ctx, next);
 		await setWakeOutcome(ctx, next, "failed");
 		await answerAsk(ctx, next, problem ?? undefined);
-		return await settleApproval(ctx, next);
+		await settleApproval(ctx, next);
+		// A disallowed queued handoff must not strand a later human request in the same place.
+		const following = await turnsAt(ctx, place, "queued").first();
+		if (following) await ctx.scheduler.runAfter(following.debouncing ? Math.max(0, following._creationTime + QUIET_WINDOW_MS - Date.now()) : 0, internal.turns.startQueued, { turnId: following._id });
+		return;
 	}
 
 	const session =
@@ -350,6 +356,8 @@ export async function runningTurn(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	if (!chat || chat.archived || !(await canSee(ctx, chat, member))) throw new Error("This person can no longer see this chat.");
 	// Its reply posts there as them: a read-only channel ends it (chatOps.canReplyAs).
 	if (!canPost(member, chat)) throw new Error("This person can no longer post in this chat.");
+	const policyProblem = await autonomyProblem(ctx, turn);
+	if (policyProblem) throw new Error(policyProblem);
 	const scope = await automationScope(ctx, turn);
 	const seats = !scope.foreign && chat.kind === "dm" ? await chatMembersOf(ctx, chat._id) : [];
 	member.ownWrites = seats.filter((seat) => seat.userId).length === 1 && seats.some((seat) => seat.userId === member.userId) && seats.some((seat) => seat.agentId);
@@ -457,7 +465,7 @@ export const turnContext = internalMutation({
 		const parent = threadParent && await readReply(ctx, member, threadParent) ? threadParent : null;
 		// What the person wrote, the only links web.fetch opens before searching: this turn's messages,
 		// the thread's parent, and after an approval the message that started it (it's before the window).
-		const own = (m: Doc<"chatMessages"> | null | undefined | false): m is Doc<"chatMessages"> => !!m && !m.deleted && m.authorUserId === member.userId;
+		const own = (m: Doc<"chatMessages"> | null | undefined | false): m is Doc<"chatMessages"> => !!m && !m.deleted && !m.external && m.authorUserId === member.userId;
 		const origin = approval && turn.triggerId && (await ctx.db.get(turn.triggerId));
 		const asked = [...recent, parent, origin].filter(own).map((m) => m.text);
 		/** A thread's first turn starts with its parent. */
@@ -711,7 +719,8 @@ async function show(ctx: MutationCtx, reply: Doc<"chatMessages">) {
  */
 async function lostReply(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const chat = await ctx.db.get(turn.chatId);
-	return !chat || !(await canReplyAs(ctx, chat, await memberOf(ctx, turn.actorId, turn.workspaceId)));
+	if (!chat || !(await canReplyAs(ctx, chat, await memberOf(ctx, turn.actorId, turn.workspaceId)))) return "This person can no longer post in this chat.";
+	return autonomyProblem(ctx, turn);
 }
 
 /**
@@ -722,7 +731,7 @@ async function lostReply(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 async function turnState(ctx: QueryCtx, turnId: Id<"agentTurns">) {
 	const turn = await ctx.db.get(turnId);
 	const lost = !!turn && turn.status === "running" && (await lostReply(ctx, turn));
-	const stopped = !turn || turn.status !== "running" || !!turn.stopping || lost;
+	const stopped = !turn || turn.status !== "running" || !!turn.stopping || !!lost;
 	return { stopped, steer: !stopped && (await steering(ctx, turn)).length > 0, lost };
 }
 
@@ -761,7 +770,7 @@ async function steerable(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	if (turn.status !== "running" || turn.stopping || turn.wakeupId || !turn.replyId) return false;
 	if (Date.now() - (turn.startedAt ?? turn._creationTime) >= STALE_TURN_MS) return false;
 	const trigger = turn.triggerId && (await ctx.db.get(turn.triggerId));
-	return !trigger?.automation;
+	return !trigger?.automation && !trigger?.external;
 }
 
 /**
@@ -808,6 +817,7 @@ export async function queueFollowUps(ctx: MutationCtx, chat: Doc<"chats">, messa
 			triggerId: message._id,
 			actorId,
 			person: true,
+			...(isHandoff(turn) && { handoff: true as const }),
 			...(turn.routed && { routed: true as const, ...(dispatch && { dispatch }) }),
 		});
 		agents.push(turn.agentId);
@@ -1019,7 +1029,7 @@ export const finishReply = internalMutation({
 		// (updateReply) goes out, and it makes no decision: no reaction, no handoff.
 		const lost = await lostReply(ctx, turn);
 		let decided = stopped || lost ? undefined : decision;
-		let error = lost ? "This person can no longer post in this chat." : stopped ? undefined : failed;
+		let error = lost ?? (stopped ? undefined : failed);
 		// The decision can follow restricted tool reads. Its reaction must fit the trigger's audience.
 		if (!error && responseOf(decided).emoji && turn.triggerId) {
 			const trigger = await ctx.db.get(turn.triggerId);
@@ -1042,7 +1052,7 @@ export const finishReply = internalMutation({
 			const end = error ? { status: "error" as const, error } : { status: "done" as const, ...(stopped && { stoppedBy: stopped.by }) };
 			await endStream(ctx, reply, { ...end, stats, ...(!shown && { quiet: true as const }) });
 			if (shown && !lost) await tagReply(ctx, turn, reply._id);
-			if (shown) await show(ctx, reply);
+			if (shown) { await show(ctx, reply); await integrationEvent(ctx, turn.workspaceId, "message.updated", reply._id); }
 			if (shown && !error) await previewMessage(ctx, (await ctx.db.get(reply._id))!);
 			if (shown && !error) await ctx.scheduler.runAfter(1000, internal.mobileNotifications.enqueue, { messageId: reply._id });
 		}

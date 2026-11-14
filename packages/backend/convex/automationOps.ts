@@ -34,7 +34,7 @@ export async function automationScope(ctx: QueryCtx, turn: Doc<"agentTurns">) {
 	const automation = trigger?.automation ? await installOf(ctx, turn.workspaceId, trigger.automation.id) : null;
 	const wakeup = turn.wakeupId ? await ctx.db.get(turn.wakeupId) : null;
 	// Legacy triggers without a provenance snapshot, removed installs, and wakeups already forgotten stay foreign.
-	const foreign =
+	const foreign = !!trigger?.external ||
 		(!!trigger?.automation && ((trigger.automation.foreign ?? true) || !automation || followsOthers(automation, turn.actorId))) ||
 		(!!turn.wakeupId && (wakeup?.foreign ?? true));
 	return { trigger, automation, foreign, wakeup };

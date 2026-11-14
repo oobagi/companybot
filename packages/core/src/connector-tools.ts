@@ -1,5 +1,6 @@
 import { type ToolSet, asSchema, tool } from "ai";
 import { z } from "zod";
+import { mcpModelOutput } from "./mcp-content";
 import type { ToolDef } from "./tools";
 
 /**
@@ -45,6 +46,7 @@ export function connectorMetaTools(
 			},
 		}),
 		[CONNECTOR_CALL]: tool({
+			toModelOutput: ({ output }) => mcpModelOutput(output),
 			description: "Run a connected-service tool found with connectors_search. `input` must match its schema.",
 			inputSchema: z.object({
 				tool: z.string().describe("The tool's id from connectors_search"),

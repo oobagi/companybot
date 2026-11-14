@@ -1,3 +1,4 @@
+import { autonomyAllowed } from "./agentPolicy";
 import {
 	type ChainBudget,
 	FOLLOWUP_NOTE_MAX,
@@ -93,6 +94,7 @@ async function agentPostsIn(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"ch
  * goes next (router.next), unless it was talking to a person.
  */
 export async function handOff(ctx: MutationCtx, turn: Doc<"agentTurns">, to?: string) {
+	if (!(await autonomyAllowed(ctx, turn.workspaceId, true))) return;
 	const reply = await shownReply(ctx, turn);
 	if (!reply || reply.status !== "done" || reply.deleted || turn.ask || !(await personAsked(ctx, turn))) return;
 	const chat = await ctx.db.get(turn.chatId);
@@ -126,6 +128,7 @@ export async function dispatchTo(ctx: MutationCtx, turn: Doc<"agentTurns">, agen
 	const reply = await shownReply(ctx, turn);
 	const chat = await ctx.db.get(turn.chatId);
 	const chain = turn.chain && (await ctx.db.get(turn.chain.id));
+	if (!(await autonomyAllowed(ctx, turn.workspaceId, true))) return;
 	if (!reply || reply.deleted || !chat || chat.archived || replyModeOf(chat) !== "relevant" || !chain || agentId === turn.agentId) return;
 	const here = (await chatMembersOf(ctx, chat._id)).some((r) => r.agentId === agentId);
 	const agent = await ctx.db.get(agentId);
@@ -173,6 +176,7 @@ async function passTo(
 
 /** Queues a handed-off turn, as the chain's person. */
 async function startHanded(ctx: MutationCtx, chain: Doc<"agentChains">, h: Held, path: Id<"agents">[]) {
+	if (!(await autonomyAllowed(ctx, chain.workspaceId, true))) return;
 	const agent = await ctx.db.get(h.agentId);
 	const chat = await ctx.db.get(h.chatId);
 	if (!agent || agent.archived || !chat || chat.archived) return;
@@ -184,6 +188,7 @@ async function startHanded(ctx: MutationCtx, chain: Doc<"agentChains">, h: Held,
 		triggerId: h.triggerId,
 		actorId: chain.actorId,
 		chain: { id: chain._id, depth: h.depth, path, epoch: chain.epoch },
+		handoff: true,
 		// Not asked directly: its prompt says so, like a pick for a person's message.
 		...(h.dispatched && { routed: true as const }),
 		...(h.dispatch && { dispatch: h.dispatch }),
@@ -245,6 +250,7 @@ export const decide = mutation({
 		const chain = await ctx.db.get(message.pause.chainId);
 		if (!chain || chain.status !== "paused" || chain.pauseId !== messageId) throw new ConvexError("Someone already decided this.");
 		if (chain.actorId !== member.userId) throw new ConvexError(`Only ${await nameOf(ctx, chain.actorId)} can: the agents are working for them.`);
+		if (action === "continue" && !(await autonomyAllowed(ctx, chain.workspaceId, true))) throw new ConvexError("Agent handoffs are off in workspace settings.");
 		await ctx.db.patch(messageId, { pause: { ...message.pause, status: action === "stop" ? "stopped" : "continued", by: member.userId } });
 		if (action === "stop") return await ctx.db.patch(chain._id, { status: "stopped", held: undefined, pauseId: undefined });
 		const held = chain.held ?? [];
@@ -268,6 +274,7 @@ export const askFor = internalMutation({
 	handler: (ctx, { turnId, op, agent: name, message }) => withReceipt(ctx, op, turnId, async () => {
 		const { turn, chat, member } = await runningTurn(ctx, turnId);
 		return asToolResult(async () => {
+			if (!(await autonomyAllowed(ctx, turn.workspaceId, true))) return { error: "Agent handoffs are off in workspace settings. Answer without asking another agent." };
 			if (!(await personAsked(ctx, turn)))
 				return { error: "Nobody asked you just now (a follow-up, check-in or automation), so don't ask other agents. Do what you can yourself." };
 			const text = message.trim();
@@ -323,6 +330,7 @@ export const askFor = internalMutation({
 				actorId: turn.actorId,
 				chain: { id: chain._id, depth, path: [...handoff.path, to._id], epoch: chain.epoch },
 				ask: { wakeupId },
+				handoff: true,
 			});
 			return {
 				asked: to.name,

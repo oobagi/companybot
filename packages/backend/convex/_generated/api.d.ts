@@ -8,6 +8,18 @@
  * @module
  */
 
+import type * as integrationOAuth from "../integrationOAuth.js";
+import type * as integrationOAuthHttp from "../integrationOAuthHttp.js";
+import type * as integrationAudit from "../integrationAudit.js";
+import type * as integrationEventLog from "../integrationEventLog.js";
+import type * as integrationEvents from "../integrationEvents.js";
+import type * as integrationWebhooks from "../integrationWebhooks.js";
+import type * as integrationNetwork from "../integrationNetwork.js";
+import type * as integrationMaintenance from "../integrationMaintenance.js";
+import type * as integrationTokens from "../integrationTokens.js";
+import type * as integrationOps from "../integrationOps.js";
+import type * as integrationHttp from "../integrationHttp.js";
+import type * as connectorArtifacts from "../connectorArtifacts.js";
 import type * as activity from "../activity.js";
 import type * as agent from "../agent.js";
 import type * as agents from "../agents.js";
@@ -101,6 +113,19 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  connectorArtifacts: typeof connectorArtifacts;
+  integrationOAuth: typeof integrationOAuth;
+  integrationOAuthHttp: typeof integrationOAuthHttp;
+  integrationAudit: typeof integrationAudit;
+  integrationEventLog: typeof integrationEventLog;
+  integrationEvents: typeof integrationEvents;
+  integrationWebhooks: typeof integrationWebhooks;
+  integrationNetwork: typeof integrationNetwork;
+  integrationMaintenance: typeof integrationMaintenance;
+  integrationTokens: typeof integrationTokens;
+  integrationOps: typeof integrationOps;
+  integrationHttp: typeof integrationHttp;
+
   activity: typeof activity;
   agent: typeof agent;
   agents: typeof agents;

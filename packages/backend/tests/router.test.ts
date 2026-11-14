@@ -53,9 +53,12 @@ describe("reply router", () => {
 		expect((await owner.query(api.chats.get, { chatId }))!.replyMode).toBe("mentions");
 	});
 
-	it("is When relevant by default: a new channel goes to the router", async () => {
-		const { owner } = await ownerAndMember();
+	it("starts new channels and general with mentions only, preserving legacy channels", async () => {
+		const { t, owner } = await ownerAndMember();
 		const chatId = await owner.mutation(api.chats.createChannel, { name: "fresh", private: false });
+		expect((await owner.query(api.chats.get, { chatId }))!.replyMode).toBe("mentions");
+		expect((await generalOf(owner)).replyMode).toBe("mentions");
+		await t.run(ctx => ctx.db.patch(chatId, { replyMode: undefined }));
 		expect((await owner.query(api.chats.get, { chatId }))!.replyMode).toBe("relevant");
 	});
 

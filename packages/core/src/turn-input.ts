@@ -1,3 +1,4 @@
+import { mcpModelOutput } from "./mcp-content";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { ToolDef } from "./tools";
@@ -459,6 +460,7 @@ export function buildTurnInput(input: {
 	available?: readonly ToolDef[];
 	/** Only for a model that sees pictures. They go after the prompt, so its text stays a cacheable prefix. */
 	images?: TurnImage[];
+	approval?: ApprovalOutcome;
 }): { instructions: string; messages: ModelMessage[] } {
 	const { session } = input;
 	const messages: ModelMessage[] = [];
@@ -478,12 +480,16 @@ export function buildTurnInput(input: {
 	}
 	say(input.prompt);
 	const instructions = systemPrompt(input.agent, input.skills, input.available);
-	if (!input.images?.length) return { instructions, messages };
+	const approved = (messages: ModelMessage[]): ModelMessage[] => input.approval?.rich ? [...messages,
+		{ role: "assistant", content: [{ type: "tool-call", toolCallId: "approved-result", toolName: "connectors_call", input: { tool: input.approval.tool, input: input.approval.rich.input } }] },
+		{ role: "tool", content: [{ type: "tool-result", toolCallId: "approved-result", toolName: "connectors_call", output: mcpModelOutput(input.approval.rich.output) }] },
+	] : messages;
+	if (!input.images?.length) return { instructions, messages: approved(messages) };
 	const pictures = input.images.flatMap((i) => [
 		{ type: "text" as const, text: `Picture ${i.id}:` },
 		{ type: "file" as const, mediaType: i.type, data: toBase64(i.data) },
 	]);
-	return { instructions, messages: [...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: messages.at(-1)!.content as string }, ...pictures] }] };
+	return { instructions, messages: approved([...messages.slice(0, -1), { role: "user", content: [{ type: "text", text: messages.at(-1)!.content as string }, ...pictures] }]) };
 }
 
 /** Rough token count, for deciding what compaction keeps. */

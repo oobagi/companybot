@@ -654,9 +654,11 @@ export const settings = query({
 			/** Whether any live record has an amount, so the app can say they keep their currency. */
 			hasAmounts: await hasAmounts(ctx, workspace._id),
 			...(await imageSettings(ctx, member, workspace)),
-		/** What decides whether agents reply in "When relevant" channels, and what it can be. */
-		routerModel: workspace.routerModel ?? ROUTER_MODEL,
-		routerModels: await routerModels(ctx),
+			/** What decides whether agents reply in "When relevant" channels, and what it can be. */
+			routerModel: workspace.routerModel ?? ROUTER_MODEL,
+			agentAutonomy: workspace.agentAutonomy ?? true,
+			agentHandoffs: workspace.agentHandoffs ?? true,
+			routerModels: await routerModels(ctx),
 			/** Hours a thread stays under its channel in the sidebar after its last reply. */
 			threadHours: workspace.threadHours ?? THREAD_HOURS_DEFAULT,
 			/** Who last reset it, and when, or null. */
@@ -679,6 +681,8 @@ const updateWorkspaceSettingsArgs = v.object({
 	imageModel: v.optional(v.string()),
 	imageBudgetUsd: v.optional(v.number()),
 	routerModel: v.optional(v.string()),
+	agentAutonomy: v.optional(v.boolean()),
+	agentHandoffs: v.optional(v.boolean()),
 	threadHours: v.optional(v.number()),
 	expectedVersion: v.number(),
 });
@@ -688,7 +692,7 @@ export const updateSettings = mutation({
 	handler: async (ctx, args) => updateWorkspaceSettings(ctx, await requireMember(ctx), args),
 });
 
-export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, routerModel, threadHours, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
+export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, { name, currency, memory, imageModel, imageBudgetUsd, routerModel, agentAutonomy, agentHandoffs, threadHours, expectedVersion }: Infer<typeof updateWorkspaceSettingsArgs>) {
 	const { workspaceId } = checkPermission(member, "workspace.manage");
 	const workspace = (await ctx.db.get(workspaceId))!;
 	checkVersion(workspace.version ?? 0, expectedVersion);
@@ -713,6 +717,8 @@ export async function updateWorkspaceSettings(ctx: MutationCtx, member: Member, 
 		...(memory !== undefined && { memory }),
 		...(imageModel !== undefined && { imageModel }),
 		...(routerModel !== undefined && { routerModel }),
+		...(agentAutonomy !== undefined && { agentAutonomy }),
+		...(agentHandoffs !== undefined && { agentHandoffs }),
 		...(imageBudgetUsd !== undefined && { imageBudgetUsd: Math.round(imageBudgetUsd * 100) / 100 }),
 		...(threadHours !== undefined && { threadHours }),
 		version: (workspace.version ?? 0) + 1,

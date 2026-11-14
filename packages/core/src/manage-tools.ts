@@ -129,6 +129,9 @@ export const manageInputs = {
 				name: z.string().min(1).optional(),
 				currency: z.string().optional(),
 				memory: z.boolean().optional(),
+				routerModel: z.string().optional(),
+				agentAutonomy: z.boolean().optional().describe("Allow proactive replies and agent collaboration; off leaves direct human requests working"),
+				agentHandoffs: z.boolean().optional().describe("Allow agents to mention, hand off to, and privately ask other agents; also requires agentAutonomy"),
 				imageModel: z.string().optional().describe("An AI Gateway picture model id, like google/gemini-nano-banana-2.1"),
 				imageBudgetUsd: z.number().min(0).optional().describe("USD agents may spend on pictures a month; 0 turns pictures off"),
 				threadHours: z.number().optional().describe("Hours a thread stays under its channel in the sidebar after its last reply: 1, 24, 72, 168, or 0 for forever"),
@@ -160,7 +163,7 @@ const about: Record<ManageTool, { title: string; description: string }> = {
 	"members.invite": { title: "Manage member invitations", description: "Invite an email with the default role, or resend or cancel the invitation for an email (needs the members switch). Invite and resend send email outside the workspace and wait for approval. Cannot invite owners or change roles." },
 	"members.remove": { title: "Remove a member", description: "Remove another member by their email (needs the members switch; only owners remove an owner). Deletes their personal workspace data and access. The exact call waits for approval; cannot remove yourself." },
 	"agents.manage": { title: "Manage agents", description: "Browse agents and their paged configuration history, create an agent with no tools, edit metadata, set its picture from a picture in the chat (by file id) or reset it to initials, or delete an agent (to Archive; the last agent stays). Writes need the agents switch. Deleting and changing another agent's instructions, model or reasoning wait for approval; do them only when asked; you cannot change your own instructions/model/reasoning, grant tools, restore grants or restore an agent from Archive. Use the current expectedVersion. models lists the AI Gateway models an agent can run on (id, context, $ per M input/output tokens); use one of those ids." },
-	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, set their photo or (with the settings switch) the workspace logo from a picture in the chat (by file id), or reset it to initials, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch, picture model, monthly image budget (USD; 0 = pictures off; people who see workspace usage also see this month's image spend; imageModels lists the ids to pick from), threadHours (how long a thread stays in the sidebar after its last reply) and version; update these with the settings switch, using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked. usage: what AI cost in a month, in USD: the whole workspace's by agent, person, kind and model for people who see workspace usage, otherwise only the person's own." },
+	"workspace.settings": { title: "Manage workspace settings", description: "Read/update the acting person's display name, set their photo or (with the settings switch) the workspace logo from a picture in the chat (by file id), or reset it to initials, send shortcut, notification preference and explicit time zone (null = automatic). Device time zone is measured by the device. Read workspace name, default currency, memory switch, agentAutonomy (master switch for proactive replies and collaboration), agentHandoffs (collaboration switch), routerModel, picture model, monthly image budget (USD; 0 = pictures off; people who see workspace usage also see this month's image spend; imageModels lists the ids to pick from), threadHours (how long a thread stays in the sidebar after its last reply) and version; update these with the settings switch, using the current expectedVersion. Existing amounts keep their currency; the default only affects new amounts. Memory off keeps stored memories. Change only when asked. usage: what AI cost in a month, in USD: the whole workspace's by agent, person, kind and model for people who see workspace usage, otherwise only the person's own." },
 };
 /** What a call does to whom, for its card and tool line: "Remove ben@acme.com from the workspace", "Post in #sales". */
 function manageLabel(input: unknown): string | undefined {
@@ -220,10 +223,10 @@ export const manageTools: ToolDef[] = (Object.keys(manageInputs) as ManageTool[]
 		...((id === "members.invite" || id === "members.remove") && { permission: "members.manage" as const }),
 		...(id.endsWith(".remove") ? { risk: "locked" as const } : id === "members.invite" || id === "skills.edit" ? { risk: "outside" as const } : {}),
 		// Deleting, or rewriting another agent's instructions/model/reasoning, always asks.
-		...((id === "channels.manage" || id === "chat.manage" || id === "agents.manage") && {
+		...((id === "channels.manage" || id === "chat.manage" || id === "agents.manage" || id === "workspace.settings") && {
 			riskFor: (input: unknown) => {
-				const r = manageInputs[id].safeParse(input).data?.request as { action: string; instructions?: string; model?: string; reasoning?: string } | undefined;
-				const locked = r && (r.action === "delete" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined)));
+				const r = manageInputs[id].safeParse(input).data?.request as { action: string; instructions?: string; model?: string; reasoning?: string; agentAutonomy?: boolean; agentHandoffs?: boolean } | undefined;
+				const locked = r && (r.action === "delete" || (r.action === "update" && (r.instructions !== undefined || r.model !== undefined || r.reasoning !== undefined || r.agentAutonomy === true || r.agentHandoffs === true)));
 				return locked ? "locked" as const : "inside" as const;
 			},
 		}),

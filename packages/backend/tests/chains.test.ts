@@ -26,6 +26,7 @@ async function setUp() {
 	const { t, owner, member } = await ownerAndMember();
 	const { companybot, scribe: scribeAgent } = await agentsOf(owner);
 	const chatId = (await generalOf(owner))._id;
+	await owner.mutation(api.chats.updateChannel, { chatId, replyMode: "relevant" });
 	const scout = await t.run(async (ctx) => {
 		const workspaceId = (await ctx.db.get(chatId))!.workspaceId;
 		return ctx.db.insert("agents", { ...scribe, name: "Scout", description: "Finds leads.", workspaceId, archived: false, version: 1, updatedBy: owner.userId, updatedAt: Date.now() });

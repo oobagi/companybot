@@ -16,6 +16,8 @@ import type { WebTurn } from "./web";
 
 /** What a tool can reach while it runs. */
 export interface ToolContext {
+	/** Persist connector media outside message documents before returning it. */
+	connectorContent?: (parts: import("./mcp-content").McpPart[]) => Promise<import("./mcp-content").McpPart[]>;
 	actor: Actor;
 	manage: ManageStore;
 	/** The actor's IANA time zone (see resolveTimeZone). UTC when left out. */

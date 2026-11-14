@@ -90,6 +90,8 @@ export const approvalStatus = (approval: { status: ApprovalStatus; expiresAt: nu
 
 /** What the agent is told in the turn after a decision (see turn-input.ts). */
 export interface ApprovalOutcome {
+	/** Rich connector output for this approver's current turn only, never saved in the replay prompt. */
+	rich?: { input: unknown; output: import("./mcp-content").McpContent };
 	tool: string;
 	/** Who decided: the person the agent acted for. */
 	by: string;

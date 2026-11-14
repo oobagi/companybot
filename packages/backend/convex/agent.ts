@@ -1,3 +1,5 @@
+import { isMcpContent } from "@companybot/core";
+import { persistConnectorContent } from "./connectorArtifacts";
 import {
 	type AgentConfig,
 	type ApprovalOutcome,
@@ -276,13 +278,14 @@ async function streamReply(
 		agentId: agent.id,
 		...stores(ctx, turnId),
 		// Each call writes under its own call id, so the same call never writes twice (approvals.withReceipt).
-		forCall: (callId) => stores(ctx, turnId, { call: callId }),
+		forCall: (callId) => ({ ...stores(ctx, turnId, { call: callId }), connectorContent: parts => persistConnectorContent(ctx, turnId, parts, callId, turn.vision) }),
 		// Connector writes without an idempotency key are claimed by call id before they're sent (approvals.startCall).
 		calls: {
 			start: (callId) => ctx.runMutation(internal.approvals.startCall, { turnId, callId }),
 			finish: (callId, output) => ctx.runMutation(internal.approvals.finishCall, { turnId, callId, output: clipJson(output) }),
 		},
 		results: createResultStore(),
+		connectorContent: parts => persistConnectorContent(ctx, turnId, parts, "", turn.vision),
 		// Links the person wrote (turns.ts `asked`) are the only ones web.fetch opens before searching.
 		web: createWebTurn(webClient(ctx, turnId), turn.asked),
 	};
@@ -374,7 +377,7 @@ async function streamReply(
 	// result stays out of it (only its approver may see it); this turn alone gets it.
 	await ctx.runMutation(internal.turns.savePrompt, { turnId, prompt: approval ? buildTurnPrompt({ ...promptInput, forReplay: true }) : prompt });
 	const session = { summary: turn.session.summary, turns: turn.session.turns.map((t) => ({ ...t, steps: JSON.parse(t.steps) as ModelMessage[] })) };
-	const input = buildTurnInput({ agent, skills: turn.skills, session, prompt, available: usable, images: await loadImages(ctx, turn.images) });
+	const input = buildTurnInput({ agent, skills: turn.skills, session, prompt, available: usable, images: await loadImages(ctx, turn.images), approval: approval ?? undefined });
 	// Every turn ends with its decision (core postDecision): what it posts and reacts, the final step's
 	// structured output, so tools still run first. Its text is that JSON; only `message` is shown.
 	const output = Output.object({ schema: postDecision, name: "decision" });
@@ -718,12 +721,15 @@ async function runApproval(
 	const callId = `approval-${approvalId}`;
 	setTool(callId, tool, "running", { input: call.input });
 	// The approval id is the call's operation key: built-in writes commit their receipt with their effect.
-	const opCtx: ToolContext = { ...toolCtx, ...stores(ctx, turnId, { approval: approvalId }) };
+	const opCtx: ToolContext = { ...toolCtx, ...toolCtx.forCall?.(callId), ...stores(ctx, turnId, { approval: approvalId }) };
 	let end: { output: unknown } | { error: string };
 	let unknown = false;
+	let rich: ApprovalOutcome["rich"];
 	try {
 		if (!t || t.id !== call.tool) throw new Error(`${tool} isn't available to ${by} right now (disconnected, or access changed).`);
-		end = callEnd(await t.execute(call.input, opCtx));
+		const output = await t.execute(call.input, opCtx);
+		if (isMcpContent(output)) rich = { input: call.input, output };
+		end = callEnd(output);
 	} catch (e) {
 		end = { error: e instanceof Error ? e.message : String(e) };
 		// It threw before answering (a dropped connection, a timeout), so the service may have done it.
@@ -734,7 +740,7 @@ async function runApproval(
 	const error = "error" in end ? (unknown ? `${end.error}. It may or may not have happened: check before trying again.` : end.error) : undefined;
 	// A no-op when a built-in's write already settled it.
 	await ctx.runMutation(internal.approvals.finish, { approvalId, turnId, result, error, unknown });
-	return { tool, by, decision: "approved", result, error };
+	return { tool, by, decision: "approved", result, error, ...(rich && { rich }) };
 }
 
 /**

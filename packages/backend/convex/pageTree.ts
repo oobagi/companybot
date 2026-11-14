@@ -1,3 +1,4 @@
+import { integrationEvent } from "./integrationEventLog";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -130,6 +131,7 @@ export async function movePage(ctx: MutationCtx, who: Who, page: Doc<"pages">, p
 	// Moving never opens a page to more people. Moving somewhere stricter makes it stricter.
 	const kept = keptAccess(who.member, page, before.access, destination ? destination.access : undefined);
 	await ctx.db.patch(page._id, { parentId, updatedAt: Date.now(), updatedBy: who.member.userId, ...kept });
+	await integrationEvent(ctx, who.member.workspaceId, "page.updated", page._id);
 	// Sidebar sections hold top-level things only.
 	if (!page.parentId) await leaveSections(ctx, page.workspaceId, "drive", page._id);
 	if (before.ancestors[0]) await removePageBlock(ctx, who, before.ancestors[0], page._id);

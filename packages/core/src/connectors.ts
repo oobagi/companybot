@@ -17,6 +17,9 @@ export interface Connector {
 	description: string;
 	version: string;
 	publisher: string;
+	/** Official setup instructions and provider prerequisites, shown before connecting. */
+	documentationUrl?: string;
+	setup?: string;
 	mcp: { url: string; transport: "http" | "sse" };
 	/**
 	 * Whose account agents use. "workspace": one shared connection, set by someone with connectors.manage
@@ -39,15 +42,75 @@ export type ConnectorAuth =
 	/** A key the person pastes in. Sent as `${prefix}${key}` in `header`. */
 	| { type: "api_key"; header: string; prefix?: string; label: string; help?: string }
 	/** MCP OAuth: the person signs in in their browser. See oauth.ts. */
-	| { type: "oauth"; scopes?: string[] };
+	| { type: "oauth"; scopes?: string[]; registration?: { issuer: string; secretRequired: boolean } };
 
 /** What's stored (encrypted) for a connection. Never sent to the app. */
 export type ConnectorCredentials = { type: "none" } | { type: "api_key"; key: string } | { type: "oauth"; oauth: OAuthState };
 
 export const defineConnector = (connector: Connector) => connector;
 
-/** The connector marketplace. */
-export const connectorCatalog: Connector[] = [];
+/** Vendor-operated remote servers. Version tracks our preset, not the provider's server release. */
+export const connectorCatalog: Connector[] = [
+	defineConnector({
+		id: "github", name: "GitHub", publisher: "GitHub", version: "1", ownersOnly: true,
+		description: "Work with repositories, issues, pull requests, and code on GitHub.",
+		mcp: { url: "https://api.githubcopilot.com/mcp/", transport: "http" }, connection: "personal",
+		auth: { type: "api_key", header: "Authorization", prefix: "Bearer ", label: "Personal access token", help: "Use a fine-grained token limited to the repositories and permissions you need. Organization approval may be required. Stored encrypted for your account." },
+		documentationUrl: "https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/customize-copilot/extend-copilot-with-tools-and-context/set-up-the-github-mcp-server",
+		setup: "Connect your own GitHub personal access token. Repository access follows that token; this preset does not use another app's OAuth client.",
+	}),
+	defineConnector({
+		id: "notion", name: "Notion", publisher: "Notion", version: "1", ownersOnly: true,
+		description: "Search and update Notion pages, databases, and project information.",
+		mcp: { url: "https://mcp.notion.com/mcp", transport: "http" }, connection: "personal", auth: { type: "oauth", scopes: ["default"] },
+		documentationUrl: "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+		setup: "Sign in to Notion and approve the workspace access you want to grant. Your Notion administrator may restrict MCP connections.",
+	}),
+	defineConnector({
+		id: "linear", name: "Linear", publisher: "Linear", version: "1", ownersOnly: true,
+		description: "Find and update Linear issues, projects, and comments.",
+		mcp: { url: "https://mcp.linear.app/mcp", transport: "http" }, connection: "personal", auth: { type: "oauth", scopes: ["read", "write"] },
+		documentationUrl: "https://linear.app/docs/mcp",
+		setup: "Sign in to your Linear workspace. This connection requests read and write access; Companybot still asks before changes unless you explicitly allow them.",
+	}),
+	defineConnector({
+		id: "sentry", name: "Sentry", publisher: "Sentry", version: "1", ownersOnly: true,
+		description: "Investigate Sentry errors, performance, and project issues.",
+		mcp: { url: "https://mcp.sentry.dev/mcp", transport: "http" }, connection: "personal", auth: { type: "oauth" },
+		documentationUrl: "https://mcp.sentry.dev/",
+		setup: "Sign in to Sentry and choose the access to grant. For a connection restricted to one organization or project, add the scoped URL from Sentry's instructions as a custom connector.",
+	}),
+	defineConnector({
+		id: "atlassian", name: "Atlassian", publisher: "Atlassian", version: "1", ownersOnly: true,
+		description: "Search and work with Jira and Confluence through Atlassian Rovo MCP.",
+		mcp: { url: "https://mcp.atlassian.com/v2/mcp", transport: "http" }, connection: "personal", auth: { type: "oauth" },
+		documentationUrl: "https://developer.atlassian.com/cloud/rovo-mcp/guides/authentication-and-authorization/",
+		setup: "Sign in to Atlassian. Your administrator may need to allow Companybot's callback domain and enable the requested permission groups. Available tools depend on your Atlassian products and access.",
+	}),
+	defineConnector({
+		id: "stripe", name: "Stripe", publisher: "Stripe", version: "1", ownersOnly: true,
+		description: "Inspect Stripe account data and work with Stripe's available tools.",
+		mcp: { url: "https://mcp.stripe.com", transport: "http" }, connection: "personal", auth: { type: "oauth", scopes: ["mcp"] },
+		documentationUrl: "https://docs.stripe.com/mcp",
+		setup: "Sign in to Stripe and choose account access and permissions. Start with a sandbox and read-only access. Your Stripe administrator must allow MCP access for the selected environment.",
+	}),
+	defineConnector({
+		id: "slack", name: "Slack", publisher: "Slack", version: "1", ownersOnly: true,
+		description: "Search public Slack channels, read conversations, post messages, and add reactions.",
+		mcp: { url: "https://mcp.slack.com/mcp", transport: "http" }, connection: "personal",
+		auth: { type: "oauth", registration: { issuer: "https://mcp.slack.com", secretRequired: true }, scopes: ["search:read.public", "channels:history", "channels:read", "users:read", "chat:write", "reactions:write"] },
+		documentationUrl: "https://docs.slack.dev/ai/slack-mcp-server/",
+		setup: "Requires your own internal or Marketplace Slack app with MCP enabled, the listed user scopes, and the displayed redirect URL. Enter its client ID and secret. This preset does not request private-channel or direct-message history. It does not install a Slack bot in Companybot.",
+	}),
+	defineConnector({
+		id: "asana", name: "Asana", publisher: "Asana", version: "1", ownersOnly: true,
+		description: "Find and manage Asana tasks, projects, and team work.",
+		mcp: { url: "https://mcp.asana.com/v2/mcp", transport: "http" }, connection: "personal",
+		auth: { type: "oauth", registration: { issuer: "https://app.asana.com", secretRequired: true }, scopes: ["default"] },
+		documentationUrl: "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
+		setup: "Create an Asana MCP app, register the displayed redirect URL, and allow it in your workspace. Enter its client ID and secret, then sign in with your own Asana account.",
+	}),
+];
 
 /**
  * A connector by id: the catalog's, or one of `custom`, the workspace's own (backend

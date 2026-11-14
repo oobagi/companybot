@@ -28,5 +28,7 @@ crons.interval("model catalog", { hours: 24 }, internal.modelCatalog.refresh);
 crons.interval("mobile push", { seconds: 10 }, internal.mobilePush.send);
 crons.interval("mobile push receipts", { minutes: 1 }, internal.mobilePush.receipts);
 crons.interval("mobile push retention", { minutes: 5 }, internal.mobileNotifications.sweep);
+crons.interval("integration retention", { hours: 1 }, internal.integrationMaintenance.sweep, {});
+crons.interval("integration notifications", { minutes: 1 }, internal.integrationWebhooks.tick, {});
 
 export default crons;
