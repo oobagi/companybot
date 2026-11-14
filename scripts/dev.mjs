@@ -19,6 +19,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 
 const PROJECT = "jaden-watson:companybot";
 /** Copied from the cloud dev deployment, else from your shell. Everything else is generated per checkout. */
@@ -116,6 +117,12 @@ if (missing("CONNECTIONS_KEY")) {
 	convex(["env", "set", "CONNECTIONS_KEY"], randomBytes(32).toString("base64"));
 }
 if (missing("SITE_URL")) convex(["env", "set", "SITE_URL"], "http://localhost");
+// The consent page is this checkout's renderer, including when another checkout
+// owns 5173. Vite uses this exact port or fails instead of silently moving away.
+const appPort = await availableAppPort();
+const appUrl = `http://127.0.0.1:${appPort}`;
+log(`Configuring local OAuth consent at ${appUrl}`);
+convex(["env", "set", "INTEGRATION_APP_URL"], appUrl);
 const stopped = new Promise((r) => backend.once("exit", r));
 process.kill(-backend.pid, "SIGINT");
 await stopped;
@@ -127,13 +134,25 @@ if (args.includes("--setup")) {
 
 // 3. Backend + app together; Ctrl-C stops both.
 log(`Starting backend (http://127.0.0.1:${ports.cloud}) and ${web ? "the app in your browser (vite prints its address)" : "the desktop app"}. Sign in with any email; no code needed.`);
-const env = { ...process.env };
+const env = { ...process.env, COMPANYBOT_DEV_PORT: String(appPort) };
 delete env.ELECTRON_RUN_AS_NODE; // Set in some terminals (T3 Code); makes Electron run as plain Node.
 const dev = spawn("npx", ["convex", "dev", "--start", web ? "pnpm dev:web" : "pnpm dev:desktop"], { stdio: "inherit", env });
 dev.on("exit", (code) => process.exit(code ?? 0));
 process.on("SIGINT", () => dev.kill("SIGINT"));
 
 // ---- helpers ----
+
+async function availableAppPort() {
+	for (let port = 5173; port < 5273; port++) {
+		const available = await new Promise((resolve, reject) => {
+			const server = createServer();
+			server.once("error", (error) => error.code === "EADDRINUSE" ? resolve(false) : reject(error));
+			server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
+		});
+		if (available) return port;
+	}
+	throw new Error("No free local app port between 5173 and 5272.");
+}
 
 function readEnv() {
 	if (!existsSync(".env.local")) return {};

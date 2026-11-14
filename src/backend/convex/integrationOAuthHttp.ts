@@ -33,7 +33,7 @@ export const handle = httpAction(async (ctx, request) => {
 			}
 			await ctx.runQuery(internal.integrationOAuth.inspect, args);
 			const app = consentAppUrl();
-			if (!app) return json({ error: "temporarily_unavailable", error_description: "OAuth setup is required. Ask your Companybot administrator to configure the sign-in and consent page, then reconnect from your application." }, 503);
+			if (!app) return json({ error: "temporarily_unavailable", error_description: "OAuth setup is required. The team running this Companybot installation needs to configure the sign-in and consent page. Reconnect from your application after setup is complete." }, 503);
 			const target = new URL(app);
 			target.hash = `/oauth/authorize/${encodeURIComponent(JSON.stringify(args))}`;
 			return new Response(null, { status: 302, headers: { Location: target.href, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });

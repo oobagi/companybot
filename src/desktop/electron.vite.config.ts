@@ -11,6 +11,7 @@ export default defineConfig({
 		build: { externalizeDeps: false, rollupOptions: { output: { format: "cjs", entryFileNames: "[name].cjs" } } },
 	},
 	renderer: {
+		server: process.env.COMPANYBOT_DEV_PORT ? { host: "127.0.0.1", port: Number(process.env.COMPANYBOT_DEV_PORT), strictPort: true } : undefined,
 		// Read env from the repo-root .env.local (CONVEX_URL is written by `npx convex dev`).
 		envDir: resolve(__dirname, "../.."),
 		envPrefix: ["VITE_", "CONVEX_URL"],

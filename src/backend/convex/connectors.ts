@@ -197,7 +197,7 @@ const credentials = v.union(v.object({ type: v.literal("none") }), v.object({ ty
 /** Where OAuth providers send people back to. Registered with each provider on first sign-in. */
 export function oauthRedirectUrl() {
 	const endpoint = integrationEndpoint();
-	if (!endpoint) throw new ConvexError("Browser sign-in setup required. Ask your Companybot administrator to configure the callback address, then try connecting again.");
+	if (!endpoint) throw new ConvexError("Browser sign-in setup required. The team running this Companybot installation needs to configure the callback address. Try connecting again after setup is complete.");
 	return `${endpoint}/oauth/callback`;
 }
 const OAUTH_FLOW_MS = 15 * 60_000;

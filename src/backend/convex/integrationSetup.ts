@@ -23,7 +23,7 @@ export function connectionEncryptionConfigured() {
 
 export function connectorSetupProblem(auth: "none" | "api_key" | "oauth") {
 	if (auth === "none") return null;
-	if (!connectionEncryptionConfigured()) return "Connection setup required. Ask your Companybot administrator to configure secure credential storage, then try connecting again.";
-	if (auth === "oauth" && !integrationEndpoint()) return "Browser sign-in setup required. Ask your Companybot administrator to configure the callback address, then try connecting again.";
+	if (!connectionEncryptionConfigured()) return "Connection setup required. The team running this Companybot installation needs to configure secure credential storage. Try connecting again after setup is complete.";
+	if (auth === "oauth" && !integrationEndpoint()) return "Browser sign-in setup required. The team running this Companybot installation needs to configure the callback address. Try connecting again after setup is complete.";
 	return null;
 }

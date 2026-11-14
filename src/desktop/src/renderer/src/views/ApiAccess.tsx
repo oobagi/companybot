@@ -5,7 +5,7 @@ import { can, type Access } from "@companybot/core/permissions";
 import { api } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
 import { Checkbox, Select } from "../controls";
-import { Form, Loading, Notice, Settings, Setting, PageActions, NewButton, hintClass, wideControlClass, primaryButton, compactDangerButton, compactButton, secondaryButton, useRun } from "../ui";
+import { Form, Loading, Notice, Settings, Setting, hintClass, wideControlClass, primaryButton, compactDangerButton, compactButton, secondaryButton, useRun } from "../ui";
 import { Modal, DialogButtons } from "./chat/common";
 
 export function ApiAccess({ access }: { access: Access }) {
@@ -18,21 +18,15 @@ function TokenList({ access, state }: { access: Access; state: FunctionReturnTyp
 	const [adding, setAdding] = useState(false);
 	const { run, error, busy } = useRun();
 	return <>
-		{can(access, "integrations.manage") && <PageActions><NewButton label="New token" onClick={() => setAdding(true)} /></PageActions>}
 		{adding && <NewToken onClose={() => setAdding(false)} />}
-		<Settings title="Connection setup">
-			<Setting label="OAuth access" hint={state.oauthConfigured ? "Applications can request access through sign-in and consent. Configuration is present; each application still needs to connect." : "Ask your Companybot administrator to configure the sign-in and consent page. Manual API tokens use a separate connection method."}>
-				<span className={hintClass}>{state.oauthConfigured ? "Configured" : "OAuth setup required"}</span>
-			</Setting>
-			{!state.endpoint && <Setting label="API and MCP" hint="Ask your Companybot administrator to configure the API address before connecting an application."><span className={hintClass}>Setup required</span></Setting>}
-		</Settings>
+		{(!state.oauthConfigured || !state.endpoint) && <p className={hintClass}>{state.endpoint ? "Connecting apps through browser sign-in is not available on this installation yet. You can use an API token below." : "External app access is not available on this installation yet."} This is managed by the team running Companybot, not workspace admins.</p>}
 		{state.endpoint && <Settings title="Endpoints">
 			<Setting label="MCP" wide><code className="break-all">{state.endpoint}/mcp</code></Setting>
 			<Setting label="API" wide><div className="flex min-w-0 flex-col gap-2"><code className="break-all">{state.endpoint}/api/v1/call</code><p className={hintClass}>Send Authorization: Bearer followed by your token.</p><p className={`${hintClass} break-all`}>Operation schemas: {state.endpoint}/api/v1/schema</p></div></Setting>
 		</Settings>}
 		<Notice>{error}</Notice>
 		{!can(access, "integrations.manage") && <p className={hintClass}>Your role needs permission to create personal API tokens. You can still revoke your existing tokens below.</p>}
-		<Settings title="Your tokens">
+		<Settings title="Your tokens" action={can(access, "integrations.manage") && <button className={compactButton} onClick={() => setAdding(true)}>New token</button>}>
 			{state.tokens.length ? state.tokens.map(token => <Setting key={token.id} wide label={token.name} hint={`${token.oauth ? "OAuth connection · " : ""}${token.prefix}… · ${token.expiresAt <= Date.now() ? "Expired" : "Expires"} ${new Date(token.expiresAt).toLocaleDateString()}${token.lastUsedAt ? ` · Last used ${new Date(token.lastUsedAt).toLocaleString()}` : " · Not used yet"}`}>
 				<div className="flex min-w-0 flex-col items-start gap-2">
 				<p className={`${hintClass} break-words`}>{token.scopes.join(", ")}</p>
@@ -76,7 +70,7 @@ function Webhooks({ tokens, allowed, configured }: { configured: boolean; tokens
 	const [adding, setAdding] = useState(false);
 	const { run, error, busy } = useRun();
 	return <Settings title="Event webhooks" note="Signed notifications tell your application when accessible records, pages or messages change. Notifications contain no workspace content." action={allowed && <button className={compactButton} disabled={!configured} onClick={() => setAdding(true)}>New webhook</button>}>
-		{!configured && <p className="px-4 py-3 text-sm text-neutral-600">Webhook setup required. Ask your Companybot administrator to configure secure signing-secret storage.</p>}
+		{!configured && <p className="px-4 py-3 text-sm text-neutral-600">Webhooks are not available on this installation yet. The team running Companybot needs to enable them; workspace admins do not need to change anything.</p>}
 		{adding && configured && <NewWebhook tokens={tokens} onClose={() => setAdding(false)} />}
 		<Notice>{error}</Notice>
 		{rows === undefined ? <Loading /> : rows.length === 0 ? <p className={`${hintClass} px-4 py-3`}>No webhooks yet.</p> : null}
@@ -106,9 +100,9 @@ function NewWebhook({ tokens, onClose }: { tokens: FunctionReturnType<typeof api
 function RequestLog() {
 	const [cursors, setCursors] = useState<(string | null)[]>([null]);
 	const rows = useQuery(api.integrationAudit.list, { cursor: cursors[cursors.length - 1]! });
-	return <Settings title="Your external requests" note="Thirty days of requests made with your credentials. Request bodies, results and secrets are not logged.">
-		{rows === undefined ? <Loading /> : rows.page.length === 0 ? <p className={`${hintClass} px-4 py-3`}>No requests on this page. Requests appear after an application uses one of your credentials.</p> : null}
+	return <Settings title="API activity" note="Requests made by apps using your tokens or approved connections, newest first. History is kept for 30 days. Request bodies, results and secrets are not logged.">
+		{rows === undefined ? <Loading /> : rows.page.length === 0 ? <p className={`${hintClass} px-4 py-3`}>{cursors.length === 1 ? "No requests yet. Activity appears here when a connected app uses Companybot." : "No requests on this page. Return to the previous page for more recent activity."}</p> : null}
 		{rows?.page.map(row => <Setting key={row._id} wide label={`${row.operation} · ${row.status ?? "Unfinished"}`} hint={`${new Date(row._creationTime).toLocaleString()} · ${row.transport}`}><code className="break-all text-xs">{row.requestId}</code></Setting>)}
-		<div className="flex gap-2 px-4 py-2.5"><button className={compactButton} disabled={cursors.length === 1} onClick={() => setCursors(cursors.slice(0, -1))}>Newer</button><button className={compactButton} disabled={!rows || rows.isDone} onClick={() => { if (rows) setCursors([...cursors, rows.continueCursor]); }}>Older</button></div>
+		{(cursors.length > 1 || (rows && !rows.isDone)) && <nav aria-label="API activity pages" className="flex items-center gap-3 px-4 py-2.5"><button className={compactButton} disabled={!rows || cursors.length === 1} onClick={() => setCursors(cursors.slice(0, -1))}>Previous</button><span className={hintClass} aria-live="polite">Page {cursors.length}</span><button className={compactButton} disabled={!rows || rows.isDone} onClick={() => { if (rows) setCursors([...cursors, rows.continueCursor]); }}>Next</button></nav>}
 	</Settings>;
 }
