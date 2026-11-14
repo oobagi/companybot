@@ -1,5 +1,5 @@
 import { formatPhone } from "@companybot/core/inbox";
-import { CallButton, CallIcon, CallOutcome } from "../Phone";
+import { CallButton, CallIcon, CallOutcome, callTitle } from "../Phone";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { type Access, can } from "@companybot/core/permissions";
 import { type FieldValue, NAME_KEY } from "@companybot/core/records";
@@ -326,7 +326,7 @@ function RecordCalls({ recordId }: { recordId: Id<"records"> }) {
 				<button key={c.id} type="button" className={callRowButton} onClick={() => navigate("inbox", c.conversationId)}>
 					<CallIcon call={c} size="sm" />
 					<span className="min-w-0 flex-1">
-						<span className="block text-sm text-neutral-900">{c.direction === "in" ? "Incoming call" : "Outgoing call"}</span>
+						<span className="block text-sm text-neutral-900">{callTitle(c)}</span>
 						<span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-neutral-500">
 							<CallOutcome call={c} staffName={c.by} />
 							{c.by && c.handling !== "staff" && <span className="truncate">· {c.by}</span>}

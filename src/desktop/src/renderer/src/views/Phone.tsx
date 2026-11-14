@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import type { Room } from "livekit-client";
 import { api, errorMessage } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { AgentIcon, BackspaceIcon, CaretDownIcon, CheckIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PhoneOutgoingIcon, PhoneSlashIcon, PhoneXIcon, PopInIcon, PopOutIcon, ReloadIcon, SparkleIcon, SpeakerIcon, SpinnerIcon, UserIcon, VoicemailIcon, WarningIcon } from "../icons";
+import { AgentIcon, BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PopInIcon, PopOutIcon, ReloadIcon, SparkleIcon, SpeakerIcon, SpinnerIcon, VoicemailIcon } from "../icons";
 import { navigate } from "../router";
 import { RecordingControls, RecordingPlaybackProvider } from "../RecordingPlayer";
 import {
@@ -723,74 +723,57 @@ export function CallStatus() {
 
 type Handling = "staff" | "ai" | "voicemail" | null;
 type CallInfo = { direction: string; state: string; connectedAt: number | null; endedAt: number | null; handling?: Handling };
-type CallKind = "staff" | "ai" | "voicemail" | "answered" | "missed" | "noanswer" | "declined" | "failed" | "ended";
+type CallOutcomeKind = "answered" | "voicemail" | "missed" | "noanswer" | "declined" | "failed" | "ended";
+
+const outcomeWords: Record<CallOutcomeKind, string> = { answered: "Answered", voicemail: "Went to voicemail", missed: "Missed", noanswer: "No answer", declined: "Declined", failed: "Didn't go through", ended: "Ended" };
 
 /**
- * How a call went. `kind` is who took it (a person, the AI, voicemail) or why nobody did; it comes from what the
- * server recorded, never from who wrote the entry or what was said. A connected call with no record of who took
- * it is just "Answered". `live` is set instead while the call is still going.
+ * How a call went, in one word or two. `handling` is who took it (a person, the AI, voicemail) and comes from what
+ * the server recorded, never from who wrote the entry or what was said. A person who took it is named when known;
+ * a connected call with no record of who took it is just "Answered". `live` is set instead while it's still going.
  */
 export function callStatus(call: CallInfo, staffName?: string | null) {
 	const answered = call.connectedAt !== null;
 	const incoming = call.direction === "in";
 	const seconds = answered ? Math.max(0, Math.floor(((call.endedAt ?? Date.now()) - call.connectedAt!) / 1000)) : 0;
 	const live = call.state === "connected" ? `On the call · ${clock(seconds)}` : call.state === "ringing" ? (incoming ? "Ringing…" : "Calling…") : call.state === "ending" ? "Ending…" : null;
-	const kind: CallKind = call.handling ?? (answered ? "answered" : call.state === "failed" ? "failed" : call.state === "declined" ? "declined" : call.state === "unknown" ? "ended" : incoming ? "missed" : "noanswer");
-	const name = staffName?.trim();
-	const label =
-		kind === "staff"
-			? name ? `${incoming ? "Answered" : "Called"} by ${name}` : incoming ? "Staff answered" : "Staff call"
-			: kind === "ai"
-				? incoming ? "AI answered" : "AI call"
-				: { voicemail: "Voicemail", answered: "Answered", missed: "Missed", noanswer: "No answer", declined: "Declined", failed: "Didn't go through", ended: "Ended" }[kind];
+	const kind: CallOutcomeKind = call.handling === "voicemail" ? "voicemail" : answered ? "answered" : call.state === "failed" ? "failed" : call.state === "declined" ? "declined" : call.state === "unknown" ? "ended" : incoming ? "missed" : "noanswer";
+	const name = call.handling === "staff" && kind === "answered" ? staffName?.trim() : "";
+	const label = name ? `${incoming ? "Answered" : "Called"} by ${name}` : outcomeWords[kind];
 	const duration = answered && !live ? clock(seconds) : null;
-	return { live, kind, label, duration, text: live ?? (duration ? `${label} · ${duration}` : label), seconds, answered };
+	return { live, kind, label, duration, answered };
+}
+
+/** What the call is called: the AI's calls by who made them, everyone else's by which way they went. */
+export function callTitle(call: CallInfo) {
+	return call.handling === "ai" ? "AI call" : call.direction === "in" ? "Incoming call" : "Outgoing call";
 }
 
 /**
- * Each kind's own icon, always beside its words: the color is a second cue, never the only one. `tint` fills the
- * round direction icon; `color` is the small icon in the outcome line, and `words` only where the line itself
- * should stand out (a call nobody took).
+ * The one mark a call gets: a handset, or the robot or the tape in its place when the AI or voicemail took it.
+ * Green when the call reached someone, red when it didn't; the title beside it says which way it went.
  */
-const callKinds: Record<CallKind, { Icon: typeof PhoneIcon; tint: string; color: string; words?: string }> = {
-	staff: { Icon: UserIcon, tint: "bg-emerald-100 text-emerald-800", color: "text-emerald-600" },
-	ai: { Icon: AgentIcon, tint: "bg-violet-100 text-violet-800", color: "text-violet-600" },
-	voicemail: { Icon: VoicemailIcon, tint: "bg-sky-100 text-sky-800", color: "text-sky-600" },
-	answered: { Icon: CheckIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
-	missed: { Icon: PhoneXIcon, tint: "bg-red-100 text-red-700", color: "text-red-600", words: "text-red-700" },
-	noanswer: { Icon: PhoneSlashIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
-	declined: { Icon: PhoneDisconnectIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
-	failed: { Icon: WarningIcon, tint: "bg-amber-100 text-amber-800", color: "text-amber-600" },
-	ended: { Icon: PhoneIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
-};
-
-/** The call's direction, in the tint of how it went. */
 export function CallIcon({ call, size = "md" }: { call: CallInfo; size?: "sm" | "md" }) {
 	const { live, kind } = callStatus(call);
-	const Icon = call.direction === "in" ? PhoneIncomingIcon : PhoneOutgoingIcon;
+	const tint = call.state === "connected" ? "bg-emerald-500 text-white" : live || kind === "ended" ? "bg-neutral-200 text-neutral-600" : kind === "answered" || kind === "voicemail" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700";
 	return (
-		<span className={`flex shrink-0 items-center justify-center rounded-full ${size === "md" ? "size-10 text-lg" : "size-7 text-sm"} ${call.state === "connected" ? "bg-emerald-500 text-white" : live ? "bg-neutral-200 text-neutral-500" : callKinds[kind].tint}`}>
-			<Icon weight="fill" />
+		<span className={`flex shrink-0 items-center justify-center rounded-full ${size === "md" ? "size-10 text-xl" : "size-7 text-sm"} ${tint}`}>
+			{call.handling === "ai" ? <AgentIcon weight="bold" /> : call.handling === "voicemail" ? <VoicemailIcon weight="bold" /> : <PhoneIcon weight="fill" />}
 		</span>
 	);
 }
 
-/**
- * A call's outcome (who took it, or why nobody did) and how long it ran, as one line of plain text in whatever
- * size and color its line has, with a small icon in front; plain words while it's live.
- */
+/** A call's outcome and how long it ran, as one plain line in whatever size and color its line has. */
 export function CallOutcome({ call, staffName }: { call: CallInfo; staffName?: string | null }) {
-	const { live, kind, label, duration } = callStatus(call, staffName);
+	const { live, label, duration } = callStatus(call, staffName);
 	if (live) return <span className="truncate tabular-nums">{live}</span>;
-	const { Icon, color, words = "" } = callKinds[kind];
 	return (
-		<span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
-			<Icon aria-hidden="true" className={`shrink-0 ${color}`} />
-			<span className={`truncate ${words}`}>{label}</span>
+		<span className="inline-flex max-w-full min-w-0">
+			<span className="truncate">{label}</span>
 			{duration && (
 				<span className="shrink-0 tabular-nums">
-					<span aria-hidden="true" className="mr-1.5">·</span>
-					<span className="sr-only">lasted </span>
+					<span aria-hidden="true">, </span>
+					<span className="sr-only"> lasted </span>
 					{duration}
 				</span>
 			)}
@@ -994,7 +977,7 @@ export function CallDetail({ call, staffName, bar, side }: { call: CallEntryInfo
 					<div className="flex items-center gap-3">
 						<CallIcon call={call} />
 						<div className="min-w-0">
-							<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
+							<p className="font-semibold text-neutral-900">{callTitle(call)}</p>
 							<p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-neutral-500 tabular-nums">
 								<CallOutcome call={call} staffName={staffName} />
 								<span><span aria-hidden="true" className="mr-1.5">·</span>{dayLabel(call.startedAt)}, {timeOfDay(call.startedAt)}</span>
@@ -1050,11 +1033,11 @@ export function CallEntry({ call, staffName, staffNamed, onOpen }: { call: CallE
 		// A record, not a bubble: a steady 70% of the conversation, never under 20rem until the column itself is narrower.
 		<div className="flex w-[max(20rem,70%)] max-w-full flex-col gap-1.5">
 			<div className="relative isolate flex flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
-				<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call details`} data-call-open={call.id} className={callOpenButton} onClick={onOpen} />
+				<button type="button" aria-label={`${callTitle(call)}: open details`} data-call-open={call.id} className={callOpenButton} onClick={onOpen} />
 				<div className="flex items-center gap-3">
 					<CallIcon call={call} />
 					<div className="min-w-0 flex-1">
-						<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
+						<p className="font-semibold text-neutral-900">{callTitle(call)}</p>
 						<p className="mt-0.5 flex min-w-0 text-sm text-neutral-500"><CallOutcome call={call} staffName={staffNamed ? null : staffName} /></p>
 					</div>
 				</div>
