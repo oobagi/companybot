@@ -171,7 +171,8 @@ export const get = query({
 						/** What staff said about it, oldest first: never sent. */
 						comments: comments.get(m._id) ?? [],
 						/** An assignment line: who it went to. */
-						assignedTo: m.assignedTo === undefined ? null : m.assignedTo === "agent" ? await names.agent(c.agentId) : await names.user(m.assignedTo),
+						assignedTo: m.assignedTo == null ? null : m.assignedTo === "agent" ? await names.agent(c.agentId) : await names.user(m.assignedTo),
+						unassigned: m.assignedTo === null,
 					};
 				}),
 			),
@@ -195,9 +196,9 @@ export const start = mutation({
 	handler: async (ctx, args) => startAs(ctx, { member: await requirePermission(ctx, "inbox.use") }, args),
 });
 
-/** Who answers it: its agent, or someone on staff (the agent stops answering). */
+/** Who answers it: its agent, someone on staff, or the unassigned staff queue. */
 export const assign = mutation({
-	args: { id: v.id("inboxConversations"), to: v.union(v.literal("agent"), v.id("users")) },
+	args: { id: v.id("inboxConversations"), to: v.union(v.literal("agent"), v.id("users"), v.null()) },
 	handler: async (ctx, { id, to }) => {
 		const member = await requirePermission(ctx, "inbox.use");
 		await assignTo(ctx, { member }, await requireConversation(ctx, member, id), to);
@@ -310,16 +311,16 @@ export async function startAs(ctx: MutationCtx, who: Who, args: { agentId: Id<"a
 	return replyAs(ctx, who, (await ctx.db.get(id))!, args.text);
 }
 
-/**
- * Gives a conversation to its agent, or to someone on staff who can use Inbox (the agent stops
- * answering it). Either answers a hand-off.
- */
-/** Assigns it, and says so in the conversation: a line staff see ("Jaden assigned this to Maya"). */
-export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, to: "agent" | Id<"users">) {
+/** Assigns or unassigns it and records the change. A named assignee accepts a hand-off; the staff pool doesn't. */
+export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversations">, to: "agent" | Id<"users"> | null) {
 	const { member, agentId } = who;
 	checkPermission(member, "inbox.use");
 	const answered = c.needsStaff === "handoff" && { needsStaff: undefined };
-	if (to === "agent") {
+	if (to === null) {
+		if (c.mode === "staff" && !c.takenBy) return;
+		// Nobody has accepted a hand-off yet. Keep its attention flag and keep the agent stopped.
+		await ctx.db.patch(c._id, { mode: "staff", takenBy: undefined });
+	} else if (to === "agent") {
 		if (c.channel === "call") throw new ConvexError("Agent voice is coming soon. Assign calls to staff.");
 		if (!(await ctx.db.get(c.agentId))) throw new ConvexError("Its agent was deleted. Someone on staff answers this one.");
 		await ctx.db.patch(c._id, { mode: "agent", takenBy: undefined, ...answered });
@@ -330,7 +331,7 @@ export async function assignTo(ctx: MutationCtx, who: Who, c: Doc<"inboxConversa
 		const by = agentId ? ((await ctx.db.get(agentId))?.name ?? "An agent") : await nameOf(ctx, member.userId);
 		await notify(ctx, c, [to], { kind: "assigned", text: `${by} assigned it to you`, actorUserId: member.userId, ...(agentId && { actorAgentId: agentId }), except: agentId ? undefined : member.userId });
 	}
-	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "event", text: "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: to });
+	await ctx.db.insert("inboxMessages", { workspaceId: c.workspaceId, conversationId: c._id, direction: "event", text: to === null ? "Unassigned" : "", status: "sent", authorUserId: member.userId, ...(agentId && { authorAgentId: agentId }), assignedTo: to });
 }
 
 export const conversationWith = (ctx: QueryCtx, workspaceId: Id<"workspaces">, agentId: Id<"agents">, channel: InboxChannel, contact: string) =>

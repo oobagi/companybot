@@ -395,14 +395,14 @@ export const runFor = internalMutation({
 								call: m.call ? callData(m) : null,
 								error: m.error ?? null,
 								text: m.text,
-								...(m.assignedTo && { assignedTo: m.assignedTo }),
+								...(m.assignedTo !== undefined && { assignedTo: m.assignedTo }),
 								at: new Date(m._creationTime).toISOString(),
 								...(comments.has(m._id) && { comments: comments.get(m._id)!.map((k) => ({ id: k.id, by: label(k.author), text: k.text, ...(k.mine && { yours: true }) })) }),
 							})),
 						};
 					}
 					if (r.action === "reply") return replyAs(ctx, { member, agentId: turn.agentId }, c, r.text);
-					await assignTo(ctx, { member, agentId: turn.agentId }, c, r.to === "agent" ? "agent" : rowId(ctx, "users", r.to));
+					await assignTo(ctx, { member, agentId: turn.agentId }, c, r.to === null || r.to === "agent" ? r.to : rowId(ctx, "users", r.to));
 					return { done: r.action, id: c._id, to: r.to };
 				}
 				case "workspace.settings": {

@@ -144,7 +144,7 @@ export const manageInputs = {
 			z.strictObject({
 				action: z.literal("assign"),
 				id: id.describe("Conversation id"),
-				to: z.string().min(1).describe('"agent" for its agent to answer, or a teammate\'s user id (its agent stops answering)'),
+				to: z.string().min(1).nullable().describe('"agent" for its agent to answer, a teammate\'s user id, or null to leave it unassigned for staff (the agent stays quiet)'),
 			}),
 			z.strictObject({
 				action: z.literal("comment"),

@@ -511,7 +511,8 @@ export default defineSchema({
 		/** An `out` email: the one in this conversation it answers (its In-Reply-To), when staff picked it. Else the latest of theirs. */
 		answers: v.optional(v.id("inboxMessages")),
 		/** An `event` that says who it was assigned to (inbox.assign): its agent, or someone on staff. */
-		assignedTo: v.optional(v.union(v.literal("agent"), v.id("users"))),
+		/** Explicit null records removal of an assignment; missing means a different kind of message. */
+		assignedTo: v.optional(v.union(v.literal("agent"), v.id("users"), v.null())),
 		/** An `in` email that failed its sender check (core `senderVerified`): its From may be forged, so it changes none of their records. */
 		unverified: v.optional(v.literal(true)),
 		/** An `in` email's history its sender's mail app quoted under it (core `splitQuoted`), shown folded; `text` is the new part. */
