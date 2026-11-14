@@ -967,7 +967,7 @@ function CallSummary({ call }: { call: CallEntryInfo }) {
 				<SparkleIcon /> AI summary
 			</p>
 			{summary.status === "ready" ? (
-				<p tabIndex={0} className="max-h-56 overflow-y-auto rounded-sm text-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500">{summary.text || "No summary available."}</p>
+				<p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700">{summary.text || "No summary available."}</p>
 			) : summary.status === "processing" ? (
 				<NoteStatus id={call.id} tone="busy">Writing summary…</NoteStatus>
 			) : transcriptFailed ? (
@@ -987,7 +987,8 @@ export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; a
 	useTick(call.state === "connected");
 	const { text, answered } = callStatus(call, answeredBy);
 	return (
-		<div className="flex w-80 max-w-full flex-col gap-1.5">
+		// A record, not a bubble: a steady 70% of the conversation, never under 20rem until the column itself is narrower.
+		<div className="flex w-[max(20rem,70%)] max-w-full flex-col gap-1.5">
 			<div className="relative isolate flex flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
 				<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call details`} data-call-open={call.id} className={callOpenButton} onClick={onOpen} />
 				<div className="flex items-center gap-3">
