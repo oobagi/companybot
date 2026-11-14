@@ -1,3 +1,4 @@
+import { audio as callRecordingAudio } from "./callRecordings";
 import { MAX_WEBHOOK_BYTES, isAutomated, parseAddress, splitQuoted, senderVerified, verifySvix, verifyTwilio } from "@companybot/core";
 import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
@@ -9,6 +10,7 @@ import { upload, uploadOptions } from "./images";
 import { callback } from "./oauth";
 
 const http = httpRouter();
+http.route({ path: "/phone/recording", method: "GET", handler: callRecordingAudio });
 auth.addHttpRoutes(http);
 http.route({ path: "/oauth/callback", method: "GET", handler: callback });
 /** Pictures from the app (images.ts), signed in. */

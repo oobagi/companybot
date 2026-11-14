@@ -56,6 +56,8 @@ export type Lifecycle<T extends TableNames> = { [S in Exclude<Scope, "reset">]?:
 	childOf?: { table: TableNames; index: IndexNames<NamedTableInfo<DataModel, T>>; field: string };
 	/** Fields holding a storage id, or a list of `{ storageId }`: the files are deleted with the row, wherever a cascade deletes it. */
 	files?: (keyof Doc<T> & string)[];
+	/** Runs for both directly cascaded rows and children. */
+	onDelete?: (ctx: MutationCtx, row: Doc<T>) => Promise<unknown>;
 };
 
 /** Role cleanup scans workspace indexes in bounded pages; empty lists stay Owners only. */
@@ -84,6 +86,12 @@ const inWorkspace = async (get: Get, id: Id<"chats"> | Id<"automationInstalls">,
 const pending = (_get: Get, row: Doc<"wakeups">) => row.status === "pending";
 /** Cancels a pending wakeup in a cascade: `fire` and `wake` do nothing for it after this. */
 const cancelled = (reason: string) => () => ({ status: "cancelled" as const, reason, held: undefined, settledAt: Date.now() });
+
+/** Recorded audio and its temporary export go with the call conversation. */
+async function deleteCallMedia(ctx: MutationCtx, row: Doc<"inboxMessages">) {
+	if (row.call?.recording?.storageId) await ctx.storage.delete(row.call.recording.storageId);
+	if (row.call?.recording && row.call.recording.status !== "unavailable") await ctx.scheduler.runAfter(0, internal.callRecordingJobs.cleanup, { key: row.call.recording.key, ...(row.call.recording.egressId && { egressId: row.call.recording.egressId }) });
+}
 
 /** A record's page body goes with it. */
 async function deleteBody(ctx: MutationCtx, row: Doc<"records">) {
@@ -251,7 +259,8 @@ export const lifecycle: { [T in TableNames]: Lifecycle<T> } = {
 		record: { index: "by_record", eq: ["recordId"], scrub: () => ({ recordId: undefined }) },
 		keep: "Conversations with customers are the workspace's. Whoever took one over shows as a former member once they go.",
 	},
-	inboxMessages: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" } },
+	inboxMessages: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" }, onDelete: deleteCallMedia },
+	callTranscripts: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" } },
 	// With their conversation; a discarded draft takes its own (inbox.discardDraft).
 	inboxComments: { childOf: { table: "inboxConversations", index: "by_conversation", field: "conversationId" } },
 	// Yours alone: they go with you, and with their conversation.
@@ -586,3 +595,8 @@ export const filesOf = (table: TableNames, row: Doc<TableNames>) =>
 /** Tables deleted with each row of `table`. */
 export const childrenOf = (table: TableNames) =>
 	Object.entries(lifecycle).flatMap(([child, rules]) => (rules.childOf?.table === table ? [{ ...rules.childOf, table: child as TableNames }] : []));
+
+/** Cleanup shared by top-level cascade rows and their direct children. */
+export async function beforeDelete(ctx: MutationCtx, table: TableNames, row: Doc<TableNames>) {
+	await (lifecycle[table] as Lifecycle<TableNames>).onDelete?.(ctx, row);
+}

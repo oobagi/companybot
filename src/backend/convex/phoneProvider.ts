@@ -18,6 +18,8 @@ export const join = action({
 	handler: async (ctx, { id }): Promise<{ url: string; token: string }> => {
 		const c = config();
 		const target = await ctx.runMutation(api.calls.join, { workspaceId: ctx.workspaceId, id });
+		// The SIP caller is already in the inbound room; capture before the staff microphone joins.
+		if (target.incoming) await ctx.runAction(internal.callRecordingJobs.start, { id });
 		const token = new AccessToken(c.key, c.secret, { identity: target.identity, ttl: 60 });
 		token.addGrant({ roomJoin: true, room: target.room, canPublish: true, canPublishSources: [TrackSource.MICROPHONE], canSubscribe: true, canPublishData: true });
 		return { url: c.url, token: await token.toJwt() };
@@ -27,8 +29,11 @@ export const join = action({
 export const dial = internalAction({
 	args: { id: v.id("inboxMessages") },
 	handler: async (ctx, { id }) => {
+		// Only the dispatch owner starts and waits for capture; duplicate ready requests cannot bypass it.
 		const target = await ctx.runMutation(internal.calls.claimDial, { id });
 		if (!target) return;
+		await ctx.runAction(internal.callRecordingJobs.start, { id });
+		if (!(await ctx.runMutation(internal.calls.stillDialable, { id }))) return;
 		try {
 			const c = config();
 			await new SipClient(c.url, c.key, c.secret).createSipParticipant(process.env.LIVEKIT_SIP_OUTBOUND_TRUNK!, target.to, target.room, { fromNumber: target.from, participantIdentity: "caller", ringingTimeout: 30, maxCallDuration: 1800, playDialtone: true, waitUntilAnswered: true });
@@ -68,6 +73,13 @@ export const event = internalAction({
 		let event;
 		try { event = await new WebhookReceiver(c.key, c.secret).receive(body, authorization); }
 		catch { return false; }
+		if (event.event === "egress_ended" && event.egressInfo) {
+			const egress = event.egressInfo;
+			for (const file of egress.fileResults) {
+				await ctx.runMutation(internal.callRecordings.egressEnded, { room: egress.roomName, egressId: egress.egressId, key: file.filename, size: Number(file.size), complete: egress.status === 3 });
+			}
+			return true;
+		}
 		const room = event.room?.name;
 		if (!room?.startsWith("cb-call-")) return true;
 		const p = event.participant;

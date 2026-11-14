@@ -5,6 +5,7 @@
 export const parity: Record<string, { agent?: string[]; humanOnly?: string }> = {
 	"calls.start": { agent: ["inbox.manage:call"] },
 	"calls.end": { agent: ["inbox.manage:end_call"] },
+	"callRecordings.retry": { agent: ["inbox.manage:retry_call_processing"] },
 	"calls.join": { humanOnly: "The person accepts a live caller and consents to connecting their own microphone." },
 	"calls.ready": { humanOnly: "The person's own device confirms its microphone is connected before dialing." },
 	"calls.decline": { humanOnly: "A person dismisses ringing on their own devices without refusing for the team." },

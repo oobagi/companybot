@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, internalMutation } from "./_generated/server";
 import { deleteFile } from "./images";
-import { type Get, type Root, type Scope, type Step, childrenOf, edgesOf, filesOf } from "./lifecycle";
+import { type Get, type Root, type Scope, type Step, beforeDelete, childrenOf, edgesOf, filesOf } from "./lifecycle";
 import { startAgain } from "./workspace";
 
 // Deletes what belonged to something that went, as lifecycle.ts says, a little at a time:
@@ -177,6 +177,7 @@ async function finish(ctx: MutationCtx, job: Doc<"cascades">) {
 
 /** Deletes a row and the storage files it holds. */
 async function deleteRow(ctx: MutationCtx, table: TableNames, row: Doc<TableNames>) {
+	await beforeDelete(ctx, table, row);
 	for (const file of filesOf(table, row)) await deleteFile(ctx, file);
 	await ctx.db.delete(row._id);
 }

@@ -17,6 +17,10 @@ export function callData(m: Doc<"inboxMessages">) {
 		? answeredAt !== null ? "in-progress" as const : "ringing" as const
 		: call.state === "unknown" || call.state === "ending" || call.state === "connected" || call.state === "ringing" ? "failed" as const : call.state;
 	return {
+		id: m._id,
+		recording: call.recording ? { status: call.recording.status, error: call.recording.error ?? null } : null,
+		transcript: call.transcript ? { status: call.transcript.status, text: null, error: call.transcript.error ?? null } : null,
+		summary: call.summary ? { status: call.summary.status, text: call.summary.text ?? null, error: call.summary.error ?? null } : null,
 		direction: m.direction === "in" ? "in" as const : "out" as const,
 		status,
 		startedAt: m._creationTime,

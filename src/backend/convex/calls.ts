@@ -9,11 +9,14 @@ import { type Member, type Who, checkPermission, getMember, liveWorkspace, membe
 import { requireRecord } from "./recordOps";
 import { recordUsage } from "./usage";
 import { callContact, callData, callPreview } from "./callData";
+import { PROCESSING_HOLD_USD } from "./callRecordings";
 
 // Calls use the Inbox's conversation, message, comments and record link. Only media crosses LiveKit.
 // Like image generation, admission holds the maximum cost against a monthly budget, then settles usage.
 export const CALL_SECONDS = 30 * 60;
 const RING_MS = 30_000;
+/** Bounded media/recorder preparation after a person has accepted the call. */
+const PICKUP_MS = 90_000;
 const HOLD_MINUTES = 31; // Include ringing and provider rounding.
 type Message = Doc<"inboxMessages">;
 type Outcome = "completed" | "missed" | "no-answer" | "declined" | "failed";
@@ -22,7 +25,7 @@ export const voiceReady = () => !!(process.env.LIVEKIT_URL && process.env.LIVEKI
 const rate = () => { const n = Number(process.env.PHONE_RATE_USD_PER_MINUTE); return Number.isFinite(n) && n > 0 ? n : 0; };
 const live = (ctx: QueryCtx, workspaceId: Id<"workspaces">) => ctx.db.query("inboxMessages").withIndex("by_live_call", (q) => q.eq("workspaceId", workspaceId).eq("call.active", true)).take(11);
 const inRoom = (ctx: QueryCtx, room: string) => ctx.db.query("inboxMessages").withIndex("by_call_room", (q) => q.eq("call.room", room)).first();
-const shown = (m: Message) => ({ id: m._id, conversationId: m.conversationId, ...callData(m), at: m._creationTime });
+const shown = (m: Message) => ({ conversationId: m.conversationId, ...callData(m), at: m._creationTime });
 
 async function phonesOf(ctx: QueryCtx, record: Doc<"records">) {
 	const fields = await ctx.db.query("recordFields").withIndex("by_type_kind", (q) => q.eq("typeId", record.typeId).eq("kind", "phone")).take(20);
@@ -36,7 +39,8 @@ async function allowance(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	const active = await live(ctx, workspaceId);
 	const budgetUsd = workspace?.phoneBudgetUsd ?? 0;
 	const spentThisMonthUsd = spent.reduce((n, r) => n + r.costUsd, 0);
-	const reservedUsd = active.reduce((n, m) => n + m.call!.rateUsd * HOLD_MINUTES, 0);
+	const processing = await ctx.db.query("inboxMessages").withIndex("by_call_processing", q => q.eq("workspaceId", workspaceId).eq("call.recording.processingReserved", true)).take(101);
+	const reservedUsd = active.reduce((n, m) => n + m.call!.rateUsd * HOLD_MINUTES, 0) + processing.length * PROCESSING_HOLD_USD;
 	const requiredUsd = rate() * HOLD_MINUTES;
 	const configured = voiceReady();
 	const reasonCode = !configured ? "not_configured" as const
@@ -180,8 +184,8 @@ export const join = mutation({
 		if (!m.call!.active || m.call!.state === "ending" || !(await allowed(ctx, m))) throw new ConvexError("This call has ended.");
 		if (m.call!.userId && m.call!.userId !== member.userId) throw new ConvexError("Someone else answered this call.");
 		if ((await live(ctx, member.workspaceId)).some((other) => other._id !== id && other.call?.userId === member.userId)) throw new ConvexError("Finish your current call first.");
-		await ctx.db.patch(id, { call: { ...m.call!, userId: member.userId, memberId: member.id }, authorUserId: member.userId });
-		return { room: m.call!.room, identity: `staff-${member.userId}` };
+		await ctx.db.patch(id, { call: { ...m.call!, userId: member.userId, memberId: member.id, joiningAt: m.call!.joiningAt ?? Date.now() }, authorUserId: member.userId });
+		return { room: m.call!.room, identity: `staff-${member.userId}`, incoming: m.direction === "in" };
 	},
 });
 
@@ -191,7 +195,9 @@ export const ready = mutation({
 		const member = await requirePermission(ctx, "inbox.use");
 		const m = await requireCall(ctx, member, id);
 		if (!m.call!.active || m.call!.state !== "ringing" || m.call!.userId !== member.userId || !(await allowed(ctx, m))) throw new ConvexError("This call isn't yours to connect.");
-		if (m.direction === "in") await ctx.db.patch(id, { call: { ...m.call!, state: "connected", connectedAt: Date.now() } });
+		if (m.direction === "in") {
+			await ctx.db.patch(id, { call: { ...m.call!, state: "connected", connectedAt: Date.now() } });
+		}
 		else if (!m.call!.dispatched) await ctx.scheduler.runAfter(0, internal.phoneProvider.dial, { id });
 	},
 });
@@ -205,6 +211,17 @@ export const claimDial = internalMutation({
 		const c = (await ctx.db.get(m.conversationId))!;
 		await ctx.db.patch(id, { call: { ...m.call, dispatched: true } });
 		return { room: m.call.room, to: c.contact, from: m.call.from };
+	},
+});
+
+/** Recheck after recorder startup, which can take several seconds. */
+export const stillDialable = internalMutation({
+	args: { id: v.id("inboxMessages") },
+	handler: async (ctx, { id }) => {
+		const m = await ctx.db.get(id);
+		if (!m?.call?.active || m.call.state !== "ringing" || !m.call.dispatched) return false;
+		if (!(await allowed(ctx, m))) { await stop(ctx, m); return false; }
+		return true;
 	},
 });
 
@@ -240,7 +257,7 @@ export const watch = internalMutation({
 			return;
 		}
 		const age = Date.now() - m._creationTime;
-		if (!(await allowed(ctx, m)) || age >= CALL_SECONDS * 1000 || (m.call.connectedAt === undefined && age >= RING_MS)) return stop(ctx, m);
+		if (!(await allowed(ctx, m)) || age >= CALL_SECONDS * 1000 || (m.call.connectedAt === undefined && (m.call.joiningAt === undefined ? age >= RING_MS : Date.now() - m.call.joiningAt >= PICKUP_MS))) return stop(ctx, m);
 		await ctx.scheduler.runAfter(10_000, internal.calls.watch, { id, room });
 	},
 });
@@ -268,7 +285,9 @@ export const connected = internalMutation({
 		const m = await ctx.db.get(id);
 		if (!m?.call?.active) return false;
 		if (!(await allowed(ctx, m)) || m.call.state === "ending") { await stop(ctx, m); return false; }
-		if (m.call.connectedAt === undefined) await ctx.db.patch(id, { call: { ...m.call, state: "connected", connectedAt: Date.now() } });
+		if (m.call.connectedAt === undefined) {
+			await ctx.db.patch(id, { call: { ...m.call, state: "connected", connectedAt: Date.now() } });
+		}
 		return true;
 	},
 });

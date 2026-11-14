@@ -8,14 +8,28 @@
 - Incoming calls ring signed-in staff with `inbox.use`. Pickup is atomic; decline is personal. No pickup after 30 seconds is missed. Budget-rejected calls still get a missed entry.
 - The dock lives above routes, keyed to account/workspace: who, timer, mute, keypad/DTMF and hang-up. Switching workspace/account or losing Inbox access disconnects it. A server watchdog checks access every 10 seconds and requests closure for revoked, released-number or deleted-workspace calls; provider events close calls when staff or callers disconnect.
 - One `inboxMessages.call` entry holds direction, staff member, connected/end times and outcome in the ordinary `call` Inbox conversation. Existing record matching links the person. Record history requires both record visibility and Inbox access. Comments and agent reads reuse Inbox; no parallel call/history table.
-- `inbox.manage` has `call` and `end_call`, both outside actions. Preparing a call waits for the person's microphone. Pickup, device readiness and dismissing ringing are personal consent. Agent voice, recording, transcript and summary show **Soon**.
+- `inbox.manage` has `call` and `end_call`, both outside actions. Preparing a call waits for the person's microphone. Pickup, device readiness and dismissing ringing are personal consent. Agent voice stays **Soon**. Recorded calls have private playback, a transcript and a summary on the same Inbox entry.
 - SMS keeps queued, delivered, failed and unknown. Texts bind the approved number, claim one send and verify signed/account-bound receipts for that attempt and pair of numbers. Early receipts survive late REST results. Uncertain sends never automatically repeat. Fake numbers and logged phone sends were removed; tests mock the network.
 
 ## Spend and cleanup
 
 General settings has one monthly call budget, default **$0 (off)**, using the picture-budget pattern. Admission holds 31 minutes at the deployment's configured conservative rate against this month's Usage plus active calls. Calls have a 30-minute limit. An uncertain dial spends its full hold and is not retried; known outcomes settle once to `recordUsage`, kind `phone`, labeled estimated. This is an estimated allowance, not a carrier invoice or subscription. Set the rate to cover every enabled destination, LiveKit and rounding; restrict the trunk's dialing geography accordingly.
 
-Unpredictable room names and 60-second staff tokens reach only the claimed room, microphone and DTMF data. Signed `/phone/events` callbacks require the dedicated inbound trunk, Twilio account and active number. Repeated events update the same entry. Existing Inbox cascades erase history; the watchdog retains the exact room name to close even after its row is erased. No recording/storage objects exist yet.
+Unpredictable room names and 60-second staff tokens reach only the claimed room, microphone and DTMF data. Signed `/phone/events` callbacks require the dedicated inbound trunk, Twilio account and active number. Repeated events update the same entry. Existing Inbox cascades erase history; the watchdog retains the exact room name to close even after its row is erased. Recording files live in private Convex storage. Full transcripts live separately from Inbox messages so lists stay bounded; summaries and processing state stay on the call. Files and transcripts are removed with their conversation, agent or workspace.
+
+## Recording and processing
+
+With recording storage configured, staff calls use server-side LiveKit audio-only Egress to capture all published room audio, including caller and staff tracks. Inbound capture starts before the staff microphone joins; outbound capture starts before dialing. The recorder waits up to 15 seconds for ACTIVE. Unavailable or failed recording never prevents a staff call; the panel shows its actual capture status. A lost start response is reconciled, never automatically started again.
+
+A signed `egress_ended` event matches the room, Egress ID and exact server-chosen object key. The backend ignores callback URLs, reads the known private object with a streaming 24 MB bound, imports it into Convex storage, and deletes the staging object. Missed callbacks have a bounded reconciliation watchdog. Cleanup stops live exports and handles delayed completion after a call was deleted. Configure the staging bucket with a one-day expiration policy as a final cleanup backstop. Final recordings are retained with their conversation; there is no separate age-based retention setting yet.
+
+Playback is requested on demand through `callRecordings.playback`. It returns a five-minute capability URL to `/phone/recording`, never a Convex storage URL or S3 URL. Every audio Range request checks the current user's membership, workspace and `inbox.use` access. Revocation blocks subsequent requests; bytes already delivered to a browser cannot be recalled. Native audio controls support seeking. Transcript text is loaded separately through `callRecordings.transcript`; it is not included in Inbox list data.
+
+After import, `callRecordingJobs.process` transcribes through the existing AI Gateway dictation model, then summarizes through the existing background summary model. Audio is at most 24 MB, transcripts 120,000 characters and summaries 4,000 characters. The model sees transcript content as untrusted data and receives no tools. Empty speech produces an explicit no-speech result. Model requests have timeouts and zero automatic retries. A manual retry preserves a successful transcript and reruns only a failed summary. At most three manual retries are allowed.
+
+Each processing attempt reserves a conservative $0.25 against the existing monthly call budget, including other calls and processing holds. Completed stages record actual Gateway cost or a conservative estimate when billing metadata is absent. An ambiguous model timeout settles the remaining reservation as estimated phone Usage before allowing a manual retry. Set the configured all-in phone rate to cover telephony and recording export as well. Zero budget blocks paid processing.
+
+Agents can use `inbox.manage` `read_call` for paged transcripts and summaries and `retry_call_processing` for failed processing. These use the same workspace and Inbox access checks as the UI.
 
 ## Backend contract for the phone UI
 
@@ -86,9 +100,11 @@ The renderer permits `*.livekit.cloud` signaling; self-hosted LiveKit needs its 
 
 [LiveKit SIP](https://docs.livekit.io/telephony/), [DTMF](https://docs.livekit.io/telephony/features/dtmf/), [Twilio trunking](https://www.twilio.com/en-us/sip-trunking/pricing/us). SIP is necessary because Twilio Media Streams cannot send outbound DTMF. Nov 8 planning baseline: local numbers $1.15/month and SMS $0.0083/segment plus carrier fees; voice varies by SIP route and LiveKit usage. Configure the deployment's actual conservative rate before enabling calls.
 
-No numbers were bought or paid calls/texts made. Tests use synthetic credentials, real token/signature verification and mocked provider requests. Live verification needs dedicated accounts, trunks/webhooks, approved number/rate/budget, required SMS registration, and handset checks for sound, DTMF, pickup races and disconnects. Invoice reconciliation remains future work.
+Recording additionally needs `RECORDING_S3_BUCKET`, `RECORDING_S3_REGION`, `RECORDING_S3_ACCESS_KEY_ID`, `RECORDING_S3_SECRET_ACCESS_KEY`, and optionally `RECORDING_S3_ENDPOINT` (HTTPS, for S3-compatible storage). Keep this bucket private; grant only object read/write/delete for the `calls/` prefix. LiveKit Egress must be enabled and allowed to upload to that bucket. Self-hosted LiveKit needs a running Egress service. `AI_GATEWAY_API_KEY` enables transcription and summaries; `CONNECTIONS_KEY` signs private playback tickets.
+
+No numbers were bought or paid calls/texts/model runs made during implementation. Tests use synthetic credentials, real token/signature/SDK verification and mocked provider requests. Live verification needs dedicated accounts, trunks/webhooks, approved number/rate/budget, required SMS registration, and handset checks for sound, DTMF, pickup races and disconnects. Invoice reconciliation remains future work.
 
 ## Next
 
-1. Recording, transcript and summary on this entry, inline playback and permission-checked retention/cleanup.
+1. Dedicated-account handset acceptance for recording both sides, muted microphone behavior, playback, transcript quality, summaries and cleanup.
 2. The same Companybot harness answers voice as Public with its existing instructions, tools and role-scoped context. LiveKit stays media only. No teleprompter.

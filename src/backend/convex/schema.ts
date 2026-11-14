@@ -486,8 +486,23 @@ export default defineSchema({
 			declined: v.array(v.id("users")),
 			dispatched: v.optional(v.boolean()),
 			connectedAt: v.optional(v.number()),
+			joiningAt: v.optional(v.number()),
 			endedAt: v.optional(v.number()),
 			rateUsd: v.number(),
+			recording: v.optional(v.object({
+				status: v.union(v.literal("recording"), v.literal("processing"), v.literal("ready"), v.literal("failed"), v.literal("unavailable")),
+				key: v.string(),
+				egressId: v.optional(v.string()),
+				storageId: v.optional(v.id("_storage")),
+				error: v.optional(v.string()),
+				importing: v.optional(v.boolean()),
+				attempt: v.optional(v.string()),
+				retries: v.optional(v.number()),
+				processingReserved: v.optional(v.boolean()),
+				processingSpentUsd: v.optional(v.number()),
+			})),
+			transcript: v.optional(v.object({ status: v.union(v.literal("pending"), v.literal("processing"), v.literal("ready"), v.literal("failed")), error: v.optional(v.string()) })),
+			summary: v.optional(v.object({ status: v.union(v.literal("pending"), v.literal("processing"), v.literal("ready"), v.literal("failed")), text: v.optional(v.string()), error: v.optional(v.string()) })),
 		})),
 
 		/** Email Message-ID, for threading replies (In-Reply-To, References). */
@@ -509,7 +524,16 @@ export default defineSchema({
 		.index("by_conversation", ["conversationId"])
 		.index("by_provider", ["providerId"])
 		.index("by_call_room", ["call.room"])
-		.index("by_live_call", ["workspaceId", "call.active"]),
+		.index("by_live_call", ["workspaceId", "call.active"])
+		.index("by_call_processing", ["workspaceId", "call.recording.processingReserved"]),
+
+	// Kept outside Inbox messages so listing 200 calls never loads 200 full transcripts.
+	callTranscripts: defineTable({
+		workspaceId: v.id("workspaces"),
+		conversationId: v.id("inboxConversations"),
+		messageId: v.id("inboxMessages"),
+		text: v.string(),
+	}).index("by_message", ["messageId"]).index("by_conversation", ["conversationId"]),
 
 	agentVersions: defineTable({
 		agentId: v.id("agents"),

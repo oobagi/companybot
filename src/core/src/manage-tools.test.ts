@@ -16,6 +16,13 @@ describe("grouped tools", () => {
 			expect(toolRisk(action!.tool)).toBe("outside");
 		}
 	});
+	it("accepts transcript paging without allowing negative or fractional offsets", () => {
+		const schema = manageInputs["inbox.manage"];
+		for (const offset of [undefined, 0, 12_000]) expect(schema.safeParse({ request: { action: "read_call", id: "call-id", ...(offset !== undefined && { offset }) } }).success).toBe(true);
+		for (const offset of [-1, 0.5, Infinity]) expect(schema.safeParse({ request: { action: "read_call", id: "call-id", offset } }).success).toBe(false);
+		expect(schema.safeParse({ request: { action: "retry_call_processing", id: "call-id", url: "https://untrusted.example/recording" } }).success).toBe(false);
+	});
+
 	it("asks for exact invitations and skill edits, and locks irreversible removal tools", async () => {
 		for (const id of ["members.invite", "skills.edit", "members.remove", "skills.remove", "automations.remove"] as const) {
 			const tool = manageTools.find((t) => t.id === id)!;

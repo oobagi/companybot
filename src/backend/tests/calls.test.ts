@@ -115,6 +115,36 @@ describe("staff calls in Inbox", () => {
 		expect((await owner.query(api.inbox.get, { id: ring.conversationId }))!.messages).toHaveLength(1);
 	});
 
+	it("allows an answered incoming call to finish recorder preparation past the original ringing deadline", async () => {
+		const { t, owner } = await fixture();
+		const start = Date.now();
+		const room = "cb-call-pickup-preparation";
+		await event(t, "participant_joined", room);
+		const ring = (await owner.query(api.calls.current))!.calls[0]!;
+		vi.setSystemTime(start + 25_000);
+		await owner.mutation(api.calls.join, { id: ring.id });
+		vi.setSystemTime(start + 31_000);
+		await t.mutation(internal.calls.watch, { id: ring.id, room });
+		expect((await row(t, ring.id))!.call).toMatchObject({ active: true, state: "ringing", userId: owner.userId, joiningAt: start + 25_000 });
+		vi.setSystemTime(start + 32_000);
+		await owner.mutation(api.calls.ready, { id: ring.id });
+		await t.mutation(internal.calls.watch, { id: ring.id, room });
+		expect((await row(t, ring.id))!.call).toMatchObject({ active: true, state: "connected", connectedAt: start + 32_000 });
+	});
+
+	it("bounds a claimed incoming pickup that never finishes connecting", async () => {
+		const { t, owner } = await fixture();
+		const start = Date.now();
+		const room = "cb-call-stalled-pickup";
+		await event(t, "participant_joined", room);
+		const ring = (await owner.query(api.calls.current))!.calls[0]!;
+		vi.setSystemTime(start + 25_000);
+		await owner.mutation(api.calls.join, { id: ring.id });
+		vi.setSystemTime(start + 116_000);
+		await t.mutation(internal.calls.watch, { id: ring.id, room });
+		expect((await row(t, ring.id))!.call!.state).toBe("ending");
+	});
+
 	it("refuses unsigned, forged and tampered events and rejects foreign trunks and accounts", async () => {
 		const { t, owner } = await fixture();
 		expect((await t.fetch("/phone/events", { method: "POST", body: "{}" })).status).toBe(403);
@@ -353,12 +383,15 @@ describe("staff calls in Inbox", () => {
 		vi.setSystemTime(clock + 5_000);
 		await t.action(internal.phoneProvider.dial, { id });
 		const call = (await owner.query(api.calls.current))!.calls[0]!;
-		expect(call).toMatchObject({ status: "in-progress", startedAt, answeredAt: clock + 5_000, endedAt: null, duration: 0 });
-		vi.setSystemTime(clock + 17_000);
+		expect(call).toMatchObject({ status: "in-progress", startedAt, endedAt: null, duration: 0 });
+		expect(call.answeredAt).toBeGreaterThanOrEqual(clock + 5_000);
+		expect(call.answeredAt).toBeLessThanOrEqual(clock + 5_001);
+		vi.setSystemTime(call.answeredAt! + 12_000);
 		await event(t, "participant_left", (await row(t, id))!.call!.room);
 		vi.setSystemTime(clock + 90_000);
 		const card = (await owner.query(api.inbox.get, { id: call.conversationId }))!.messages[0]!.call!;
-		expect(card).toMatchObject({ status: "completed", answeredAt: clock + 5_000, endedAt: clock + 17_000, duration: 12 });
+		expect(card).toMatchObject({ status: "completed", answeredAt: call.answeredAt, duration: 12 });
+		expect(card.endedAt).toBe(call.answeredAt! + 12_000);
 	});
 
 	it.each([[486, "declined"], [603, "declined"], [408, "no-answer"], [480, "no-answer"], [503, "failed"]] as const)("keeps a known SIP %i outcome as %s instead of charging an uncertain hold", async (code, status) => {
