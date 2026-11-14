@@ -487,6 +487,8 @@ export default defineSchema({
 			declined: v.array(v.id("users")),
 			dispatched: v.optional(v.boolean()),
 			connectedAt: v.optional(v.number()),
+			/** Who handled the connected call, distinct from its direction and final outcome. */
+			handling: v.optional(v.union(v.literal("staff"), v.literal("ai"), v.literal("voicemail"))),
 			joiningAt: v.optional(v.number()),
 			endedAt: v.optional(v.number()),
 			rateUsd: v.number(),

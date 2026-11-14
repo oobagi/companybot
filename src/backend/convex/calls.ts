@@ -196,7 +196,7 @@ export const ready = mutation({
 		const m = await requireCall(ctx, member, id);
 		if (!m.call!.active || m.call!.state !== "ringing" || m.call!.userId !== member.userId || !(await allowed(ctx, m))) throw new ConvexError("This call isn't yours to connect.");
 		if (m.direction === "in") {
-			await ctx.db.patch(id, { call: { ...m.call!, state: "connected", connectedAt: Date.now() } });
+			await ctx.db.patch(id, { call: { ...m.call!, state: "connected", connectedAt: Date.now(), handling: "staff" } });
 		}
 		else if (!m.call!.dispatched) await ctx.scheduler.runAfter(0, internal.phoneProvider.dial, { id });
 	},
@@ -286,7 +286,7 @@ export const connected = internalMutation({
 		if (!m?.call?.active) return false;
 		if (!(await allowed(ctx, m)) || m.call.state === "ending") { await stop(ctx, m); return false; }
 		if (m.call.connectedAt === undefined) {
-			await ctx.db.patch(id, { call: { ...m.call, state: "connected", connectedAt: Date.now() } });
+			await ctx.db.patch(id, { call: { ...m.call, state: "connected", connectedAt: Date.now(), handling: "staff" } });
 		}
 		return true;
 	},

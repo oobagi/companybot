@@ -26,6 +26,8 @@ export function callData(m: Doc<"inboxMessages">) {
 		status,
 		startedAt: m._creationTime,
 		answeredAt,
+		/** Older staff calls retain their known handler; an author or recording alone proves no answer. */
+		handling: call.handling ?? (answeredAt !== null && call.userId ? "staff" as const : null),
 		endedAt,
 		/** Connected seconds. Live queries are snapshots; clients tick from answeredAt. */
 		duration: answeredAt === null ? null : Math.max(0, Math.floor(((endedAt ?? Date.now()) - answeredAt) / 1000)),

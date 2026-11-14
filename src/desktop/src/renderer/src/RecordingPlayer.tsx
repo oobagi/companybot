@@ -4,7 +4,7 @@ import { api } from "./api";
 import { useAction, useQuery } from "./convex";
 import { CloseIcon, PauseIcon, PlayIcon, ReloadIcon, SpinnerIcon, WarningIcon } from "./icons";
 import { navigate } from "./router";
-import { playBarButton, playBarNameButton, playBarPlayButton, playerButton, smallButton } from "./ui";
+import { noticeButton, playBarButton, playBarNameButton, playBarPlayButton, playerButton, Problem } from "./ui";
 import { createRecordingPlayback, type PlaybackSnapshot, type RecordingTarget } from "./recordingPlayback";
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -134,9 +134,10 @@ export function RecordingControls({ target }: { target: RecordingTarget }) {
 				<span className="shrink-0 text-xs text-neutral-500 tabular-nums">{clock(Math.floor(time))}{duration > 0 && ` / ${clock(Math.floor(duration))}`}</span>
 			</div>
 			{error && (
-				<div className="flex items-start gap-2 px-1 text-sm text-red-600">
-					<p role="alert" className="min-w-0 flex-1 break-words">{error}</p>
-					<button type="button" className={`${smallButton} shrink-0`} disabled={blocked} onClick={() => toggle(target)}><ReloadIcon /> Try again</button>
+				<div className="px-1">
+					<Problem alert message="The recording didn't play" detail={error}>
+						<button type="button" className={noticeButton} disabled={blocked} onClick={() => toggle(target)}><ReloadIcon aria-hidden="true" /> Try again</button>
+					</Problem>
 				</div>
 			)}
 		</div>
@@ -161,8 +162,8 @@ export function RecordingPill() {
 			<button type="button" className={playBarNameButton} title="Open call" onClick={() => navigate("inbox", target.conversationId, "call", target.id)}>{target.name}</button>
 			<Scrubber compact time={snapshot.time} duration={duration} playing={snapshot.playing} blocked={blocked} onSeek={seek} />
 			{snapshot.error ? (
-				<span role="alert" title={snapshot.error} className="flex shrink-0 items-center text-sm text-amber-600">
-					<WarningIcon /> <span className="sr-only">{snapshot.error}</span>
+				<span role="alert" title={`The recording didn't play. ${snapshot.error}`} className="flex shrink-0 items-center text-sm text-amber-600">
+					<WarningIcon aria-hidden="true" /> <span className="sr-only">The recording didn't play. Play again to retry.</span>
 				</span>
 			) : (
 				<span className="shrink-0 text-neutral-500 tabular-nums" title={duration > 0 ? `${clock(Math.floor(snapshot.time))} of ${clock(Math.floor(duration))}` : undefined}>{clock(Math.floor(snapshot.time))}</span>

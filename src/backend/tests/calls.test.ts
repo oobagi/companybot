@@ -72,7 +72,7 @@ describe("staff calls in Inbox", () => {
 		await t.action(internal.phoneProvider.dial, { id });
 		expect(requests.filter((r) => r.path.endsWith("/CreateSIPParticipant"))).toHaveLength(1);
 		expect(requests[0]!.body).toMatchObject({ sipTrunkId: "STout", sipCallTo: TO, sipNumber: FROM });
-		expect((await row(t, id))!.call!.state).toBe("connected");
+		expect((await row(t, id))!.call).toMatchObject({ state: "connected", handling: "staff" });
 		const c = (await owner.query(api.inbox.list))![0]!;
 		expect(c.channel).toBe("call");
 		expect((await owner.query(api.inbox.get, { id: c.id }))!.messages).toHaveLength(1);
@@ -98,6 +98,7 @@ describe("staff calls in Inbox", () => {
 		await expect(owner.mutation(api.calls.join, { id: ring.id })).rejects.toThrow();
 		await member.mutation(api.calls.ready, { id: ring.id });
 		expect((await row(t, ring.id))!.authorUserId).toBe(member.userId);
+		expect((await row(t, ring.id))!.call!.handling).toBe("staff");
 		expect(await t.run((ctx) => ctx.db.query("agentTurns").collect())).toHaveLength(0);
 		await event(t, "participant_left", room);
 		expect((await row(t, ring.id))!.call!.state).toBe("completed");
@@ -123,6 +124,7 @@ describe("staff calls in Inbox", () => {
 		const ring = (await owner.query(api.calls.current))!.calls[0]!;
 		vi.setSystemTime(start + 25_000);
 		await owner.mutation(api.calls.join, { id: ring.id });
+		expect((await owner.query(api.calls.current))!.calls[0]!.handling).toBeNull();
 		vi.setSystemTime(start + 31_000);
 		await t.mutation(internal.calls.watch, { id: ring.id, room });
 		expect((await row(t, ring.id))!.call).toMatchObject({ active: true, state: "ringing", userId: owner.userId, joiningAt: start + 25_000 });
@@ -392,6 +394,37 @@ describe("staff calls in Inbox", () => {
 		const card = (await owner.query(api.inbox.get, { id: call.conversationId }))!.messages[0]!.call!;
 		expect(card).toMatchObject({ status: "completed", answeredAt: call.answeredAt, duration: 12 });
 		expect(card.endedAt).toBe(call.answeredAt! + 12_000);
+	});
+
+	it("identifies an older staff answer only from a connected call with a known staff participant", async () => {
+		const { t, owner, agentId } = await fixture();
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		const original = (await row(t, id))!;
+		const read = async () => (await owner.query(api.inbox.get, { id: original.conversationId }))!.messages[0]!.call!;
+		expect((await read()).handling).toBeNull();
+		await t.run(ctx => ctx.db.patch(id, { call: { ...original.call!, active: false, state: "no-answer", endedAt: Date.now() } }));
+		expect((await read()).handling).toBeNull();
+		await t.run(ctx => ctx.db.patch(id, { call: { ...original.call!, active: false, state: "completed", connectedAt: Date.now(), endedAt: Date.now() } }));
+		expect((await read()).handling).toBe("staff");
+		await t.run(ctx => ctx.db.patch(id, { authorAgentId: agentId }));
+		const delegated = (await owner.query(api.inbox.get, { id: original.conversationId }))!.messages[0]!;
+		expect(delegated.call!.handling).toBe("staff");
+		expect(delegated.author).toMatchObject({ type: "agent", for: { type: "user", id: owner.userId } });
+		// Agent authorship can mean dialing on someone's behalf; it does not prove who answered.
+		await t.run(ctx => ctx.db.patch(id, { authorAgentId: agentId, call: { ...original.call!, active: false, state: "completed", connectedAt: Date.now(), endedAt: Date.now(), userId: undefined } }));
+		expect((await read()).handling).toBeNull();
+	});
+
+	it("preserves explicit AI and voicemail handling independently of authorship and duration", async () => {
+		const { t, owner, agentId } = await fixture();
+		const id = await owner.mutation(api.calls.start, { agentId, to: TO });
+		const original = (await row(t, id))!;
+		for (const handling of ["ai", "voicemail"] as const) {
+			await t.run(ctx => ctx.db.patch(id, { call: { ...original.call!, active: false, state: "completed", connectedAt: Date.now(), endedAt: Date.now(), handling } }));
+			const call = (await owner.query(api.inbox.get, { id: original.conversationId }))!.messages[0]!.call!;
+			expect(call.handling).toBe(handling);
+			expect(call.duration).toBe(0);
+		}
 	});
 
 	it.each([[486, "declined"], [603, "declined"], [408, "no-answer"], [480, "no-answer"], [503, "failed"]] as const)("keeps a known SIP %i outcome as %s instead of charging an uncertain hold", async (code, status) => {

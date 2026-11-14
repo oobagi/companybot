@@ -1,10 +1,10 @@
 import { api } from "./api";
 import { useQuery, useWorkspace } from "./convex";
-import { Component, Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Component, Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { errorMessage } from "./api";
-import { CaretDownIcon, PlusIcon, SearchIcon } from "./icons";
+import { CaretDownIcon, PlusIcon, SearchIcon, WarningIcon } from "./icons";
 import { navigate } from "./router";
 import type { DragProps } from "./sortable";
 import { Popover } from "./views/chat/common";
@@ -559,6 +559,8 @@ export const playBarButton = "no-drag flex size-6 shrink-0 items-center justify-
 export const playBarNameButton = "no-drag max-w-36 truncate font-medium text-neutral-900 hover:underline max-sm:hidden";
 /** Opens a call from its whole bubble; the player and recovery controls sit above this button. */
 export const callOpenButton = "absolute inset-0 z-10 cursor-pointer rounded-[inherit] hover:bg-neutral-900/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500";
+/** An action inside a `Problem` line (Details, Try again): plain text until hovered, so the line stays one quiet sentence. */
+export const noticeButton = `inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-neutral-700 hover:bg-neutral-900/5 hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-neutral-500 aria-expanded:bg-neutral-900/5 ${disabledButtonClass}`;
 /** A call in a record's call history. */
 export const callRowButton = "-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-neutral-100";
 /** A small round × in a card's corner (a pending file, a link preview). */
@@ -1013,5 +1015,37 @@ export function LoadMore({ status, onMore }: { status: string; onMore: () => voi
 		<button type="button" onClick={onMore} className={`self-center ${compactButton}`}>
 			<CaretDownIcon /> Load more
 		</button>
+	);
+}
+
+/**
+ * Something that went wrong, as one quiet line: what happened in a few plain words, with its actions (Try again)
+ * beside it. What the service actually said is kept behind Details, so a long technical message never fills a card.
+ * `alert` announces it at once (a failed click); otherwise it's a status.
+ */
+export function Problem({ message, detail, alert, className = "", children }: { message: string; detail?: string | null; alert?: boolean; className?: string; children?: React.ReactNode }) {
+	const [open, setOpen] = useState(false);
+	const id = useId();
+	const more = detail?.trim();
+	return (
+		<div className={`flex min-w-0 flex-col gap-1.5 text-sm ${className}`}>
+			<div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
+				<p role={alert ? "alert" : "status"} className="mr-1 flex min-w-0 items-center gap-1.5 text-neutral-600">
+					<WarningIcon aria-hidden="true" className="shrink-0 text-amber-600" />
+					<span className="min-w-0 break-words">{message}</span>
+				</p>
+				{more && (
+					<button type="button" aria-expanded={open} aria-controls={id} className={noticeButton} onClick={() => setOpen(!open)}>
+						Details <CaretDownIcon aria-hidden="true" className={open ? "rotate-180" : ""} />
+					</button>
+				)}
+				{children}
+			</div>
+			{more && (
+				<p id={id} hidden={!open} className="border-l-2 border-neutral-300 pl-2.5 text-left text-xs leading-relaxed break-words whitespace-pre-wrap text-neutral-500 select-text">
+					{more}
+				</p>
+			)}
+		</div>
 	);
 }

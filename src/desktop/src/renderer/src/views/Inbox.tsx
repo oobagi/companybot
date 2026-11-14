@@ -394,7 +394,7 @@ function Conversation({ c, callId }: { c: Opened; callId?: string }) {
 					/>
 				</div>
 				{callId && (selectedCall?.call ? (
-					<CallDetail key={selectedCall.id} call={selectedCall.call} answeredBy={selectedCall.direction === "in" ? selectedCall.author?.name : null} bar={detailBar} side={shown && wide ? <Details conversation={c} /> : null} />
+					<CallDetail key={selectedCall.id} call={selectedCall.call} staffName={selectedCall.author?.type === "user" ? selectedCall.author.name : selectedCall.author?.for?.name} bar={detailBar} side={shown && wide ? <Details conversation={c} /> : null} />
 				) : (
 					<Scroll header={detailBar}><EmptyState icon={<PhoneIcon />} title="Call not found">This call may have been removed from the conversation.</EmptyState></Scroll>
 				))}
@@ -480,7 +480,7 @@ function Messages({ c, them, bar, side, active }: { c: Opened; them: string; bar
 									) : first.call ? (
 										<div className={`flex flex-col ${first.direction === "in" ? "items-start" : "items-end"}`}>
 											<Sender author={first.direction === "in" ? null : first.author} them={them} mine={first.direction !== "in"} />
-											<CallEntry call={first.call} answeredBy={first.direction === "in" ? first.author?.name : null} onOpen={() => navigate("inbox", c.id, "call", first.id)} />
+											<CallEntry call={first.call} staffName={first.author?.type === "user" ? first.author.name : first.author?.for?.name} staffNamed={first.direction !== "in" && first.author?.type === "user"} onOpen={() => navigate("inbox", c.id, "call", first.id)} />
 										</div>
 									) : first.status === "draft" ? (
 										<Draft message={first} channel={c.channel} agent={c.agent} />

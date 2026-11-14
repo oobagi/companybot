@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import type { Room } from "livekit-client";
 import { api, errorMessage } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PhoneOutgoingIcon, PopInIcon, PopOutIcon, ReloadIcon, SparkleIcon, SpeakerIcon, SpinnerIcon, WarningIcon } from "../icons";
+import { AgentIcon, BackspaceIcon, CaretDownIcon, CheckIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PhoneOutgoingIcon, PhoneSlashIcon, PhoneXIcon, PopInIcon, PopOutIcon, ReloadIcon, SparkleIcon, SpeakerIcon, SpinnerIcon, UserIcon, VoicemailIcon, WarningIcon } from "../icons";
 import { navigate } from "../router";
 import { RecordingControls, RecordingPlaybackProvider } from "../RecordingPlayer";
 import {
@@ -20,16 +20,17 @@ import {
 	dialKeyButton,
 	hangUpButton,
 	labelButton,
+	noticeButton,
 	phoneCallerButton,
 	phoneToolButton,
 	placeCallButton,
 	roundCallButton,
 	rowButton,
-	smallButton,
 	smallIconButton,
 	titleBarButton,
 	callOpenButton,
 	conversationColumn,
+	Problem,
 	Scroll,
 } from "../ui";
 import { Avatar, dayLabel, clock as timeOfDay } from "./chat/common";
@@ -590,7 +591,7 @@ function PhonePanel(props: {
 					</p>
 				)}
 				{(mine.recording?.status === "unavailable" || mine.recording?.status === "failed") && (
-					<p role="status" className="-mt-3 text-center text-xs text-amber-700">{mine.recording.error || "Recording is unavailable for this call."}</p>
+					<Problem className="-mt-2 items-center" message="This call isn't being recorded" detail={mine.recording.error} />
 				)}
 				{incoming && (
 					<div className="flex w-full items-center gap-2 rounded-xl bg-neutral-100 py-1.5 pr-1.5 pl-3 text-sm">
@@ -720,40 +721,79 @@ export function CallStatus() {
 	);
 }
 
-type CallInfo = { direction: string; state: string; connectedAt: number | null; endedAt: number | null };
+type Handling = "staff" | "ai" | "voicemail" | null;
+type CallInfo = { direction: string; state: string; connectedAt: number | null; endedAt: number | null; handling?: Handling };
+type CallKind = "staff" | "ai" | "voicemail" | "answered" | "missed" | "noanswer" | "declined" | "failed" | "ended";
 
-/** How a call went, in words: "Answered · 3:42", "Missed", "No answer". */
-export function callStatus(call: CallInfo, answeredBy?: string | null) {
+/**
+ * How a call went. `kind` is who took it (a person, the AI, voicemail) or why nobody did; it comes from what the
+ * server recorded, never from who wrote the entry or what was said. A connected call with no record of who took
+ * it is just "Answered". `live` is set instead while the call is still going.
+ */
+export function callStatus(call: CallInfo, staffName?: string | null) {
 	const answered = call.connectedAt !== null;
+	const incoming = call.direction === "in";
 	const seconds = answered ? Math.max(0, Math.floor(((call.endedAt ?? Date.now()) - call.connectedAt!) / 1000)) : 0;
-	const tone: "live" | "good" | "bad" | "quiet" = call.state === "connected" ? "live" : answered ? "good" : call.state === "ringing" || call.state === "ending" || call.state === "unknown" ? "quiet" : "bad";
-	const text =
-		call.state === "connected"
-			? `On the call · ${clock(seconds)}`
-			: call.state === "ringing"
-				? call.direction === "in" ? "Ringing…" : "Calling…"
-				: call.state === "ending"
-					? "Ending…"
-					: answered
-						? `${answeredBy && call.direction === "in" ? `Answered by ${answeredBy}` : "Answered"} · ${clock(seconds)}`
-						: call.state === "failed"
-							? "Didn't go through"
-							: call.state === "declined"
-								? "Declined"
-							: call.state === "unknown"
-								? "Ended"
-								: call.direction === "in" ? "Missed" : "No answer";
-	return { text, tone, seconds, answered };
+	const live = call.state === "connected" ? `On the call · ${clock(seconds)}` : call.state === "ringing" ? (incoming ? "Ringing…" : "Calling…") : call.state === "ending" ? "Ending…" : null;
+	const kind: CallKind = call.handling ?? (answered ? "answered" : call.state === "failed" ? "failed" : call.state === "declined" ? "declined" : call.state === "unknown" ? "ended" : incoming ? "missed" : "noanswer");
+	const name = staffName?.trim();
+	const label =
+		kind === "staff"
+			? name ? `${incoming ? "Answered" : "Called"} by ${name}` : incoming ? "Staff answered" : "Staff call"
+			: kind === "ai"
+				? incoming ? "AI answered" : "AI call"
+				: { voicemail: "Voicemail", answered: "Answered", missed: "Missed", noanswer: "No answer", declined: "Declined", failed: "Didn't go through", ended: "Ended" }[kind];
+	const duration = answered && !live ? clock(seconds) : null;
+	return { live, kind, label, duration, text: live ?? (duration ? `${label} · ${duration}` : label), seconds, answered };
 }
 
-const toneClass = { live: "bg-emerald-500 text-white", good: "bg-emerald-100 text-emerald-700", bad: "bg-red-100 text-red-600", quiet: "bg-neutral-200 text-neutral-500" };
+/**
+ * Each kind's own icon, always beside its words: the color is a second cue, never the only one. `tint` fills the
+ * round direction icon; `color` is the small icon in the outcome line, and `words` only where the line itself
+ * should stand out (a call nobody took).
+ */
+const callKinds: Record<CallKind, { Icon: typeof PhoneIcon; tint: string; color: string; words?: string }> = {
+	staff: { Icon: UserIcon, tint: "bg-emerald-100 text-emerald-800", color: "text-emerald-600" },
+	ai: { Icon: AgentIcon, tint: "bg-violet-100 text-violet-800", color: "text-violet-600" },
+	voicemail: { Icon: VoicemailIcon, tint: "bg-sky-100 text-sky-800", color: "text-sky-600" },
+	answered: { Icon: CheckIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
+	missed: { Icon: PhoneXIcon, tint: "bg-red-100 text-red-700", color: "text-red-600", words: "text-red-700" },
+	noanswer: { Icon: PhoneSlashIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
+	declined: { Icon: PhoneDisconnectIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
+	failed: { Icon: WarningIcon, tint: "bg-amber-100 text-amber-800", color: "text-amber-600" },
+	ended: { Icon: PhoneIcon, tint: "bg-neutral-200 text-neutral-700", color: "text-neutral-400" },
+};
 
+/** The call's direction, in the tint of how it went. */
 export function CallIcon({ call, size = "md" }: { call: CallInfo; size?: "sm" | "md" }) {
-	const { tone } = callStatus(call);
+	const { live, kind } = callStatus(call);
 	const Icon = call.direction === "in" ? PhoneIncomingIcon : PhoneOutgoingIcon;
 	return (
-		<span className={`flex shrink-0 items-center justify-center rounded-full ${size === "md" ? "size-10 text-lg" : "size-7 text-sm"} ${toneClass[tone]}`}>
+		<span className={`flex shrink-0 items-center justify-center rounded-full ${size === "md" ? "size-10 text-lg" : "size-7 text-sm"} ${call.state === "connected" ? "bg-emerald-500 text-white" : live ? "bg-neutral-200 text-neutral-500" : callKinds[kind].tint}`}>
 			<Icon weight="fill" />
+		</span>
+	);
+}
+
+/**
+ * A call's outcome (who took it, or why nobody did) and how long it ran, as one line of plain text in whatever
+ * size and color its line has, with a small icon in front; plain words while it's live.
+ */
+export function CallOutcome({ call, staffName }: { call: CallInfo; staffName?: string | null }) {
+	const { live, kind, label, duration } = callStatus(call, staffName);
+	if (live) return <span className="truncate tabular-nums">{live}</span>;
+	const { Icon, color, words = "" } = callKinds[kind];
+	return (
+		<span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+			<Icon aria-hidden="true" className={`shrink-0 ${color}`} />
+			<span className={`truncate ${words}`}>{label}</span>
+			{duration && (
+				<span className="shrink-0 tabular-nums">
+					<span aria-hidden="true" className="mr-1.5">·</span>
+					<span className="sr-only">lasted </span>
+					{duration}
+				</span>
+			)}
 		</span>
 	);
 }
@@ -788,9 +828,9 @@ function RecordingStatus({ call }: { call: CallEntryInfo }) {
 		);
 	if (status === "failed")
 		return (
-			<p role="status" className="flex items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm break-words text-amber-800">
-				<WarningIcon className="mt-0.5 shrink-0" /> {call.recording?.error || "The recording couldn't be saved."}
-			</p>
+			<div className="px-1">
+				<Problem message="The recording wasn't saved" detail={call.recording?.error} />
+			</div>
 		);
 	return <p role="status" className="px-1 text-sm text-neutral-500">No recording for this call.</p>;
 }
@@ -810,23 +850,25 @@ function useRetry(id: Id<"inboxMessages">) {
 	return { retrying, retryError, run };
 }
 
-/** What a call's transcript or summary says while it has no text: waiting, working, or what went wrong (with a way to try again). */
-function NoteStatus({ id, tone, retry, children }: { id: Id<"inboxMessages">; tone: "quiet" | "busy" | "bad"; retry?: boolean; children: React.ReactNode }) {
+/** What a call's transcript or summary says while it has no text: waiting or working. */
+function NoteStatus({ busy, children }: { busy?: boolean; children: React.ReactNode }) {
+	return (
+		<p role="status" className="flex items-center gap-2 text-sm break-words text-neutral-500">
+			{busy && <SpinnerIcon className="shrink-0 animate-spin" />}
+			{children}
+		</p>
+	);
+}
+
+/** A transcript or summary that failed: what failed in a few words, with Try again; a retry that didn't start says so in its place. */
+function NoteProblem({ id, message, detail }: { id: Id<"inboxMessages">; message: string; detail?: string | null }) {
 	const { retrying, retryError, run } = useRetry(id);
 	return (
-		<div className="flex flex-col items-start gap-2 text-sm">
-			<p role="status" className={`flex items-start gap-2 break-words ${tone === "bad" ? "text-amber-700" : "text-neutral-500"}`}>
-				{tone === "busy" && <SpinnerIcon className="mt-0.5 shrink-0 animate-spin" />}
-				{tone === "bad" && <WarningIcon className="mt-0.5 shrink-0" />}
-				{children}
-			</p>
-			{retry && (
-				<button type="button" className={smallButton} disabled={retrying} onClick={() => void run()}>
-					<ReloadIcon /> {retrying ? "Retrying…" : "Try again"}
-				</button>
-			)}
-			{retryError && <p role="alert" className="break-words text-red-600">{retryError}</p>}
-		</div>
+		<Problem key={retryError ? "retry" : "failed"} alert={!!retryError} message={retryError ? "The retry didn't start" : message} detail={retryError || detail}>
+			<button type="button" className={noticeButton} disabled={retrying} onClick={() => void run()}>
+				<ReloadIcon aria-hidden="true" /> {retrying ? "Retrying…" : "Try again"}
+			</button>
+		</Problem>
 	);
 }
 
@@ -904,19 +946,20 @@ function useCallTranscript(call: CallEntryInfo, wanted: boolean) {
 
 function TranscriptStatus({ call }: { call: CallEntryInfo }) {
 	const transcript = call.transcript;
-	if (!transcript) return <NoteStatus id={call.id} tone="quiet">No transcript for this call.</NoteStatus>;
-	if (transcript.status === "failed") return <NoteStatus id={call.id} tone="bad" retry>{transcript.error || "The call couldn't be transcribed."}</NoteStatus>;
-	if (transcript.status === "processing") return <NoteStatus id={call.id} tone="busy">Transcribing call…</NoteStatus>;
-	return <NoteStatus id={call.id} tone="quiet">Waiting to transcribe the recording…</NoteStatus>;
+	if (!transcript) return <NoteStatus>No transcript for this call.</NoteStatus>;
+	if (transcript.status === "failed") return <NoteProblem id={call.id} message="The call couldn't be transcribed" detail={transcript.error} />;
+	if (transcript.status === "processing") return <NoteStatus busy>Transcribing call…</NoteStatus>;
+	return <NoteStatus>Waiting to transcribe the recording…</NoteStatus>;
 }
 
-function TranscriptLoading({ call, error, onReload }: { call: CallEntryInfo; error: string; onReload: () => void }) {
-	if (!error) return <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>;
+function TranscriptLoading({ error, onReload }: { error: string; onReload: () => void }) {
+	if (!error) return <NoteStatus busy>Loading transcript…</NoteStatus>;
 	return (
-		<div className="relative z-20 flex flex-col items-start gap-2">
-			<NoteStatus id={call.id} tone="bad">{error}</NoteStatus>
-			<button type="button" className={smallButton} onClick={onReload}><ReloadIcon /> Reload transcript</button>
-		</div>
+		<Problem className="relative z-20" message="The transcript didn't load" detail={error}>
+			<button type="button" className={noticeButton} onClick={onReload}>
+				<ReloadIcon aria-hidden="true" /> Reload
+			</button>
+		</Problem>
 	);
 }
 
@@ -925,14 +968,14 @@ function CallTranscriptPreview({ call }: { call: CallEntryInfo }) {
 	const { full, loadError, reload } = useCallTranscript(call, call.transcript?.preview === null);
 	if (call.transcript?.status !== "ready") return <div className="relative z-20 px-1"><TranscriptStatus call={call} /></div>;
 	const preview = call.transcript.preview ?? full?.text.replace(/\s+/g, " ").trim().slice(0, 320);
-	if (preview === undefined) return <div className="px-1"><TranscriptLoading call={call} error={loadError} onReload={reload} /></div>;
+	if (preview === undefined) return <div className="px-1"><TranscriptLoading error={loadError} onReload={reload} /></div>;
 	return preview ? <p className="line-clamp-2 px-1 text-sm leading-snug text-neutral-600 italic">{preview}</p> : null;
 }
 
 /** A call is an Inbox screen, using the same header, profile column and scrolling area as its conversation. */
-export function CallDetail({ call, answeredBy, bar, side }: { call: CallEntryInfo; answeredBy?: string | null; bar: React.ReactNode; side: React.ReactNode }) {
+export function CallDetail({ call, staffName, bar, side }: { call: CallEntryInfo; staffName?: string | null; bar: React.ReactNode; side: React.ReactNode }) {
 	useTick(call.state === "connected");
-	const { text, answered } = callStatus(call, answeredBy);
+	const { answered } = callStatus(call);
 	const { full, loadError, reload } = useCallTranscript(call, true);
 	const recording = recordingRow(call, answered);
 	return (
@@ -952,13 +995,16 @@ export function CallDetail({ call, answeredBy, bar, side }: { call: CallEntryInf
 						<CallIcon call={call} />
 						<div className="min-w-0">
 							<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
-							<p className="text-sm text-neutral-500 tabular-nums">{text} · {dayLabel(call.startedAt)}, {timeOfDay(call.startedAt)}</p>
+							<p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-neutral-500 tabular-nums">
+								<CallOutcome call={call} staffName={staffName} />
+								<span><span aria-hidden="true" className="mr-1.5">·</span>{dayLabel(call.startedAt)}, {timeOfDay(call.startedAt)}</span>
+							</p>
 						</div>
 					</div>
 					{call.summary && <CallSummary call={call} />}
 					<section aria-label="Transcript" className="flex min-w-0 flex-col gap-4">
 						<p aria-hidden="true" className="text-xs font-medium text-neutral-500">Transcript</p>
-						{call.transcript?.status !== "ready" ? <TranscriptStatus call={call} /> : full ? <CallConversation transcript={full} /> : <TranscriptLoading call={call} error={loadError} onReload={reload} />}
+						{call.transcript?.status !== "ready" ? <TranscriptStatus call={call} /> : full ? <CallConversation transcript={full} /> : <TranscriptLoading error={loadError} onReload={reload} />}
 					</section>
 				</div>
 				{side && <aside className="sticky top-12 w-72 shrink-0 pr-3 pb-3">{side}</aside>}
@@ -979,23 +1025,26 @@ function CallSummary({ call }: { call: CallEntryInfo }) {
 			{summary.status === "ready" ? (
 				<p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700">{summary.text || "No summary available."}</p>
 			) : summary.status === "processing" ? (
-				<NoteStatus id={call.id} tone="busy">Writing summary…</NoteStatus>
+				<NoteStatus busy>Writing summary…</NoteStatus>
 			) : transcriptFailed ? (
 				// The transcript's own failure, with Try again, is in the call above.
-				<NoteStatus id={call.id} tone="quiet">A summary needs the transcript first.</NoteStatus>
+				<NoteStatus>A summary needs the transcript first.</NoteStatus>
 			) : summary.status === "failed" ? (
-				<NoteStatus id={call.id} tone="bad" retry>{summary.error || "The summary couldn't be generated."}</NoteStatus>
+				<NoteProblem id={call.id} message="The summary couldn't be written" detail={summary.error} />
 			) : (
-				<NoteStatus id={call.id} tone="quiet">Summary will follow the transcript.</NoteStatus>
+				<NoteStatus>Summary will follow the transcript.</NoteStatus>
 			)}
 		</section>
 	);
 }
 
-/** A call's outcome with its private recording and transcript, and the AI summary in its own block underneath. */
-export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; answeredBy?: string | null; onOpen: () => void }) {
+/**
+ * A call's outcome with its private recording and transcript, and the AI summary in its own block underneath.
+ * `staffNamed` says the staff member's name already sits right above the card, so the outcome doesn't repeat it.
+ */
+export function CallEntry({ call, staffName, staffNamed, onOpen }: { call: CallEntryInfo; staffName?: string | null; staffNamed?: boolean; onOpen: () => void }) {
 	useTick(call.state === "connected");
-	const { text, answered } = callStatus(call, answeredBy);
+	const { answered } = callStatus(call);
 	const recording = recordingRow(call, answered);
 	return (
 		// A record, not a bubble: a steady 70% of the conversation, never under 20rem until the column itself is narrower.
@@ -1004,9 +1053,9 @@ export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; a
 				<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call details`} data-call-open={call.id} className={callOpenButton} onClick={onOpen} />
 				<div className="flex items-center gap-3">
 					<CallIcon call={call} />
-					<div className="min-w-0">
+					<div className="min-w-0 flex-1">
 						<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
-						<p className="truncate text-sm text-neutral-500 tabular-nums">{text}</p>
+						<p className="mt-0.5 flex min-w-0 text-sm text-neutral-500"><CallOutcome call={call} staffName={staffNamed ? null : staffName} /></p>
 					</div>
 				</div>
 				{recording && <div className="relative z-20">{recording}</div>}

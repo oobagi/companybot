@@ -55,6 +55,7 @@ const buttonClasses = new Set([
 	"playBarButton",
 	"playBarNameButton",
 	"callOpenButton",
+	"noticeButton",
 	"timeRemoveButton",
 	"tabCloseButton",
 	"tabAddButton",
