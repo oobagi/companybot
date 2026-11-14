@@ -136,7 +136,7 @@ export function RecordingControls({ target }: { target: RecordingTarget }) {
 			{error && (
 				<div className="flex items-start gap-2 px-1 text-sm text-red-600">
 					<p role="alert" className="min-w-0 flex-1 break-words">{error}</p>
-					<button type="button" className={smallButton} disabled={blocked} onClick={() => toggle(target)}><ReloadIcon /> Try again</button>
+					<button type="button" className={`${smallButton} shrink-0`} disabled={blocked} onClick={() => toggle(target)}><ReloadIcon /> Try again</button>
 				</div>
 			)}
 		</div>

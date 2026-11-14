@@ -765,6 +765,17 @@ function CallRecording({ call }: { call: CallEntryInfo }) {
 	return <RecordingControls target={{ id: call.id, conversationId: call.conversationId, name: call.displayName }} />;
 }
 
+/**
+ * The player once there's audio, else what the recording is doing. A call nobody picked up has nothing to say
+ * about a recording unless one was being captured or went wrong, so it gets no row (and no gap for one).
+ */
+function recordingRow(call: CallEntryInfo, answered: boolean) {
+	const status = call.recording?.status;
+	if (status === "ready") return <CallRecording key={`recording:${call.id}`} call={call} />;
+	if (answered || status === "recording" || status === "processing" || status === "failed") return <RecordingStatus call={call} />;
+	return null;
+}
+
 /** Where the recording is, while there's nothing to play yet: the player's bar, saying what it's waiting on. */
 function RecordingStatus({ call }: { call: CallEntryInfo }) {
 	const status = call.recording?.status;
@@ -781,7 +792,7 @@ function RecordingStatus({ call }: { call: CallEntryInfo }) {
 				<WarningIcon className="mt-0.5 shrink-0" /> {call.recording?.error || "The recording couldn't be saved."}
 			</p>
 		);
-	return <p role="status" className="text-sm text-neutral-500">No recording for this call.</p>;
+	return <p role="status" className="px-1 text-sm text-neutral-500">No recording for this call.</p>;
 }
 
 /** Asks the server to run a call's failed transcription or summary again. */
@@ -912,9 +923,9 @@ function TranscriptLoading({ call, error, onReload }: { call: CallEntryInfo; err
 /** The two-line excerpt beneath the player. Only older calls without an excerpt need a full read here. */
 function CallTranscriptPreview({ call }: { call: CallEntryInfo }) {
 	const { full, loadError, reload } = useCallTranscript(call, call.transcript?.preview === null);
-	if (call.transcript?.status !== "ready") return <div className="relative z-20"><TranscriptStatus call={call} /></div>;
+	if (call.transcript?.status !== "ready") return <div className="relative z-20 px-1"><TranscriptStatus call={call} /></div>;
 	const preview = call.transcript.preview ?? full?.text.replace(/\s+/g, " ").trim().slice(0, 320);
-	if (preview === undefined) return <TranscriptLoading call={call} error={loadError} onReload={reload} />;
+	if (preview === undefined) return <div className="px-1"><TranscriptLoading call={call} error={loadError} onReload={reload} /></div>;
 	return preview ? <p className="line-clamp-2 px-1 text-sm leading-snug text-neutral-600 italic">{preview}</p> : null;
 }
 
@@ -923,18 +934,17 @@ export function CallDetail({ call, answeredBy, bar, side }: { call: CallEntryInf
 	useTick(call.state === "connected");
 	const { text, answered } = callStatus(call, answeredBy);
 	const { full, loadError, reload } = useCallTranscript(call, true);
+	const recording = recordingRow(call, answered);
 	return (
 		<Scroll
 			overlayScrollbar
 			header={bar}
-			footer={
+			footer={recording && (
 				<div className="flex">
-					<div className={`${conversationColumn} min-w-0 flex-1 px-5 py-4`}>
-						{call.recording?.status === "ready" ? <CallRecording call={call} /> : (answered || call.recording) && <RecordingStatus call={call} />}
-					</div>
+					<div className={`${conversationColumn} min-w-0 flex-1 px-5 py-4`}>{recording}</div>
 					{side && <div aria-hidden className="w-72 shrink-0" />}
 				</div>
-			}
+			)}
 		>
 			<div className="flex flex-1 items-start">
 				<div className={`${conversationColumn} flex min-w-0 flex-1 flex-col gap-6 px-5 pt-5 pb-6`}>
@@ -986,6 +996,7 @@ function CallSummary({ call }: { call: CallEntryInfo }) {
 export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; answeredBy?: string | null; onOpen: () => void }) {
 	useTick(call.state === "connected");
 	const { text, answered } = callStatus(call, answeredBy);
+	const recording = recordingRow(call, answered);
 	return (
 		// A record, not a bubble: a steady 70% of the conversation, never under 20rem until the column itself is narrower.
 		<div className="flex w-[max(20rem,70%)] max-w-full flex-col gap-1.5">
@@ -998,9 +1009,7 @@ export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; a
 						<p className="truncate text-sm text-neutral-500 tabular-nums">{text}</p>
 					</div>
 				</div>
-				<div className="relative z-20">
-					{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} call={call} /> : (answered || call.recording) && <RecordingStatus call={call} />}
-				</div>
+				{recording && <div className="relative z-20">{recording}</div>}
 				{call.transcript && <CallTranscriptPreview key={`transcript:${call.id}`} call={call} />}
 			</div>
 			{call.summary && <CallSummary key={`summary:${call.id}`} call={call} />}
