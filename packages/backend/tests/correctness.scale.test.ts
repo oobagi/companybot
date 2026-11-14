@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import { usageMonth } from "@companybot/core";
 import type { Id } from "../convex/_generated/dataModel";
 import { api, internal } from "../convex/_generated/api";
@@ -148,6 +149,7 @@ it("debounces 3 messages in a 500-seat private channel into one bounded update, 
 		}
 	});
 	const activity = (chatId: typeof publicId) => t.run((ctx) => ctx.db.query("seatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect());
+	const push = getFunctionName(internal.mobileNotifications.enqueue);
 	const post = (chatId: typeof publicId) => t.run(async (ctx) => {
 		const chat = (await ctx.db.get("chats", chatId))!;
 		const writes = vi.spyOn(ctx.db, "patch");
@@ -157,7 +159,10 @@ it("debounces 3 messages in a 500-seat private channel into one bounded update, 
 			await insertMessage(ctx, chat, { authorAgentId: agentId, text: "Team update", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done" });
 			return { activityWrites: writes.mock.calls.filter(([id]) => ctx.db.normalizeId("seatActivity", id)).length,
 				seatWrites: writes.mock.calls.filter(([id]) => ctx.db.normalizeId("chatMembers", id)).length,
-				queries: reads.mock.calls.map(([table]) => table), jobs: jobs.mock.calls.length };
+				queries: reads.mock.calls.map(([table]) => table),
+				// Push fan-out is its own paged job (25 seats each), one per finished message.
+				pushJobs: jobs.mock.calls.filter(([, fn]) => getFunctionName(fn) === push).length,
+				jobs: jobs.mock.calls.filter(([, fn]) => getFunctionName(fn) !== push).length };
 		} finally { writes.mockRestore(); reads.mockRestore(); jobs.mockRestore(); }
 	});
 	vi.useFakeTimers();
@@ -166,14 +171,14 @@ it("debounces 3 messages in a 500-seat private channel into one bounded update, 
 		expect(before).toHaveLength(500);
 		for (const elapsed of [1000, 2000, 3000]) {
 			vi.setSystemTime(start + elapsed);
-			expect(await post(publicId)).toMatchObject({ activityWrites: 0, seatWrites: 0, jobs: 0 });
+			expect(await post(publicId)).toMatchObject({ activityWrites: 0, seatWrites: 0, jobs: 0, pushJobs: 1 });
 		}
 		expect(await activity(publicId)).toEqual(before);
 		const initial = await activity(privateId);
 		for (const elapsed of [4000, 5000, 6000]) {
 			vi.setSystemTime(start + elapsed);
 			const result = await post(privateId);
-			expect(result).toMatchObject({ activityWrites: 0, seatWrites: 0, jobs: elapsed === 4000 ? 1 : 0 });
+			expect(result).toMatchObject({ activityWrites: 0, seatWrites: 0, jobs: elapsed === 4000 ? 1 : 0, pushJobs: 1 });
 			if (elapsed > 4000) expect(result.queries).toEqual(["chatActivity"]);
 		}
 		expect(await activity(privateId)).toEqual(initial);
