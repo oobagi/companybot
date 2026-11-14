@@ -152,7 +152,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 	useEffect(() => {
 		if (prefs && prefs.deviceTimeZone !== timeZone) updatePrefs({ deviceTimeZone: timeZone }).catch(() => {});
 	}, [prefs, timeZone, updatePrefs]);
-	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox[/<conversation>], /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
+	// Screens are paths: /home, /chat[/<chat>[/thread|message/<id>]], /inbox[/<conversation>[/call/<message>]], /records/<type>[/<record>], /pages[/<page or folder>], /files/<file>, /drive/<view>, /sites, /settings/<tab>[/<item>] (Archive, Agents, Connectors, Skills and Automations included).
 	const route = useRoute();
 	// Trash (now Archive) and Customize used to be their own screens.
 	useEffect(() => {
@@ -329,7 +329,7 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 							) : (
 								<TopBar title="" />
 							))}
-						{view === "inbox" && <InboxView access={access} conversationId={route[1]} />}
+						{view === "inbox" && <InboxView access={access} conversationId={route[1]} callId={route[2] === "call" ? route[3] : undefined} />}
 						{view === "records" && <RecordsView key={typeKey} typeKey={typeKey} recordId={recordId} access={access} />}
 						{view === "pages" && <PagesView pageId={route[1]} canEdit={can(access, "pages.edit")} />}
 						{view === "files" && <FileView fileId={route[1]} />}

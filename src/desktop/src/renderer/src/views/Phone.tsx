@@ -29,8 +29,10 @@ import {
 	smallIconButton,
 	titleBarButton,
 	callOpenButton,
+	conversationColumn,
+	Scroll,
 } from "../ui";
-import { Avatar, Modal, dayLabel, clock as timeOfDay } from "./chat/common";
+import { Avatar, dayLabel, clock as timeOfDay } from "./chat/common";
 
 type Target = { agentId?: Id<"agents">; to?: string; recordId?: Id<"records"> };
 type Current = NonNullable<FunctionReturnType<typeof api.calls.current>>["calls"][number];
@@ -1044,95 +1046,90 @@ function CallConversation({ transcript }: { transcript: Transcript }) {
 	);
 }
 
-/**
- * A call, opened: who and how it went, its recording and AI summary on one side, the whole conversation scrolling
- * on the other. The recording here is its own player; starting it pauses the one in the call's bubble.
- */
-function CallDetail({ call, outcome, answered, onClose, children }: { call: CallEntryInfo; outcome: string; answered: boolean; onClose: () => void; children: React.ReactNode }) {
-	const incoming = call.direction === "in";
-	return (
-		<Modal title={`${incoming ? "Incoming" : "Outgoing"} call · ${call.displayName}`} size="xl" onClose={onClose}>
-			<div className="flex gap-6 max-md:flex-col">
-				<div className="flex shrink-0 flex-col gap-4 md:w-80">
-					<div className="flex items-center gap-3">
-						<CallIcon call={call} />
-						<div className="min-w-0">
-							<p className="truncate font-semibold text-neutral-900">{call.displayName}</p>
-							{call.formattedNumber !== call.displayName && <p className="truncate text-sm text-neutral-500 tabular-nums">{call.formattedNumber}</p>}
-						</div>
-					</div>
-					<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-						<dt className="text-neutral-500">Direction</dt>
-						<dd className="text-neutral-900">{incoming ? "Incoming" : "Outgoing"}</dd>
-						<dt className="text-neutral-500">Outcome</dt>
-						<dd className="text-neutral-900 tabular-nums">{outcome}</dd>
-						<dt className="text-neutral-500">When</dt>
-						<dd className="text-neutral-900 tabular-nums">{dayLabel(call.startedAt)}, {timeOfDay(call.startedAt)}</dd>
-					</dl>
-					{call.recording?.status === "ready" ? <CallRecording key={`detail-recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
-					{call.summary && <CallSummary call={call} />}
-				</div>
-				<section aria-label="Conversation" className="flex min-w-0 flex-1 flex-col gap-2">
-					<p aria-hidden="true" className="text-xs font-medium text-neutral-500">Conversation</p>
-					<div tabIndex={0} className="rounded-xl border border-neutral-200 p-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 md:h-[60vh] md:overflow-y-auto">
-						{children}
-					</div>
-				</section>
-			</div>
-		</Modal>
-	);
-}
-
-/**
- * A call's transcript, under its player: the first two lines, with the whole conversation in the call's detail.
- * The lines come with the conversation; the full text and its speaker turns stay out of it and load when the
- * detail opens. A transcript saved before previews existed loads once for its lines.
- */
-function CallTranscript({ call, outcome, answered, open, onClose }: { call: CallEntryInfo; outcome: string; answered: boolean; open: boolean; onClose: () => void }) {
+/** The transcript read is separate from the Inbox list, and shared by its preview and opened call. */
+function useCallTranscript(call: CallEntryInfo, wanted: boolean) {
 	const fetchTranscript = useAction(api.callRecordings.transcript);
-	const transcript = call.transcript!;
-	const ready = transcript.status === "ready";
+	const ready = call.transcript?.status === "ready";
 	const [request, setRequest] = useState(0);
 	const [full, setFull] = useState<Transcript | null>(null);
 	const [loadError, setLoadError] = useState("");
-	const wanted = ready && full === null && (open || transcript.preview === null);
 	useEffect(() => {
-		if (!wanted) return;
+		if (!wanted || !ready) return;
 		let ignore = false;
+		setFull(null);
 		setLoadError("");
 		void fetchTranscript({ id: call.id }).then(
 			(result) => { if (!ignore) setFull(result); },
 			(e) => { if (!ignore) setLoadError(errorMessage(e)); },
 		);
 		return () => { ignore = true; };
-	}, [call.id, wanted, request, fetchTranscript]);
-	const status = transcript.status === "failed" ? (
-		<NoteStatus id={call.id} tone="bad" retry>{transcript.error || "The call couldn't be transcribed."}</NoteStatus>
-	) : transcript.status === "processing" ? (
-		<NoteStatus id={call.id} tone="busy">Transcribing call…</NoteStatus>
-	) : !ready ? (
-		<NoteStatus id={call.id} tone="quiet">Waiting to transcribe the recording…</NoteStatus>
-	) : null;
-	const loading = loadError ? (
-		<div className="relative z-20 flex flex-col items-start gap-2">
-			<NoteStatus id={call.id} tone="bad">{loadError}</NoteStatus>
-			<button type="button" className={smallButton} onClick={() => setRequest((n) => n + 1)}>
-				<ReloadIcon /> Reload transcript
-			</button>
-		</div>
-	) : <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>;
-	const preview = transcript.preview ?? (full === null ? null : full.text.replace(/\s+/g, " ").trim().slice(0, 320));
+	}, [call.id, wanted, request, ready, fetchTranscript]);
+	return { full, loadError, reload: () => setRequest(n => n + 1) };
+}
+
+function TranscriptStatus({ call }: { call: CallEntryInfo }) {
+	const transcript = call.transcript;
+	if (!transcript) return <NoteStatus id={call.id} tone="quiet">No transcript for this call.</NoteStatus>;
+	if (transcript.status === "failed") return <NoteStatus id={call.id} tone="bad" retry>{transcript.error || "The call couldn't be transcribed."}</NoteStatus>;
+	if (transcript.status === "processing") return <NoteStatus id={call.id} tone="busy">Transcribing call…</NoteStatus>;
+	return <NoteStatus id={call.id} tone="quiet">Waiting to transcribe the recording…</NoteStatus>;
+}
+
+function TranscriptLoading({ call, error, onReload }: { call: CallEntryInfo; error: string; onReload: () => void }) {
+	if (!error) return <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>;
 	return (
-		<>
-			{status ? <div className="relative z-20">{status}</div> : preview === null ? loading : preview ? (
-				<p className="line-clamp-2 px-1 text-sm leading-snug text-neutral-600 italic">{preview}</p>
-			) : null}
-			{open && (
-				<CallDetail call={call} outcome={outcome} answered={answered} onClose={onClose}>
-					{status ?? (full !== null ? <CallConversation transcript={full} /> : loading)}
-				</CallDetail>
-			)}
-		</>
+		<div className="relative z-20 flex flex-col items-start gap-2">
+			<NoteStatus id={call.id} tone="bad">{error}</NoteStatus>
+			<button type="button" className={smallButton} onClick={onReload}><ReloadIcon /> Reload transcript</button>
+		</div>
+	);
+}
+
+/** The two-line excerpt beneath the player. Only older calls without an excerpt need a full read here. */
+function CallTranscriptPreview({ call }: { call: CallEntryInfo }) {
+	const { full, loadError, reload } = useCallTranscript(call, call.transcript?.preview === null);
+	if (call.transcript?.status !== "ready") return <div className="relative z-20"><TranscriptStatus call={call} /></div>;
+	const preview = call.transcript.preview ?? full?.text.replace(/\s+/g, " ").trim().slice(0, 320);
+	if (preview === undefined) return <TranscriptLoading call={call} error={loadError} onReload={reload} />;
+	return preview ? <p className="line-clamp-2 px-1 text-sm leading-snug text-neutral-600 italic">{preview}</p> : null;
+}
+
+/** A call is an Inbox screen, using the same header, profile column and scrolling area as its conversation. */
+export function CallDetail({ call, answeredBy, bar, side }: { call: CallEntryInfo; answeredBy?: string | null; bar: React.ReactNode; side: React.ReactNode }) {
+	useTick(call.state === "connected");
+	const { text, answered } = callStatus(call, answeredBy);
+	const { full, loadError, reload } = useCallTranscript(call, true);
+	return (
+		<Scroll
+			overlayScrollbar
+			header={bar}
+			footer={
+				<div className="flex">
+					<div className={`${conversationColumn} min-w-0 flex-1 px-5 py-4`}>
+						{call.recording?.status === "ready" ? <CallRecording id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
+					</div>
+					{side && <div aria-hidden className="w-72 shrink-0" />}
+				</div>
+			}
+		>
+			<div className="flex flex-1 items-start">
+				<div className={`${conversationColumn} flex min-w-0 flex-1 flex-col gap-6 px-5 pt-5 pb-6`}>
+					<div className="flex items-center gap-3">
+						<CallIcon call={call} />
+						<div className="min-w-0">
+							<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
+							<p className="text-sm text-neutral-500 tabular-nums">{text} · {dayLabel(call.startedAt)}, {timeOfDay(call.startedAt)}</p>
+						</div>
+					</div>
+					{call.summary && <CallSummary call={call} />}
+					<section aria-label="Transcript" className="flex min-w-0 flex-col gap-4">
+						<p aria-hidden="true" className="text-xs font-medium text-neutral-500">Transcript</p>
+						{call.transcript?.status !== "ready" ? <TranscriptStatus call={call} /> : full ? <CallConversation transcript={full} /> : <TranscriptLoading call={call} error={loadError} onReload={reload} />}
+					</section>
+				</div>
+				{side && <aside className="sticky top-12 w-72 shrink-0 pr-3 pb-3">{side}</aside>}
+			</div>
+		</Scroll>
 	);
 }
 
@@ -1162,16 +1159,13 @@ function CallSummary({ call }: { call: CallEntryInfo }) {
 }
 
 /** A call's outcome with its private recording and transcript, and the AI summary in its own block underneath. */
-export function CallEntry({ call, answeredBy }: { call: CallEntryInfo; answeredBy?: string | null }) {
+export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; answeredBy?: string | null; onOpen: () => void }) {
 	useTick(call.state === "connected");
 	const { text, answered } = callStatus(call, answeredBy);
-	const [open, setOpen] = useState(false);
 	return (
 		<div className="flex w-80 max-w-full flex-col gap-1.5">
 			<div className="relative isolate flex flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
-				{call.transcript && (
-					<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call details`} aria-haspopup="dialog" className={callOpenButton} onClick={() => setOpen(true)} />
-				)}
+				<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call details`} data-call-open={call.id} className={callOpenButton} onClick={() => { sounding?.pause(); onOpen(); }} />
 				<div className="flex items-center gap-3">
 					<CallIcon call={call} />
 					<div className="min-w-0">
@@ -1182,7 +1176,7 @@ export function CallEntry({ call, answeredBy }: { call: CallEntryInfo; answeredB
 				<div className="relative z-20">
 					{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
 				</div>
-				{call.transcript && <CallTranscript key={`transcript:${call.id}`} call={call} outcome={text} answered={answered} open={open} onClose={() => setOpen(false)} />}
+				{call.transcript && <CallTranscriptPreview key={`transcript:${call.id}`} call={call} />}
 			</div>
 			{call.summary && <CallSummary key={`summary:${call.id}`} call={call} />}
 		</div>

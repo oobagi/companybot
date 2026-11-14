@@ -1,4 +1,4 @@
-import { CallButton, CallEntry } from "./Phone";
+import { CallButton, CallEntry, CallDetail } from "./Phone";
 import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { formatPhone } from "@companybot/core/inbox";
 import { type Access, can } from "@companybot/core/permissions";
@@ -9,6 +9,7 @@ import { Select } from "../controls";
 import { useMutation, useQuery } from "../convex";
 import {
 	AgentIcon,
+	ArrowLeftIcon,
 	AttachIcon,
 	CaretUpDownIcon,
 	CheckIcon,
@@ -283,7 +284,7 @@ export function InboxAdd({ canStart, onNewSection }: { canStart: boolean; onNewS
 }
 
 /** Inbox on screen: the picked conversations, then the open one (else an empty state). */
-export function InboxView({ access, conversationId }: { access: Access; conversationId: string | undefined }) {
+export function InboxView({ access, conversationId, callId }: { access: Access; conversationId: string | undefined; callId?: string }) {
 	if (!can(access, "inbox.use"))
 		return (
 			<Scroll header={<TopBar title="Inbox" />}>
@@ -295,7 +296,7 @@ export function InboxView({ access, conversationId }: { access: Access; conversa
 			<ConversationList openId={conversationId} />
 			<div className="flex min-w-0 flex-1 flex-col">
 				{conversationId ? (
-					<ConversationScreen key={conversationId} id={conversationId as Id<"inboxConversations">} />
+					<ConversationScreen key={conversationId} id={conversationId as Id<"inboxConversations">} callId={callId} />
 				) : (
 					<Scroll header={<TopBar title="" />}>
 						<EmptyState icon={<InboxIcon />} title="Pick a conversation">
@@ -308,7 +309,7 @@ export function InboxView({ access, conversationId }: { access: Access; conversa
 	);
 }
 
-function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
+function ConversationScreen({ id, callId }: { id: Id<"inboxConversations">; callId?: string }) {
 	const c = useQuery(api.inbox.get, { id });
 	if (!c)
 		return (
@@ -316,7 +317,7 @@ function ConversationScreen({ id }: { id: Id<"inboxConversations"> }) {
 				It may have been deleted with its agent.
 			</NotFound>
 		);
-	return <Conversation c={c} />;
+	return <Conversation c={c} callId={callId} />;
 }
 
 /** Below this width the details card is hidden, and opens over the messages when asked for. */
@@ -327,9 +328,11 @@ const DETAILS_FROM_PX = 860;
  * The top bar's button hides or shows the card (kept per computer); where there isn't room for a
  * column, it's hidden, and the button opens it over the messages instead.
  */
-function Conversation({ c }: { c: Opened }) {
+function Conversation({ c, callId }: { c: Opened; callId?: string }) {
 	const them = contactLabel(c);
 	const row = useRef<HTMLDivElement>(null);
+	const callHeading = useRef<HTMLHeadingElement>(null);
+	const previousCall = useRef<string | undefined>(undefined);
 	const [wide, setWide] = useState(true);
 	const [hidden, setHidden] = useState(() => localStorage.getItem("inbox.details.hidden") === "true");
 	const [opened, setOpened] = useState(false);
@@ -347,24 +350,54 @@ function Conversation({ c }: { c: Opened }) {
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, []);
+	useLayoutEffect(() => {
+		if (callId) callHeading.current?.focus({ preventScroll: true });
+		else if (previousCall.current) {
+			const buttons = row.current?.querySelectorAll<HTMLButtonElement>("[data-call-open]");
+			Array.from(buttons ?? []).find(button => button.dataset.callOpen === previousCall.current)?.focus({ preventScroll: true });
+		}
+		previousCall.current = callId;
+	}, [callId]);
+	const selectedCall = callId ? c.messages.find(m => m.id === callId && m.call) : undefined;
 	const shown = wide ? !hidden : opened;
 	const toggle = () => (wide ? (setHidden(!hidden), localStorage.setItem("inbox.details.hidden", String(!hidden))) : setOpened(!opened));
+	const detailBar = (
+		<TopBar
+			title={
+				<>
+					<button type="button" className={iconButton} aria-label="Back to conversation" title="Back to conversation" onClick={() => navigate("inbox", c.id)}><ArrowLeftIcon /></button>
+					<h1 ref={callHeading} tabIndex={-1} className="min-w-0 truncate outline-none"><CustomerLink className="hover:underline">{them}</CustomerLink></h1>
+				</>
+			}
+			description="Call"
+		>
+			<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}><SidebarIcon className="-scale-x-100" /></button>
+		</TopBar>
+	);
 	return (
 		<Customer.Provider value={c}>
 			<div ref={row} className="relative flex min-h-0 min-w-0 flex-1">
-				<Messages
-					c={c}
-					them={them}
-					bar={
-						<TopBar title={<h1 className="min-w-0 truncate"><CustomerLink className="hover:underline">{them}</CustomerLink></h1>} description={c.channel === "email" ? "Email" : c.channel === "call" ? "Calls" : "Text"}>
-							{c.channel !== "call" && <CallButton agentId={c.agentId} to={c.channel === "email" ? undefined : c.contact} recordId={c.record?.id} />}
-							<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
-								<SidebarIcon className="-scale-x-100" />
-							</button>
-						</TopBar>
-					}
-					side={shown && wide ? <Details conversation={c} /> : null}
-				/>
+				<div className={`${callId ? "hidden" : "flex"} min-h-0 min-w-0 flex-1`} inert={!!callId}>
+					<Messages
+						active={!callId}
+						c={c}
+						them={them}
+						bar={
+							<TopBar title={<h1 className="min-w-0 truncate"><CustomerLink className="hover:underline">{them}</CustomerLink></h1>} description={c.channel === "email" ? "Email" : c.channel === "call" ? "Calls" : "Text"}>
+								{c.channel !== "call" && <CallButton agentId={c.agentId} to={c.channel === "email" ? undefined : c.contact} recordId={c.record?.id} />}
+								<button type="button" aria-label={shown ? "Hide details" : "Show details"} title={shown ? "Hide details" : "Show details"} aria-expanded={shown} className={iconButton} onClick={toggle}>
+									<SidebarIcon className="-scale-x-100" />
+								</button>
+							</TopBar>
+						}
+						side={shown && wide ? <Details conversation={c} /> : null}
+					/>
+				</div>
+				{callId && (selectedCall?.call ? (
+					<CallDetail key={selectedCall.id} call={selectedCall.call} answeredBy={selectedCall.direction === "in" ? selectedCall.author?.name : null} bar={detailBar} side={shown && wide ? <Details conversation={c} /> : null} />
+				) : (
+					<Scroll header={detailBar}><EmptyState icon={<PhoneIcon />} title="Call not found">This call may have been removed from the conversation.</EmptyState></Scroll>
+				))}
 				{shown && !wide && (
 					<aside className="absolute top-12 right-3 z-40 w-72 rounded-xl shadow-lg">
 						<Details conversation={c} />
@@ -379,10 +412,11 @@ function Conversation({ c }: { c: Opened }) {
  * The messages, with the details card (`side`) as a column beside them in the same scrolling area, so
  * its scrollbar runs down the screen's edge rather than between the two.
  */
-function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.ReactNode; side: React.ReactNode }) {
+function Messages({ c, them, bar, side, active }: { c: Opened; them: string; bar: React.ReactNode; side: React.ReactNode; active: boolean }) {
 	const scroller = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const nearBottom = useRef(true);
+	const lastScroll = useRef(0);
 	const items = itemsOf(c.messages, c.channel);
 	const email = c.channel === "email";
 	const sent = c.messages.filter((m) => m.direction !== "event" && m.status !== "draft");
@@ -397,13 +431,14 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 	// Opens at the latest message, and follows new ones while you're at the bottom (as chat does).
 	useLayoutEffect(() => {
 		const el = scroller.current;
-		if (!el || !content.current) return;
+		if (!active || !el || !content.current) return;
+		if (!nearBottom.current) el.scrollTop = lastScroll.current;
 		const follow = () => nearBottom.current && (el.scrollTop = el.scrollHeight);
 		follow();
 		const observer = new ResizeObserver(follow);
 		observer.observe(content.current);
 		return () => observer.disconnect();
-	}, []);
+	}, [active]);
 	return (
 		<Scroll
 			ref={scroller}
@@ -419,7 +454,11 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 					{side && <div aria-hidden className="w-72 shrink-0" />}
 				</div>
 			}
-			onScroll={(e) => (nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 120)}
+			onScroll={(e) => {
+				if (!active) return;
+				lastScroll.current = e.currentTarget.scrollTop;
+				nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 120;
+			}}
 		>
 			<div className="flex flex-1 items-start">
 				<div ref={content} className={`${conversationColumn} flex flex-1 flex-col justify-end self-stretch px-5 pt-4 pb-5`}>
@@ -441,7 +480,7 @@ function Messages({ c, them, bar, side }: { c: Opened; them: string; bar: React.
 									) : first.call ? (
 										<div className={`flex flex-col ${first.direction === "in" ? "items-start" : "items-end"}`}>
 											<Sender author={first.direction === "in" ? null : first.author} them={them} mine={first.direction !== "in"} />
-											<CallEntry call={first.call} answeredBy={first.direction === "in" ? first.author?.name : null} />
+											<CallEntry call={first.call} answeredBy={first.direction === "in" ? first.author?.name : null} onOpen={() => navigate("inbox", c.id, "call", first.id)} />
 										</div>
 									) : first.status === "draft" ? (
 										<Draft message={first} channel={c.channel} agent={c.agent} />
