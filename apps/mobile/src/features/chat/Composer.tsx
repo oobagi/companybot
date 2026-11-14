@@ -17,8 +17,7 @@ import { useTheme } from '@/design';
 import { api, errorMessage } from '@/lib/api';
 import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
 import { useFileUpload, type PickedFile } from '@/lib/fileUpload';
-import { convexUrl } from '@/lib/config';
-import { changeDraft, readDraft, sendChatDraft, useChatDraft } from './drafts';
+import { changeDraft, draftPrefix, readDraft, sendChatDraft, useChatDraft } from './drafts';
 import { useDictation } from './useDictation';
 import { draftMentions, intactMention, rebaseMentions, recordMentions } from './logic';
 import { showSending } from './showSending';
@@ -36,7 +35,7 @@ export function Composer({ chatId, threadId }: { chatId: Id<'chats'>; threadId?:
   const ping = useMutation(api.typing.ping);
   const upload = useFileUpload();
   const { colors, spacing } = useTheme();
-  const key = `companybot.draft:${convexUrl}:${chats?.me ?? 'loading'}:${workspace?.id}:${chatId}:${threadId ?? 'main'}`;
+  const key = `${draftPrefix(chats?.me, workspace?.id)}${chatId}:${threadId ?? 'main'}`;
   const draft = useChatDraft(key);
   const dictation = useDictation((text) => changeDraft(key, (d) => ({ ...d, text: `${d.text}${d.text && !/\s$/.test(d.text) ? ' ' : ''}${text}` })));
   const ready = draft.ready && !!chats?.me && !!workspace?.id;

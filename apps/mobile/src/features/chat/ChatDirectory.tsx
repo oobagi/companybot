@@ -9,13 +9,15 @@ import { ChannelIcon, PrivateChannelIcon } from '@/design/icons';
 import { useTheme } from '@/design';
 import { Avatar, EditorSheet, EmptyState, ErrorState, Field, ListRow, Loading, Screen, ScreenList, SectionHeading, listContentStyle, Text } from '@/components/ui';
 import { api } from '@/lib/api';
-import { useMutation, useQuery } from '@/lib/convex';
+import { useMutation, useQuery, useWorkspace } from '@/lib/convex';
 import { useTask } from '@/lib/useTask';
 import { useDraftGuard } from '@/lib/useDraftGuard';
 import { DirectoryHeader } from '@/features/session/DirectoryHeader';
 import { ActiveThreads } from './ActiveThreads';
 import { Dialog } from './Dialog';
 import { chatTitle } from './types';
+import { ChatRowActions, type ChatRowTarget } from './ChatRowActions';
+import { draftPrefix, useDraftedChats } from './drafts';
 
 export function ChatDirectory() {
   const { colors, sizes, spacing } = useTheme();
@@ -26,6 +28,9 @@ export function ChatDirectory() {
   const task = useTask();
   const [search, setSearch] = useState('');
   const [dialog, setDialog] = useState<'new' | 'channel' | 'browse' | 'threads' | 'organize'>();
+  const [actions, setActions] = useState<ChatRowTarget>();
+  const workspace = useWorkspace();
+  const drafted = useDraftedChats(chats ? draftPrefix(chats.me, workspace?.id) : undefined);
   const open = (chatId: Id<'chats'>) => router.push({ pathname: '/chat/[chatId]', params: { chatId } });
   const matches = (name: string) => name.toLocaleLowerCase().includes(search.toLocaleLowerCase());
   if (chats === undefined || !arrangements.loaded) return <Screen><Loading label="Loading chats…" /></Screen>;
@@ -33,12 +38,13 @@ export function ChatDirectory() {
   const channels = arrangements.order('channels', chats.channels).filter((c) => matches(chatTitle(c)));
   const agents = chats.agents.filter((a) => matches(a.name));
   const dms = chats.dms.filter((c) => (!c.agentId || c.parentId) && matches(chatTitle(c)));
-  const rows: ({ key: string; heading: string } | { key: string; title: string; leading: React.ReactNode; unread?: boolean; mentioned?: boolean; onPress: () => void })[] = [
+  const dmPhoto = (c: (typeof chats.dms)[number]) => c.members.find(m => !(m.type === 'user' && m.id === chats.me))?.image ?? null;
+  const rows: ({ key: string; heading: string } | { key: string; title: string; leading: React.ReactNode; unread?: boolean; mentioned?: boolean; draft?: boolean; target: ChatRowTarget; onPress: () => void })[] = [
     ...(channels.length ? [{ key: 'channels', heading: 'Channels' }] : []),
-    ...channels.map(c => ({ key: c._id, title: c.label ?? c.name ?? chatTitle(c), leading: c.private ? <PrivateChannelIcon size={sizes.icon} color={colors.muted} /> : <ChannelIcon size={sizes.icon} color={colors.muted} />, unread: c.unread, mentioned: c.mentioned, onPress: () => open(c._id) })),
+    ...channels.map(c => ({ key: c._id, title: c.label ?? c.name ?? chatTitle(c), leading: c.private ? <PrivateChannelIcon size={sizes.icon} color={colors.muted} /> : <ChannelIcon size={sizes.icon} color={colors.muted} />, unread: c.unread, mentioned: c.mentioned, draft: drafted(c._id), target: { kind: 'channel' as const, chatId: c._id, title: chatTitle(c), isDefault: c.isDefault, canManage: c.canManage }, onPress: () => open(c._id) })),
     ...(agents.length || dms.length ? [{ key: 'messages', heading: 'Direct messages' }] : []),
-    ...agents.map(a => ({ key: a._id, title: a.name, leading: <Avatar name={a.name} image={a.image} agent />, unread: a.unread, mentioned: a.mentioned, onPress: () => { if (a.dmId) open(a.dmId); else void task.run(async () => open(await openDm({ userIds: [], agentIds: [a._id] }))); } })),
-    ...dms.map(c => ({ key: c._id, title: chatTitle(c), leading: <Avatar name={chatTitle(c)} agent={!!c.agentId} />, unread: c.unread, mentioned: c.mentioned, onPress: () => open(c._id) })),
+    ...agents.map(a => ({ key: a._id, title: a.name, leading: <Avatar name={a.name} image={a.image} agent />, unread: a.unread, mentioned: a.mentioned, draft: !!a.dmId && drafted(a.dmId), target: { kind: 'agent' as const, agentId: a._id, dmId: a.dmId, title: a.name }, onPress: () => { if (a.dmId) open(a.dmId); else void task.run(async () => open(await openDm({ userIds: [], agentIds: [a._id] }))); } })),
+    ...dms.map(c => ({ key: c._id, title: chatTitle(c), leading: <Avatar name={chatTitle(c)} image={c.parentId ? undefined : dmPhoto(c)} agent={!!c.agentId} />, unread: c.unread, mentioned: c.mentioned, draft: drafted(c._id), target: { kind: c.parentId ? 'side' as const : 'dm' as const, chatId: c._id, title: chatTitle(c) }, onPress: () => open(c._id) })),
   ];
   return <><DirectoryHeader search={{ placeholder: 'Search chats', value: search, onChange: setSearch }} action={{ label: 'New message', onPress: () => setDialog('new') }} menu={[
     { label: 'Threads', icon: 'bubble.left.and.bubble.right', onPress: () => setDialog('threads') },
@@ -51,8 +57,9 @@ export function ChatDirectory() {
       ListEmptyComponent={<EmptyState title={search ? 'No chats found' : 'No conversations yet'} description={search ? 'Try a different name.' : 'Start a conversation with a teammate or agent.'} />}
       renderItem={({ item, index }) => 'heading' in item
         ? <View style={{ paddingTop: index === 0 ? 0 : spacing.xl, paddingBottom: spacing.sm }}><SectionHeading title={item.heading} /></View>
-        : <ListRow title={item.title} leading={item.leading} accessibilityLabel={`${item.title}${item.mentioned ? ', mentioned you' : item.unread ? ', unread' : ''}`} trailing={item.mentioned ? <Text variant="supporting" tone="link">@</Text> : item.unread ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: colors.text }} /> : undefined} onPress={item.onPress} />} />
+        : <ListRow title={item.title} leading={item.leading} description={item.draft ? 'Draft' : undefined} onLongPress={() => setActions(item.target)} accessibilityLabel={`${item.title}${item.mentioned ? ', mentioned you' : item.unread ? ', unread' : ''}${item.draft ? ', unsent draft' : ''}`} trailing={item.mentioned ? <Text variant="supporting" tone="link">@</Text> : item.unread ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: colors.text }} /> : undefined} onPress={item.onPress} />} />
     {dialog === 'organize' && <ReorderSheet title="Organize channels" list="channels" items={chats.channels.map(channel => ({ _id: channel._id, title: chatTitle(channel) }))} onClose={() => setDialog(undefined)} />}
+    {actions && <ChatRowActions target={actions} onClose={() => setActions(undefined)} />}
     {dialog === 'threads' && <ActiveThreads onClose={() => setDialog(undefined)} />}
     {dialog === 'new' && <NewMessage onClose={() => setDialog(undefined)} onOpen={open} />}
     {dialog === 'channel' && <NewChannel onClose={() => setDialog(undefined)} onOpen={open} />}

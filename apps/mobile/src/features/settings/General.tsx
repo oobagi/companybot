@@ -13,7 +13,7 @@ import { useDraftGuard } from '@/lib/useDraftGuard';
 import { Avatar, Button, ChoicePicker, ConfirmSheet, EditorSheet, ErrorState, Field, SettingsList, Loading, Screen, Section, Text } from '@/components/ui';
 
 type Settings = NonNullable<FunctionReturnType<typeof api.workspace.settings>>;
-const editableSettings = (value: Settings) => ({ name: value.name, currency: value.currency, memory: value.memory, imageModel: value.imageModel, routerModel: value.routerModel, threadHours: value.threadHours });
+const editableSettings = (value: Settings) => ({ name: value.name, currency: value.currency, memory: value.memory, agentAutonomy: value.agentAutonomy, agentHandoffs: value.agentHandoffs, imageModel: value.imageModel, routerModel: value.routerModel, threadHours: value.threadHours });
 
 export default function General() {
   const settings = useQuery(api.workspace.settings);
@@ -39,6 +39,8 @@ export default function General() {
         ] },
         { id: 'agents', title: 'Agents', rows: [
           { id: 'memory', title: 'Memory', value: settings.memory ? 'Enabled' : 'Off', onPress: edit },
+          { id: 'autonomy', title: 'Automatic activity', value: settings.agentAutonomy ? 'On' : 'Off', onPress: edit },
+          { id: 'handoffs', title: 'Agent handoffs', value: settings.agentHandoffs && settings.agentAutonomy ? 'On' : 'Off', onPress: edit },
           { id: 'router', title: 'Reply decisions', value: settings.routerModels.find(m => m.id === settings.routerModel)?.name ?? settings.routerModel, onPress: edit },
         ] },
         { id: 'images', title: 'Images', rows: [
@@ -88,6 +90,10 @@ function WorkspaceEditor({ initial, onClose }: { initial: Settings; onClose: () 
     </Section>
     <Section title="Agents">
       <ChoicePicker label="Memory" value={String(draft.memory)} options={[{ value: 'true', label: 'Enabled' }, { value: 'false', label: 'Off — existing memories are kept' }]} disabled={busy} onChange={v => setDraft({ ...draft, memory: v === 'true' })} />
+      <ChoicePicker label="Automatic activity" value={String(draft.agentAutonomy)} options={[{ value: 'true', label: 'On' }, { value: 'false', label: 'Off — DMs and @mentions still work' }]} disabled={busy} onChange={v => setDraft({ ...draft, agentAutonomy: v === 'true' })} />
+      <Text variant="supporting" tone="muted">Allow proactive channel replies and agents working together. Off stops queued and running automatic activity.</Text>
+      <ChoicePicker label="Agent handoffs" value={String(draft.agentHandoffs)} options={[{ value: 'true', label: 'On' }, { value: 'false', label: 'Off' }]} disabled={busy || !draft.agentAutonomy} onChange={v => setDraft({ ...draft, agentHandoffs: v === 'true' })} />
+      <Text variant="supporting" tone="muted">Allow agents to mention, hand work to, or privately ask other agents. Also requires Automatic activity.</Text>
       <ChoicePicker label="Reply decision model" value={draft.routerModel} options={baseline.routerModels.map(m => ({ value: m.id, label: m.name }))} disabled={busy} onChange={v => { if (typeof v === 'string' && v) setDraft({ ...draft, routerModel: v }); }} />
     </Section>
     <Section title="Images">
