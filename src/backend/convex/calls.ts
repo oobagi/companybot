@@ -25,7 +25,7 @@ export const voiceReady = () => !!(process.env.LIVEKIT_URL && process.env.LIVEKI
 const rate = () => { const n = Number(process.env.PHONE_RATE_USD_PER_MINUTE); return Number.isFinite(n) && n > 0 ? n : 0; };
 const live = (ctx: QueryCtx, workspaceId: Id<"workspaces">) => ctx.db.query("inboxMessages").withIndex("by_live_call", (q) => q.eq("workspaceId", workspaceId).eq("call.active", true)).take(11);
 const inRoom = (ctx: QueryCtx, room: string) => ctx.db.query("inboxMessages").withIndex("by_call_room", (q) => q.eq("call.room", room)).first();
-const shown = (m: Message) => ({ conversationId: m.conversationId, ...callData(m), at: m._creationTime });
+const shown = (m: Message) => ({ ...callData(m), at: m._creationTime });
 
 async function phonesOf(ctx: QueryCtx, record: Doc<"records">) {
 	const fields = await ctx.db.query("recordFields").withIndex("by_type_kind", (q) => q.eq("typeId", record.typeId).eq("kind", "phone")).take(20);

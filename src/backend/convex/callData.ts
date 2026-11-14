@@ -18,6 +18,7 @@ export function callData(m: Doc<"inboxMessages">) {
 		: call.state === "unknown" || call.state === "ending" || call.state === "connected" || call.state === "ringing" ? "failed" as const : call.state;
 	return {
 		id: m._id,
+		conversationId: m.conversationId,
 		recording: call.recording ? { status: call.recording.status, error: call.recording.error ?? null } : null,
 		transcript: call.transcript ? { status: call.transcript.status, text: null, preview: call.transcript.preview ?? null, error: call.transcript.error ?? null } : null,
 		summary: call.summary ? { status: call.summary.status, text: call.summary.text ?? null, error: call.summary.error ?? null } : null,

@@ -6,8 +6,9 @@ import { createPortal } from "react-dom";
 import type { Room } from "livekit-client";
 import { api, errorMessage } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PauseIcon, PhoneOutgoingIcon, PlayIcon, PopInIcon, PopOutIcon, ReloadIcon, SparkleIcon, SpeakerIcon, SpinnerIcon, WarningIcon } from "../icons";
+import { BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PhoneOutgoingIcon, PopInIcon, PopOutIcon, ReloadIcon, SparkleIcon, SpeakerIcon, SpinnerIcon, WarningIcon } from "../icons";
 import { navigate } from "../router";
+import { RecordingControls, RecordingPlaybackProvider } from "../RecordingPlayer";
 import {
 	answerButton,
 	callBarButton,
@@ -22,7 +23,6 @@ import {
 	phoneCallerButton,
 	phoneToolButton,
 	placeCallButton,
-	playerButton,
 	roundCallButton,
 	rowButton,
 	smallButton,
@@ -315,26 +315,28 @@ export function Phone({ enabled, children }: { enabled: boolean; children: React
 	// Whether a call can start, from the same check the server runs (budget, setup, a number); empty while it loads.
 	const blocked = readiness === undefined ? "" : readiness?.canCall ? null : (readiness?.reason ?? "You can't make calls here.");
 	return (
-		<PhoneContext.Provider value={enabled ? phone : null}>
-			{children}
-			<div ref={audio} className="hidden" />
-			{enabled && (
-				<FloatingPanel shown={shown} onClose={() => setShown(false)} title={mine ? "On a call" : incoming ? "Incoming call" : "Phone"}>
-					<PhonePanel
-						phone={phone}
-						numbers={numbers ?? []}
-						from={from}
-						onFrom={setAgent}
-						digits={digits}
-						onDigits={setDigits}
-						onTone={(d) => void tone(d)}
-						onPlace={() => void place()}
-						blocked={blocked}
-						error={error}
-					/>
-				</FloatingPanel>
-			)}
-		</PhoneContext.Provider>
+		<RecordingPlaybackProvider enabled={enabled} interrupted={!!mine || !!incoming || busy}>
+			<PhoneContext.Provider value={enabled ? phone : null}>
+				{children}
+				<div ref={audio} className="hidden" />
+				{enabled && (
+					<FloatingPanel shown={shown} onClose={() => setShown(false)} title={mine ? "On a call" : incoming ? "Incoming call" : "Phone"}>
+						<PhonePanel
+							phone={phone}
+							numbers={numbers ?? []}
+							from={from}
+							onFrom={setAgent}
+							digits={digits}
+							onDigits={setDigits}
+							onTone={(d) => void tone(d)}
+							onPlace={() => void place()}
+							blocked={blocked}
+							error={error}
+						/>
+					</FloatingPanel>
+				)}
+			</PhoneContext.Provider>
+		</RecordingPlaybackProvider>
 	);
 }
 
@@ -758,187 +760,9 @@ export function CallIcon({ call, size = "md" }: { call: CallInfo; size?: "sm" | 
 
 type CallEntryInfo = NonNullable<NonNullable<FunctionReturnType<typeof api.inbox.get>>["messages"][number]["call"]>;
 
-/** The recording that's playing: starting another pauses it, so two calls never talk over each other. */
-let sounding: HTMLAudioElement | null = null;
-const SKIP_SECONDS = 5;
-
-/** A recording's place in time: drag or click to move, arrow keys skip five seconds, Home and End jump to the ends. */
-function Scrubber({ time, duration, playing, onSeek }: { time: number; duration: number; playing: boolean; onSeek: (seconds: number) => void }) {
-	const disabled = !duration;
-	const percent = disabled ? 0 : Math.min(100, (time / duration) * 100);
-	const point = (e: React.PointerEvent<HTMLDivElement>) => {
-		const box = e.currentTarget.getBoundingClientRect();
-		onSeek(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)) * duration);
-	};
-	const key = (e: React.KeyboardEvent) => {
-		const to =
-			e.key === "ArrowRight" || e.key === "ArrowUp" ? time + SKIP_SECONDS
-				: e.key === "ArrowLeft" || e.key === "ArrowDown" ? time - SKIP_SECONDS
-					: e.key === "PageUp" ? time + duration / 10
-						: e.key === "PageDown" ? time - duration / 10
-							: e.key === "Home" ? 0
-								: e.key === "End" ? duration
-									: null;
-		if (to === null || disabled) return;
-		e.preventDefault();
-		onSeek(Math.min(duration, Math.max(0, to)));
-	};
-	return (
-		<div
-			role="slider"
-			tabIndex={disabled ? -1 : 0}
-			aria-label="Seek"
-			aria-disabled={disabled}
-			aria-valuemin={0}
-			aria-valuemax={Math.floor(duration)}
-			aria-valuenow={Math.floor(time)}
-			aria-valuetext={disabled ? "Unknown length" : `${clock(Math.floor(time))} of ${clock(Math.floor(duration))}`}
-			className={`group relative flex h-8 min-w-0 flex-1 touch-none items-center outline-none ${disabled ? "" : "cursor-pointer"}`}
-			onPointerDown={(e) => {
-				if (disabled || e.button !== 0) return;
-				e.currentTarget.setPointerCapture(e.pointerId);
-				point(e);
-			}}
-			onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && point(e)}
-			onKeyDown={key}
-		>
-			<div className="h-1 w-full overflow-hidden rounded-full bg-neutral-300">
-				<div className={`h-full rounded-full bg-neutral-900 ${playing ? "transition-[width] duration-200 ease-linear group-active:transition-none" : ""}`} style={{ width: `${percent}%` }} />
-			</div>
-			{!disabled && (
-				<span
-					aria-hidden="true"
-					className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neutral-900 opacity-0 ring-neutral-500 ring-offset-2 ring-offset-neutral-200 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-visible:ring-2 group-active:opacity-100"
-					style={{ left: `${percent}%` }}
-				/>
-			)}
-		</div>
-	);
-}
-
-/**
- * A call's recording: play, seek, time. The first Play asks for a short-lived private link and starts playback.
- * A link that expires mid-listen is renewed once, at the same spot; after that it's a Reload.
- */
-function CallRecording({ id }: { id: Id<"inboxMessages"> }) {
-	const playback = useAction(api.callRecordings.playback);
-	const audio = useRef<HTMLAudioElement>(null);
-	/** The newest link request; an older one's answer is dropped. */
-	const asked = useRef(0);
-	/** Where a fresh link picks up, and whether it plays. */
-	const resume = useRef<{ at: number; play: boolean } | null>(null);
-	const renewed = useRef(false);
-	const [url, setUrl] = useState<string | null>(null);
-	const [busy, setBusy] = useState(false);
-	const [playing, setPlaying] = useState(false);
-	const [time, setTime] = useState(0);
-	const [duration, setDuration] = useState(0);
-	const [error, setError] = useState("");
-	useEffect(() => {
-		const el = audio.current;
-		return () => {
-			asked.current++;
-			el?.pause();
-			if (sounding === el) sounding = null;
-		};
-	}, []);
-	const load = async (at: number, play: boolean) => {
-		const mine = ++asked.current;
-		setError("");
-		setBusy(true);
-		try {
-			const result = await playback({ id });
-			if (mine !== asked.current) return;
-			resume.current = { at, play };
-			setUrl(result.url);
-		} catch (e) {
-			if (mine !== asked.current) return;
-			setUrl(null);
-			setBusy(false);
-			setError(errorMessage(e));
-		}
-	};
-	const toggle = () => {
-		const el = audio.current;
-		if (!el) return;
-		if (!url) void load(time, true);
-		else if (el.paused) void el.play().catch(() => {});
-		else el.pause();
-	};
-	const seek = (seconds: number) => {
-		if (url && audio.current) audio.current.currentTime = seconds;
-		setTime(seconds);
-	};
-	return (
-		<div className="flex flex-col gap-1.5">
-			<div role="group" aria-label="Call recording" className="flex h-11 items-center gap-2 rounded-xl bg-neutral-200/70 pr-3.5 pl-1.5">
-				<button type="button" aria-label={busy && !url ? "Loading recording" : playing ? "Pause" : "Play recording"} title={playing ? "Pause" : "Play"} disabled={busy && !url} className={playerButton} onClick={toggle}>
-					{busy ? <SpinnerIcon className="animate-spin" /> : playing ? <PauseIcon weight="fill" /> : <PlayIcon weight="fill" />}
-				</button>
-				<Scrubber time={time} duration={url ? duration : 0} playing={playing} onSeek={seek} />
-				<span className="shrink-0 text-xs text-neutral-500 tabular-nums">
-					{clock(Math.floor(time))}
-					{duration > 0 && ` / ${clock(Math.floor(duration))}`}
-				</span>
-				<audio
-					ref={audio}
-					src={url ?? undefined}
-					preload="metadata"
-					className="hidden"
-					onLoadedMetadata={(e) => {
-						const el = e.currentTarget;
-						const length = Number.isFinite(el.duration) ? el.duration : 0;
-						setDuration(length);
-						setBusy(false);
-						const next = resume.current;
-						resume.current = null;
-						if (!next) return;
-						if (next.at > 0 && next.at < length) el.currentTime = next.at;
-						else setTime(0);
-						// Browsers that refuse to start sound this long after the click leave it loaded; Play starts it.
-						if (next.play) void el.play().catch(() => {});
-					}}
-					onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setDuration(e.currentTarget.duration)}
-					// A fresh link starts at zero before it picks up where it was: that jump stays off the bar.
-					onTimeUpdate={(e) => !resume.current && setTime(e.currentTarget.currentTime)}
-					onPlay={(e) => {
-						if (sounding && sounding !== e.currentTarget) sounding.pause();
-						sounding = e.currentTarget;
-						setPlaying(true);
-					}}
-					onPlaying={() => {
-						renewed.current = false;
-						setBusy(false);
-					}}
-					onWaiting={() => setBusy(true)}
-					onCanPlay={() => setBusy(false)}
-					onPause={() => setPlaying(false)}
-					onEnded={() => setPlaying(false)}
-					onError={() => {
-						if (!url) return;
-						setPlaying(false);
-						if (!renewed.current) {
-							renewed.current = true;
-							void load(time, playing);
-							return;
-						}
-						asked.current++;
-						setUrl(null);
-						setBusy(false);
-						setError("Couldn't play the recording. Reload it to check access and try again.");
-					}}
-				/>
-			</div>
-			{error && (
-				<div className="flex items-start gap-2 px-1 text-sm text-red-600">
-					<p role="alert" className="min-w-0 flex-1 break-words">{error}</p>
-					<button type="button" className={smallButton} disabled={busy} onClick={() => void load(time, true)}>
-						<ReloadIcon /> Reload
-					</button>
-				</div>
-			)}
-		</div>
-	);
+/** The card and detail view control the workspace's shared media session. */
+function CallRecording({ call }: { call: CallEntryInfo }) {
+	return <RecordingControls target={{ id: call.id, conversationId: call.conversationId, name: call.displayName }} />;
 }
 
 /** Where the recording is, while there's nothing to play yet: the player's bar, saying what it's waiting on. */
@@ -1106,7 +930,7 @@ export function CallDetail({ call, answeredBy, bar, side }: { call: CallEntryInf
 			footer={
 				<div className="flex">
 					<div className={`${conversationColumn} min-w-0 flex-1 px-5 py-4`}>
-						{call.recording?.status === "ready" ? <CallRecording id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
+						{call.recording?.status === "ready" ? <CallRecording call={call} /> : (answered || call.recording) && <RecordingStatus call={call} />}
 					</div>
 					{side && <div aria-hidden className="w-72 shrink-0" />}
 				</div>
@@ -1165,7 +989,7 @@ export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; a
 	return (
 		<div className="flex w-80 max-w-full flex-col gap-1.5">
 			<div className="relative isolate flex flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
-				<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call details`} data-call-open={call.id} className={callOpenButton} onClick={() => { sounding?.pause(); onOpen(); }} />
+				<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call details`} data-call-open={call.id} className={callOpenButton} onClick={onOpen} />
 				<div className="flex items-center gap-3">
 					<CallIcon call={call} />
 					<div className="min-w-0">
@@ -1174,7 +998,7 @@ export function CallEntry({ call, answeredBy, onOpen }: { call: CallEntryInfo; a
 					</div>
 				</div>
 				<div className="relative z-20">
-					{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
+					{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} call={call} /> : (answered || call.recording) && <RecordingStatus call={call} />}
 				</div>
 				{call.transcript && <CallTranscriptPreview key={`transcript:${call.id}`} call={call} />}
 			</div>

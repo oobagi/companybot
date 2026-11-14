@@ -112,10 +112,12 @@ describe("private call recordings", () => {
 
 	it("revokes existing playback tickets as soon as Inbox access is removed", async () => {
 		const { t, owner, member, id } = await fixture();
+		expect(await member.query(api.callRecordings.availability, { id })).toBe(true);
 		const { url } = await member.action(api.callRecordings.playback, { id });
 		expect(await member.action(api.callRecordings.transcript, { id })).toEqual({ text: speech, turns: null });
 		const role = (await owner.query(api.roles.list))!.find(r => r.builtIn === "member")!;
 		await owner.mutation(api.roles.setPermission, { id: role.id, permission: "inbox.use", on: false });
+		expect(await member.query(api.callRecordings.availability, { id })).toBe(false);
 		expect((await t.fetch(pathOf(url), { headers: { Range: "bytes=0-3" } })).status).toBe(403);
 		await expect(member.action(api.callRecordings.playback, { id })).rejects.toThrow();
 		await expect(member.action(api.callRecordings.transcript, { id })).rejects.toThrow();
@@ -124,6 +126,7 @@ describe("private call recordings", () => {
 	it("cannot read another workspace's recording or transcript even as an owner of both", async () => {
 		const { t, owner, member, id } = await fixture();
 		const { workspaceId } = await sideWorkspace(t, "owner@co.com");
+		expect(await owner.in(workspaceId).query(api.callRecordings.availability, { id })).toBe(false);
 		await expect(owner.in(workspaceId).action(api.callRecordings.playback, { id })).rejects.toThrow();
 		await expect(owner.in(workspaceId).action(api.callRecordings.transcript, { id })).rejects.toThrow();
 		await expect(member.in(workspaceId).action(api.callRecordings.transcript, { id })).rejects.toThrow();
@@ -143,6 +146,7 @@ describe("private call recordings", () => {
 		const { t, owner, id, storageId } = await fixture();
 		const { url } = await owner.action(api.callRecordings.playback, { id });
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
+		expect(await owner.query(api.callRecordings.availability, { id })).toBe(false);
 		expect((await t.fetch(pathOf(url))).status).toBe(403);
 		await settle(t);
 		expect(await row(t, id)).toBeNull();

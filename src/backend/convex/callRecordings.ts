@@ -4,7 +4,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { httpAction, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { action, mutation } from "./functions";
+import { action, mutation, query } from "./functions";
 import { liveWorkspace, memberOf, requirePermission } from "./lib";
 import { recordUsage } from "./usage";
 import { callTranscriptTurn, validTranscriptTurns, type CallTranscriptTurn } from "./callTranscript";
@@ -41,6 +41,19 @@ export const authorize = internalQuery({
 });
 
 export const target = internalQuery({ args: idArgs, handler: async (ctx, { id }) => available(ctx, await ctx.db.get(id)) });
+
+/** A live subscription lets the persistent player release already-buffered audio after access or deletion changes. */
+export const availability = query({
+	args: idArgs,
+	handler: async (ctx, { id }) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId || !ctx.workspaceId) return false;
+		const member = await memberOf(ctx, userId, ctx.workspaceId);
+		if (!member || !can(member, "inbox.use")) return false;
+		const m = await available(ctx, await ctx.db.get(id));
+		return m?.workspaceId === ctx.workspaceId && m.call?.recording?.status === "ready" && !!m.call.recording.storageId;
+	},
+});
 
 /** One server-chosen object key and one start claim; never retry an uncertain paid start. */
 export const claimStart = internalMutation({
