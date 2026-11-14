@@ -317,6 +317,7 @@ export async function createChannelAs(ctx: MutationCtx, member: Member, args: In
 		usedPlaces,
 		workspaceId: member.workspaceId,
 		kind: "channel",
+		replyMode: "mentions",
 		name,
 		...(args.topic?.trim() && { topic: checkedTopic(args.topic) }),
 		private: args.private,

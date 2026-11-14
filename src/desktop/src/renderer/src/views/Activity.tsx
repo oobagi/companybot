@@ -147,6 +147,7 @@ export function CallDetails({ entry }: { entry: ActivityEntry }) {
 	return (
 		<div className="flex flex-col gap-2 text-xs">
 			<Block label="Input" text={entry.input} />
+			{entry.mine && <ConnectorMedia activityId={entry._id} />}
 			{entry.wake ? null : entry.error !== undefined ? (
 				<Block label="Error" text={entry.error} />
 			) : entry.output !== undefined ? (
@@ -167,4 +168,12 @@ function Block({ label, text }: { label: string; text: string }) {
 			</pre>
 		</div>
 	);
+}
+
+function ConnectorMedia({ activityId }: { activityId: Id<"agentActivity"> }) {
+	const artifacts = useQuery(api.connectorArtifacts.forCall, { activityId });
+	return <>{artifacts?.map(file => !file.url ? null : <div key={file.id} className="flex flex-col gap-2">
+		{file.mimeType.startsWith("image/") ? <img src={file.url} alt="Image returned by connector" className="max-h-80 max-w-full rounded-lg object-contain" /> : file.mimeType.startsWith("audio/") ? <audio controls preload="none" src={file.url} /> : null}
+		<a href={file.url} target="_blank" rel="noreferrer" download className="underline">Open connector file ({file.mimeType})</a>
+	</div>)}</>;
 }

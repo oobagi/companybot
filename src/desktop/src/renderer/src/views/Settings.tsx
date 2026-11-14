@@ -13,6 +13,7 @@ import { navigate } from "../router";
 import { ConflictNotice, Form, Loading, Notice, Page, SaveBar, Setting, Settings, actionButton, actionPrimaryButton, compactDangerButton, dangerButton, disabledButtonClass, hintClass, insetClass, secondaryButton, useDraft, useRun, versionOf, wideControlClass } from "../ui";
 import { ActivityIcon, MembersIcon, MemoryIcon, PermissionsIcon, RolesIcon, SettingsIcon, ArchiveIcon, UsageIcon, UserIcon } from "../icons";
 import { CurrencySelect, Select, Toggle } from "../controls";
+import { ApiAccess } from "./ApiAccess";
 import { ActivityTab } from "./Activity";
 import { ImagePicker } from "./ImagePicker";
 import { ModelPicker } from "./ModelPicker";
@@ -65,7 +66,7 @@ const sections = [
 			{ id: "permissions", label: "Permissions", description: "What agents ask before doing", icon: <PermissionsIcon /> },
 		],
 	},
-	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations")] },
+	{ title: "Connections", scope: "workspace", tabs: [item("connectors"), item("automations"), { id: "api", label: "API access", icon: <PermissionsIcon /> }] },
 ] as const;
 export const settingsTabs = sections.flatMap((s): readonly (typeof s.tabs)[number][] => s.tabs);
 type SettingsTab = (typeof settingsTabs)[number]["id"];
@@ -94,6 +95,7 @@ export function SettingsView({ access, tab, itemId }: { access: Access; tab: Set
 			{tab === "roles" && <RolesTab access={access} />}
 			{tab === "memory" && <MemoryTab access={access} />}
 			{tab === "activity" && <ActivityTab />}
+			{tab === "api" && <ApiAccess access={access} />}
 			{tab === "usage" && <UsageTab />}
 			{tab === "permissions" && (
 				<>
@@ -287,6 +289,8 @@ function GeneralForm({
 		imageBudgetUsd: number;
 		imageSpentUsd: number | null;
 		routerModel: string;
+		agentAutonomy: boolean;
+		agentHandoffs: boolean;
 		routerModels: ModelInfo[];
 		threadHours: number;
 		version: number;
@@ -295,7 +299,7 @@ function GeneralForm({
 }) {
 	const save = useMutation(api.workspace.updateSettings);
 	// The budget is edited as typed; the server checks the number.
-	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) };
+	const saved = { name: settings.name, currency: settings.currency, memory: settings.memory, imageModel: settings.imageModel, routerModel: settings.routerModel, agentAutonomy: settings.agentAutonomy, agentHandoffs: settings.agentHandoffs, imageBudget: String(settings.imageBudgetUsd), threadHours: String(settings.threadHours) };
 	const draft = useDraft("settings", saved, settings.version);
 	const value = canManage ? draft.value : saved;
 	const [confirming, setConfirming] = useState(false);
@@ -340,7 +344,13 @@ function GeneralForm({
 					<Toggle disabled={!canManage} checked={value.memory} onChange={(memory) => draft.set({ ...value, memory })} />
 				</Setting>
 			</Settings>
-			<Settings title="Agents in channels">
+			<Settings title="Agent participation">
+				<Setting label="Automatic activity" hint="Allow proactive channel replies and agents working together. Off stops queued and running automatic activity; direct messages and human @mentions still work.">
+					<Toggle disabled={!canManage} checked={value.agentAutonomy} onChange={(agentAutonomy) => draft.set({ ...value, agentAutonomy })} />
+				</Setting>
+				<Setting label="Agent handoffs" hint="Allow agents to mention, hand work to, or privately ask other agents. Also requires Automatic activity.">
+					<Toggle disabled={!canManage || !value.agentAutonomy} checked={value.agentHandoffs} onChange={(agentHandoffs) => draft.set({ ...value, agentHandoffs })} />
+				</Setting>
 				<Setting label="Reply decisions" hint="Decides when agents reply in channels set to “When relevant”. Jev is fastest and cheapest.">
 					<ModelPicker
 						models={settings.routerModels}

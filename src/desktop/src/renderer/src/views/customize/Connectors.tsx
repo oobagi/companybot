@@ -6,7 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../../api";
 import { useAction, useMutation, useQuery } from "../../convex";
-import { desktop, openLinkWhenReady } from "../../desktop";
+import { desktop, openLink, openLinkWhenReady } from "../../desktop";
 import { navigate } from "../../router";
 import { ConnectorIcon, EditIcon, TrashIcon } from "../../icons";
 import { EmptyState, Form, Loading, Notice, Section, Setting, Settings, actionPrimaryButton, barButton, compactButton, compactPrimaryButton, primaryButton, secondaryButton, useDraft, useRun, wideControlClass } from "../../ui";
@@ -50,8 +50,8 @@ export function ConnectorsTab({ access }: { access: Access }) {
 	);
 }
 
-/** Who made it: the catalog's publisher and version, or "Custom" for your workspace's own. */
-const metaOf = (p: ConnectorItem) => (p.custom ? "Custom" : `${p.publisher} · v${p.version}`);
+/** The publisher operates the server; the internal preset version is not their server version. */
+const metaOf = (p: ConnectorItem) => (p.custom ? "Custom" : `${p.publisher} · Official server`);
 
 function connectorStatus(p: ConnectorItem) {
 	if (!p.canUse) return "None of your roles can use it";
@@ -96,18 +96,20 @@ function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; c
 			{dialog}
 			{editing && <ConnectorSettingsDialog connector={connector} onClose={() => setEditing(false)} />}
 			<Notice>{error}</Notice>
+			{connector.setup && <p className="text-sm text-neutral-500">{connector.setup}</p>}
+			{connector.documentationUrl && <button type="button" className={compactButton} onClick={() => openLink(connector.documentationUrl!)}>Provider setup instructions</button>}
 			<Facts
 				rows={[
 					["Account", connector.connection === "personal" ? "Each person connects their own" : "One shared account for the workspace"],
 					["Sign-in", signIn],
 					["Tools", `Discovered from the connector each turn. Grant "${connector.id}.*" to an agent to use them.`],
-					["Asks first", "Anything that changes something, unless you set it to Always below."],
+					["Asks first", connector.custom ? "Every action, unless you allow it below. A custom server cannot skip confirmation by labeling a tool read-only." : "Anything that changes something, unless you set it to Always below."],
 					["Server", connector.server],
 				]}
 			/>
 			{connector.installed && (
 				<Section title="Access" flush>
-					<ConnectorRoles connector={connector} canManage={canManage} onChange={(roles) => run(setRoles({ connectorId: connector.id, roles }))} />
+					<ConnectorRoles allowed={connector.roleIds as Id<"roles">[]} canManage={canManage} onChange={(roles) => run(setRoles({ connectorId: connector.id, roles }))} />
 					<Connection connector={connector} />
 				</Section>
 			)}
@@ -117,10 +119,9 @@ function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; c
 }
 
 /** Which roles may use the connector. Owners always can, so Owner shows checked and fixed. */
-function ConnectorRoles({ connector, canManage, onChange }: { connector: ConnectorItem; canManage: boolean; onChange: (roles: Id<"roles">[]) => void }) {
+function ConnectorRoles({ allowed, canManage, onChange }: { allowed: Id<"roles">[]; canManage: boolean; onChange: (roles: Id<"roles">[]) => void }) {
 	const roles = useQuery(api.roles.list);
 	if (!roles) return null;
-	const allowed = connector.roleIds as Id<"roles">[];
 	return (
 		<div role="group" aria-label="Who can use it" className="flex flex-col gap-1.5 text-sm">
 			<span className="text-neutral-500">Who can use it</span>
@@ -145,6 +146,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 	const disconnect = useMutation(api.connectors.disconnect);
 	const { confirm, dialog } = useConfirm();
 	const [pasting, setPasting] = useState(false);
+	const [signing, setSigning] = useState(false);
 	const { error, run } = useRun();
 
 	return (
@@ -175,11 +177,12 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 						className={actionPrimaryButton}
 						// Opens in the browser (a new tab, or from the desktop app the default browser). The
 						// app flips to Connected on its own once the sign-in finishes.
-						onClick={() => run(openLinkWhenReady(startOAuth({ connectorId: connector.id })))}
+						onClick={() => connector.custom || connector.auth.type === "oauth" && connector.auth.registration ? setSigning(true) : run(openLinkWhenReady(startOAuth({ connectorId: connector.id })))}
 					>
 						Connect with {connector.name}
 					</button>
 					<span className="text-neutral-400">{desktop() ? "Opens your browser to sign in." : "Opens a new tab to sign in."}</span>
+					{signing && <ConnectOAuthDialog connector={connector} onClose={() => setSigning(false)} />}
 				</div>
 			) : connector.canUse && connector.canConnect && connector.auth.type === "api_key" ? (
 				<div className="flex items-center gap-3">
@@ -193,6 +196,50 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "None of your roles can use this connector."}</p>
 			)}
 		</div>
+	);
+}
+
+/** App credentials stay in this dialog's memory and the backend's encrypted OAuth state, never a saved draft. */
+function ConnectOAuthDialog({ connector, onClose }: { connector: ConnectorItem; onClose: () => void }) {
+	const startOAuth = useAction(api.connectors.startOAuth);
+	const registration = connector.auth.type === "oauth" ? connector.auth.registration : undefined;
+	const [registered, setRegistered] = useState(!!registration);
+	const [clientId, setClientId] = useState("");
+	const [clientSecret, setClientSecret] = useState("");
+	const [issuer, setIssuer] = useState(registration?.issuer ?? "");
+	const { error, busy, run } = useRun();
+	return (
+		<Modal title={`Connect ${connector.name}`} onClose={onClose}>
+			<Form className="flex flex-col gap-3" onSubmit={() => run(openLinkWhenReady(startOAuth({ connectorId: connector.id, ...(registered && { client: { clientId, issuer, ...(clientSecret && { clientSecret }) } }) })), onClose)}>
+				<Settings>
+					{!registration && <Setting label="App registration">
+						<Select label="App registration" className={wideControlClass} value={registered ? "registered" : "automatic"} options={[{ value: "automatic", label: "Register automatically" }, { value: "registered", label: "Use a registered app" }]} onChange={(value) => setRegistered(value === "registered")} />
+					</Setting>}
+					{registration && <p className="text-sm text-neutral-500">{connector.setup}</p>}
+					{registration && connector.documentationUrl && <button type="button" className={compactButton} onClick={() => openLink(connector.documentationUrl!)}>Provider setup instructions</button>}
+					{registered && <>
+						<Setting label="Redirect URL" hint="Register this exact URL with the provider before connecting.">
+							<input aria-label="Redirect URL" readOnly value={connector.oauthRedirectUrl ?? ""} className={wideControlClass} />
+						</Setting>
+						<Setting label="OAuth issuer" hint="The issuer URL published by the provider. Credentials are bound to this issuer.">
+							<input aria-label="OAuth issuer" required readOnly={!!registration} type="url" spellCheck={false} value={issuer} onChange={(e) => setIssuer(e.target.value)} className={wideControlClass} />
+						</Setting>
+						<Setting label="Client ID">
+							<input aria-label="Client ID" required autoComplete="off" value={clientId} onChange={(e) => setClientId(e.target.value)} className={wideControlClass} />
+						</Setting>
+						<Setting label="Client secret" hint={`${registration?.secretRequired ? "Required by this provider." : "Only if your provider requires it."} Stored encrypted with this connection, never shown to other members.`}>
+							<input aria-label="Client secret" required={registration?.secretRequired} type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} className={wideControlClass} />
+						</Setting>
+						{connector.auth.type === "oauth" && connector.auth.scopes?.length && <Setting label="Requested permissions"><p className="text-sm break-words">{connector.auth.scopes.join(", ")}</p></Setting>}
+					</>}
+				</Settings>
+				<Notice>{error}</Notice>
+				<DialogButtons>
+					<button type="button" className={secondaryButton} onClick={onClose}>Cancel</button>
+					<button type="submit" disabled={busy} className={primaryButton}>Continue to sign in</button>
+				</DialogButtons>
+			</Form>
+		</Modal>
 	);
 }
 
@@ -292,12 +339,14 @@ function ConnectorFields({ value, onChange, autoFocus }: { value: ConnectorForm;
 export function NewConnectorDialog({ onClose }: { onClose: () => void }) {
 	const draft = useDraft<ConnectorForm>("connectors:new", emptyForm, 0);
 	const create = useMutation(api.customConnectors.create);
+	const [roles, setRoles] = useState<Id<"roles">[]>([]);
 	const { error, busy, run } = useRun();
 	const close = () => (draft.discard(), onClose());
 	return (
 		<Modal title="New connector" onClose={close}>
-			<Form className="flex flex-col gap-3" onSubmit={() => run(create({ connector: draft.value }).then((id) => { close(); navigate("settings", "connectors", id); }))}>
+			<Form className="flex flex-col gap-3" onSubmit={() => run(create({ connector: draft.value, roles }).then((id) => { close(); navigate("settings", "connectors", id); }))}>
 				<ConnectorFields autoFocus value={draft.value} onChange={draft.set} />
+				<ConnectorRoles allowed={roles} canManage onChange={setRoles} />
 				<Notice>{error}</Notice>
 				<DialogButtons>
 					<button type="button" onClick={close} className={secondaryButton}>Cancel</button>

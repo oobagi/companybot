@@ -18,6 +18,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
 import { internalMutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { logCall } from "./activity";
+import { autonomyProblem, isHandoff } from "./agentPolicy";
 import { mutation, query } from "./functions";
 import { automationName, automationScope } from "./automationOps";
 import { canSee, findOrCreateDm, insertMessage, namer } from "./chatOps";
@@ -471,6 +472,9 @@ export const decide = mutation({
 			// Still in its chain of agents, or still answering another agent's ask (chains.ts).
 			...(asked?.chain && { chain: asked.chain }),
 			...(asked?.ask && { ask: asked.ask }),
+			// Approval permits this action; it does not override the workspace's participation switches.
+			...(asked?.routed && { routed: true as const }),
+			...(asked && isHandoff(asked) && { handoff: true as const }),
 		});
 		return { decided: true };
 	},
@@ -487,6 +491,11 @@ export const claim = internalMutation({
 	handler: async (ctx, { approvalId, turnId, outside }): Promise<{ tool: string; input: unknown } | null> => {
 		const [row, turn] = await Promise.all([ctx.db.get(approvalId), ctx.db.get(turnId)]);
 		if (!row || row.status !== "approved" || turn?.status !== "running" || turn.approvalId !== approvalId) return null;
+		const policyProblem = await autonomyProblem(ctx, turn);
+		if (policyProblem) {
+			await ctx.db.patch(approvalId, { status: "failed", error: policyProblem });
+			return null;
+		}
 		const member = await memberOf(ctx, row.actorId, row.workspaceId);
 		const chat = await ctx.db.get(row.chatId);
 		if (!member || !chat || chat.archived || !(await canSee(ctx, chat, member))) return null;

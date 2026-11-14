@@ -109,6 +109,8 @@ export const list = query({
 					description: connector.description,
 					version: connector.version,
 					publisher: connector.publisher,
+					documentationUrl: connector.documentationUrl ?? null,
+					setup: connector.setup ?? null,
 					connection: connector.connection,
 					server: connector.mcp.url,
 					transport: connector.mcp.transport,
@@ -126,6 +128,7 @@ export const list = query({
 					error: connection?.error ?? null,
 					canConnect:
 						connector.connection === "workspace" ? can(member, "connectors.manage") : can(member, "connectors.connect"),
+					oauthRedirectUrl: connector.auth.type === "oauth" ? oauthRedirectUrl() : null,
 				};
 			}),
 		);
@@ -146,6 +149,10 @@ export const setInstalled = mutation({
 /** Installs a connector here, for its default roles. Waits out an uninstall still deleting the old one's rows. */
 export async function install(ctx: MutationCtx, member: Member, connector: Connector, roles?: Id<"roles">[]) {
 	if (await resetting(ctx, member.workspaceId, connector.id)) throw new ConvexError("It's still being uninstalled. Try again in a minute.");
+	if (roles) {
+		const here = new Set((await rolesOf(ctx, member.workspaceId)).map((r) => r._id));
+		if (roles.some((id) => !here.has(id))) throw new ConvexError("Role not found.");
+	}
 	return ctx.db.insert("connectorInstalls", {
 		workspaceId: member.workspaceId,
 		connectorId: connector.id,
@@ -161,8 +168,8 @@ export async function uninstall(ctx: MutationCtx, connector: Connector, existing
 	await startCascade(ctx, "connectorInstall", { workspaceId: existing.workspaceId, connectorId: connector.id, connectorInstallId: existing._id });
 }
 
-/** Who may use a connector when it's installed: Member's people, unless it's for owners only. Owners always can. */
-const defaultRoles = (connector: Connector, memberRole: Id<"roles"> | undefined): Id<"roles">[] => (connector.ownersOnly || !memberRole ? [] : [memberRole]);
+/** Custom servers start Owners-only. Existing installs keep their explicitly stored audience. */
+const defaultRoles = (connector: Connector, memberRole: Id<"roles"> | undefined): Id<"roles">[] => (connector.custom || connector.ownersOnly || !memberRole ? [] : [memberRole]);
 
 /** Which of the workspace's roles may use an installed connector. Owners always can. Applies at once, including mid-reply. */
 export const setRoles = mutation({
@@ -194,8 +201,11 @@ const OAUTH_FLOW_MS = 15 * 60_000;
  * the provider sends the person back to /oauth/callback (oauth.ts), which saves the connection.
  */
 export const startOAuth = action({
-	args: { connectorId: v.string() },
-	handler: async (ctx, { connectorId }): Promise<string> => {
+	args: {
+		connectorId: v.string(),
+		client: v.optional(v.object({ clientId: v.string(), clientSecret: v.optional(v.string()), issuer: v.string() })),
+	},
+	handler: async (ctx, { connectorId, client }): Promise<string> => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not signed in.");
 		const target = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId });
@@ -203,7 +213,7 @@ export const startOAuth = action({
 		if (connector.auth.type !== "oauth") throw new ConvexError("This connector doesn't sign in through the browser.");
 		let started: Awaited<ReturnType<typeof startSignIn>>;
 		try {
-			started = await startSignIn(connector, oauthRedirectUrl(), fetchFor(ctx, connector));
+			started = await startSignIn(connector, oauthRedirectUrl(), fetchFor(ctx, connector), client);
 		} catch (e) {
 			throw new ConvexError(`Couldn't start signing in to ${connector.name}: ${e instanceof Error ? e.message : e}`);
 		}

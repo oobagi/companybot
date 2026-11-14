@@ -17,6 +17,7 @@ export type { Access, BuiltInRole, RoleInfo } from "./types";
  * Add a permission here before adding a feature that needs one (wiki/extending.md).
  */
 export const permissions = {
+	"integrations.manage": { label: "create personal API tokens", member: false },
 	"workspace.manage": { label: "change workspace settings", member: false },
 	/** Delete the workspace and everything in it. */
 	"workspace.delete": { label: "delete the workspace", ownerOnly: true },

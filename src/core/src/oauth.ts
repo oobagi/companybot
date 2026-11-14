@@ -6,7 +6,15 @@ import {
 	type OAuthTokens,
 	auth,
 } from "@ai-sdk/mcp";
-import type { Connector } from "./connectors";
+import { type Connector, customUrlProblem } from "./connectors";
+
+/** Entered for a connection, encrypted with its tokens, never part of a connector's public definition. */
+export interface RegisteredOAuthClient {
+	clientId: string;
+	clientSecret?: string;
+	/** The provider's issuer, so a server cannot redirect app credentials to another issuer. */
+	issuer: string;
+}
 
 /**
  * MCP OAuth for connectors. The AI SDK runs the protocol (discovery, dynamic client
@@ -21,6 +29,8 @@ import type { Connector } from "./connectors";
  */
 export interface OAuthState {
 	client?: OAuthClientInformation;
+	/** Missing on existing connections, which used dynamic registration. */
+	preRegistered?: true;
 	server?: OAuthAuthorizationServerInformation;
 	tokens?: OAuthTokens;
 	/** Only during sign-in. */
@@ -47,7 +57,7 @@ export class ConnectorOAuth implements OAuthClientProvider {
 			redirect_uris: [this.redirectUrl],
 			grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"],
-			token_endpoint_auth_method: "none",
+			token_endpoint_auth_method: this.data.client?.client_secret ? "client_secret_basic" : "none",
 		};
 	}
 
@@ -60,8 +70,7 @@ export class ConnectorOAuth implements OAuthClientProvider {
 	saveTokens = (tokens: OAuthTokens) => this.save({ tokens });
 	clientInformation = () => this.data.client;
 	saveClientInformation = (client: OAuthClientInformation) => this.save({ client });
-	// Only ever set through dynamic registration, so the SDK may re-register if it's rejected.
-	isClientInformationDynamicallyRegistered = () => true;
+	isClientInformationDynamicallyRegistered = () => !this.data.preRegistered;
 	authorizationServerInformation = () => this.data.server;
 	saveAuthorizationServerInformation = (server: OAuthAuthorizationServerInformation) => this.save({ server });
 	codeVerifier = () => {
@@ -74,8 +83,8 @@ export class ConnectorOAuth implements OAuthClientProvider {
 	storedState = () => this.data.state;
 
 	invalidateCredentials = (scope: "all" | "client" | "tokens" | "verifier") => {
-		if (scope === "all") this.save({ client: undefined, server: undefined, tokens: undefined, verifier: undefined });
-		else if (scope === "client") this.save({ client: undefined, server: undefined });
+		if (scope === "all") this.save({ client: this.data.preRegistered ? this.data.client : undefined, server: undefined, tokens: undefined, verifier: undefined });
+		else if (scope === "client") this.save({ client: this.data.preRegistered ? this.data.client : undefined, server: undefined });
 		else if (scope === "tokens") this.save({ tokens: undefined });
 		else this.save({ verifier: undefined });
 	};
@@ -99,8 +108,24 @@ function fetchFor(connector: Connector, fetchFn?: typeof fetch) {
 }
 
 /** Begins sign-in. Store `state` (encrypted) under `state.state` until the callback. */
-export async function startSignIn(connector: Connector, redirectUrl: string, fetchFn?: typeof fetch): Promise<{ url: string; state: OAuthState }> {
-	const provider = new ConnectorOAuth({}, redirectUrl, true);
+export async function startSignIn(connector: Connector, redirectUrl: string, fetchFn?: typeof fetch, registered?: RegisteredOAuthClient): Promise<{ url: string; state: OAuthState }> {
+	const registration = connector.auth.type === "oauth" ? connector.auth.registration : undefined;
+	if (registration) {
+		if (!registered) throw new Error(`${connector.name} requires your own registered app. Enter its client ID and secret in Connect.`);
+		if (registered.issuer.trim() !== registration.issuer) throw new Error(`Use ${connector.name}'s OAuth issuer: ${registration.issuer}`);
+		if (registration.secretRequired && !registered.clientSecret?.trim()) throw new Error(`${connector.name} requires the registered app's client secret.`);
+	}
+	let initial: OAuthState = {};
+	if (registered) {
+		const clientId = registered.clientId.trim();
+		const issuer = registered.issuer.trim();
+		if (!clientId || clientId.length > 2_000) throw new Error("Enter the registered app's client ID (up to 2,000 characters).");
+		if (registered.clientSecret && registered.clientSecret.length > 8_000) throw new Error("The client secret is too long.");
+		const problem = customUrlProblem(issuer);
+		if (problem || new URL(issuer).hash || new URL(issuer).search) throw new Error("Enter the provider's public HTTPS OAuth issuer URL, without a query or fragment.");
+		initial = { preRegistered: true, client: { client_id: clientId, issuer, ...(registered.clientSecret && { client_secret: registered.clientSecret }) } };
+	}
+	const provider = new ConnectorOAuth(initial, redirectUrl, true);
 	const scope = connector.auth.type === "oauth" ? connector.auth.scopes?.join(" ") : undefined;
 	await auth(provider, { serverUrl: connector.mcp.url, scope, fetchFn: fetchFor(connector, fetchFn) });
 	if (!provider.authorizationUrl || !provider.data.state) throw new Error(`${connector.name} didn't ask to sign in.`);

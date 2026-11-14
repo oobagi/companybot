@@ -1,3 +1,4 @@
+import { integrationEvent } from "./integrationEventLog";
 import { BlockNoteEditor } from "@blocknote/core";
 import { type AccessLevel, reaches } from "@companybot/core";
 import { pageHref } from "@companybot/core/page-links";
@@ -168,6 +169,7 @@ export async function createPage(ctx: MutationCtx, who: Who, to: { title: string
 		updatedAt: Date.now(),
 		updatedBy: member.userId,
 	});
+	await integrationEvent(ctx, member.workspaceId, "page.created", pageId);
 	if (kind === "folder") return pageId;
 	await sync.create(ctx, pageId, { type: "doc", content: [{ type: "blockGroup", content: [emptyBlock()] }] });
 	if (parentId && "title" in to) {
@@ -210,6 +212,7 @@ export async function renamePage(ctx: MutationCtx, who: Who, page: Doc<"pages">,
 	if (page.recordId) throw new ConvexError("A record's page takes the record's name. Rename the record instead.");
 	await writeSources(ctx, who.member, page._id);
 	const clean = cleanTitle(title, kindOf(page));
+	await integrationEvent(ctx, who.member.workspaceId, "page.updated", page._id);
 	await ctx.db.patch(page._id, { title: clean, updatedAt: Date.now(), updatedBy: who.member.userId });
 	// Page links are plain link marks whose text is the title when inserted (alpha.7 can't render live titles),
 	// so keep the parent's links in step, as an edit by whoever renamed. Reworded links and other pages' links stay.
@@ -247,6 +250,7 @@ export async function setPageTrashed(ctx: MutationCtx, who: Who, page: Doc<"page
 		if (!parent || state?.archived) await ctx.db.patch(page._id, { parentId: undefined, ...keptAccess(who.member, page, (await pageState(ctx, page)).access, undefined) });
 	}
 	await ctx.db.patch(page._id, { archived, updatedAt: Date.now(), updatedBy: who.member.userId });
+	await integrationEvent(ctx, who.member.workspaceId, archived ? "page.archived" : "page.restored", page._id);
 	const restored = (await ctx.db.get(page._id))!;
 	const parentId = archived ? page.parentId : restored.parentId;
 	const parent = parentId && await ctx.db.get(parentId);
@@ -285,6 +289,7 @@ const dropSnapshot = (ctx: MutationCtx, pageId: Id<"pages">, version: number) =>
 export async function recordVersion(ctx: MutationCtx, who: Who, page: Doc<"pages">, version: number, restored?: number) {
 	const now = Date.now();
 	await ctx.db.patch(page._id, { updatedAt: now, updatedBy: who.member.userId });
+	await integrationEvent(ctx, who.member.workspaceId, "page.updated", page._id);
 	const latest = await latestVersionOf(ctx, page._id);
 	if (latest && !restored && !latest.restored && now - latest.editedAt < IDLE_MS && now - latest._creationTime < VERSION_MS) {
 		const editor = { userId: who.member.userId, ...(who.agentId && { agentId: who.agentId }) };

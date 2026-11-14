@@ -1,3 +1,4 @@
+import { integrationEvent } from "./integrationEventLog";
 import { emojiOf } from "@companybot/core";
 import { previewUrl } from "@companybot/core/link-preview";
 import { taggedRecordIds } from "@companybot/core/record-mentions";
@@ -111,18 +112,33 @@ export const page = query({
 		const none = { page: [], isDone: true, continueCursor: "" };
 		const visible = await visibleChat(ctx, chatId);
 		if (!visible) return none;
-		const parent = threadId && (await ctx.db.get(threadId));
-		if (threadId && (!parent || parent.chatId !== chatId)) return none;
-		const result = await (await timeline(ctx, chatId, threadId))
-			.order("desc")
-			.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
-		const docs = result.page.sort((a, b) => shownAt(a) - shownAt(b));
-		const names = namer(ctx, { images: true });
-		const tags = recordTags(ctx, visible.member);
-		const page = parent && paginationOpts.cursor === null ? [parent, ...docs] : docs;
-		return { ...result, page: await Promise.all(page.map((m) => toMessage(ctx, m, visible.member, names, tags))) };
+		return readMessages(ctx, visible.member, chatId, threadId, paginationOpts);
 	},
 });
+
+/** Shared viewer-safe single message lookup for external clients. */
+export async function readMessage(ctx: QueryCtx, member: Member, messageId: Id<"chatMessages">) {
+	const message = await ctx.db.get(messageId);
+	if (!message || message.workspaceId !== member.workspaceId || message.quiet) throw new ConvexError("Message not found.");
+	await requireChat(ctx, member, message.chatId);
+	return toMessage(ctx, message, member, namer(ctx, { images: true }), recordTags(ctx, member));
+}
+
+/** Shared viewer-safe timeline for the app and external integrations. */
+export async function readMessages(ctx: QueryCtx, member: Member, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined, paginationOpts: { numItems: number; cursor: string | null }): Promise<PaginationResult<Message>> {
+	await requireChat(ctx, member, chatId);
+	const none = { page: [], isDone: true, continueCursor: "" };
+	const parent = threadId && (await ctx.db.get(threadId));
+	if (threadId && (!parent || parent.chatId !== chatId)) return none;
+	const result = await (await timeline(ctx, chatId, threadId))
+		.order("desc")
+		.paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, PAGE_MAX) });
+	const docs = result.page.sort((a, b) => shownAt(a) - shownAt(b));
+	const names = namer(ctx, { images: true });
+	const tags = recordTags(ctx, member);
+	const page = parent && paginationOpts.cursor === null ? [parent, ...docs] : docs;
+	return { ...result, page: await Promise.all(page.map((m) => toMessage(ctx, m, member, names, tags))) };
+}
 
 /**
  * A timeline's shown messages (quiet ones left out), in the order shown (`by_chat_shown`).
@@ -288,7 +304,7 @@ export const send = mutation({
 	handler: async (ctx, args) => sendMessage(ctx, { member: await requireMember(ctx) }, args),
 });
 
-export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>): Promise<Id<"chatMessages">> {
+export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId, text, mentions, attachments: files = [] }: Infer<typeof sendMessageArgs>, external?: string): Promise<Id<"chatMessages">> {
 	const { member } = who;
 	const chat = await requireChatToPost(ctx, member, chatId);
 	if (chat.archived) throw new ConvexError("This chat is in Archive.");
@@ -318,7 +334,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	// Records tagged in the text (`[@Name](record:id)`) are kept as ids; ones the writer can't see stay as their names.
 	const { text: stored, recordIds } = await storeTags(ctx, member, text.trim(), { also: mentions.recordIds });
-	text = stored;
+	text = external ? `[External integration: ${external}]\n${stored}` : stored;
 	const readable = () => recordTags(ctx, { ...member, replyId: undefined });
 	// Only skills installed here (and not in Archive), so a message can't point agents at a made-up one.
 	const skillIds: string[] = [];
@@ -338,6 +354,7 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 
 	const usedPlaces = await writeSources(ctx, member, { filtered: true });
 	const messageId = await insertMessage(ctx, chat, {
+		...(external && { external }),
 		...(usedPlaces.length && { usedPlaces, repliedTo: member.userId }),
 		threadId,
 		...(who.agentId ? { authorAgentId: who.agentId, ...(actingFor && { actingFor }) } : { authorUserId: member.userId }),
@@ -347,16 +364,17 @@ export async function sendMessage(ctx: MutationCtx, who: Who, { chatId, threadId
 		mentions: { userIds, agentIds, ...(recordIds.length > 0 && { recordIds }), ...(skillIds.length > 0 && { skillIds }) },
 		status: "done",
 	});
+	await integrationEvent(ctx, member.workspaceId, "message.created", messageId);
 	const sent = (await ctx.db.get(messageId))!;
 	await addUserMentions(ctx, sent);
-	await previewMessage(ctx, sent);
+	if (!external) await previewMessage(ctx, sent);
 	await syncRecordMentions(ctx, sent, recordIds);
-	if (!who.agentId) await stopTyping(ctx, chatId, threadId, member.userId);
+	if (!who.agentId && !external) await stopTyping(ctx, chatId, threadId, member.userId);
 	// A person writing where agents are handing work around gives those chains a fresh budget.
-	if (!who.agentId) await resetChains(ctx, chatId, threadId);
-	if (!who.agentId && !threadId) await markChatRead(ctx, chatId, member.userId);
+	if (!who.agentId && !external) await resetChains(ctx, chatId, threadId);
+	if (!who.agentId && !external && !threadId) await markChatRead(ctx, chatId, member.userId);
 
-	if (who.agentId) return messageId;
+	if (who.agentId || external) return messageId;
 
 	// Channels gain mentioned agents as members. DMs are a fixed set, so only their own agents answer.
 	let responders: Id<"agents">[];
@@ -444,6 +462,7 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 	requirePost(who.member, (await ctx.db.get(message.chatId))!);
 	const { text: stored, recordIds } = await retag(ctx, who.member, message, text.trim());
 	text = stored;
+	if (message.external && !text.startsWith(`[External integration: ${message.external}]\n`)) text = `[External integration: ${message.external}]\n${text}`;
 	if (!text && !message.attachments?.length) throw new ConvexError("Write something first, or delete the message.");
 	const sources = await writeSources(ctx, who.member, { filtered: true }, message);
 	await ctx.db.patch(message._id, {
@@ -455,8 +474,9 @@ export async function editMessage(ctx: MutationCtx, who: Who, messageId: Id<"cha
 		usedPlaces: sources.length ? sources : undefined,
 		...(sources.length && { repliedTo: who.member.userId }),
 	});
+	await integrationEvent(ctx, who.member.workspaceId, "message.updated", messageId);
 	await syncRecordMentions(ctx, message, recordIds);
-	await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
+	if (!message.external) await previewMessage(ctx, { ...message, text }, { byAgent: !!who.agentId });
 }
 
 /**
@@ -490,6 +510,7 @@ export async function removeMessage(ctx: MutationCtx, who: Who, messageId: Id<"c
 	const message = await requireOwn(ctx, who, messageId);
 	await deleteAttachments(ctx, message);
 	await ctx.db.patch(message._id, { text: "", parts: [], attachments: undefined, linkPreviews: undefined, deleted: true });
+	await integrationEvent(ctx, who.member.workspaceId, "message.deleted", messageId);
 	await clearMessageLinks(ctx, messageId);
 }
 
@@ -523,5 +544,6 @@ export const share = mutation({
 		if (!message.usedPlaces?.length || message.sharedBy) return;
 		if (message.status === "streaming") throw new ConvexError("Wait until the reply finishes before sharing it.");
 		await ctx.db.patch(messageId, { sharedBy: member.userId });
+		await integrationEvent(ctx, member.workspaceId, "message.updated", messageId);
 	},
 });
