@@ -44,7 +44,7 @@ it("resets a workspace with 17,000 messages and 4,100 members without exceeding 
 	});
 	await owner.mutation(api.workspace.resetWorkspace, { name: "My company" });
 	await settle(t);
-	expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, role: "owner" });
+	expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, access: { owner: true } });
 	const general = (await owner.query(api.chats.list))!.channels[0]!._id;
 	expect(await t.run(async (ctx) => (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", general)).collect()).length)).toBe(4_102);
 	expect(await t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).length)).toBe(1);
@@ -70,7 +70,7 @@ it("removes a member at once when their just-me automation has 16,000 subscriber
 	}
 	const row = (await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first()))!;
 	await owner.mutation(api.workspace.removeMember, { id: row._id });
-	expect(await member.query(api.workspace.me)).toMatchObject({ workspaceId: null, role: null });
+	expect(await member.query(api.workspace.me)).toMatchObject({ workspaceId: null, access: null });
 	await settle(t);
 	for (const table of ["automationInstalls", "automationSubscriptions", "permissionRules", "cascades"] as const) expect(await t.run((ctx) => ctx.db.query(table).first()), table).toBeNull();
 });
