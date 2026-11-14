@@ -12,5 +12,6 @@ export default defineConfig({
 	envDir: resolve(import.meta.dirname, "../.."),
 	envPrefix: ["VITE_", "CONVEX_URL"],
 	plugins: [react(), tailwindcss()],
+	server: process.env.COMPANYBOT_DEV_PORT ? { host: "127.0.0.1", port: Number(process.env.COMPANYBOT_DEV_PORT), strictPort: true } : undefined,
 	build: { outDir: resolve(import.meta.dirname, "dist-web"), emptyOutDir: true },
 });

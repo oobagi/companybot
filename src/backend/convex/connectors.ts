@@ -1,3 +1,4 @@
+import { connectorSetupProblem, integrationEndpoint } from "./integrationSetup";
 import {
 	type Connector,
 	type ConnectorState,
@@ -128,7 +129,8 @@ export const list = query({
 					error: connection?.error ?? null,
 					canConnect:
 						connector.connection === "workspace" ? can(member, "connectors.manage") : can(member, "connectors.connect"),
-					oauthRedirectUrl: connector.auth.type === "oauth" ? oauthRedirectUrl() : null,
+					setupProblem: connectorSetupProblem(connector.auth.type),
+					oauthRedirectUrl: connector.auth.type === "oauth" && integrationEndpoint() ? oauthRedirectUrl() : null,
 				};
 			}),
 		);
@@ -193,7 +195,11 @@ export const setRoles = mutation({
 const credentials = v.union(v.object({ type: v.literal("none") }), v.object({ type: v.literal("api_key"), key: v.string() }));
 
 /** Where OAuth providers send people back to. Registered with each provider on first sign-in. */
-export const oauthRedirectUrl = () => `${process.env.CONVEX_SITE_URL}/oauth/callback`;
+export function oauthRedirectUrl() {
+	const endpoint = integrationEndpoint();
+	if (!endpoint) throw new ConvexError("Browser sign-in setup required. The team running this Companybot installation needs to configure the callback address. Try connecting again after setup is complete.");
+	return `${endpoint}/oauth/callback`;
+}
 const OAUTH_FLOW_MS = 15 * 60_000;
 
 /**
@@ -211,6 +217,8 @@ export const startOAuth = action({
 		const target = await ctx.runQuery(internal.connectors.connectTarget, { userId, workspaceId: ctx.workspaceId, connectorId });
 		const connector = await requireDefinition(ctx, target.workspaceId, connectorId);
 		if (connector.auth.type !== "oauth") throw new ConvexError("This connector doesn't sign in through the browser.");
+		const setupProblem = connectorSetupProblem(connector.auth.type);
+		if (setupProblem) throw new ConvexError(setupProblem);
 		let started: Awaited<ReturnType<typeof startSignIn>>;
 		try {
 			started = await startSignIn(connector, oauthRedirectUrl(), fetchFor(ctx, connector), client);
@@ -279,6 +287,8 @@ export const connect = action({
 		const connector = await requireDefinition(ctx, target.workspaceId, args.connectorId);
 		const problem = validateCredentials(connector, args.credentials);
 		if (problem) throw new ConvexError(problem);
+		const setupProblem = connectorSetupProblem(connector.auth.type);
+		if (setupProblem) throw new ConvexError(setupProblem);
 		const sealed = await encrypt(args.credentials);
 		await ctx.runMutation(internal.connectors.saveConnection, { userId, ...target, connectorId: connector.id, credentials: sealed });
 	},

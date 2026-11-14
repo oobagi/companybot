@@ -55,8 +55,9 @@ const metaOf = (p: ConnectorItem) => (p.custom ? "Custom" : `${p.publisher} · O
 
 function connectorStatus(p: ConnectorItem) {
 	if (!p.canUse) return "None of your roles can use it";
-	if (p.auth.type === "none") return "Ready";
+	if (p.setupProblem) return "Setup required";
 	if (p.error) return "Connection failing";
+	if (p.auth.type === "none") return "Ready";
 	return p.connected ? "Connected" : "Not connected";
 }
 
@@ -96,6 +97,7 @@ function ConnectorDetail({ connector, canManage }: { connector: ConnectorItem; c
 			{dialog}
 			{editing && <ConnectorSettingsDialog connector={connector} onClose={() => setEditing(false)} />}
 			<Notice>{error}</Notice>
+			{connector.setupProblem && <p className="text-sm text-amber-700">{connector.setupProblem}</p>}
 			{connector.setup && <p className="text-sm text-neutral-500">{connector.setup}</p>}
 			{connector.documentationUrl && <button type="button" className={compactButton} onClick={() => openLink(connector.documentationUrl!)}>Provider setup instructions</button>}
 			<Facts
@@ -154,11 +156,11 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 			{dialog}
 			<Notice>{error}</Notice>
 			{connector.auth.type === "none" ? (
-				<p className="text-emerald-700">Ready. No account needed.</p>
+				<p className={connector.error ? "text-amber-700" : "text-emerald-700"}>{connector.error ? `The last connection attempt failed: ${connector.error}. Check the server address and availability, then try the agent action again.` : "Ready. No account needed."}</p>
 			) : connector.connected ? (
 				<div className="flex items-center gap-3">
 					<span className={connector.error ? "text-amber-700" : "text-emerald-700"}>
-						{connector.error ? `Connected, but the last try failed: ${connector.error}` : "Connected"}
+						{connector.error ? `The last connection attempt failed: ${connector.error}. Check the provider status and account access. If credentials expired, disconnect and connect again.` : "Connected"}
 					</span>
 					{connector.canConnect && (
 						<button
@@ -170,6 +172,8 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 						</button>
 					)}
 				</div>
+			) : connector.setupProblem ? (
+				<p className="text-neutral-500">Connecting is unavailable until setup is complete.</p>
 			) : connector.canUse && connector.canConnect && connector.auth.type === "oauth" ? (
 				<div className="flex items-center gap-3">
 					<button
@@ -193,7 +197,7 @@ function Connection({ connector }: { connector: ConnectorItem }) {
 					{pasting && <ConnectKeyDialog connector={connector} auth={connector.auth} onClose={() => setPasting(false)} />}
 				</div>
 			) : (
-				<p className="text-neutral-400">{connector.canUse ? "An owner needs to connect it." : "None of your roles can use this connector."}</p>
+				<p className="text-neutral-400">{connector.canUse ? connector.connection === "workspace" ? "Someone with permission to manage connectors needs to connect the shared account." : "Your role needs permission to connect a personal account. Ask a workspace administrator." : "None of your roles can use this connector."}</p>
 			)}
 		</div>
 	);

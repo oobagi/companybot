@@ -1,3 +1,4 @@
+import { connectionEncryptionConfigured } from "./integrationSetup";
 import { can, customUrlProblem } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
@@ -13,6 +14,7 @@ export const list = query({ args: {}, handler: async ctx => {
 	return rows.filter(r => r.memberId === member.id).map(({ secret: _secret, pending: _pending, ...row }) => row);
 } });
 export const create = action({ args: { tokenId: v.id("integrationTokens"), url: v.string() }, handler: async (ctx, args): Promise<{ id: string; secret: string }> => {
+	if (!connectionEncryptionConfigured()) throw new ConvexError("Webhook setup required. The team running this Companybot installation needs to configure secure signing-secret storage. Try again after setup is complete.");
 	const secret = randomHex(32);
 	const id = await ctx.runMutation(internal.integrationWebhooks.save, { ...args, workspaceId: ctx.workspaceId, secret: await encrypt(secret) });
 	return { id, secret };

@@ -1,3 +1,4 @@
+import { consentAppUrl } from "./integrationSetup";
 import { defaultIntegrationScopes, integrationScopes } from "@companybot/core";
 import { ConvexError } from "convex/values";
 import { httpAction } from "./_generated/server";
@@ -31,8 +32,8 @@ export const handle = httpAction(async (ctx, request) => {
 				catch { return json({ error: "invalid_client", error_description: "Client metadata could not be validated." }, 400); }
 			}
 			await ctx.runQuery(internal.integrationOAuth.inspect, args);
-			const app = process.env.INTEGRATION_APP_URL;
-			if (!app || !/^https:\/\//.test(app) && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(app)) return json({ error: "temporarily_unavailable", error_description: "The workspace administrator must configure INTEGRATION_APP_URL." }, 503);
+			const app = consentAppUrl();
+			if (!app) return json({ error: "temporarily_unavailable", error_description: "OAuth setup is required. The team running this Companybot installation needs to configure the sign-in and consent page. Reconnect from your application after setup is complete." }, 503);
 			const target = new URL(app);
 			target.hash = `/oauth/authorize/${encodeURIComponent(JSON.stringify(args))}`;
 			return new Response(null, { status: 302, headers: { Location: target.href, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });

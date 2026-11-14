@@ -1,3 +1,4 @@
+import { consentAppUrl, connectionEncryptionConfigured, integrationEndpoint } from "./integrationSetup";
 import { can, integrationScope } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./functions";
@@ -11,7 +12,7 @@ export const list = query({
 	handler: async ctx => {
 		const member = await requireMember(ctx);
 		const rows = await ctx.db.query("integrationTokens").withIndex("by_workspace", q => q.eq("workspaceId", member.workspaceId).eq("userId", member.userId)).take(20);
-		return { workspaceId: member.workspaceId, endpoint: process.env.CONVEX_SITE_URL ?? null, tokens: rows.map(t => ({ id: t._id, name: t.name, prefix: t.prefix, scopes: t.scopes, expiresAt: t.oauth?.expiresAt ?? t.expiresAt, oauth: !!t.oauth, lastUsedAt: t.lastUsedAt ?? null, lastOperation: t.lastOperation ?? null })) };
+		return { workspaceId: member.workspaceId, endpoint: integrationEndpoint(), oauthConfigured: !!integrationEndpoint() && !!consentAppUrl(), webhooksConfigured: connectionEncryptionConfigured(), tokens: rows.map(t => ({ id: t._id, name: t.name, prefix: t.prefix, scopes: t.scopes, expiresAt: t.oauth?.expiresAt ?? t.expiresAt, oauth: !!t.oauth, lastUsedAt: t.lastUsedAt ?? null, lastOperation: t.lastOperation ?? null })) };
 	},
 });
 export const create = mutation({
