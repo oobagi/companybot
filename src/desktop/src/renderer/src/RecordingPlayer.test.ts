@@ -67,6 +67,15 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
+const pill = () => host.querySelector<HTMLElement>('[aria-label="Recording playback"]');
+const full = () => host.querySelector<HTMLElement>('[aria-label="Call recording"]');
+const position = (surface: HTMLElement | null) => surface?.querySelector('[role="slider"]')?.getAttribute("aria-valuenow");
+async function press(surface: HTMLElement | null, label: string) {
+	const button = surface?.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
+	expect(button).toBeTruthy();
+	await act(async () => button!.click());
+}
+
 it("keeps the same audio and position when navigating away and back, with shared controls", async () => {
 	await render(); await start();
 	const audio = audios[0]!;
@@ -74,17 +83,43 @@ it("keeps the same audio and position when navigating away and back, with shared
 	await route("#/chat");
 	expect(audios).toHaveLength(1);
 	expect(audio.paused).toBe(false);
-	expect(host.querySelector('[aria-label="Recording playback"]')).toBeTruthy();
-	expect(host.querySelector('[role="slider"]')?.getAttribute("aria-valuenow")).toBe("8");
-	await click("Pause recording");
+	expect(position(pill())).toBe("8");
+	await press(pill(), "Pause recording");
 	expect(audio.paused).toBe(true);
 	await route("#/inbox/conversation-one/call/call-one");
-	expect(host.querySelector('[aria-label="Recording playback"]')).toBeNull();
-	await click("Play recording");
+	await press(full(), "Play recording");
 	expect(audio.currentTime).toBe(8.5);
 	expect(audio.paused).toBe(false);
 	expect(state.playback).toHaveBeenCalledTimes(1);
 	expect(audios).toHaveLength(1);
+});
+
+it("shows the title-bar player on the call's own screen, driving the same audio as the full player", async () => {
+	await render();
+	expect(pill()).toBeNull();
+	await start();
+	const audio = audios[0]!;
+	await act(async () => { audio.currentTime = 8.5; audio.dispatchEvent(new Event("timeupdate")); });
+	expect(position(pill())).toBe("8");
+	expect(position(full())).toBe("8");
+	await press(pill(), "Pause recording");
+	expect(audio.paused).toBe(true);
+	expect(full()?.querySelector('[aria-label="Play recording"]')).toBeTruthy();
+	// Seeking while paused from the title bar moves the full player too, and Play there resumes from it.
+	await act(async () => pill()!.querySelector('[role="slider"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+	expect(audio.currentTime).toBe(13.5);
+	expect(position(full())).toBe("13");
+	await press(full(), "Play recording");
+	expect(audio.paused).toBe(false);
+	expect(audio.currentTime).toBe(13.5);
+	expect(pill()?.querySelector('[aria-label="Pause recording"]')).toBeTruthy();
+	expect(state.playback).toHaveBeenCalledTimes(1);
+	expect(audios).toHaveLength(1);
+	await press(pill(), "Stop recording playback");
+	expect(audio.paused).toBe(true);
+	expect(audio.src).toBe("");
+	expect(pill()).toBeNull();
+	expect(position(full())).toBe("0");
 });
 
 it("releases buffered audio on account or workspace change and on sign-out", async () => {

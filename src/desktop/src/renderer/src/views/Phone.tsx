@@ -923,30 +923,24 @@ export function CallDetail({ call, answeredBy, bar, side }: { call: CallEntryInf
 	useTick(call.state === "connected");
 	const { text, answered } = callStatus(call, answeredBy);
 	const { full, loadError, reload } = useCallTranscript(call, true);
+	const recording = call.recording?.status === "ready" ? <CallRecording call={call} /> : (answered || call.recording) ? <RecordingStatus call={call} /> : null;
 	return (
-		<Scroll
-			overlayScrollbar
-			header={bar}
-			footer={
-				<div className="flex">
-					<div className={`${conversationColumn} min-w-0 flex-1 px-5 py-4`}>
-						{call.recording?.status === "ready" ? <CallRecording call={call} /> : (answered || call.recording) && <RecordingStatus call={call} />}
-					</div>
-					{side && <div aria-hidden className="w-72 shrink-0" />}
-				</div>
-			}
-		>
+		<Scroll overlayScrollbar header={bar}>
 			<div className="flex flex-1 items-start">
-				<div className={`${conversationColumn} flex min-w-0 flex-1 flex-col gap-6 px-5 pt-5 pb-6`}>
-					<div className="flex items-center gap-3">
-						<CallIcon call={call} />
-						<div className="min-w-0">
-							<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
-							<p className="text-sm text-neutral-500 tabular-nums">{text} · {dayLabel(call.startedAt)}, {timeOfDay(call.startedAt)}</p>
+				<div className={`${conversationColumn} flex min-w-0 flex-1 flex-col gap-2 px-5 pb-6`}>
+					{/* The call's header follows the screen's bar down the page, so the player stays in reach of a long transcript. */}
+					<div data-under className="scrim-top sticky top-12 z-20 -mx-5 flex flex-wrap items-center gap-x-5 gap-y-3 px-5 pt-3 pb-4">
+						<div className="flex min-w-0 items-center gap-3">
+							<CallIcon call={call} />
+							<div className="min-w-0">
+								<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
+								<p className="text-sm text-neutral-500 tabular-nums">{text} · {dayLabel(call.startedAt)}, {timeOfDay(call.startedAt)}</p>
+							</div>
 						</div>
+						{recording && <div className="min-w-64 flex-1">{recording}</div>}
 					</div>
 					{call.summary && <CallSummary call={call} />}
-					<section aria-label="Transcript" className="flex min-w-0 flex-col gap-4">
+					<section aria-label="Transcript" className={`flex min-w-0 flex-col gap-4 ${call.summary ? "mt-4" : ""}`}>
 						<p aria-hidden="true" className="text-xs font-medium text-neutral-500">Transcript</p>
 						{call.transcript?.status !== "ready" ? <TranscriptStatus call={call} /> : full ? <CallConversation transcript={full} /> : <TranscriptLoading call={call} error={loadError} onReload={reload} />}
 					</section>

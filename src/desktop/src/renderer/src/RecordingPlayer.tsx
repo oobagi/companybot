@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, useSyncExterna
 import { api } from "./api";
 import { useAction, useQuery } from "./convex";
 import { CloseIcon, PauseIcon, PlayIcon, ReloadIcon, SpinnerIcon, WarningIcon } from "./icons";
-import { navigate, useRoute } from "./router";
+import { navigate } from "./router";
 import { playBarButton, playBarNameButton, playBarPlayButton, playerButton, smallButton } from "./ui";
 import { createRecordingPlayback, type PlaybackSnapshot, type RecordingTarget } from "./recordingPlayback";
 
@@ -145,13 +145,12 @@ export function RecordingControls({ target }: { target: RecordingTarget }) {
 
 /**
  * The title bar's player, beside the call pill: what's playing stays in reach on every screen and covers nothing.
- * The name goes back to the call; the call's own screen has the full player, so the pill steps aside there.
+ * It stays on the call's own screen too, beside the full player in the call header. The name goes back to the call.
  */
 export function RecordingPill() {
 	const { snapshot, blocked, toggle, seek, clear } = useRecordingPlayback();
-	const route = useRoute();
 	const target = snapshot.target;
-	if (!target || (route[0] === "inbox" && route[1] === target.conversationId && route[2] === "call" && route[3] === target.id)) return null;
+	if (!target) return null;
 	const active = snapshot.playing || snapshot.busy;
 	const duration = snapshot.loaded ? snapshot.duration : 0;
 	return (
