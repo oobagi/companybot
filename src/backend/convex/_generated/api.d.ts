@@ -23,6 +23,7 @@ import type * as callProcessingProvider from "../callProcessingProvider.js";
 import type * as callRecordingJobs from "../callRecordingJobs.js";
 import type * as callRecordingProvider from "../callRecordingProvider.js";
 import type * as callRecordings from "../callRecordings.js";
+import type * as callTranscript from "../callTranscript.js";
 import type * as calls from "../calls.js";
 import type * as cascade from "../cascade.js";
 import type * as chains from "../chains.js";
@@ -127,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   callRecordingJobs: typeof callRecordingJobs;
   callRecordingProvider: typeof callRecordingProvider;
   callRecordings: typeof callRecordings;
+  callTranscript: typeof callTranscript;
   calls: typeof calls;
   cascade: typeof cascade;
   chains: typeof chains;

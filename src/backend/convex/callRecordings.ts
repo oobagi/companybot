@@ -7,6 +7,7 @@ import { httpAction, internalMutation, internalQuery, type MutationCtx, type Que
 import { action, mutation } from "./functions";
 import { liveWorkspace, memberOf, requirePermission } from "./lib";
 import { recordUsage } from "./usage";
+import { callTranscriptTurn, validTranscriptTurns, type CallTranscriptTurn } from "./callTranscript";
 
 type Message = Doc<"inboxMessages">;
 const idArgs = { id: v.id("inboxMessages") };
@@ -124,7 +125,12 @@ export const importFailed = internalMutation({
 
 export const transcriptRow = internalQuery({
 	args: idArgs,
-	handler: async (ctx, { id }) => (await ctx.db.query("callTranscripts").withIndex("by_message", q => q.eq("messageId", id)).first())?.text ?? null,
+	handler: async (ctx, { id }) => {
+		const m = await available(ctx, await ctx.db.get(id));
+		if (!m) return null;
+		const row = await ctx.db.query("callTranscripts").withIndex("by_message", q => q.eq("messageId", id)).first();
+		return row?.workspaceId === m.workspaceId && row.conversationId === m.conversationId ? { text: row.text, turns: row.turns ?? null } : null;
+	},
 });
 
 export const claimProcessing = internalMutation({
@@ -142,15 +148,18 @@ export const claimProcessing = internalMutation({
 });
 
 export const saveTranscript = internalMutation({
-	args: { ...idArgs, attempt: v.string(), text: v.string(), costUsd: v.number(), model: v.string() },
-	handler: async (ctx, { id, attempt, text, costUsd, model }) => {
+	args: { ...idArgs, attempt: v.string(), text: v.string(), turns: v.optional(v.array(callTranscriptTurn)), costUsd: v.number(), model: v.string() },
+	handler: async (ctx, { id, attempt, text, turns, costUsd, model }) => {
 		const m = await available(ctx, await ctx.db.get(id));
 		if (!m?.call?.recording || m.call.recording.attempt !== attempt || m.call.transcript?.status !== "processing") return false;
 		if (text.length > MAX_TRANSCRIPT) throw new ConvexError("The transcript exceeds the supported length.");
+		if (turns && !validTranscriptTurns(turns)) throw new ConvexError("The transcript has invalid speaker turns.");
+		if (new TextEncoder().encode(JSON.stringify({ text, turns })).length > 900_000) throw new ConvexError("The transcript exceeds the supported storage size.");
 		const old = await ctx.db.query("callTranscripts").withIndex("by_message", q => q.eq("messageId", id)).first();
-		if (old) await ctx.db.patch(old._id, { text });
-		else await ctx.db.insert("callTranscripts", { messageId: id, workspaceId: m.workspaceId, conversationId: m.conversationId, text });
-		await ctx.db.patch(id, { call: { ...m.call, transcript: { status: "ready", preview: text.replace(/\s+/g, " ").trim().slice(0, 320) }, summary: { status: text ? "processing" : "ready", ...(!text && { text: "No speech was detected in this recording." }) }, recording: { ...m.call.recording, processingSpentUsd: costUsd, ...(!text && { attempt: undefined, processingReserved: undefined }) } } });
+		if (old) await ctx.db.patch(old._id, { text, turns });
+		else await ctx.db.insert("callTranscripts", { messageId: id, workspaceId: m.workspaceId, conversationId: m.conversationId, text, turns });
+		const excerpt = turns?.length ? turns.map(turn => turn.text).join(" ") : text;
+		await ctx.db.patch(id, { call: { ...m.call, transcript: { status: "ready", preview: excerpt.replace(/\s+/g, " ").trim().slice(0, 320) }, summary: { status: text ? "processing" : "ready", ...(!text && { text: "No speech was detected in this recording." }) }, recording: { ...m.call.recording, processingSpentUsd: costUsd, ...(!text && { attempt: undefined, processingReserved: undefined }) } } });
 		const c = (await ctx.db.get(m.conversationId))!;
 		await recordUsage(ctx, { workspaceId: m.workspaceId, agentId: c.agentId, userId: m.call.userId, kind: "phone", model, costUsd });
 		return true;
@@ -221,13 +230,13 @@ export const playback = action({
 
 export const transcript = action({
 	args: idArgs,
-	handler: async (ctx, { id }): Promise<{ text: string }> => {
+	handler: async (ctx, { id }): Promise<{ text: string; turns: CallTranscriptTurn[] | null }> => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId || !ctx.workspaceId || !(await ctx.runQuery(internal.callRecordings.authorize, { id, userId, workspaceId: ctx.workspaceId }))) throw new ConvexError("Transcript not found.");
-		const text = await ctx.runQuery(internal.callRecordings.transcriptRow, { id });
-		if (text === null) throw new ConvexError("The transcript is not ready yet.");
+		const result = await ctx.runQuery(internal.callRecordings.transcriptRow, { id });
+		if (result === null) throw new ConvexError("The transcript is not ready yet.");
 		if (!(await ctx.runQuery(internal.callRecordings.authorize, { id, userId, workspaceId: ctx.workspaceId }))) throw new ConvexError("Transcript not found.");
-		return { text };
+		return result;
 	},
 });
 

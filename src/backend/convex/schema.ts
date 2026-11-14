@@ -4,6 +4,7 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { type Infer, v } from "convex/values";
 import { viewConfig } from "./recordValidators";
+import { callTranscriptTurn } from "./callTranscript";
 
 /** One of `values`, each a literal. */
 const oneOf = <T extends string>(values: readonly T[]) => v.union(...values.map((value) => v.literal(value)));
@@ -533,6 +534,7 @@ export default defineSchema({
 		conversationId: v.id("inboxConversations"),
 		messageId: v.id("inboxMessages"),
 		text: v.string(),
+		turns: v.optional(v.array(callTranscriptTurn)),
 	}).index("by_message", ["messageId"]).index("by_conversation", ["conversationId"]),
 
 	agentVersions: defineTable({

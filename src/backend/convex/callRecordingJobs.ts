@@ -118,7 +118,7 @@ export const process = internalAction({
 		await ctx.scheduler.runAfter(5 * 60_000, internal.callRecordings.processingFailed, { id, attempt, error: "Processing timed out. A manual retry may incur another charge.", uncertain: true });
 		let paidPending = false;
 		try {
-			let text = m.call.transcript?.status === "ready" ? await ctx.runQuery(internal.callRecordings.transcriptRow, { id }) : null;
+			let text = m.call.transcript?.status === "ready" ? (await ctx.runQuery(internal.callRecordings.transcriptRow, { id }))?.text ?? null : null;
 			if (text === null) {
 				const audio = await ctx.storage.get(m.call.recording.storageId);
 				if (!audio) throw new Error("Recording unavailable");
@@ -130,7 +130,7 @@ export const process = internalAction({
 					await ctx.runMutation(internal.callRecordings.processingFailed, { id, attempt, error: "The transcript exceeded the supported length. The recording is still available." });
 					return;
 				}
-				if (!(await ctx.runMutation(internal.callRecordings.saveTranscript, { id, attempt, text: result.text, costUsd: result.costUsd, model: result.model }))) return;
+				if (!(await ctx.runMutation(internal.callRecordings.saveTranscript, { id, attempt, text: result.text, ...(result.turns && { turns: result.turns }), costUsd: result.costUsd, model: result.model }))) return;
 				paidPending = false;
 				text = result.text;
 			}

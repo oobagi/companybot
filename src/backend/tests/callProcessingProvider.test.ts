@@ -21,13 +21,30 @@ describe("processing recorded calls", () => {
 
 	it("keeps the real billed cost and allows silent audio to finish without an invented transcript", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ text: "  ", durationInSeconds: 12, providerMetadata: { gateway: { cost: "0.0007" } } }));
-		expect(await transcribeCall(audio, "audio/webm; codecs=opus")).toEqual({ text: "", model: CALL_TRANSCRIPTION_MODEL, costUsd: 0.0007, costEstimated: false, truncated: false });
+		expect(await transcribeCall(audio, "audio/webm; codecs=opus")).toEqual({ text: "", turns: [], model: CALL_TRANSCRIPTION_MODEL, costUsd: 0.0007, costEstimated: false, truncated: false });
+	});
+
+	it("requests diarization and keeps actual provider speaker identities and timestamps", async () => {
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
+			text: "Tuesday? Yes.", durationInSeconds: 3,
+			providerMetadata: { gateway: { cost: "0.0002" }, elevenlabs: { words: [
+				{ type: "word", text: "Tuesday?", start: 0.5, end: 1.2, speaker_id: "speaker_0" },
+				{ type: "word", text: "Yes.", start: 1.7, end: 2, speaker_id: "speaker_1" },
+			] } },
+		}));
+		const result = await transcribeCall(audio, "audio/webm");
+		expect(result).toMatchObject({ text: "Speaker 1: Tuesday?\n\nSpeaker 2: Yes.", turns: [
+			{ speaker: "speaker_0", text: "Tuesday?", start: 0.5, end: 1.2 },
+			{ speaker: "speaker_1", text: "Yes.", start: 1.7, end: 2 },
+		] });
+		const request = JSON.parse(String(fetch.mock.calls[0]![1]?.body));
+		expect(request.providerOptions.elevenlabs).toMatchObject({ diarize: true, timestampsGranularity: "word", tagAudioEvents: false });
 	});
 
 	it("uses a conservative nonzero estimate when the gateway omits billing metadata", async () => {
 		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ text: "Call me Tuesday." }));
 		const transcript = await transcribeCall(audio, "audio/webm", 60);
-		expect(transcript).toMatchObject({ text: "Call me Tuesday.", costUsd: 0.003, costEstimated: true });
+		expect(transcript).toMatchObject({ text: "Call me Tuesday.", costUsd: (60 / 3600) * 0.22, costEstimated: true });
 		fetch.mockResolvedValue(Response.json(languageResponse("A callback was requested.", {})));
 		const summary = await summarizeCall(transcript.text);
 		expect(summary).toMatchObject({ model: CALL_SUMMARY_MODEL, text: "A callback was requested.", costEstimated: true });

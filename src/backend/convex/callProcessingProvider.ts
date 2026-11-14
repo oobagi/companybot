@@ -2,13 +2,14 @@
 
 import { gatewayCost } from "@companybot/core";
 import { gateway, generateText, transcribe, type ProviderMetadata } from "ai";
+import { speakerTurns, transcriptText, type CallTranscriptTurn } from "./callTranscript";
 
-/** Below the transcription provider's 25 MB file limit. Audio stays in storage, not action arguments. */
+/** Keep recording payloads bounded. Audio stays in storage, not action arguments. */
 export const MAX_CALL_AUDIO_BYTES = 24_000_000;
 export const MAX_CALL_TRANSCRIPT_CHARS = 120_000;
 export const MAX_CALL_SUMMARY_CHARS = 4_000;
-/** The existing dictation and background-compaction models, both available through AI Gateway. */
-export const CALL_TRANSCRIPTION_MODEL = "openai/gpt-4o-mini-transcribe";
+/** Scribe preserves speaker identities and timestamps; summaries use the existing background model. */
+export const CALL_TRANSCRIPTION_MODEL = "elevenlabs/scribe-v2";
 export const CALL_SUMMARY_MODEL = "anthropic/claude-haiku-5.5";
 const CALL_SECONDS = 30 * 60;
 const SUMMARY_OUTPUT_TOKENS = 1_000;
@@ -54,21 +55,24 @@ function requireConfigured() {
 }
 
 /** One bounded request. A lost provider response never triggers an automatic paid retry. */
-export async function transcribeCall(audio: Uint8Array, mediaType: string, durationSeconds?: number): Promise<CallProcessingResult> {
+export async function transcribeCall(audio: Uint8Array, mediaType: string, durationSeconds?: number): Promise<CallProcessingResult & { turns: CallTranscriptTurn[] | null }> {
 	if (audio.byteLength === 0 || audio.byteLength > MAX_CALL_AUDIO_BYTES) throw new Error("The call recording must be between 1 byte and 24 MB.");
 	if (!validAudio(audio, mediaType)) throw new Error("The call recording is not a supported audio file.");
 	requireConfigured();
 	const result = await transcribe({
 		model: gateway.transcription(CALL_TRANSCRIPTION_MODEL),
 		audio,
+		providerOptions: { elevenlabs: { diarize: true, timestampsGranularity: "word", tagAudioEvents: false } },
 		maxRetries: 0,
 		abortSignal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
 	});
 	const cost = billedCost(result.providerMetadata);
+	const turns = result.text.trim() ? speakerTurns(result.providerMetadata.elevenlabs?.words) : [];
+	const text = turns?.length ? transcriptText(turns) : result.text.trim();
 	const duration = result.durationInSeconds ?? durationSeconds;
-	// OpenAI publishes ~$0.003/min for this model. Unknown duration uses the maximum call allowance.
+	// Gateway publishes $0.22/hour for Scribe v2. Unknown duration uses the maximum call allowance.
 	const seconds = typeof duration === "number" && Number.isFinite(duration) && duration > 0 ? Math.min(CALL_SECONDS, duration) : CALL_SECONDS;
-	return { text: result.text.trim().slice(0, MAX_CALL_TRANSCRIPT_CHARS), model: CALL_TRANSCRIPTION_MODEL, costUsd: cost ?? (seconds / 60) * 0.003, costEstimated: cost === null, truncated: result.text.trim().length > MAX_CALL_TRANSCRIPT_CHARS };
+	return { text: text.slice(0, MAX_CALL_TRANSCRIPT_CHARS), turns, model: CALL_TRANSCRIPTION_MODEL, costUsd: cost ?? (seconds / 3600) * 0.22, costEstimated: cost === null, truncated: text.length > MAX_CALL_TRANSCRIPT_CHARS };
 }
 
 /** Summarizes recorded speech as untrusted source data, with no tools or external side effects. */

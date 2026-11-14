@@ -113,7 +113,7 @@ describe("private call recordings", () => {
 	it("revokes existing playback tickets as soon as Inbox access is removed", async () => {
 		const { t, owner, member, id } = await fixture();
 		const { url } = await member.action(api.callRecordings.playback, { id });
-		expect(await member.action(api.callRecordings.transcript, { id })).toEqual({ text: speech });
+		expect(await member.action(api.callRecordings.transcript, { id })).toEqual({ text: speech, turns: null });
 		const role = (await owner.query(api.roles.list))!.find(r => r.builtIn === "member")!;
 		await owner.mutation(api.roles.setPermission, { id: role.id, permission: "inbox.use", on: false });
 		expect((await t.fetch(pathOf(url), { headers: { Range: "bytes=0-3" } })).status).toBe(403);
@@ -247,7 +247,7 @@ describe("recording capture and processing ownership", () => {
 		expect((await row(t, id))!.call!.recording!.attempt).toBe("first");
 		await t.mutation(internal.callRecordings.processingFailed, { id, attempt: "first" });
 		expect((await row(t, id))!.call!.transcript!.status).toBe("ready");
-		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text: speech });
+		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text: speech, turns: null });
 		await owner.mutation(api.callRecordings.retry, { id });
 		expect(await t.mutation(internal.callRecordings.claimProcessing, { id, attempt: "third", configured: true })).not.toBeNull();
 		await t.mutation(internal.callRecordings.saveSummary, { id, attempt: "third", text: "Tuesday appointment requested.", costUsd: 0.001, model: "test-summary" });
@@ -281,11 +281,17 @@ describe("recording capture and processing ownership", () => {
 		await t.mutation(internal.callRecordings.saveTranscript, { id, attempt: "preview", text, costUsd: 0.006, model: "test-transcription" });
 		const message = (await owner.query(api.inbox.get, { id: conversationId }))!.messages.find(m => m.id === id)!;
 		expect(message.call!.transcript).toMatchObject({ text: null, preview: text.replace(/\s+/g, " ").trim().slice(0, 320) });
-		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text });
+		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text, turns: null });
 	});
 
 	it("imports private audio, saves its transcript and summary, and accounts for each model once", async () => {
-		const { t, owner, id, room, key } = await fixture(false);
+		const { t, owner, id, room, key, conversationId } = await fixture(false);
+		const turns = [
+			{ speaker: "voice-a", text: "Tuesday?", start: 0.1, end: 1 },
+			{ speaker: "voice-b", text: "Yes, please.", start: 1.4, end: 2.2 },
+		];
+		const text = "Speaker 1: Tuesday?\n\nSpeaker 2: Yes, please.";
+		processing.transcribeCall.mockResolvedValueOnce({ text, turns, costUsd: 0.006, model: "test-transcription", truncated: false });
 		await t.mutation(internal.callRecordings.claimStart, { id, configured: true });
 		await t.mutation(internal.callRecordings.egressEnded, { room, key, egressId: "EGrecording", size: AUDIO.length, complete: true });
 		await t.action(internal.callRecordingJobs.importAudio, { id, key });
@@ -295,10 +301,13 @@ describe("recording capture and processing ownership", () => {
 		expect(processing.transcribeCall).toHaveBeenCalledTimes(1);
 		expect(processing.transcribeCall.mock.calls[0]![0]).toEqual(AUDIO);
 		expect(processing.summarizeCall).toHaveBeenCalledTimes(1);
-		expect(processing.summarizeCall).toHaveBeenCalledWith(speech);
-		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text: speech });
+		expect(processing.summarizeCall).toHaveBeenCalledWith(text);
+		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text, turns });
 		expect((await row(t, id))!.call!.summary).toMatchObject({ status: "ready", text: "Appointment requested; staff will confirm by email." });
 		expect((await owner.query(api.usage.report, {}))!.byKind).toContainEqual({ kind: "phone", costUsd: 0.007 });
+		const message = (await owner.query(api.inbox.get, { id: conversationId }))!.messages.find(m => m.id === id)!;
+		expect(message.call!.transcript).toMatchObject({ text: null, preview: "Tuesday? Yes, please." });
+		expect(message.call!.transcript).not.toHaveProperty("turns");
 		expect(provider.deleteRecording).toHaveBeenCalledWith(key);
 	});
 
@@ -311,7 +320,7 @@ describe("recording capture and processing ownership", () => {
 		processing.summarizeCall.mockRejectedValueOnce(new Error("Provider unavailable"));
 		await t.action(internal.callRecordingJobs.process, { id });
 		expect((await row(t, id))!.call).toMatchObject({ transcript: { status: "ready" }, summary: { status: "failed" } });
-		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text: speech });
+		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text: speech, turns: null });
 		await owner.mutation(api.callRecordings.retry, { id });
 		await t.action(internal.callRecordingJobs.process, { id });
 		expect(processing.transcribeCall).toHaveBeenCalledTimes(1);
