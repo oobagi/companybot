@@ -1,11 +1,6 @@
-import migrationsTest from "@convex-dev/migrations/test";
-import { convexTest } from "convex-test";
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import schema from "../convex/schema";
-import { agentTurn, agentsOf, generalOf, modules, ownerAndMember, setMemberSwitch, settle } from "./helpers";
+import { agentTurn, agentsOf, generalOf, ownerAndMember, setMemberSwitch, settle } from "./helpers";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -71,27 +66,6 @@ it.each(["leave", "eraseAccount"] as const)("deletes personal skills and their A
 	expect(await owner.query(api.skills.list)).toMatchObject([{ id: team }]);
 	expect(await t.run(ctx => ctx.db.query("trash").collect())).toEqual([]);
 	expect((await t.run(ctx => ctx.db.query("skillInstalls").collect())).map(s => s.skillId)).toEqual([team]);
-});
-
-// COMPAT(0.1.0-alpha.10): once this has run on prod, delete it and its test, and make audience required.
-it("migrates existing skills to explicit Team without changing personal rows, idempotently", async () => {
-	// The pre-migration schema permits old rows; production reads never interpret an absent audience as Team.
-	const oldSchema = defineSchema({ ...schema.tables, skillInstalls: defineTable({ ...schema.tables.skillInstalls.validator.fields, audience: v.optional(v.union(v.literal("team"), v.literal("personal"))) }) });
-	const t = convexTest(oldSchema, modules);
-	migrationsTest.register(t);
-	const { id, personal } = await t.run(async ctx => {
-		const workspaceId = await ctx.db.insert("workspaces", { name: "Old", version: 1 });
-		const ownerId = await ctx.db.insert("users", { email: "old@example.com" });
-		const personal = await ctx.db.insert("skillInstalls", { workspaceId, skillId: "private", audience: "personal", ownerId });
-		const id = await ctx.db.insert("skillInstalls", { workspaceId, skillId: "old" });
-		return { id, personal };
-	});
-	await t.mutation(internal.migrations.runAll);
-	await t.finishAllScheduledFunctions(vi.runAllTimers);
-	await t.mutation(internal.migrations.runAll);
-	await t.finishAllScheduledFunctions(vi.runAllTimers);
-	expect(await t.run(ctx => ctx.db.get(id))).toMatchObject({ audience: "team" });
-	expect(await t.run(ctx => ctx.db.get(personal))).toMatchObject({ audience: "personal" });
 });
 
 it("refuses personal skill writes in shared chats and keeps approval and Activity inputs private", async () => {

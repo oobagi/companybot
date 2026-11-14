@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { pageSchema, readDoc, sync } from "../convex/pageOps";
-import { type As, agentTurn, agentsOf, generalOf, identityOf, ownerAndMember, settle, signIn, turnsOf } from "./helpers";
+import { builtInRoleOf, type As, agentTurn, agentsOf, generalOf, identityOf, ownerAndMember, settle, signIn, turnsOf } from "./helpers";
 import "./connectorFixtures";
 
 // Agent safety (#215): approvals name what they change by id and bind the revision they were shown, an
@@ -308,7 +308,7 @@ describe("nothing leaves the workspace unseen after a restricted read", () => {
 	/** Dana (Office) can see Deals; others in #general can't. */
 	async function setup() {
 		const { t, owner, member: crew } = await ownerAndMember();
-		await owner.mutation(api.workspace.invite, { email: "dana@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "dana@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const dana = await signIn(t, "dana@co.com");
 		const office = await owner.mutation(api.roles.create, { name: "Office" });
 		const team = (await owner.query(api.workspace.team))!.members;

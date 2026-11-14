@@ -68,23 +68,9 @@ export function accessFrom(roles: Doc<"roles">[], held: Id<"roles">[]) {
  * What a membership or invite lets its person do, and the role ids it holds. Every access and
  * ownership check reads rows through this: membership, last owner, leaving, erasing, invites.
  */
-export function accessOf(roles: Doc<"roles">[], row: { roles?: Id<"roles">[]; role?: BuiltInRole }) {
-	if (row.roles) return accessFrom(roles, row.roles);
-	// COMPAT(0.1.0-alpha.10): rows from before custom roles keep the old `role` until
-	// migrations.customRolesMembers/Invites backfill `roles`, and a workspace has no roles until
-	// migrations.customRoles seeds them. Read the old value as the built-in role it becomes, so
-	// nobody gains, loses or orphans anything mid-migration. Once those have run on prod, delete
-	// from here down and read `row.roles` (required by then).
-	if (!row.role) return accessFrom(roles, []);
-	const role = roles.find((r) => r.builtIn === row.role);
-	if (role) return accessFrom(roles, [role._id]);
-	if (roles.length) return accessFrom(roles, []);
-	// Not seeded yet: a stand-in id lets connector access ("member" on old installs) match it too.
-	return { roles: row.role === "member" ? [UNSEEDED_MEMBER] : [], owner: row.role === "owner", permissions: roleSwitches(row.role, []) };
+export function accessOf(roles: Doc<"roles">[], row: { roles: Id<"roles">[] }) {
+	return accessFrom(roles, row.roles);
 }
-
-/** COMPAT(0.1.0-alpha.10): the Member role of a workspace whose roles aren't seeded yet. Never stored. Delete with `accessOf`'s fallback. */
-export const UNSEEDED_MEMBER = "unseeded:member" as Id<"roles">;
 
 /**
  * Who's acting: a member, or an agent acting for one (its `agentId` set). Every change an
@@ -336,9 +322,7 @@ export async function timeZoneOf(ctx: QueryCtx, userId: Id<"users">) {
 export const FORMER_MEMBER = "Former member";
 
 /** A membership's copy of its person's profile (`memberProfile`). */
-export async function profileOf(ctx: QueryCtx, row: Doc<"members">): Promise<{ name: string; image?: Id<"_storage">; timeZone: string }> {
-	// COMPAT(0.1.0-alpha.10): a row from before migrations.memberProfiles has no copy yet, so it's read fresh. Drop with it.
-	if (row.name === undefined || row.timeZone === undefined) return memberProfile(ctx, row.userId);
+export async function profileOf(_ctx: QueryCtx, row: Doc<"members">): Promise<{ name: string; image?: Id<"_storage">; timeZone: string }> {
 	return { name: row.name, image: row.image, timeZone: row.timeZone };
 }
 

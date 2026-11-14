@@ -484,8 +484,6 @@ export async function updateField(
 			ids.push(id);
 			const before = existing.find((e) => e.id === id);
 			// A missing color keeps the option's own; only a new option gets the next in turn.
-			// COMPAT(0.1.0-alpha.10): those apps send every option without one, so this is what keeps their saves from
-			// wiping colors. Agents' plain-label options and the API rely on it too, so once they're gone only this note goes.
 			const color = o.color ?? (before ? before.color : autoColor(added++));
 			return { id, label: o.label, ...(color && { color }) };
 		});
@@ -692,8 +690,6 @@ export async function resolveRefs(ctx: QueryCtx, member: Member, ids: Iterable<s
  * change hasn't reached yet are converted here by the same rules, without lookups: a value that needs one
  * (a teammate or record by name, a name for text) reads as empty until the change gets to it. So every app,
  * older ones too, gets values that fit the field's kind.
- * COMPAT(0.1.0-alpha.10): released apps render each cell by the field's kind (an amount cell given text throws),
- * so they must never see a value in the old shape.
  */
 export async function shownValues(ctx: QueryCtx, record: Doc<"records">, fields: Doc<"recordFields">[], jobs: (id: Id<"fieldChanges">) => Promise<Doc<"fieldChanges"> | null>) {
 	let values = record.values;

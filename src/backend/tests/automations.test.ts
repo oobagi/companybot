@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 
-import { signIn, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch, messagesIn, miscounted } from "./helpers";
+import { builtInRoleOf, signIn, agentsOf, ownerAndMember, generalOf, turnsOf, settle, setMemberSwitch, messagesIn, miscounted } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -228,28 +228,6 @@ describe("automations", () => {
 			});
 		}
 
-		it("lets members make their own, private to them, and checks what they wrote", async () => {
-			const { t, owner, member } = await ownerAndMember();
-			const id = await make(member, { name: "Standup", prompt: "Ask what I'm on today.", trigger: daily });
-			expect(await find(owner, id)).toBeUndefined();
-			const mine = (await find(member, id))!;
-			expect(mine).toMatchObject({ name: "Standup", publisher: "Your team", trigger: "Weekdays at 9:00 AM", audience: "creator", canEdit: true });
-			expect(mine.custom).toMatchObject({ version: 1, trigger: { cron: "0 9 * * 1-5" } });
-			await expect(make(member, { name: " ", prompt: "y", trigger: daily })).rejects.toThrow("Give it a name.");
-			await expect(make(member, { name: "x", prompt: "", trigger: daily })).rejects.toThrow("Say what the agent should do.");
-			await expect(make(member, { name: "x", prompt: "y", trigger: { type: "schedule", cron: "*/5 * * * *" } })).rejects.toThrow("at most every 15 minutes");
-			await expect(make(member, { name: "x", prompt: "y", trigger: { type: "schedule", cron: "9am weekdays" } })).rejects.toThrow("doesn't look right");
-			// COMPAT(0.1.0-alpha.10): alpha.9 apps send one time and days.
-			await expect(make(member, { name: "x", prompt: "y", trigger: { type: "schedule", time: "25:00", weekdays: [1] } })).rejects.toThrow("Pick a time.");
-
-			await tickThursday(t);
-			const { companybot } = await agentsOf(member);
-			expect(await dmWith(member, companybot._id)).toEqual([
-				["user", "Standup"],
-			]);
-			expect(await dmWith(owner, companybot._id)).toHaveLength(0);
-		});
-
 		it("runs a cron schedule at each of its times, once, however late or missed the check", async () => {
 			const { t, member } = await ownerAndMember();
 			const id = await make(member, { name: "Check-in", prompt: "Check in.", trigger: { type: "schedule", cron: "0 9,13 * * 1-5" } });
@@ -284,48 +262,6 @@ describe("automations", () => {
 			await t.run((ctx) => ctx.db.patch(_id, { lastScheduledAt: at(26, 14), nextRunAt: at(27, 9) })); // resumed then, as this test tells time
 			await tick(at(26, 14, 5));
 			expect(await runs()).toBe(3);
-		});
-
-		it("still runs schedules saved before cron, once a day like before", async () => {
-			const { t, member } = await ownerAndMember();
-			const id = await make(member, { name: "Standup", prompt: "Ask what I'm on today.", trigger: daily });
-			// As alpha.9 left it: one time and days, the date it last ran, no cursor.
-			const wednesdayRun = Date.UTC(2026, 9, 21, 16, 2);
-			await t.run(async (ctx) => {
-				const install = (await ctx.db.query("automationInstalls").collect()).find((i) => i.automationId === id)!;
-				await ctx.db.patch(install._id, {
-					custom: { ...install.custom!, trigger: { type: "schedule", time: "09:00", weekdays: [1, 2, 3, 4, 5] } },
-					lastScheduledAt: undefined,
-					lastRunDate: "2026-10-21",
-					lastRunAt: wednesdayRun,
-					nextRunAt: Date.UTC(2026, 9, 22, 16),
-				});
-			});
-			const listed = (await find(member, id))!;
-			expect(listed.trigger).toBe("Weekdays at 9:00 AM");
-			// alpha.9 apps read a time and days; new ones the cron.
-			expect(listed.custom!.trigger).toEqual({ type: "schedule", cron: "0 9 * * 1-5", time: "09:00", weekdays: [1, 2, 3, 4, 5] });
-			const { companybot } = await agentsOf(member);
-			await t.mutation(internal.automationRuns.tick, { now: wednesdayRun + 60 * 60_000 });
-			await automationJobs(t);
-			expect(await dmWith(member, companybot._id)).toHaveLength(0);
-			await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 16, 5) });
-			await automationJobs(t);
-			await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 22, 16, 10) });
-			await automationJobs(t);
-			expect(await dmWith(member, companybot._id)).toEqual([["user", "Standup"]]);
-		});
-
-		it("keeps a cron an alpha.9 app saves back untouched, and takes its time and days when changed", async () => {
-			const { member } = await ownerAndMember();
-			const id = await make(member, { name: "Hours", prompt: "Check.", trigger: { type: "schedule", cron: "0 8-18/2 * * 1-5" } });
-			const shown = (await find(member, id))!.custom!;
-			const save = (trigger: typeof shown.trigger, expectedVersion: number) =>
-				member.mutation(api.automations.save, { automationId: id, config: { name: "Hours", prompt: "Check again.", trigger }, expectedVersion });
-			await save(shown.trigger, 1);
-			expect((await find(member, id))!.trigger).toBe("Every 2 hours from 8:00 AM to 6:00 PM on weekdays");
-			await save({ ...shown.trigger, time: "07:30" } as typeof shown.trigger, 2);
-			expect((await find(member, id))!.trigger).toBe("Weekdays at 7:30 AM");
 		});
 
 		it("lets an owner rename one watching a channel they're not in, but not make it just for them", async () => {
@@ -604,7 +540,7 @@ describe("automations", () => {
 				audience: "creator",
 				timeZone: tz,
 			});
-			await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
+			await owner.mutation(api.workspace.invite, { email: "new@co.com", roles: [await builtInRoleOf(owner, "member")] });
 			await signIn(t, "new@co.com");
 			await automationJobs(t);
 			expect(await dmWith(owner, companybot._id)).toEqual([

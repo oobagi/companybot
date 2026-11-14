@@ -6,7 +6,6 @@ import {
 	customAutomationError,
 	describeTrigger,
 	isValidTimeZone,
-	legacyFields,
 	normalizeCustomAutomation,
 } from "@companybot/core";
 import { ConvexError, type Infer, v } from "convex/values";
@@ -84,8 +83,7 @@ export const list = query({
 						? {
 								name: automationName(install),
 								prompt: install.custom.prompt,
-								// COMPAT(0.1.0-alpha.10): alpha.9 apps edit a schedule as one time and days; send just the cron.
-								trigger: compatTrigger(await shownTrigger(ctx, member, normalizeCustomAutomation(install.custom).trigger)),
+								trigger: await shownTrigger(ctx, member, normalizeCustomAutomation(install.custom).trigger),
 								version: install.custom.version,
 								updatedByName: await nameOf(ctx, install.custom.updatedBy),
 								updatedAt: install.custom.updatedAt,
@@ -148,10 +146,6 @@ async function checkPosting(ctx: QueryCtx, member: Member, trigger: CustomAutoma
 	const problem = destination && (await postingProblem(ctx, trigger, destination));
 	if (problem) throw new ConvexError(await outcomeText(ctx, problem, member));
 }
-
-/** A schedule with the time and days alpha.9 apps' editor reads. */
-const compatTrigger = (trigger: CustomAutomationConfig["trigger"]): CustomAutomationConfig["trigger"] =>
-	trigger.type === "schedule" && "cron" in trigger && trigger.cron ? { ...trigger, ...legacyFields(trigger.cron) } : trigger;
 
 const customConfig = v.object({ name: v.string(), prompt: v.string(), trigger: customTrigger });
 const audienceArgs = { audience, channelId: v.optional(v.id("chats")) };

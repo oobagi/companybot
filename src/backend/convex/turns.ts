@@ -1137,6 +1137,5 @@ async function placeMembers(ctx: QueryCtx, chat: Doc<"chats">, people: (Id<"user
 		seated++;
 		if (!agent.archived) members.push({ ...(await names.agent(agent._id)), role: agent.description });
 	}
-	// COMPAT(0.1.0-alpha.10): an uncounted chat (before migrations.chatMemberCounts) counts none; drop `?? 0` with it.
-	return { members, others: Math.max((chat.memberCount ?? 0) - seated, 0) };
+	return { members, others: Math.max(chat.memberCount - seated, 0) };
 }

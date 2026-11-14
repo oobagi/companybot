@@ -1,11 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { migrations } from "../convex/migrations";
-import migrationsTest from "@convex-dev/migrations/test";
-import { addToChat, dropSeat } from "../convex/chatOps";
+import { addToChat } from "../convex/chatOps";
 import { savePreferences } from "../convex/preferences";
-import { addMember, agentTurn, agentsOf, generalOf, identityOf, newTest, ownerAndMember, settle, signIn, workspaceOf } from "./helpers";
+import { addMember, agentTurn, agentsOf, generalOf, identityOf, newTest, ownerAndMember, signIn, workspaceOf } from "./helpers";
 import { person } from "./person";
 
 // Lists of members stay a few reads however big the team is (members carry their profile, chats their count).
@@ -96,40 +94,4 @@ it("browses 50 channels of 1,000 people each, with their counts", { timeout: 600
 	const channels = (await newcomer.in(workspaceId).query(api.chats.browse)).filter((c) => c.name.startsWith("team-"));
 	expect(channels).toHaveLength(50);
 	expect(channels.every((c) => c.memberCount === 1_000)).toBe(true);
-});
-
-// COMPAT(0.1.0-alpha.10): delete with migrations.chatMemberCounts.
-it("counts 5 channels of 7,000 seats from before counts, over several transactions, with seats changing meanwhile", { timeout: 600_000 }, async () => {
-	const t = newTest();
-	migrationsTest.register(t);
-	const owner = await signIn(t, "owner@co.com");
-	const workspaceId = await workspaceOf(owner);
-	const people = await seedPeople(t, workspaceId, 7_000);
-	const channels: Id<"chats">[] = [];
-	for (let c = 0; c < 5; c++) {
-		const chatId = await owner.mutation(api.chats.createChannel, { name: `big-${c}`, private: false });
-		channels.push(chatId);
-		for (let start = 0; start < people.length; start += 3_500)
-			await t.run(async (ctx) => {
-				for (const userId of people.slice(start, start + 3_500)) await ctx.db.insert("chatMembers", { chatId, workspaceId, userId, lastReadAt: 0 });
-			});
-		// As before counts: the owner's seat and 7,000 more, uncounted.
-		await t.run((ctx) => ctx.db.patch(chatId, { memberCount: undefined }));
-	}
-	vi.useFakeTimers();
-	// Partway through the first: one seat it counted leaves, and someone new joins.
-	await t.mutation(internal.migrations.continueSeatCount, { chatId: channels[0]! });
-	expect((await t.run((ctx) => ctx.db.get(channels[0]!)))!.seatCount).toMatchObject({ counted: 4_000 });
-	await t.run(async (ctx) => {
-		const oldest = (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", channels[0]!)).first())!;
-		await dropSeat(ctx, oldest);
-		const newcomer = await ctx.db.insert("users", { email: "late@co.com" });
-		await addToChat(ctx, (await ctx.db.get(channels[0]!))!, { userId: newcomer });
-	});
-	// Run this migration through its component runner on the 35,000-seat fixture.
-	await t.run(async (ctx) => migrations.runSerially(ctx, [internal.migrations.chatMemberCounts]));
-	await settle(t);
-	const counts = await t.run(async (ctx) => Promise.all(channels.map(async (id) => (await ctx.db.get(id))!)));
-	expect(counts.map((c) => c.memberCount)).toEqual([7_001, 7_001, 7_001, 7_001, 7_001]);
-	expect(counts.every((c) => c.seatCount === undefined)).toBe(true);
 });

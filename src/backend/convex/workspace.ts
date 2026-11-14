@@ -33,8 +33,6 @@ export const me = query({
 			email: user.email ?? "",
 			/** What they may do here (core `can`), or null outside a workspace. */
 			access: member ? { roles: member.roles, owner: member.owner, permissions: member.permissions } : null,
-			// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role` to open the app and gate their screens; delete it.
-			role: member ? (member.owner ? ("owner" as const) : ("member" as const)) : null,
 			workspace: workspace?.name ?? null,
 			workspaceId: workspace?._id ?? null,
 			/** Its logo's URL, or null for its initials. */
@@ -194,10 +192,6 @@ async function join(ctx: MutationCtx, invite: Doc<"invites">, userId: Id<"users"
 		throw new ConvexError("What you had in this workspace before is still being cleaned up. Try again in a few minutes.");
 	await ctx.db.delete(invite._id);
 	if (await memberOf(ctx, userId, invite.workspaceId)) return;
-	// Through `accessOf`, so an Owner invite made before the migration still makes an owner.
-	// COMPAT(0.1.0-alpha.10): a workspace migrations.customRoles hasn't reached yet gets its roles
-	// here (the migration skips it after); delete this line with that migration.
-	if ((await rolesOf(ctx, invite.workspaceId)).length === 0) await seedRoles(ctx, invite.workspaceId);
 	const roles = await joiningRoles(ctx, invite);
 	await ctx.db.insert("members", { workspaceId: invite.workspaceId, userId, roles, email: invite.email, tutorial: freshTutorial(), ...(await memberProfile(ctx, userId)) });
 	const general = await ensureGeneral(ctx, invite.workspaceId, userId);
@@ -253,8 +247,7 @@ export const mine = query({
 			if (!workspace) continue;
 			const owner = await ownsIn(ctx, row);
 			// One being reset stays listed, so apps that have it open wait (resetting) instead of switching away.
-			// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
-			workspaces.push({ id: workspace._id, name: workspace.name, owner, role: owner ? ("owner" as const) : ("member" as const), image: await imageUrl(ctx, workspace.image), resetting: !!workspace.resetting });
+			workspaces.push({ id: workspace._id, name: workspace.name, owner, image: await imageUrl(ctx, workspace.image), resetting: !!workspace.resetting });
 		}
 		const invitations = [];
 		for (const invite of await invitesFor(ctx, userId)) {
@@ -266,8 +259,6 @@ export const mine = query({
 				workspace: workspace.name,
 				/** The names of the roles they'll have. */
 				roles: await roleNames(ctx, invite.workspaceId, accessOf(roles, invite).roles),
-				// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
-				role: accessOf(roles, invite).owner ? ("owner" as const) : ("member" as const),
 				invitedBy: invite.invitedBy ? await nameOf(ctx, invite.invitedBy) : null,
 			});
 		}
@@ -330,8 +321,6 @@ export const team = query({
 					userId: r.userId,
 					/** Their roles' ids, in the workspace's order (roles.list). */
 					roles: access.roles,
-					// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
-					role: access.owner ? ("owner" as const) : ("member" as const),
 					name: profile.name,
 					/** Their photo's URL, or null for their initials. */
 					image: await imageUrl(ctx, profile.image),
@@ -351,8 +340,7 @@ export const team = query({
 							.collect()
 					).map((i) => {
 						const access = accessOf(roles, i);
-						// COMPAT(0.1.0-alpha.10): alpha.9 apps read `role`; delete it.
-						return { id: i._id, email: i.email, roles: access.roles, role: access.owner ? ("owner" as const) : ("member" as const) };
+						return { id: i._id, email: i.email, roles: access.roles };
 					})
 				: [];
 		return { members, invites };
@@ -366,8 +354,6 @@ export const team = query({
 const inviteMemberArgs = v.object({
 	email: v.string(),
 	roles: v.optional(v.array(v.id("roles"))),
-	// COMPAT(0.1.0-alpha.10): alpha.9 apps send "owner" or "member" instead of `roles`; delete it.
-	role: v.optional(v.union(v.literal("owner"), v.literal("member"))),
 });
 
 export const invite = mutation({
@@ -382,7 +368,7 @@ export async function inviteMember(ctx: MutationCtx, member: Member, args: Infer
 	if (!/^\S+@\S+\.\S+$/.test(email)) throw new ConvexError("That doesn't look like an email.");
 	if (await isMemberEmail(ctx, workspaceId, email)) throw new ConvexError("That person is already a member.");
 	if (await inviteIn(ctx, workspaceId, email)) throw new ConvexError("That person already has an invite.");
-	const roles = await checkRoles(ctx, member, args.roles ?? [await builtInId(ctx, workspaceId, args.role ?? "member")]);
+	const roles = await checkRoles(ctx, member, args.roles ?? [await builtInId(ctx, workspaceId, "member")]);
 	const id = await ctx.db.insert("invites", { workspaceId, email, roles, invitedBy: userId });
 	await completeSteps(ctx, member, ["invite"]);
 	/** False when they got one a moment ago (say, an invite cancelled and made again). */
@@ -551,21 +537,6 @@ export const setRoles = mutation({
 		const member = await requirePermission(ctx, "members.manage");
 		const row = await ctx.db.get(id);
 		if (!row || row.workspaceId !== member.workspaceId) throw new ConvexError("Member not found.");
-		await setMemberRoles(ctx, member, row, roles);
-	},
-});
-
-// COMPAT(0.1.0-alpha.10): alpha.9 apps pick Owner or Member here. Gives or takes the Owner role and keeps
-// the rest (Member if nothing's left); delete it.
-export const setRole = mutation({
-	args: { id: v.id("members"), role: v.union(v.literal("owner"), v.literal("member")) },
-	handler: async (ctx, { id, role }) => {
-		const member = await requirePermission(ctx, "members.manage");
-		const row = await ctx.db.get(id);
-		if (!row || row.workspaceId !== member.workspaceId) throw new ConvexError("Member not found.");
-		const owner = await builtInId(ctx, member.workspaceId, "owner");
-		const rest = accessOf(await rolesOf(ctx, member.workspaceId), row).roles.filter((r) => r !== owner);
-		const roles = role === "owner" ? [owner, ...rest] : rest.length > 0 ? rest : [await builtInId(ctx, member.workspaceId, "member")];
 		await setMemberRoles(ctx, member, row, roles);
 	},
 });

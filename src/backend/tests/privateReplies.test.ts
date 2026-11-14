@@ -14,7 +14,7 @@ import { canReadReply } from "../convex/replyPrivacy";
 import { KEEP_TOKENS, runningTurn } from "../convex/turns";
 import { createWakeup, wake } from "../convex/wakeups";
 import "./connectorFixtures";
-import { agentsOf, agentTurn, finishTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch, settle, messagesIn } from "./helpers";
+import { builtInRoleOf, agentsOf, agentTurn, finishTurn, generalOf, identityOf, noMentions, ownerAndMember, signIn, turnsOf, type As, setMemberSwitch, settle, messagesIn } from "./helpers";
 
 async function decideReaction(t: Awaited<ReturnType<typeof ownerAndMember>>["t"], turnId: Id<"agentTurns">, triggerId: Id<"chatMessages">, emoji: string) {
 	await t.run((ctx) => ctx.db.patch(turnId, { triggerId }));
@@ -28,7 +28,7 @@ afterEach(() => vi.useRealTimers());
 
 async function setup() {
 	const { t, owner, member: crew } = await ownerAndMember();
-	await owner.mutation(api.workspace.invite, { email: "dana@co.com", role: "member" });
+	await owner.mutation(api.workspace.invite, { email: "dana@co.com", roles: [await builtInRoleOf(owner, "member")] });
 	const dana = await signIn(t, "dana@co.com");
 	await dana.mutation(api.preferences.update, { displayName: "Dana" });
 	const office = await owner.mutation(api.roles.create, { name: "Office" });

@@ -141,8 +141,7 @@ async function teamByName(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
 	const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(TEAM_MAX);
 	for (const m of members) {
 		add(m.email, m.userId);
-		// COMPAT(0.1.0-alpha.10): `name` is copied onto members by migrations.memberProfiles; until then, read the profile.
-		add(m.name ?? (await nameOf(ctx, m.userId)), m.userId);
+		add(m.name, m.userId);
 	}
 	return map;
 }

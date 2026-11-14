@@ -90,11 +90,8 @@ export async function shownTrigger<T extends CustomAutomationConfig["trigger"]>(
 	return { ...trigger, channelId: "" };
 }
 
-/**
- * Schedule runs after this are due (core `scheduleDue`). COMPAT(0.1.0-alpha.10): installs from
- * before cron have no `lastScheduledAt` until migrations.cronSchedules, so their last run stands in.
- */
-export const scheduleCursor = (install: Doc<"automationInstalls">) => install.lastScheduledAt ?? install.lastRunAt ?? install._creationTime;
+/** Schedule runs after this are due (core `scheduleDue`). */
+export const scheduleCursor = (install: Doc<"automationInstalls">) => install.lastScheduledAt ?? install._creationTime;
 
 /** An installed automation the signed-in person may change: their personal one, or a team one with `automations.edit`. */
 export async function requireEditable(ctx: QueryCtx, automationId: string, acting?: Member) {

@@ -10,7 +10,6 @@ import {
 	CUSTOM_PREFIX,
 	findConnector,
 	pickAgentConfig,
-	roleSwitches,
 	toolGroup,
 	validateAgentConfig,
 } from "@companybot/core";
@@ -109,8 +108,6 @@ export const options = query({
 	args: {},
 	handler: async (ctx) => {
 		const member = await getMember(ctx);
-		// COMPAT(0.1.0-alpha.10): alpha.9 apps label tools Member can't use "owners only" from `ownersOnly`; delete this and `ownersOnly`.
-		const memberSwitches = member?.workspaceRoles.find((r) => r.builtIn === "member")?.permissions ?? roleSwitches("member", []);
 		const builtin = [...new Set(builtinTools.map((t) => toolGroup(t.id)))].map((group) => ({
 			id: group,
 			name: group.charAt(0).toUpperCase() + group.slice(1),
@@ -122,7 +119,6 @@ export const options = query({
 					id: t.id,
 					description: t.description,
 					needs: t.permission ? permissions[t.permission].label : null,
-					ownersOnly: !!t.permission && !memberSwitches.includes(t.permission),
 				})),
 		}));
 		const installed = member ? await connectorStates(ctx, member) : [];

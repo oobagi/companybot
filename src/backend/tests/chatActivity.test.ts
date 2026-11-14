@@ -73,19 +73,6 @@ it("puts a reply shown late on the newest page, however many messages came in wh
 	expect((await newest()).at(-1)).toBe(replyId);
 });
 
-// COMPAT(0.1.0-alpha.10): delete with messages.list.
-it("still answers alpha.9 apps' list: the newest messages in one array, a thread's parent first", async () => {
-	const { owner } = await ownerAndMember();
-	const chatId = (await generalOf(owner))._id;
-	const first = await owner.mutation(api.messages.send, { chatId, text: "First", mentions: noMentions });
-	const second = await owner.mutation(api.messages.send, { chatId, text: "Second", mentions: noMentions });
-	const reply = await owner.mutation(api.messages.send, { chatId, threadId: first, text: "In thread", mentions: noMentions });
-	const list = await owner.query(api.messages.list, { chatId });
-	expect(Array.isArray(list)).toBe(true);
-	expect(list.slice(-2).map((m) => m._id)).toEqual([first, second]);
-	expect((await owner.query(api.messages.list, { chatId, threadId: first })).map((m) => m._id)).toEqual([first, reply]);
-});
-
 it("keeps a channel's activity through Trash and restore, and deletes it with the channel or the workspace", async () => {
 	const { t, owner } = await ownerAndMember();
 	const activity = (chatId: Id<"chats">) => t.run((ctx) => ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chatId)).unique());

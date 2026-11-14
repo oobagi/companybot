@@ -3,7 +3,7 @@ import { api, internal } from "../convex/_generated/api";
 import { decrypt } from "../convex/crypto";
 import { type ConnectorCredentials, type OAuthState, connectorCatalog, defineConnector } from "@companybot/core";
 
-import { workspaceOf, agentTurn, generalOf, agentsOf, ownerAndMember, settle, messagesIn } from "./helpers";
+import { builtInRoleOf, workspaceOf, agentTurn, generalOf, agentsOf, ownerAndMember, settle, messagesIn } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -14,12 +14,12 @@ describe("connectors", () => {
 		const catalog = (await owner.query(api.connectors.list)).filter(c => c.documentationUrl);
 		expect(catalog.length).toBeGreaterThan(0);
 		for (const connector of catalog) {
-			expect(connector).toMatchObject({ installed: false, connected: false, roles: ["owner"], connection: "personal" });
+			expect(connector).toMatchObject({ installed: false, connected: false, roleIds: [], connection: "personal" });
 			await owner.mutation(api.connectors.setInstalled, { connectorId: connector.id, installed: true });
 			expect((await member.query(api.connectors.list)).find(c => c.id === connector.id)?.canUse).toBe(false);
 		}
 		await owner.action(api.connectors.connect, { connectorId: "github", credentials: { type: "api_key", key: "owner-token" } });
-		await owner.mutation(api.connectors.setRoles, { connectorId: "github", roles: ["member"] });
+		await owner.mutation(api.connectors.setRoles, { connectorId: "github", roles: [await builtInRoleOf(owner, "member")] });
 		expect((await member.query(api.connectors.list)).find(c => c.id === "github")).toMatchObject({ canUse: true, connected: false });
 		await member.action(api.connectors.connect, { connectorId: "github", credentials: { type: "api_key", key: "member-token" } });
 		const workspaceId = await workspaceOf(owner);

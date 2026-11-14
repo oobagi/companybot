@@ -1,4 +1,4 @@
-import { ownerAndMember, signIn, settle, workspaceOf } from "./helpers";
+import { builtInRoleOf, ownerAndMember, signIn, settle, workspaceOf } from "./helpers";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
@@ -89,7 +89,7 @@ describe("agent memory", () => {
 		const { t, owner, member, companybot } = await setup();
 		const other = await signIn(t, "other@co.com");
 		const otherWorkspace = await workspaceOf(other);
-		await other.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await other.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(other, "member")] });
 		await member.mutation(api.workspace.acceptInvite, { id: (await member.query(api.workspace.mine))!.invitations[0]!.id });
 		const otherAgent = (await other.query(api.agents.list))[0]!._id;
 		const elsewhere = member.in(otherWorkspace);
@@ -111,7 +111,7 @@ describe("agent memory", () => {
 		}
 		expect(await member.query(api.memory.list)).toEqual([]);
 		await settle(t);
-		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		await member.mutation(api.workspace.acceptInvite, { id: (await member.query(api.workspace.mine))!.invitations[0]!.id });
 		const fresh = await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "After rejoining" });
 		expect((await t.run(ctx => ctx.db.get(fresh.id as Id<"memories">)))!.createdTs).toBeUndefined();
@@ -126,7 +126,7 @@ describe("agent memory", () => {
 	it("reads the role fresh each call, and a demotion never shows anyone else's personal memories", async () => {
 		const { t, owner, member, companybot, general } = await setup();
 		const row = (await owner.query(api.workspace.team))!.members.find((m) => !m.isYou)!;
-		await owner.mutation(api.workspace.setRole, { id: row.id, role: "owner" });
+		await owner.mutation(api.workspace.setRoles, { id: row.id, roles: [await builtInRoleOf(owner, "owner")] });
 		await member.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Member's note." });
 		await owner.mutation(api.memory.create, { agentId: companybot, scope: "personal", content: "Owner's note." });
 		const turn = await turnIn(t, member, await dmWith(member, companybot), companybot);
@@ -134,7 +134,7 @@ describe("agent memory", () => {
 		// Being an owner never shows anyone else's personal memories.
 		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note."]);
 
-		await owner.mutation(api.workspace.setRole, { id: row.id, role: "member" });
+		await owner.mutation(api.workspace.setRoles, { id: row.id, roles: [await builtInRoleOf(owner, "member")] });
 		expect((await turn.search("note")).map((m) => m.content)).toEqual(["Member's note."]);
 		// Members change team memories too (wiki-style), so a demotion leaves that alone.
 		await turn.update(team.id, "Office is in Dallas.");
@@ -233,7 +233,7 @@ describe("agent memory", () => {
 		const { t, owner, companybot, general } = await setup();
 		const other = await signIn(t, "other@co.com");
 		const otherWorkspace = await workspaceOf(other);
-		await other.mutation(api.workspace.invite, { email: "owner@co.com", role: "owner" });
+		await other.mutation(api.workspace.invite, { email: "owner@co.com", roles: [await builtInRoleOf(other, "owner")] });
 		await owner.mutation(api.workspace.acceptInvite, { id: (await owner.query(api.workspace.mine))!.invitations[0]!.id });
 		const otherAgent = (await other.query(api.agents.list))[0]!._id;
 		const otherTurn = await turnIn(t, other, await dmWith(other, otherAgent), otherAgent);

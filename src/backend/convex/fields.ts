@@ -51,7 +51,7 @@ export const update = mutation({
 		const who = { member: await requireMember(ctx) };
 		const field = await ctx.db.get(fieldId);
 		if (!field) throw new ConvexError("Field not found.");
-		// COMPAT(0.1.0-alpha.10): released apps send only label, options and position; what's left out keeps the field's setup.
+		// Partial field updates preserve settings the caller did not supply.
 		const shape = { kind: kind ?? field.kind, multiple: multiple ?? !!field.multiple, linkTypeId: linkTypeId ?? field.linkTypeId };
 		const changes = shape.kind !== field.kind || shape.multiple !== !!field.multiple || (shape.kind === "link" && shape.linkTypeId !== field.linkTypeId);
 		if (!changes) return void (await updateField(ctx, who, fieldId, update));

@@ -1,4 +1,4 @@
-import { ownerAndMember, signIn } from "./helpers";
+import { builtInRoleOf, ownerAndMember, signIn } from "./helpers";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -31,7 +31,7 @@ describe("records: combined filters at scale", () => {
 	const seeded = () => (data ??= seed());
 	async function seed() {
 		const { t, owner, member, task } = await setup();
-		await owner.mutation(api.workspace.invite, { email: "carl@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "carl@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const carl = await signIn(t, "carl@co.com");
 		const users = { a: owner.userId, b: member.userId, c: carl.userId };
 		await owner.mutation(api.fields.create, { typeId: task._id, label: "Tags", kind: "choice", multiple: true, options: [{ label: "x" }, { label: "y" }] });

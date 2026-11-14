@@ -1,11 +1,9 @@
-import { wakeAnchor, repeatLabel } from "@companybot/core";
-import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { wake } from "../convex/wakeups";
 import { savePreferences } from "../convex/preferences";
-import { type As, addMember, agentTurn, agentsOf, finishTurn, generalOf, ownerAndMember, messagesIn } from "./helpers";
+import { builtInRoleOf, type As, addMember, agentTurn, agentsOf, finishTurn, generalOf, ownerAndMember, messagesIn } from "./helpers";
 
 // Wakeups (wakeups.ts): follow-ups an agent sets, and the one path from a wakeup to a turn.
 // See wiki/architecture.md (Automations).
@@ -40,46 +38,6 @@ async function fire(t: T, id: string) {
 	await t.mutation(internal.wakeups.fire, { id: row._id, at: row.at! });
 }
 const shown = async (as: As, chatId: Id<"chats">) => (await messagesIn(as, { chatId })).map((m) => [m.author.type, m.text]);
-
-it.each([{ms: 7 * 86_400_000, repeat: {days: 7}}, {ms: 6 * 3_600_000, repeat: {hours: 6}}])("migrates numeric intervals once: $ms", async ({ms, repeat}) => {
-	const {t, turnId} = await setup();
-	migrationsTest.register(t);
-	const {created} = await create(t, turnId, {note: "legacy", in: {days: 1}}) as {created: string};
-	const id = created as Id<"wakeups">;
-	await t.run(async ctx => { const row = (await ctx.db.get(id))!; await ctx.scheduler.cancel(row.scheduledId!); await ctx.db.patch(id, {every: ms, scheduledId: undefined}); });
-	await t.run(async ctx => { for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id); });
-	const before = (await rowOf(t, id))!;
-	await t.mutation(internal.migrations.runAll);
-	await t.finishAllScheduledFunctions(vi.runAllTimers);
-	expect(await rowOf(t, id)).toMatchObject({repeat, anchor: expect.objectContaining({local: expect.any(String), timeZone: expect.any(String)}), at: before.at, status: "pending"});
-	expect((await rowOf(t, id))!.every).toBeUndefined();
-	await t.mutation(internal.migrations.runAll);
-	await t.finishAllScheduledFunctions(vi.runAllTimers);
-	expect((await rowOf(t, id))!.anchor).toEqual(wakeAnchor(before.at!, (await rowOf(t, id))!.anchor!.timeZone));
-});
-
-it("fires an unmigrated legacy row and carries on repeating", async () => {
-	const {t, turnId, member} = await setup();
-	const {created} = await create(t, turnId, {note: "old", in: {days: 1}}) as {created: string};
-	await t.run(ctx => ctx.db.patch(created as Id<"wakeups">, {every: 6 * 3_600_000, repeat: undefined, anchor: undefined}));
-	const before = (await rowOf(t, created))!;
-	await fire(t, created);
-	const after = (await rowOf(t, created))!;
-	expect(after).toMatchObject({status: "pending", wakes: 1, repeat: {hours: 6}});
-	expect(after.at).toBe(before.at! + 6 * 3_600_000);
-	const listed = (await member.query(api.wakeups.list, {}))[0]!;
-	expect(listed.repeat).toEqual({hours: 6});
-	expect(listed).not.toHaveProperty("every");
-	expect(repeatLabel(listed.repeat!)).toBe("every 6 hours");
- migrationsTest.register(t);
- await t.run(async ctx => {
-  for (const job of await ctx.db.system.query("_scheduled_functions").collect()) if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
-  await savePreferences(ctx, after.actorId, {timeZone: "Asia/Tokyo"});
- });
- await t.mutation(internal.migrations.runAll);
- await t.finishAllScheduledFunctions(vi.runAllTimers);
- expect((await rowOf(t, created))!.anchor).toEqual(after.anchor);
-});
 it("a broken next-repeat calculation cannot block the current wake", async () => {
 	const {t, turnId} = await setup();
 	const {created} = await create(t, turnId, {note: "broken", in: {days: 1}, every: {days: 1}}) as {created: string};
@@ -155,7 +113,7 @@ describe("follow-ups", () => {
 		expect((await member.query(api.wakeups.list, {})).map((w) => w._id)).toEqual([three]);
 
 		// Someone else in the workspace: not theirs, and they can't see it.
-		await owner.mutation(api.workspace.invite, { email: "other@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "other@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const { signIn } = await import("./helpers");
 		const other = await signIn(t, "other@co.com");
 		await expect(other.mutation(api.wakeups.cancel, { id: three as Id<"wakeups"> })).rejects.toThrow("Only its person");

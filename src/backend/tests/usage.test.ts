@@ -1,12 +1,9 @@
-import migrationsTest from "@convex-dev/migrations/test";
-import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { usageMonth } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
-import schema from "../convex/schema";
 import { STALE_TURN_MS } from "../convex/turns";
-import { agentTurn, agentsOf, modules, ownerAndMember, signIn, workspaceOf, chatActivityOf } from "./helpers";
+import { agentTurn, agentsOf, ownerAndMember, signIn, workspaceOf, chatActivityOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -192,36 +189,5 @@ describe("reading usage", () => {
 		};
 		expect(await run(owner)).toMatchObject({ scope: "workspace", total: 0.9375 });
 		expect(await run(member)).toMatchObject({ scope: "mine", total: 0.4375, byPerson: [] });
-	});
-});
-
-describe("the usage backfill", () => {
-	it("adds this month's earlier replies once, for the person each ran for", async () => {
-		const t = convexTest({ schema, modules, transactionLimits: true });
-		migrationsTest.register(t);
-		const owner = await signIn(t, "owner@co.com");
-		const { companybot } = await agentsOf(owner);
-		const dm = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [companybot._id] });
-		const turnId = await agentTurn(t, owner, dm, companybot._id);
-		const turn = (await t.run((ctx) => ctx.db.get(turnId)))! as Doc<"agentTurns">;
-		const stats = { ...usage(0.07), conversationCostUsd: 0.07 };
-		// A reply from before usage was recorded, and one that was recorded live meanwhile.
-		await t.run((ctx) => ctx.db.patch(turn.replyId!, { status: "done", stats }));
-		await t.run(async (ctx) => {
-			const { _id, _creationTime, ...copy } = turn;
-			const reply = (await ctx.db.get(turn.replyId!))! as Doc<"chatMessages">;
-			const { _id: _r, _creationTime: _c, ...replyCopy } = reply;
-			const replyId = await ctx.db.insert("chatMessages", { ...replyCopy, stats: { ...stats, costUsd: 0.5, counted: true } });
-			await ctx.db.insert("agentTurns", { ...copy, replyId });
-		});
-		for (let i = 0; i < 2; i++) {
-			vi.useFakeTimers();
-			await t.mutation(internal.migrations.runAll);
-			await t.finishAllScheduledFunctions(vi.runAllTimers);
-			vi.useRealTimers();
-		}
-		const rows = await t.run((ctx) => ctx.db.query("usage").collect());
-		expect(rows).toEqual([expect.objectContaining({ userId: owner.userId, agentId: companybot._id, kind: "chat", costUsd: 0.07 })]);
-		expect(((await t.run((ctx) => ctx.db.get(turn.replyId!))) as Doc<"chatMessages">).stats?.counted).toBe(true);
 	});
 });

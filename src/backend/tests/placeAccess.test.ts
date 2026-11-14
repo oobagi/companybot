@@ -7,7 +7,7 @@ import { api, components, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { pageSchema } from "../convex/pageOps";
 import { wake } from "../convex/wakeups";
-import { type As, agentsOf, finishTurn, identityOf, ownerAndMember, sideWorkspace, signIn, settle, setMemberSwitch, messagesIn } from "./helpers";
+import { builtInRoleOf, type As, agentsOf, finishTurn, identityOf, ownerAndMember, sideWorkspace, signIn, settle, setMemberSwitch, messagesIn } from "./helpers";
 
 // Who can access each channel, database and page (placeAccess.ts): every read path and agent tool
 // follows the list, and refusals name the roles that have access.
@@ -18,7 +18,7 @@ afterEach(() => void vi.useRealTimers());
 /** Owner; Crew (the member, Member role only); Office (Member and Office). Deals has a deal linked from a call. */
 async function setup() {
 	const { t, owner, member: crew } = await ownerAndMember();
-	await owner.mutation(api.workspace.invite, { email: "office@co.com", role: "member" });
+	await owner.mutation(api.workspace.invite, { email: "office@co.com", roles: [await builtInRoleOf(owner, "member")] });
 	const office = await signIn(t, "office@co.com");
 	const roles = async () => (await owner.query(api.roles.list))!;
 	const roleId = async (name: string) => (await roles()).find((r) => r.name === name)!.id;
@@ -420,14 +420,7 @@ describe("restored, woken, queued and background paths", () => {
 		expect(latest.version).toBeGreaterThan(legacy.at + 1);
 		expect(latest.content).toContain(salaries);
 		expect(latest.content).not.toMatch(/Salaries/);
-		// The migration takes it out of the stored version too.
-		await t.mutation(internal.migrations.runAll);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-		const stored = (await t.run((ctx) => ctx.runQuery(lib.getSnapshot, { id: handbook, version: legacy.at + 1 }))) as { content: string; version: number };
-		expect(stored).toMatchObject({ version: legacy.at + 1 });
-		expect(stored.content).toContain(salaries);
-		expect(stored.content).not.toMatch(/Salaries/);
-		expect((await office.query(api.pages.get, { pageId: salaries }))!.title).toBe("Salaries");
+
 	});
 
 	it("keeps an old editor's title step, sanitized, so its version stays in step and its next edit lands", async () => {

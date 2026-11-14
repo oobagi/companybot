@@ -94,8 +94,7 @@ export const fire = internalMutation({
 		const row = await ctx.db.get(id);
 		// A held one tries again too (armAt clears `held`): `wake` holds it again if it's still waiting.
 		if (!row || row.status !== "pending" || row.at !== at) return;
-		// COMPAT(0.1.0-alpha.10): remove legacy conversion with every and wakeupDurations.
-		const repeat = row.repeat ?? fromLegacy(row.every);
+		const repeat = row.repeat;
 		if (repeat && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times)) {
 			try {
 				const anchor = row.anchor ?? wakeAnchor(at, await timeZoneOf(ctx, row.actorId));
@@ -104,7 +103,7 @@ export const fire = internalMutation({
 				await armAt(ctx, id, next);
 			} catch {
 				// Settle after this wake if corrupt data or calendar range prevents another occurrence.
-				await ctx.db.patch(id, {repeat: undefined, every: undefined, reason: "Could not schedule the next repeat."});
+				await ctx.db.patch(id, {repeat: undefined, reason: "Could not schedule the next repeat."});
 			}
 		}
 		await wake(ctx, id);
@@ -121,12 +120,6 @@ export const release = internalMutation({
 		await wake(ctx, id);
 	},
 });
-
-// COMPAT(0.1.0-alpha.10): remove with every, its fire fallback and wakeupDurations.
-export function fromLegacy(ms?: number) {
-	if (ms === undefined) return undefined;
-	return ms % 86_400_000 === 0 ? {days: ms / 86_400_000} : ms % 3_600_000 === 0 ? {hours: ms / 3_600_000} : {minutes: ms / 60_000};
-}
 
 /** Whether a wakeup has another wake after the one now: it repeats, and `times` (if set) isn't used up. */
 const repeatsAfter = (row: Doc<"wakeups">) => !!row.repeat && (row.times === undefined || (row.wakes ?? 0) + 1 < row.times);

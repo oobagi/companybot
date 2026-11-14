@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
-import { settle, signIn, newTest, workspaceOf, identityOf, addMember } from "./helpers";
+import { builtInRoleOf, settle, signIn, newTest, workspaceOf, identityOf, addMember } from "./helpers";
 import { person } from "./person";
 
 // Deleting a workspace bigger than one transaction may write (16,000), with a message whose
@@ -44,7 +44,7 @@ it("resets a workspace with 17,000 messages and 4,100 members without exceeding 
 	});
 	await owner.mutation(api.workspace.resetWorkspace, { name: "My company" });
 	await settle(t);
-	expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, role: "owner" });
+	expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, access: { owner: true } });
 	const general = (await owner.query(api.chats.list))!.channels[0]!._id;
 	expect(await t.run(async (ctx) => (await ctx.db.query("chatMembers").withIndex("by_chat", (q) => q.eq("chatId", general)).collect()).length)).toBe(4_102);
 	expect(await t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).length)).toBe(1);
@@ -55,7 +55,7 @@ it("resets a workspace with 17,000 messages and 4,100 members without exceeding 
 it("removes a member at once when their just-me automation has 16,000 subscribers and grants, then deletes them in batches", { timeout: 600_000 }, async () => {
 	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
-	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+	await owner.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(owner, "member")] });
 	const member = await signIn(t, "member@co.com");
 	const agentId = (await member.query(api.agents.list))[0]!._id;
 	await member.mutation(api.automations.create, { config: { name: "Mine", prompt: "p", trigger: { type: "webhook" } }, agentId, audience: "creator", timeZone: "UTC" });
@@ -70,7 +70,7 @@ it("removes a member at once when their just-me automation has 16,000 subscriber
 	}
 	const row = (await t.run((ctx) => ctx.db.query("members").withIndex("by_user", (q) => q.eq("userId", member.userId)).first()))!;
 	await owner.mutation(api.workspace.removeMember, { id: row._id });
-	expect(await member.query(api.workspace.me)).toMatchObject({ workspaceId: null, role: null });
+	expect(await member.query(api.workspace.me)).toMatchObject({ workspaceId: null, access: null });
 	await settle(t);
 	for (const table of ["automationInstalls", "automationSubscriptions", "permissionRules", "cascades"] as const) expect(await t.run((ctx) => ctx.db.query(table).first()), table).toBeNull();
 });
@@ -135,7 +135,7 @@ it("deletes a workspace with 4,100 members at once, and old apps of those also e
 it("removes a member subscribed to many near-1 MiB automations elsewhere without rereading them forever", { timeout: 600_000 }, async () => {
 	const t = newTest();
 	const owner = await signIn(t, "owner@co.com");
-	await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+	await owner.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(owner, "member")] });
 	const member = await signIn(t, "member@co.com");
 	const here = await workspaceOf(owner);
 	const { elsewhere, agentId } = await t.run(async (ctx) => {

@@ -2,7 +2,7 @@ import { seedSkill } from "./legacyFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ManageTool } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import { agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch, messagesIn, signIn } from "./helpers";
+import { builtInRoleOf, agentTurn, agentsOf, generalOf, noMentions, ownerAndMember, sideWorkspace, setMemberSwitch, messagesIn, signIn } from "./helpers";
 import type { Id } from "../convex/_generated/dataModel";
 
 afterEach(() => vi.useRealTimers());
@@ -201,7 +201,7 @@ describe("messaging and channels as the person", () => {
 
 	it("says where a sent message went to whoever can see that chat, and nothing more to anyone else", async () => {
 		const { t, owner, member, companybot, chat } = await ready();
-		await owner.mutation(api.workspace.invite, { email: "dana@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "dana@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const dana = await signIn(t, "dana@co.com");
 		const turn = await agentTurn(t, owner, chat._id, companybot._id);
 		const fromGeneral = (request: unknown): Promise<any> => t.mutation(internal.manageTools.runFor, { turnId: turn, tool: "chat.manage", input: { request } });
@@ -350,7 +350,7 @@ describe("skills, members and settings", () => {
 		const { t, call, owner, memberTurn } = await ready();
 		expect(await call("members.invite", { action: "invite", email: "next@co.com" })).toMatchObject({ emailed: true });
 		const invite = (await owner.query(api.workspace.team))!.invites[0]!;
-		expect(invite.role).toBe("member");
+		expect(invite.roles).toEqual([await builtInRoleOf(owner, "member")]);
 		expect(await call("members.invite", { action: "resend", email: invite.email })).toHaveProperty("error");
 		await t.run(async (ctx) => {
 			for (const i of await ctx.db.query("inviteEmails").collect()) await ctx.db.delete(i._id);

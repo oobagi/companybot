@@ -1,27 +1,13 @@
-import migrationsTest from "@convex-dev/migrations/test";
 import { expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { activityOf, addToChat, dropSeat, insertMessage, markChatRead } from "../convex/chatOps";
 import { newTest, noMentions, signIn, workspaceOf } from "./helpers";
 
-it("backfills legacy search audiences and activity seats, and reindexes access changes", async () => {
+it("reindexes message audiences and activity seats when access changes", async () => {
 	const t = newTest();
-	migrationsTest.register(t);
 	const owner = await signIn(t, "owner@co.com");
-	const workspaceId = await workspaceOf(owner);
 	const chatId = await owner.mutation(api.chats.createChannel, { name: "sales", private: false });
-	const messageId = await t.run(async (ctx) => {
-		await ctx.db.patch(chatId, { searchPublic: undefined });
-		const seat = await ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", owner.userId).eq("chatId", chatId)).first();
-		const activity = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", seat!._id)).first();
-		await ctx.db.delete(activity!._id);
-		return ctx.db.insert("chatMessages", { workspaceId, chatId, authorUserId: owner.userId, text: "legacy history", parts: [], status: "done", mentions: noMentions });
-	});
-	vi.useFakeTimers();
-	try {
-		await t.mutation(internal.migrations.runAll);
-		await t.finishAllScheduledFunctions(vi.runAllTimers);
-	} finally { vi.useRealTimers(); }
+	const messageId = await owner.mutation(api.messages.send, { chatId, text: "public history", mentions: noMentions });
 	expect((await t.run((ctx) => ctx.db.get("chatMessages", messageId)))!.searchPublic).toBe(true);
 	const seat = await t.run((ctx) => ctx.db.query("chatMembers").withIndex("by_user", (q) => q.eq("userId", owner.userId).eq("chatId", chatId)).first());
 	const activity = () => t.run((ctx) => ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", seat!._id)).first());
