@@ -28,7 +28,7 @@ import {
 	smallButton,
 	smallIconButton,
 	titleBarButton,
-	transcriptButton,
+	callOpenButton,
 } from "../ui";
 import { Avatar, Modal } from "./chat/common";
 
@@ -998,11 +998,10 @@ function NoteStatus({ id, tone, retry, children }: { id: Id<"inboxMessages">; to
  * with the conversation; the full text stays out of it and loads when the dialog opens. A transcript saved before
  * previews existed loads once for its lines.
  */
-function CallTranscript({ call }: { call: CallEntryInfo }) {
+function CallTranscript({ call, open, onClose }: { call: CallEntryInfo; open: boolean; onClose: () => void }) {
 	const fetchTranscript = useAction(api.callRecordings.transcript);
 	const transcript = call.transcript!;
 	const ready = transcript.status === "ready";
-	const [open, setOpen] = useState(false);
 	const [request, setRequest] = useState(0);
 	const [text, setText] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState("");
@@ -1017,39 +1016,32 @@ function CallTranscript({ call }: { call: CallEntryInfo }) {
 		);
 		return () => { ignore = true; };
 	}, [call.id, wanted, request, fetchTranscript]);
-	if (transcript.status === "failed") return <NoteStatus id={call.id} tone="bad" retry>{transcript.error || "The call couldn't be transcribed."}</NoteStatus>;
-	if (transcript.status === "processing") return <NoteStatus id={call.id} tone="busy">Transcribing call…</NoteStatus>;
-	if (!ready) return <NoteStatus id={call.id} tone="quiet">Waiting to transcribe the recording…</NoteStatus>;
-	const reload = (
-		<button type="button" className={smallButton} onClick={() => setRequest((n) => n + 1)}>
-			<ReloadIcon /> Reload transcript
-		</button>
-	);
+	const status = transcript.status === "failed" ? (
+		<NoteStatus id={call.id} tone="bad" retry>{transcript.error || "The call couldn't be transcribed."}</NoteStatus>
+	) : transcript.status === "processing" ? (
+		<NoteStatus id={call.id} tone="busy">Transcribing call…</NoteStatus>
+	) : !ready ? (
+		<NoteStatus id={call.id} tone="quiet">Waiting to transcribe the recording…</NoteStatus>
+	) : null;
+	const loading = loadError ? (
+		<div className="relative z-20 flex flex-col items-start gap-2">
+			<NoteStatus id={call.id} tone="bad">{loadError}</NoteStatus>
+			<button type="button" className={smallButton} onClick={() => setRequest((n) => n + 1)}>
+				<ReloadIcon /> Reload transcript
+			</button>
+		</div>
+	) : <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>;
 	const preview = transcript.preview ?? (text === null ? null : text.replace(/\s+/g, " ").trim().slice(0, 320));
-	if (preview === null)
-		return loadError ? (
-			<div className="flex flex-col items-start gap-2">
-				<NoteStatus id={call.id} tone="bad">{loadError}</NoteStatus>
-				{reload}
-			</div>
-		) : <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>;
-	// Nothing was said: the summary says so.
-	if (!preview) return null;
 	return (
 		<>
-			<button type="button" aria-haspopup="dialog" title="Open transcript" className={transcriptButton} onClick={() => setOpen(true)}>
-				<span className="line-clamp-2">{preview}</span>
-			</button>
+			{status ? <div className="relative z-20">{status}</div> : preview === null ? loading : preview ? (
+				<p className="line-clamp-2 px-1 text-sm leading-snug text-neutral-600 italic">{preview}</p>
+			) : null}
 			{open && (
-				<Modal title="Call transcript" onClose={() => setOpen(false)}>
-					{text !== null ? (
+				<Modal title="Call transcript" onClose={onClose}>
+					{status ?? (text !== null ? (
 						<p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700">{text || "No speech detected."}</p>
-					) : loadError ? (
-						<div className="flex flex-col items-start gap-2">
-							<NoteStatus id={call.id} tone="bad">{loadError}</NoteStatus>
-							{reload}
-						</div>
-					) : <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>}
+					) : loading)}
 				</Modal>
 			)}
 		</>
@@ -1085,9 +1077,13 @@ function CallSummary({ call }: { call: CallEntryInfo }) {
 export function CallEntry({ call, answeredBy }: { call: CallEntryInfo; answeredBy?: string | null }) {
 	useTick(call.state === "connected");
 	const { text, answered } = callStatus(call, answeredBy);
+	const [open, setOpen] = useState(false);
 	return (
 		<div className="flex w-80 max-w-full flex-col gap-1.5">
-			<div className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
+			<div className="relative isolate flex flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
+				{call.transcript && (
+					<button type="button" aria-label={`Open ${call.direction === "in" ? "incoming" : "outgoing"} call transcript`} aria-haspopup="dialog" className={callOpenButton} onClick={() => setOpen(true)} />
+				)}
 				<div className="flex items-center gap-3">
 					<CallIcon call={call} />
 					<div className="min-w-0">
@@ -1095,8 +1091,10 @@ export function CallEntry({ call, answeredBy }: { call: CallEntryInfo; answeredB
 						<p className="truncate text-sm text-neutral-500 tabular-nums">{text}</p>
 					</div>
 				</div>
-				{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
-				{call.transcript && <CallTranscript key={`transcript:${call.id}`} call={call} />}
+				<div className="relative z-20">
+					{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
+				</div>
+				{call.transcript && <CallTranscript key={`transcript:${call.id}`} call={call} open={open} onClose={() => setOpen(false)} />}
 			</div>
 			{call.summary && <CallSummary key={`summary:${call.id}`} call={call} />}
 		</div>

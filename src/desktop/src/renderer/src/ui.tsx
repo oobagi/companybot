@@ -551,8 +551,8 @@ export const callBarNameButton = "max-w-40 truncate pl-1 font-medium hover:under
 export const roundCallButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-neutral-200 disabled:text-neutral-400";
 /** Play or pause on a call recording's bar: the icon alone, a soft circle on hover. */
 export const playerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-900 hover:bg-neutral-300/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-neutral-500 disabled:text-neutral-400 disabled:hover:bg-transparent";
-/** A call's transcript under its player: two italic lines that open the whole transcript. */
-export const transcriptButton = "w-full rounded-md px-1 text-left text-sm leading-snug text-neutral-600 italic hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500";
+/** Opens a call from its whole bubble; the player and recovery controls sit above this button. */
+export const callOpenButton = "absolute inset-0 z-10 cursor-pointer rounded-[inherit] hover:bg-neutral-900/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500";
 /** A call in a record's call history. */
 export const callRowButton = "-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-neutral-100";
 /** A small round × in a card's corner (a pending file, a link preview). */
