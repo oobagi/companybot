@@ -21,7 +21,6 @@ import { NameOnboarding, Onboarding } from "./views/Onboarding";
 import { SignIn } from "./views/SignIn";
 import { chatBadge } from "./views/chat/data";
 import { TitleBar } from "./views/TitleBar";
-import { RecordingDock } from "./RecordingPlayer";
 import { AppRail } from "./views/AppRail";
 import { WorkspaceSwitcher } from "./views/WorkspaceSwitcher";
 import { type AppTab, type TabBadge, appTabs } from "./views/RailPins";
@@ -340,7 +339,6 @@ function Shell({ email, access, workspace }: { email: string; access: Access; wo
 					</main>
 				</div>
 			</div>
-			<RecordingDock />
 		</div>
 	);
 }

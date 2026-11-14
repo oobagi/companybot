@@ -2,9 +2,9 @@ import type { Id } from "@companybot/backend/convex/_generated/dataModel";
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { api } from "./api";
 import { useAction, useQuery } from "./convex";
-import { CloseIcon, PauseIcon, PlayIcon, ReloadIcon, SpinnerIcon } from "./icons";
+import { CloseIcon, PauseIcon, PlayIcon, ReloadIcon, SpinnerIcon, WarningIcon } from "./icons";
 import { navigate, useRoute } from "./router";
-import { callBarNameButton, iconButton, playerButton, smallButton } from "./ui";
+import { playBarButton, playBarNameButton, playBarPlayButton, playerButton, smallButton } from "./ui";
 import { createRecordingPlayback, type PlaybackSnapshot, type RecordingTarget } from "./recordingPlayback";
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -58,8 +58,11 @@ export function useRecordingPlayback() {
 
 const SKIP_SECONDS = 5;
 
-/** A recording's place in time: drag or click to move, arrow keys skip five seconds, Home and End jump to the ends. */
-function Scrubber({ time, duration, playing, blocked, onSeek }: { time: number; duration: number; playing: boolean; blocked: boolean; onSeek: (seconds: number) => void }) {
+/**
+ * A recording's place in time: drag or click to move, arrow keys skip five seconds, Home and End jump to the ends.
+ * `compact` is the title bar's: a short fixed track on white, where the full one fills its grey bar.
+ */
+function Scrubber({ time, duration, playing, blocked, compact, onSeek }: { time: number; duration: number; playing: boolean; blocked: boolean; compact?: boolean; onSeek: (seconds: number) => void }) {
 	const disabled = blocked || !duration;
 	const percent = !duration ? 0 : Math.min(100, (time / duration) * 100);
 	const point = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -89,7 +92,7 @@ function Scrubber({ time, duration, playing, blocked, onSeek }: { time: number; 
 			aria-valuemax={Math.floor(duration)}
 			aria-valuenow={Math.floor(time)}
 			aria-valuetext={!duration ? "Unknown length" : `${clock(Math.floor(time))} of ${clock(Math.floor(duration))}`}
-			className={`group relative flex h-8 min-w-0 flex-1 touch-none items-center outline-none ${disabled ? "" : "cursor-pointer"}`}
+			className={`group relative flex touch-none items-center outline-none ${compact ? "no-drag h-7 w-24 shrink-0 max-md:w-14" : "h-8 min-w-0 flex-1"} ${disabled ? "" : "cursor-pointer"}`}
 			onPointerDown={(e) => {
 				if (disabled || e.button !== 0) return;
 				e.currentTarget.setPointerCapture(e.pointerId);
@@ -98,13 +101,13 @@ function Scrubber({ time, duration, playing, blocked, onSeek }: { time: number; 
 			onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && point(e)}
 			onKeyDown={key}
 		>
-			<div className="h-1 w-full overflow-hidden rounded-full bg-neutral-300">
+			<div className={`h-1 w-full overflow-hidden rounded-full ${compact ? "bg-neutral-200" : "bg-neutral-300"}`}>
 				<div className={`h-full rounded-full bg-neutral-900 ${playing ? "transition-[width] duration-200 ease-linear group-active:transition-none" : ""}`} style={{ width: `${percent}%` }} />
 			</div>
 			{!disabled && (
 				<span
 					aria-hidden="true"
-					className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neutral-900 opacity-0 ring-neutral-500 ring-offset-2 ring-offset-neutral-200 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-visible:ring-2 group-active:opacity-100"
+					className={`pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neutral-900 opacity-0 ring-neutral-500 ring-offset-2 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-visible:ring-2 group-active:opacity-100 ${compact ? "size-2.5 ring-offset-white" : "size-3 ring-offset-neutral-200"}`}
 					style={{ left: `${percent}%` }}
 				/>
 			)}
@@ -140,17 +143,32 @@ export function RecordingControls({ target }: { target: RecordingTarget }) {
 	);
 }
 
-/** Part of the app shell, so changing screens leaves playback and its controls available. */
-export function RecordingDock() {
-	const { snapshot, clear } = useRecordingPlayback();
+/**
+ * The title bar's player, beside the call pill: what's playing stays in reach on every screen and covers nothing.
+ * The name goes back to the call; the call's own screen has the full player, so the pill steps aside there.
+ */
+export function RecordingPill() {
+	const { snapshot, blocked, toggle, seek, clear } = useRecordingPlayback();
 	const route = useRoute();
 	const target = snapshot.target;
 	if (!target || (route[0] === "inbox" && route[1] === target.conversationId && route[2] === "call" && route[3] === target.id)) return null;
+	const active = snapshot.playing || snapshot.busy;
+	const duration = snapshot.loaded ? snapshot.duration : 0;
 	return (
-		<section aria-label="Recording playback" className="flex shrink-0 items-center gap-3 border-t border-neutral-200 bg-white px-3 py-2">
-			<button type="button" className={callBarNameButton} title="Open call" onClick={() => navigate("inbox", target.conversationId, "call", target.id)}>{target.name}</button>
-			<div className="min-w-0 flex-1"><RecordingControls target={target} /></div>
-			<button type="button" className={iconButton} aria-label="Stop recording playback" title="Stop playback" onClick={clear}><CloseIcon /></button>
+		<section aria-label="Recording playback" className="no-drag mx-1 flex h-7 min-w-0 items-center gap-2 rounded-full bg-white px-0.5 text-xs ring-1 ring-neutral-200">
+			<button type="button" aria-label={active ? "Pause recording" : "Play recording"} title={blocked ? "Finish the call to listen" : active ? "Pause" : snapshot.error ? "Try again" : "Play"} disabled={blocked} className={playBarPlayButton} onClick={() => toggle(target)}>
+				{snapshot.busy ? <SpinnerIcon className="animate-spin" /> : snapshot.playing ? <PauseIcon weight="fill" /> : <PlayIcon weight="fill" />}
+			</button>
+			<button type="button" className={playBarNameButton} title="Open call" onClick={() => navigate("inbox", target.conversationId, "call", target.id)}>{target.name}</button>
+			<Scrubber compact time={snapshot.time} duration={duration} playing={snapshot.playing} blocked={blocked} onSeek={seek} />
+			{snapshot.error ? (
+				<span role="alert" title={snapshot.error} className="flex shrink-0 items-center text-sm text-amber-600">
+					<WarningIcon /> <span className="sr-only">{snapshot.error}</span>
+				</span>
+			) : (
+				<span className="shrink-0 text-neutral-500 tabular-nums" title={duration > 0 ? `${clock(Math.floor(snapshot.time))} of ${clock(Math.floor(duration))}` : undefined}>{clock(Math.floor(snapshot.time))}</span>
+			)}
+			<button type="button" className={playBarButton} aria-label="Stop recording playback" title="Stop playback" onClick={clear}><CloseIcon /></button>
 		</section>
 	);
 }

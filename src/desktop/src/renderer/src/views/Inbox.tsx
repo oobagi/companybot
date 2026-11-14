@@ -473,9 +473,9 @@ function Messages({ c, them, bar, side, active }: { c: Opened; them: string; bar
 								{stamp && <p className={`pt-8 pb-4 text-center tabular-nums ${metadataClass}`}>{dayLabel(first.at)}, {clock(first.at)}</p>}
 								{/* Emails get a line between them; a line between emails (an assignment) separates them itself. A draft's box sits a little below its line. */}
 								<div className={`group/msg ${email ? (first.direction === "event" ? "py-3" : `${prev && prev.direction !== "event" ? "border-t border-neutral-100" : ""}`) : stamp ? "" : "pt-3"}`}>
-									{first.assignedTo ? (
+									{first.assignedTo || first.unassigned ? (
 										<Line who={first.author} name="Someone on staff">
-											assigned this to <PersonPill who={first.assignedTo} />
+											{first.unassigned ? "unassigned this conversation" : <>assigned this to <PersonPill who={first.assignedTo} /></>}
 										</Line>
 									) : first.call ? (
 										<div className={`flex flex-col ${first.direction === "in" ? "items-start" : "items-end"}`}>
@@ -571,22 +571,30 @@ function Details({ conversation: c }: { conversation: Opened }) {
 	);
 }
 
-/** Who answers it, as a picker: its agent, or anyone on staff who can use Inbox (the agent stops answering). */
+/** Nobody's picture: an empty seat the size and shape of a person's small avatar, so its row lines up with theirs. */
+const NoAssignee = () => (
+	<span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-neutral-300 text-xs text-neutral-400">
+		<UserIcon />
+	</span>
+);
+
+/** Who answers it: its agent, someone on staff, or nobody until staff pick it up. */
 function Assignee({ conversation: c }: { conversation: Opened }) {
 	const team = useQuery(api.workspace.team);
 	const assign = useMutation(api.inbox.assign);
 	const { error, run } = useRun();
 	const current = c.mode === "agent" ? c.agent : c.takenBy;
 	const people = (team?.members ?? []).filter((m) => m.inbox).sort((a, b) => Number(b.isYou) - Number(a.isYou));
-	const pick = (to: "agent" | Id<"users">) => run(assign({ id: c.id, to }));
+	const unassigned = c.mode === "staff" && !c.takenBy;
+	const pick = (to: "agent" | Id<"users"> | null) => run(assign({ id: c.id, to }));
 	return (
 		<>
 			<Popover
 				label="Assigned to"
 				trigger={
 					<>
-						{current ? <Avatar name={current.name} image={current.image} agent={current.type === "agent"} size="sm" /> : null}
-						<span className="min-w-0 flex-1 truncate text-left">{current?.name ?? "Someone on staff"}</span>
+						{current ? <Avatar name={current.name} image={current.image} agent={current.type === "agent"} size="sm" /> : <NoAssignee />}
+						<span className="min-w-0 flex-1 truncate text-left">{current?.name ?? "Unassigned"}</span>
 						<CaretUpDownIcon className="shrink-0 text-neutral-400" />
 					</>
 				}
@@ -595,6 +603,11 @@ function Assignee({ conversation: c }: { conversation: Opened }) {
 			>
 				{(close) => (
 					<>
+						<MenuItem onClick={() => (close(), pick(null))}>
+							<NoAssignee />
+							<span className="min-w-0 flex-1 truncate">Unassigned</span>
+							{unassigned && <CheckIcon className="shrink-0" />}
+						</MenuItem>
 						{c.agent && (
 							<MenuItem disabled={c.channel === "call"} onClick={() => (close(), c.mode !== "agent" && pick("agent"))}>
 								<Avatar name={c.agent.name} image={c.agent.image} agent size="sm" />

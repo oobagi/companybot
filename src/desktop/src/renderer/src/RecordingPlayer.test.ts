@@ -1,7 +1,7 @@
 import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { RecordingControls, RecordingDock, RecordingPlaybackProvider } from "./RecordingPlayer";
+import { RecordingControls, RecordingPill, RecordingPlaybackProvider } from "./RecordingPlayer";
 import { useRoute } from "./router";
 import { inApp } from "./testing";
 
@@ -36,7 +36,7 @@ function Pages() {
 	const route = useRoute();
 	return createElement("div", null,
 		route[0] === "inbox" ? createElement(RecordingControls, { target }) : createElement("p", null, "Another screen"),
-		createElement(RecordingDock),
+		createElement(RecordingPill),
 	);
 }
 async function render({ enabled = true, interrupted = false, scope = "alice/workspace-one" } = {}) {

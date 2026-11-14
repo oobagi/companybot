@@ -2,6 +2,7 @@ import { useEffect, useReducer } from "react";
 import { DOWNLOAD_URL } from "@companybot/core/invite-email";
 import { desktop, openLink, useUpdates } from "../desktop";
 import { ArrowLeftIcon, ArrowRightIcon, BugIcon, DownloadIcon, HelpIcon, SidebarIcon, SparkleIcon } from "../icons";
+import { RecordingPill } from "../RecordingPlayer";
 import { MenuDivider, titleBarButton, useTip } from "../ui";
 import { MenuItem, Popover } from "./chat/common";
 import { NotificationTray } from "./Notifications";
@@ -59,7 +60,8 @@ export function TitleBar({ sidebar, onSidebar }: { sidebar: boolean; onSidebar: 
 					<ArrowRightIcon />
 				</button>
 			</span>
-			<span className="ml-auto flex">
+			<span className="ml-auto flex min-w-0">
+				<RecordingPill />
 				<CallStatus />
 			</span>
 			<span className="flex" {...tipFor("Notifications")}>

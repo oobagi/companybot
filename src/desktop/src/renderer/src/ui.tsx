@@ -551,6 +551,12 @@ export const callBarNameButton = "max-w-40 truncate pl-1 font-medium hover:under
 export const roundCallButton = "flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-neutral-200 disabled:text-neutral-400";
 /** Play or pause on a call recording's bar: the icon alone, a soft circle on hover. */
 export const playerButton = "flex size-8 shrink-0 items-center justify-center rounded-full text-lg text-neutral-900 hover:bg-neutral-300/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-neutral-500 disabled:text-neutral-400 disabled:hover:bg-transparent";
+/** The title bar's recording pill: its dark round Play or Pause, nested in the pill's left end. */
+export const playBarPlayButton = "no-drag flex size-6 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs text-white hover:bg-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-neutral-500 disabled:bg-neutral-200 disabled:text-neutral-400";
+/** The recording pill's quiet round control (stop). */
+export const playBarButton = "no-drag flex size-6 shrink-0 items-center justify-center rounded-full text-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-neutral-500";
+/** The recording pill's name: goes back to the call. */
+export const playBarNameButton = "no-drag max-w-36 truncate font-medium text-neutral-900 hover:underline max-sm:hidden";
 /** Opens a call from its whole bubble; the player and recovery controls sit above this button. */
 export const callOpenButton = "absolute inset-0 z-10 cursor-pointer rounded-[inherit] hover:bg-neutral-900/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500";
 /** A call in a record's call history. */
