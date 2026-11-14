@@ -1,3 +1,4 @@
+import { integrationEndpoint } from "./integrationSetup";
 import { can, integrationScope } from "@companybot/core";
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
@@ -6,7 +7,7 @@ import { requireMember, checkPermission, memberOf, randomHex } from "./lib";
 import { tokenHash } from "./integrationTokens";
 
 const DAY = 86400000;
-export const issuer = () => (process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "");
+export const issuer = () => integrationEndpoint() ?? "";
 export const resources = () => [`${issuer()}/mcp`, `${issuer()}/api/v1`];
 const requestArgs = { clientId: v.string(), redirect: v.string(), resource: v.string(), challenge: v.string(), scopes: v.array(v.string()), state: v.string() };
 export type ConsentRequest = { clientId: string; redirect: string; resource: string; challenge: string; scopes: string[]; state: string };

@@ -15,15 +15,20 @@ function Consent({ request }: { request: IntegrationConsentRequest }) {
 	const mine = useQuery(api.workspace.mine);
 	const inspect = useQueryOnce(api.integrationOAuth.consent);
 	const approve = useMutation(api.integrationOAuth.approve);
+	const [attempt, setAttempt] = useState(0);
 	const [details, setDetails] = useState<{ name: string; workspace: string }>();
 	const [selected, setSelected] = useState<string[]>(request.scopes.filter(s => s.endsWith(":read")));
 	const { run, error, busy, fail } = useRun();
-	useEffect(() => { let active = true; inspect(request).then(value => { if (active) setDetails(value); }, e => { if (active) fail(e); }); return () => { active = false; }; }, [inspect, request]);
+	useEffect(() => { let active = true; inspect(request).then(value => { if (active) setDetails(value); }, e => { if (active) fail(e); }); return () => { active = false; }; }, [inspect, request, attempt]);
 	const decide = (allow: boolean) => { void run(approve({ ...request, selectedScopes: selected, allow }).then(url => { window.location.assign(url); })); };
 	return <main className="mx-auto flex max-w-xl flex-col gap-5 p-8">
 		<h1 className="text-xl font-semibold">Connect an application</h1>
 		<Setting label="Workspace"><Select disabled={busy} className={wideControlClass} label="Workspace" value={workspace?.id} onChange={id => workspace?.open(id)} options={(mine?.workspaces ?? []).filter(w => !w.resetting).map(w => ({ value: w.id, label: w.name }))} /></Setting>
 		<Notice>{error}</Notice>
+		{error && <div className="flex flex-col gap-2">
+			<p className={hintClass}>Check your connection and workspace access, then retry. If this request expired, start again from the application you want to connect.</p>
+			<button className={compactButton} disabled={busy} onClick={() => { fail(); setDetails(undefined); setAttempt(n => n + 1); }}>Retry loading request</button>
+		</div>}
 		{!details && !error && <Loading />}
 		{details && <>
 			<p><strong>{details.name}</strong> wants access to <strong>{details.workspace}</strong> as you.</p>
