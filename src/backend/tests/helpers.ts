@@ -1,11 +1,11 @@
 import { seedLegacyRecords, scribe } from "./legacyFixtures";
 import prosemirrorSync from "@convex-dev/prosemirror-sync/test";
 import { convexTest } from "convex-test";
-import type { FunctionArgs } from "convex/server";
+import type { FunctionArgs, WithoutSystemFields } from "convex/server";
 import { vi } from "vitest";
 import type { Permission } from "@companybot/core";
 import { api, internal } from "../convex/_generated/api";
-import type { Id } from "../convex/_generated/dataModel";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 import schema from "../convex/schema";
 import type { MutationCtx } from "../convex/_generated/server";
 import { rolesOf } from "../convex/lib";
@@ -17,7 +17,7 @@ export const modules = import.meta.glob(["../convex/**/*.ts", "../convex/_genera
 /** Raw calls as `userId`. Convex Auth reads the user id from the token subject. */
 export const identityOf = (t: ReturnType<typeof convexTest>, userId: Id<"users">) => t.withIdentity({ subject: `${userId}|session` });
 
-/** A sub-page from before sub-pages were blocks: parented, with no block for it in the parent (migrations.pageChildBlocks adds one). */
+/** A sub-page from before sub-pages were blocks: parented, with no block for it in the parent. */
 export async function oldChild(t: ReturnType<typeof convexTest>, owner: Awaited<ReturnType<typeof signIn>>, title: string, parentId: Id<"pages">) {
 	const id = await owner.mutation(api.pages.create, { title });
 	await t.run((ctx) => ctx.db.patch(id, { parentId }));
@@ -85,7 +85,7 @@ export async function ownerAndMember() {
 		await ctx.db.insert("agentVersions", { agentId, version: 1, config: scribe, savedBy: owner.userId });
 		await seedLegacyRecords(ctx, workspaceId, owner.userId);
 	});
-	await owner.mutation(api.workspace.invite, { email: "Member@Co.com", role: "member" });
+	await owner.mutation(api.workspace.invite, { email: "Member@Co.com", roles: [await builtInRoleOf(owner, "member")] });
 	const member = await signIn(t, "member@co.com");
 	return { t, owner, member };
 }
@@ -184,4 +184,13 @@ export async function upload(as: As, body: Uint8Array = new TextEncoder().encode
 	const response = await as.fetch(`/files/upload?${query}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: body as Uint8Array<ArrayBuffer> });
 	if (response.status !== 200) throw new Error(`Upload failed: ${response.status} ${await response.text()}`);
 	return ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
+}
+
+/** Resolves a built-in role through the same API used by the current app. */
+export const builtInRoleOf = async (as: As, which: "owner" | "member") => (await as.query(api.roles.list))!.find(r => r.builtIn === which)!.id;
+
+/** Seeds chat activity separately, as the current storage model does. */
+export async function seedChat(ctx: MutationCtx, { lastMessageAt, memberCount = 0, ...chat }: Omit<WithoutSystemFields<Doc<"chats">>, "memberCount"> & { memberCount?: number; lastMessageAt: number }) {
+	const { insertChat } = await import("../convex/chatOps");
+	return insertChat(ctx, { ...chat, memberCount }, lastMessageAt);
 }

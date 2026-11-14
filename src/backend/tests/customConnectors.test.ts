@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { agentsOf, ownerAndMember, settle, signIn, workspaceOf } from "./helpers";
+import { builtInRoleOf, agentsOf, ownerAndMember, settle, signIn, workspaceOf } from "./helpers";
 import "./connectorFixtures";
 
 // No real network. DNS answers come from `dns.answer`. Custom connectors' requests go through undici
@@ -89,7 +89,7 @@ describe("custom connectors", () => {
 		const seen = (await member.query(api.connectors.list)).find((c) => c.id === id)!;
 		expect(seen).toMatchObject({ name: "Tickets", custom: true, installed: true, canUse: false, connected: false, server: tickets.url });
 		await expect(member.action(api.connectors.connect, { connectorId: id, credentials: { type: "api_key", key: "member-key" } })).rejects.toThrow();
-		await owner.mutation(api.connectors.setRoles, { connectorId: id, roles: ["member"] });
+		await owner.mutation(api.connectors.setRoles, { connectorId: id, roles: [await builtInRoleOf(owner, "member")] });
 		await member.action(api.connectors.connect, { connectorId: id, credentials: { type: "api_key", key: "member-key" } });
 		expect((await member.query(api.connectors.list)).find((c) => c.id === id)?.connected).toBe(true);
 		// A second one with the same name gets its own id.
@@ -268,7 +268,7 @@ describe("custom connectors", () => {
 	it("removing one uninstalls it like a catalog connector, and agents' grants of it drop on their next save", async () => {
 		const { t, owner, member } = await ownerAndMember();
 		const id = await owner.mutation(api.customConnectors.create, { connector: tickets });
-		await owner.mutation(api.connectors.setRoles, { connectorId: id, roles: ["member"] });
+		await owner.mutation(api.connectors.setRoles, { connectorId: id, roles: [await builtInRoleOf(owner, "member")] });
 		await member.action(api.connectors.connect, { connectorId: id, credentials: { type: "api_key", key: "member-key" } });
 		await member.mutation(api.permissions.set, { action: `${id}.close_ticket`, setting: "never" });
 		const { scribe } = await agentsOf(owner);

@@ -1,4 +1,4 @@
-import { cronDue, describeCron, legacyCron, normalizeCron, scheduleError, scheduleForm } from "./schedules";
+import { cronDue, describeCron, normalizeCron, scheduleError } from "./schedules";
 
 /**
  * An automation is a short job: a trigger (a schedule, something in the app, or a webhook) that
@@ -26,7 +26,6 @@ export interface Automation {
 
 export type AutomationTrigger =
 	| ScheduleTrigger
-	| LegacySchedule
 	/**
 	 * Fired when another app POSTs to the install's webhook URL (backend
 	 * `automationRuns.receive`). With `webhookEvent`, only bodies naming that event run; without,
@@ -39,32 +38,8 @@ export type AutomationTrigger =
 /** A cron schedule ("0 9 * * 1-5", schedules.ts), in the time zone of whoever set it up. */
 export type ScheduleTrigger = { type: "schedule"; cron: string };
 
-/**
- * A schedule from before cron: one "HH:MM" time on some weekdays (0 = Sunday). Read as its cron
- * (`scheduleCron`). alpha.9 apps send it back with the cron they were shown (`legacyFields`).
- * COMPAT(0.1.0-alpha.10): once migrations.cronSchedules has run on prod and alpha.9 apps have
- * updated, drop this type, its validators, `legacyFields` and the migration.
- */
-export type LegacySchedule = { type: "schedule"; time: string; weekdays: number[]; cron?: string };
-
-/** A schedule's cron, whichever shape it's stored or sent in. */
-export function scheduleCron(trigger: ScheduleTrigger | LegacySchedule): string {
-	if (!("time" in trigger)) return normalizeCron(trigger.cron);
-	const sent = legacyCron(trigger.time, trigger.weekdays);
-	// An alpha.9 app saves back the cron it was shown with its time and days: unchanged, keep the cron.
-	if (trigger.cron) {
-		const shown = legacyFields(trigger.cron);
-		if (sent === legacyCron(shown.time, shown.weekdays)) return normalizeCron(trigger.cron);
-	}
-	return sent;
-}
-
-/** The one time and days an alpha.9 app's editor needs: the cron's if it's that simple, else a stand-in it can show. */
-export function legacyFields(cron: string): { time: string; weekdays: number[] } {
-	const form = scheduleForm(cron);
-	if ((form?.repeats === "daily" || form?.repeats === "weekly") && form.times.length === 1) return { time: form.times[0]!, weekdays: form.days };
-	return { time: "09:00", weekdays: [1, 2, 3, 4, 5] };
-}
+/** A schedule's normalized cron expression. */
+export const scheduleCron = (trigger: ScheduleTrigger) => normalizeCron(trigger.cron);
 
 /**
  * Who an automation runs for:
@@ -157,7 +132,6 @@ export interface CustomAutomationConfig {
 
 export type CustomTrigger =
 	| ScheduleTrigger
-	| LegacySchedule
 	/** Any app POSTs to its webhook URL. */
 	| { type: "webhook" }
 	/** A top-level message (not an agent's or an automation's) in this channel. */
@@ -175,14 +149,6 @@ export const normalizeCustomAutomation = (config: CustomAutomationConfig): Custo
 
 /** The first problem with a custom automation, in a line, or null. */
 export function customAutomationError(config: CustomAutomationConfig): string | null {
-	const { trigger } = config;
-	if (trigger.type === "schedule" && "time" in trigger) {
-		if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(trigger.time)) return "Pick a time.";
-		const days = new Set(trigger.weekdays);
-		if (days.size === 0) return "Pick at least one day.";
-		if (days.size !== trigger.weekdays.length || trigger.weekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6))
-			return "Those days don't look right.";
-	}
 	const { name, prompt, trigger: normal } = normalizeCustomAutomation(config);
 	if (!name) return "Give it a name.";
 	if (name.length > CUSTOM_NAME_MAX) return `Keep the name under ${CUSTOM_NAME_MAX} characters.`;

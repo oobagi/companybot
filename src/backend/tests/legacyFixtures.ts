@@ -60,7 +60,7 @@ export const retainedAutomation = defineAutomation({
 	details: "Each weekday morning the agent messages every member with their day at a glance.",
 	version: "0.1.0",
 	publisher: "Companybot",
-	trigger: { type: "schedule", time: "08:00", weekdays: [1, 2, 3, 4, 5] },
+	trigger: { type: "schedule", cron: "0 8 * * 1-5" },
 	connectors: [],
 	prompt: `Morning brief. Give me my day at a glance, in this order:
 1. **Today** — meetings, deadlines, and anything time-sensitive.

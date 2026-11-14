@@ -226,7 +226,7 @@ function shaped(ctx: QueryCtx, list: ArrangementList, id: string) {
 		case "workspaces": return !!ctx.db.normalizeId("workspaces", id);
 		case "expanded": return !!ctx.db.normalizeId("pages", id);
 		case "folded": return builtInSections.includes(id) || !!ctx.db.normalizeId("sidebarSections", id);
-		// COMPAT(0.1.0-alpha.10): that app still draws a Customize tab and may move it; newer ones ignore the id.
+		// COMPAT(0.1.0-alpha.11): that app still draws a Customize tab and may move it; newer ones ignore the id.
 		case "rail": return railTabs.includes(id) || id === "customize" || isPinKey(id);
 		case "driveRows": return driveRowIds.includes(id);
 		case "databaseRows": return databaseRowIds.includes(id);
@@ -308,13 +308,13 @@ export async function changeArrangement(ctx: MutationCtx, member: Member, target
 	await write(ctx, place, old, applyCommand(old?.ids, checked));
 }
 
-/** COMPAT(0.1.0-alpha.10): the legacy localStorage import reads at most this many ids… */
+/** COMPAT(0.1.0-alpha.11): the legacy localStorage import reads at most this many ids… */
 export const IMPORT_IDS_MAX = 100;
-/** COMPAT(0.1.0-alpha.10): …and about this many bytes, then saves what it has, so every import finishes and the app clears its key. */
+/** COMPAT(0.1.0-alpha.11): …and about this many bytes, then saves what it has, so every import finishes and the app clears its key. */
 const IMPORT_BYTES_MAX = 8 * 1024 * 1024;
 
 /**
- * COMPAT(0.1.0-alpha.10): one-time import of this computer's old arrangements (desktop `migrateArrangements`).
+ * COMPAT(0.1.0-alpha.11): one-time import of this computer's old arrangements (desktop `migrateArrangements`).
  * Delete it, `IMPORT_*`, `recordTypes.migrateDisplay`, the desktop importer and core `legacyArrangement` once
  * every install has run it. Imports name their destination before entity validation; the open workspace
  * is not authority. Bounded (`IMPORT_IDS_MAX`, `IMPORT_BYTES_MAX`): order past 100 items is dropped.

@@ -6,7 +6,7 @@ import type { Id, TableNames } from "../convex/_generated/dataModel";
 import { type Edge, type Lifecycle, edgesOf, lifecycle } from "../convex/lifecycle";
 import { memberOf } from "../convex/lib";
 import schema from "../convex/schema";
-import { agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf, addMember, builtInRoleIn, messagesIn } from "./helpers";
+import { builtInRoleOf, seedChat, agentTurn, generalOf, newTest, noMentions, settle, ownerAndMember, sideWorkspace, signIn, turnsOf, workspaceOf, identityOf, addMember, builtInRoleIn, messagesIn } from "./helpers";
 import "./connectorFixtures";
 import { person } from "./person";
 import { defaultAgents } from "@companybot/core";
@@ -119,14 +119,13 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		await ctx.db.insert("skillInstalls", { audience: "team", workspaceId, skillId: "custom-skill", custom: { name: "Skill", createdBy: memberId, description: "d", instructions: "i", ...made } });
 
 		const chat = { workspaceId, archived: false, createdBy: ownerId, lastMessageAt: now };
-		const channel = await ctx.db.insert("chats", { ...chat, kind: "channel", name: "board", private: true, memberCount: 3 });
-		const dm = await ctx.db.insert("chats", { ...chat, kind: "dm", private: true, dmKey: `u:${ownerId},u:${memberId}`, memberCount: 1 });
+		const channel = await seedChat(ctx, { ...chat, kind: "channel", name: "board", private: true, memberCount: 3 });
+		const dm = await seedChat(ctx, { ...chat, kind: "dm", private: true, dmKey: `u:${ownerId},u:${memberId}`, memberCount: 1 });
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: ownerId });
 		mine.push(await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, userId: memberId }));
 		await ctx.db.insert("chatMembers", { chatId: channel, workspaceId, agentId });
 		await ctx.db.insert("chatMembers", { chatId: dm, workspaceId, userId: memberId });
 		for (const seat of (await ctx.db.query("chatMembers").collect()).filter((r) => r.workspaceId === workspaceId)) await ensureSeatActivity(ctx, (await ctx.db.get(seat.chatId))!, seat);
-		await ctx.db.insert("chatActivity", { workspaceId, chatId: channel, lastMessageAt: now });
 		await ctx.db.insert("sidebarSections", { workspaceId, tab: "chat", name: "Board", ids: [channel] });
 		const message = { chatId: channel, workspaceId, parts: [], status: "done" as const };
 		const said = await ctx.db.insert("chatMessages", { ...message, authorUserId: memberId, text: "Hi", mentions: { userIds: [], agentIds: [] } });
@@ -186,7 +185,7 @@ async function seed(t: T, workspaceId: Id<"workspaces">, ownerId: Id<"users">, m
 		const pageId = await ctx.db.insert("pages", { workspaceId, recordId, title: "", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("pageVersions", { pageId, n: 1, version: 2, userId: memberId, editedAt: now });
 		await ctx.db.insert("pageImages", { workspaceId, pageId, storageId: await ctx.storage.store(new Blob(["x"])), url: `https://x.convex.cloud/api/storage/${pageId}` });
-		await ctx.db.insert("pageMoves", { workspaceId, pageId, n: 1, userId: memberId, from: "Pages", to: "Wiki" });
+		await ctx.db.insert("pageMoves", { workspaceId, pageId, n: 1, userId: memberId, fromId: null, toId: null });
 		const folderId = await ctx.db.insert("pages", { workspaceId, kind: "folder", title: "Contracts", archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		await ctx.db.insert("driveFiles", { workspaceId, parentId: folderId, name: "msa.pdf", type: "application/pdf", size: 1, storageId: await ctx.storage.store(new Blob(["%PDF-"])), archived: false, createdBy: memberId, updatedAt: now, updatedBy: memberId });
 		const trashedId = await ctx.db.insert("records", { workspaceId, typeId, title: "Old", values: { name: "Old" }, searchText: "old", archived: true, createdBy: memberId, updatedAt: now, updatedBy: memberId });
@@ -216,8 +215,8 @@ async function world() {
 	// Shared by every workspace.
 	await t.mutation(internal.modelCatalog.save, { models: [{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", provider: "anthropic" }] });
 	const [A, B] = [await workspaceOf(a), await workspaceOf(b)];
-	await a.in(A).mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
-	await b.in(B).mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
+	await a.in(A).mutation(api.workspace.invite, { email: "m@co.com", roles: [await builtInRoleOf(a.in(A), "member")] });
+	await b.in(B).mutation(api.workspace.invite, { email: "m@co.com", roles: [await builtInRoleOf(b.in(B), "member")] });
 	const m = await signIn(t, "m@co.com");
 	await m.mutation(api.workspace.switchTo, { to: A });
 	for (const [userId, email] of [[a.userId, "a@co.com"], [b.userId, "b@co.com"], [m.userId, "m@co.com"]] as const) await seedAuth(t, userId, email);
@@ -281,7 +280,7 @@ describe("deleting a workspace", () => {
 		await expect(m.in(A).mutation(api.workspace.deleteWorkspace, { name: "My company" })).rejects.toThrow("Only people with the");
 		await a.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 		// Before any cleanup has run: nobody's in it, it's off everyone's list, and its invites can't be used.
-		expect(await m.in(A).query(api.workspace.me)).toMatchObject({ workspaceId: null, role: null });
+		expect(await m.in(A).query(api.workspace.me)).toMatchObject({ workspaceId: null, access: null });
 		await expect(m.in(A).mutation(api.chats.createChannel, { name: "x", private: false })).rejects.toThrow();
 		expect((await m.query(api.workspace.mine))!.workspaces.map((w) => w.id)).toEqual([B]);
 		expect((await a.query(api.workspace.mine))!.workspaces).toEqual([]);
@@ -306,7 +305,7 @@ describe("deleting a workspace", () => {
 		// Everything else is as it was ("last used" naming it went with it).
 		const { changed } = diff(before, after);
 		expect(changed).toEqual(new Set());
-		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, role: "owner" });
+		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, access: { owner: true } });
 		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
 		// In no workspace now, nothing is made for them (onboarding will); then they start a fresh one.
 		await a.mutation(api.workspace.ensure);
@@ -340,7 +339,7 @@ describe("resetting a workspace", () => {
 		vi.useFakeTimers();
 		await a.mutation(api.workspace.resetWorkspace, { name: "My company" });
 		// Before any cleanup has run: closed to everyone, nothing new can land in it, but it stays on their lists.
-		expect(await m.in(A).query(api.workspace.me)).toMatchObject({ workspaceId: null, role: null });
+		expect(await m.in(A).query(api.workspace.me)).toMatchObject({ workspaceId: null, access: null });
 		await expect(m.in(A).mutation(api.chats.createChannel, { name: "x", private: false })).rejects.toThrow();
 		await expect(a.mutation(api.workspace.resetWorkspace, { name: "My company" })).rejects.toThrow();
 		expect((await m.query(api.workspace.mine))!.workspaces.find((w) => w.id === A)).toMatchObject({ resetting: true });
@@ -374,7 +373,7 @@ describe("resetting a workspace", () => {
 		for (const who of [a, m.in(A)]) expect(await who.query(api.onboarding.tutorial)).not.toBeNull();
 		expect((await a.query(api.workspace.team))!.invites.map((i) => i.email)).toEqual(["next@co.com"]);
 		expect(await a.query(api.workspace.settings)).toMatchObject({ lastReset: { by: expect.any(String), at: expect.any(Number) } });
-		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, role: "owner" });
+		expect(await b.query(api.workspace.me)).toMatchObject({ workspaceId: B, access: { owner: true } });
 	});
 
 	it("deletes in batches, staying closed until it's started again", { timeout: 60_000 }, async () => {
@@ -398,9 +397,9 @@ describe("resetting a workspace", () => {
 		}
 		expect(left).toBeGreaterThan(0);
 		expect(left).toBeLessThan(1_000);
-		expect(await owner.query(api.workspace.me)).toMatchObject({ role: null });
+		expect(await owner.query(api.workspace.me)).toMatchObject({ access: null });
 		await settle(t);
-		expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, role: "owner" });
+		expect(await owner.query(api.workspace.me)).toMatchObject({ workspaceId, access: { owner: true } });
 		expect(await t.run(async (ctx) => (await ctx.db.query("chatMessages").collect()).length)).toBe(1);
 	});
 });
@@ -491,16 +490,16 @@ describe("erasing an account", () => {
 	it("refuses while they're the only owner of a workspace with other people", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
-		await owner.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "m@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		await signIn(t, "m@co.com");
 		await expect(owner.mutation(api.workspace.eraseAccount)).rejects.toThrow("only owner of My company");
-		expect(await owner.query(api.workspace.me)).toMatchObject({ role: "owner" });
+		expect(await owner.query(api.workspace.me)).toMatchObject({ access: { owner: true } });
 	});
 
 	it("lets a sole owner erase their account while a workspace they deleted is still being cleaned up", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
-		await owner.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "m@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		await signIn(t, "m@co.com");
 		vi.useFakeTimers();
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
@@ -515,7 +514,7 @@ describe("erasing an account", () => {
 		vi.useFakeTimers();
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 		await expect(owner.mutation(api.workspace.eraseAccount)).rejects.toThrow("only owner of Side gig");
-		expect(await owner.in(workspaceId).query(api.workspace.me)).toMatchObject({ role: "owner", email: "owner@co.com" });
+		expect(await owner.in(workspaceId).query(api.workspace.me)).toMatchObject({ access: { owner: true }, email: "owner@co.com" });
 		await settle(t);
 	});
 
@@ -523,34 +522,34 @@ describe("erasing an account", () => {
 		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
 		const workspaceId = await workspaceOf(owner);
-		await owner.mutation(api.workspace.invite, { email: "late@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "late@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		vi.useFakeTimers();
 		await owner.mutation(api.workspace.eraseAccount);
 		const late = await signIn(t, "late@co.com");
 		expect((await late.query(api.workspace.mine))!.workspaces.map((w) => w.id)).not.toContain(workspaceId);
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.get(workspaceId))).toBeNull();
-		expect(await late.query(api.workspace.me)).toMatchObject({ role: "owner" });
+		expect(await late.query(api.workspace.me)).toMatchObject({ access: { owner: true } });
 	});
 
 	it("doesn't count an erased owner, so the last other owner can't leave while their membership is cleaned up", async () => {
 		const t = newTest();
 		const a = await signIn(t, "a@co.com");
-		await a.mutation(api.workspace.invite, { email: "b@co.com", role: "owner" });
+		await a.mutation(api.workspace.invite, { email: "b@co.com", roles: [await builtInRoleOf(a, "owner")] });
 		const b = await signIn(t, "b@co.com");
-		await a.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
+		await a.mutation(api.workspace.invite, { email: "m@co.com", roles: [await builtInRoleOf(a, "member")] });
 		await signIn(t, "m@co.com");
 		vi.useFakeTimers();
 		await a.mutation(api.workspace.eraseAccount);
 		await expect(b.mutation(api.workspace.leave)).rejects.toThrow("only owner");
 		await settle(t);
-		expect((await b.query(api.workspace.team))!.members.map((x) => [x.email, x.role])).toEqual([["b@co.com", "owner"], ["m@co.com", "member"]]);
+		expect((await b.query(api.workspace.team))!.members.map((x) => [x.email, x.roles])).toEqual([["b@co.com", [await builtInRoleOf(b, "owner")]], ["m@co.com", [await builtInRoleOf(b, "member")]]]);
 	});
 
 	it("shows what they wrote as a former member's", async () => {
 		const t = newTest();
 		const owner = await signIn(t, "a@co.com");
-		await owner.mutation(api.workspace.invite, { email: "m@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "m@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const m = await signIn(t, "m@co.com");
 		const general = (await m.query(api.chats.list))!.channels[0]!._id;
 		await m.mutation(api.messages.send, { chatId: general, text: "Bye", mentions: { userIds: [], agentIds: [] } });
@@ -586,7 +585,7 @@ describe("a sign-in from before an account was erased", () => {
 		};
 		await refused();
 		// An invite to their old email isn't theirs to accept.
-		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const inviteId = (await t.run((ctx) => ctx.db.query("invites").first()))!._id;
 		await expect(member.mutation(api.workspace.acceptInvite, { id: inviteId })).rejects.toThrow("isn't available");
 		await settle(t);
@@ -613,7 +612,7 @@ describe("a sign-in to a connector", () => {
 		await owner.mutation(api.workspace.removeMember, { id: before.memberId });
 		await settle(t);
 		expect(await flows()).toEqual([]);
-		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		await member.mutation(api.workspace.ensure);
 		await expect(save(before)).rejects.toThrow("Connect again");
 		await expect(startFlow("s2", before)).rejects.toThrow("Connect again");
@@ -715,8 +714,8 @@ describe("writes that land after what they belong to went", () => {
 		const { t, owner } = await ownerAndMember();
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		vi.useFakeTimers();
-		await owner.mutation(api.workspace.invite, { email: "gone@co.com", role: "member" });
-		await owner.mutation(api.workspace.invite, { email: "kept@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "gone@co.com", roles: [await builtInRoleOf(owner, "member")] });
+		await owner.mutation(api.workspace.invite, { email: "kept@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const gone = (await owner.query(api.workspace.team))!.invites.find((i) => i.email === "gone@co.com")!;
 		await owner.mutation(api.workspace.cancelInvite, { id: gone.id });
 		await settle(t);
@@ -735,12 +734,12 @@ describe("writes that land after what they belong to went", () => {
 		await make("Daily", { type: "schedule", cron: "0 9 * * *" });
 		const installs = () => t.run((ctx) => ctx.db.query("automationInstalls").collect());
 		const token = (await installs()).find((i) => i.webhookToken)!.webhookToken!;
-		const before = (await installs()).map((i) => i.lastScheduledAt ?? i.lastResult ?? null);
+		const before = (await installs()).map((i) => i.lastScheduledAt ?? i.lastOutcome ?? null);
 		await owner.mutation(api.workspace.deleteWorkspace, { name: "My company" });
 		const reply = await t.mutation(internal.automationRuns.receive, { token, body: JSON.stringify({ id: "e1", data: {} }) });
 		expect(reply.status).toBe(404);
 		await t.mutation(internal.automationRuns.tick, { now: Date.UTC(2026, 9, 26, 10) });
-		expect((await installs()).map((i) => i.lastScheduledAt ?? i.lastResult ?? null)).toEqual(before);
+		expect((await installs()).map((i) => i.lastScheduledAt ?? i.lastOutcome ?? null)).toEqual(before);
 		expect(await t.run((ctx) => ctx.db.query("automationEvents").collect())).toEqual([]);
 	});
 });
@@ -767,7 +766,7 @@ describe("a cascade that keeps failing", () => {
 		await t.run(async (ctx) => ctx.db.patch((await ctx.db.query("cascades").first())!._id, { updatedAt: 0 }));
 		await t.mutation(internal.cascade.resume);
 		expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((f) => f.state.kind === "pending")).toEqual([]);
-		await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		await expect(member.mutation(api.workspace.ensure)).rejects.toThrow("still being cleaned up");
 
 		// Once the cause is fixed, retry picks it up where it was.
@@ -776,6 +775,6 @@ describe("a cascade that keeps failing", () => {
 		await settle(t);
 		expect(await t.run((ctx) => ctx.db.query("cascades").collect())).toEqual([]);
 		await member.mutation(api.workspace.ensure);
-		expect(await member.query(api.workspace.me)).toMatchObject({ role: "member" });
+		expect(await member.query(api.workspace.me)).toMatchObject({ access: { owner: false } });
 	});
 });

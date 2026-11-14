@@ -179,12 +179,9 @@ export const forgetOldWebhooks = internalMutation({
 
 // ---- Running ----
 
-/**
- * Records what a run did, for its page, and returns it. COMPAT(0.1.0-alpha.10): clears the old line too, so
- * migrations.automationOutcomes never puts it back over a newer run; stop once `lastResult` is dropped.
- */
+/** Records what a run did and returns it. */
 async function finish(ctx: MutationCtx, install: Doc<"automationInstalls">, outcome: RunOutcome, success = true) {
-	await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastOutcome: outcome, lastResult: undefined, ...(success && { consecutiveFailures: 0 }) });
+	await ctx.db.patch(install._id, { lastRunAt: Date.now(), lastOutcome: outcome, ...(success && { consecutiveFailures: 0 }) });
 	return outcome;
 }
 

@@ -15,9 +15,6 @@ export const databaseDisplay = v.object({ layout: v.union(v.literal("table"), v.
 
 export const notify = v.union(v.literal("all"), v.literal("mentions"), v.literal("off"));
 
-// Retired: one of "owner" or "member" per person, before roles were workspace data. migrations.customRoles moves them.
-// COMPAT(0.1.0-alpha.10): once that has run on prod, drop the fields that use it, then this.
-const legacyRole = v.union(v.literal("owner"), v.literal("member"));
 
 export const permission = oneOf(Object.keys(permissions) as (keyof typeof permissions)[]);
 
@@ -168,11 +165,8 @@ export const replyStats = v.object({
 // Shared settings carry a `version` that goes up on every save. A save sends the
 // version it started from; if someone saved in between, it's refused as a conflict.
 
-/** core's ScheduleTrigger, or (COMPAT, see core's LegacySchedule) its LegacySchedule. */
-const scheduleTrigger = v.union(
-	v.object({ type: v.literal("schedule"), cron: v.string() }),
-	v.object({ type: v.literal("schedule"), time: v.string(), weekdays: v.array(v.number()), cron: v.optional(v.string()) }),
-);
+/** A cron schedule. */
+const scheduleTrigger = v.object({ type: v.literal("schedule"), cron: v.string() });
 
 /** core's CustomTrigger. */
 export const customTrigger = v.union(
@@ -334,11 +328,8 @@ export default defineSchema({
 	members: defineTable({
 		workspaceId: v.id("workspaces"),
 		userId: v.id("users"),
-		/** Their roles; they get every switch any of them has. Empty when the only one was deleted (they get the baseline). Optional only until migrations.customRoles ran. */
-		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
-		roles: v.optional(v.array(v.id("roles"))),
-		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
-		role: v.optional(legacyRole),
+		/** Their roles; they get every switch any of them has. Empty when the only one was deleted (they get the baseline). */
+		roles: v.array(v.id("roles")),
 		/** Normalized for bounded invitation checks. Every row has it; optional only in the type. */
 		email: v.optional(v.string()),
 		/** The tutorial above the composer (onboarding.ts): steps done, or hidden. Unset for people who joined before it: they get none. */
@@ -347,11 +338,10 @@ export default defineSchema({
 		 * Copies of their profile (`memberProfile`), so lists of members read only this table. Kept in step
 		 * wherever it changes: preferences.savePreferences, joining, erasing the account.
 		 */
-		// COMPAT(0.1.0-alpha.10): once migrations.memberProfiles has run on prod, make name and timeZone required.
-		name: v.optional(v.string()),
+		name: v.string(),
 		image: v.optional(v.id("_storage")),
 		/** Resolved: the zone they picked, else their computer's, else UTC. */
-		timeZone: v.optional(v.string()),
+		timeZone: v.string(),
 	})
 		.index("by_user", ["userId", "workspaceId"])
 		.index("by_workspace", ["workspaceId"])
@@ -361,11 +351,8 @@ export default defineSchema({
 	invites: defineTable({
 		workspaceId: v.id("workspaces"),
 		email: v.string(),
-		/** What they'll have when they join. Every row has some once migrations.customRoles ran. */
-		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, make this required.
-		roles: v.optional(v.array(v.id("roles"))),
-		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop this field. Nothing reads it.
-		role: v.optional(legacyRole),
+		/** What they'll have when they join. */
+		roles: v.array(v.id("roles")),
 		/** Missing on invites from before invite emails. */
 		invitedBy: v.optional(v.id("users")),
 	})
@@ -476,8 +463,6 @@ export default defineSchema({
 		timeZone: v.optional(v.string()),
 		/** Their computer's time zone, reported by the app. */
 		deviceTimeZone: v.optional(v.string()),
-		// COMPAT(0.1.0-alpha.10): moved to `lastWorkspaces`; once migrations.lastWorkspaces has run on prod, drop this field.
-		workspaceId: v.optional(v.id("workspaces")),
 		/** Their photo (images.ts), shown in every workspace. Unset shows their initials. */
 		image: v.optional(v.id("_storage")),
 		/** Recents under their pins on the rail. Left out means shown. */
@@ -516,8 +501,7 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		connectorId: v.string(),
 		/** The roles that may use it. Owners always can. */
-		// COMPAT(0.1.0-alpha.10): once migrations.customRoles has run on prod, drop the legacy "owner"/"member" names.
-		roles: v.array(v.union(v.id("roles"), legacyRole)),
+		roles: v.array(v.id("roles")),
 		installedBy: v.id("users"),
 	}).index("by_workspace", ["workspaceId", "connectorId"]),
 
@@ -590,8 +574,7 @@ export default defineSchema({
 	skillInstalls: defineTable({
 		usedPlaces,
 		/** Personal owner; team rows have audience team and no owner. */
-		// COMPAT(0.1.0-alpha.10): after skillAudience runs on prod, make audience required.
-		audience: v.optional(v.union(v.literal("team"), v.literal("personal"))),
+		audience: v.union(v.literal("team"), v.literal("personal")),
 		ownerId: v.optional(v.id("users")),
 		definition: v.optional(skillDefinition),
 		workspaceId: v.id("workspaces"),
@@ -637,20 +620,14 @@ export default defineSchema({
 		/** In Trash (the `trash` table says who deleted it, and when). */
 		archived: v.boolean(),
 		createdBy: v.id("users"),
-		// COMPAT(0.1.0-alpha.10): moved to `chatActivity`. Once migrations.chatActivity has run on prod, drop these two and the fallback in chatOps `activityOf`.
-		lastMessageAt: v.optional(v.number()),
 		/** Search discovery; maintained with chat visibility. */
 		searchPublic: v.optional(v.boolean()),
-		costUsd: v.optional(v.number()),
 		/** Channels: when agents answer without an @mention (core router.ts). Unset is "mentions", so no migration. */
 		replyMode: v.optional(oneOf(replyModes)),
 		/** Channels: who can see and post (Post is `edit`), on top of a private channel's members. */
 		access,
 		/** Its `chatMembers` rows, people and agents: kept ±1 where seats change (chatOps addToChat, dropSeat). */
-		// COMPAT(0.1.0-alpha.10): once migrations.chatMemberCounts has run on prod, make this required and drop `seatCount`.
-		memberCount: v.optional(v.number()),
-		/** While migrations.chatMemberCounts counts a big chat over several transactions: seats so far, up to `after` (a seat's _creationTime). */
-		seatCount: v.optional(v.object({ counted: v.number(), after: v.number() })),
+		memberCount: v.number(),
 	})
 		.index("by_workspace", ["workspaceId", "kind"])
 		.index("by_dm_key", ["workspaceId", "dmKey"])
@@ -670,8 +647,7 @@ export default defineSchema({
 	chatActivity: defineTable({
 		chatId: v.id("chats"),
 		pendingAt: v.optional(v.number()),
-		/** COMPAT(0.1.0-alpha.10): discoveryChatActivity backfills these index keys. */
-		workspaceId: v.optional(v.id("workspaces")), kind: v.optional(v.union(v.literal("channel"), v.literal("dm"))), searchPublic: v.optional(v.boolean()),
+		workspaceId: v.id("workspaces"), kind: v.union(v.literal("channel"), v.literal("dm")), searchPublic: v.boolean(),
 		/** The main timeline's newest shown message. */
 		lastMessageAt: v.number(),
 		/** USD spent on agent replies and summaries here (main timeline). */
@@ -712,7 +688,6 @@ export default defineSchema({
 		/** A delivered message from an agent, on this person's behalf. */
 		actingFor: v.optional(v.id("users")),
 		text: v.string(),
-		/** COMPAT(0.1.0-alpha.10): old messages are backfilled by searchAudience. */
 		searchPublic: v.optional(v.boolean()),
 		parts: v.array(messagePart),
 		/** Files attached to it (files.ts), in order. Deleted with the message, or when it is. */
@@ -749,7 +724,6 @@ export default defineSchema({
 		/**
 		 * When it was shown in the timeline (chatOps `shownAt`), what lists page and sort by: when it was sent, when an
 		 * agent's reply was shown, or when a reply took in messages sent after it began (turns.steer), so it shows below
-		 * them. Unset while quiet. COMPAT(0.1.0-alpha.10): older rows have none until migrations.messageShownAt.
 		 */
 		publishedAt: v.optional(v.number()),
 		/**
@@ -1073,8 +1047,6 @@ export default defineSchema({
 		 * forever), or a job finishing (`jobId`, #114).
 		 */
 		at: v.optional(v.number()),
-		// COMPAT(0.1.0-alpha.10): drop every after wakeupDurations migrates numeric intervals. The fire fallback reads it until migration finishes; remove both together.
-		every: v.optional(v.number()),
 		repeat: v.optional(v.object({ years: v.optional(v.number()), months: v.optional(v.number()), weeks: v.optional(v.number()), days: v.optional(v.number()), hours: v.optional(v.number()), minutes: v.optional(v.number()) })),
 		anchor: v.optional(v.object({local: v.string(), timeZone: v.string()})),
 		times: v.optional(v.number()),
@@ -1168,18 +1140,12 @@ export default defineSchema({
 		nextRunAt: v.optional(v.number()),
 		consecutiveFailures: v.optional(v.number()),
 		eventKey: v.optional(v.string()),
-		// Retired: schedules ran once a local day. migrations.cronSchedules clears it.
-		// COMPAT(0.1.0-alpha.10): once that has run on prod, drop this field.
-		lastRunDate: v.optional(v.string()),
 		lastRunAt: v.optional(v.number()),
 		/**
 		 * What the last run did (automationOps.RunOutcome): a line, e.g. "Posted in {channel}.", and the channels
 		 * it names, which each reader sees by name only if they can see them (automationOps.outcomeText).
 		 */
 		lastOutcome: v.optional(v.object({ text: v.string(), failed: v.optional(v.boolean()), channelId: v.optional(v.id("chats")), watchedId: v.optional(v.id("chats")) })),
-		// COMPAT(0.1.0-alpha.10): the line as it was stored, channel names and all. Once migrations.automationOutcomes
-		// has run on prod, drop this. Nothing reads it.
-		lastResult: v.optional(v.string()),
 		/** Who it runs for; automationAudiences backfilled existing installs in alpha.6. */
 		audience,
 		/** Audience "channel": post each run here, once. */
@@ -1294,7 +1260,7 @@ export default defineSchema({
 		/** Saved as they're dropped (databaseViews.setWidth), not with the rest: no version change, no history. */
 		widths: v.optional(columnWidths),
 		version: v.number(),
-		// COMPAT(0.1.0-alpha.10): drop once migrations.dropViewNotice has run on prod. Views no longer carry a note.
+		// COMPAT(0.1.0-alpha.11): drop once migrations.dropViewNotice has run on prod. Views no longer carry a note.
 		notice: v.optional(v.string()),
 	}).index("by_type", ["typeId"]),
 
@@ -1343,7 +1309,7 @@ export default defineSchema({
 		updatedByAgent: v.optional(v.id("agents")),
 		/**
 		 * Its place in the database's manual order (core `rank`): boards without a sort list by it, and dragging a
-		 * card sets it. Starts by creation time, newest first. COMPAT(0.1.0-alpha.10): required once migrations.recordRanks has run on prod.
+		 * card sets it. Starts by creation time, newest first. COMPAT(0.1.0-alpha.11): required once migrations.recordRanks has run on prod.
 		 */
 		rank: v.optional(v.string()),
 	})
@@ -1393,9 +1359,6 @@ export default defineSchema({
 		/** Where it moved from and to: a page, or null for the top level. Unset only on an old row no page matched. */
 		fromId: v.optional(v.union(v.id("pages"), v.null())),
 		toId: v.optional(v.union(v.id("pages"), v.null())),
-		// COMPAT(0.1.0-alpha.10): titles, as rows held them before ids. Once migrations.pageMoveIds has run on prod, drop these. Nothing reads them.
-		from: v.optional(v.string()),
-		to: v.optional(v.string()),
 	}).index("by_page", ["pageId", "n"]).index("by_workspace", ["workspaceId"]),
 
 	// A page's history: one row per run of edits, like Notion's: whoever started it, and

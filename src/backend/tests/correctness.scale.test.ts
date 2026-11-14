@@ -1,3 +1,4 @@
+import { seedChat } from "./helpers";
 import { expect, it, vi } from "vitest";
 import { usageMonth } from "@companybot/core";
 import type { Id } from "../convex/_generated/dataModel";
@@ -51,8 +52,8 @@ it("finds public history beyond the 25th channel and ranks the real answer above
 	const here = await owner.mutation(api.chats.openDm, { userIds: [], agentIds: [agentId] });
 	const turnId = await agentTurn(t, owner, here, agentId);
 	const sales = await t.run(async (ctx) => {
-		const sales = await ctx.db.insert("chats", { workspaceId, kind: "channel", name: "sales", private: false, searchPublic: true, archived: false, createdBy: owner.userId, lastMessageAt: 0 });
-		for (let i = 1; i <= 25; i++) await ctx.db.insert("chats", { workspaceId, kind: "channel", name: `newer-${i}`, private: false, searchPublic: true, archived: false, createdBy: owner.userId, lastMessageAt: i });
+		const sales = await seedChat(ctx, { workspaceId, kind: "channel", name: "sales", private: false, searchPublic: true, archived: false, createdBy: owner.userId, lastMessageAt: 0 });
+		for (let i = 1; i <= 25; i++) await seedChat(ctx, { workspaceId, kind: "channel", name: `newer-${i}`, private: false, searchPublic: true, archived: false, createdBy: owner.userId, lastMessageAt: i });
 		for (let i = 0; i < 25; i++) await ctx.db.insert("chatMessages", { workspaceId, chatId: here, authorUserId: owner.userId, text: "Acme pricingdraft is still being reviewed", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done", searchPublic: false });
 		await ctx.db.insert("chatMessages", { workspaceId, chatId: sales, authorUserId: owner.userId, text: "Acme pricing is $50", parts: [], mentions: { userIds: [], agentIds: [] }, status: "done", searchPublic: true });
 		return sales;
@@ -73,7 +74,7 @@ it("bounds search and activity discovery with 5k joined chats and reports the pr
 	const turnId = await agentTurn(t, owner, here, agentId);
 	for (let start = 0; start < 5000; start += 500) await t.run(async (ctx) => {
 		for (let i = start; i < start + 500; i++) {
-			const chatId = await ctx.db.insert("chats", { workspaceId, kind: "dm", private: true, archived: false, createdBy: owner.userId, lastMessageAt: i });
+			const chatId = await seedChat(ctx, { workspaceId, kind: "dm", private: true, archived: false, createdBy: owner.userId, lastMessageAt: i });
 			const seatId = await ctx.db.insert("chatMembers", { workspaceId, chatId, userId: owner.userId });
 			await ctx.db.insert("seatActivity", { workspaceId, chatId, seatId, userId: owner.userId, activityAt: i, restricted: true });
 		}
@@ -199,7 +200,7 @@ it("finds a target DM after a message at T+20s among 51 DMs", async () => {
 		const chats = await t.run(async (ctx) => {
 			const ids: Id<"chats">[] = [];
 			for (let i = 0; i < 51; i++) {
-				const chatId = await ctx.db.insert("chats", { workspaceId, kind: "dm", private: true, dmKey: `a:${agentId},u:${owner.userId}`, ...(i > 0 && { parentId: ids[0] }), searchPublic: false, archived: false, createdBy: owner.userId, lastMessageAt: start + (i ? 10000 + i : 0) });
+				const chatId = await seedChat(ctx, { workspaceId, kind: "dm", private: true, dmKey: `a:${agentId},u:${owner.userId}`, ...(i > 0 && { parentId: ids[0] }), searchPublic: false, archived: false, createdBy: owner.userId, lastMessageAt: start + (i ? 10000 + i : 0) });
 				const chat = (await ctx.db.get("chats", chatId))!;
 				await addToChat(ctx, chat, { userId: owner.userId });
 				await addToChat(ctx, chat, { agentId });

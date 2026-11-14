@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customAutomationError, describeTrigger, isValidTimeZone, legacyFields, normalizeCustomAutomation, scheduleCron, scheduleDue } from "./automations";
+import { customAutomationError, describeTrigger, isValidTimeZone, normalizeCustomAutomation, scheduleCron, scheduleDue } from "./automations";
 
 describe("automations", () => {
 	const brief = { type: "schedule" as const, cron: "0 8 * * 1-5" };
@@ -20,29 +20,11 @@ describe("automations", () => {
 		expect(scheduleDue({ type: "event", event: "member.joined", label: "When someone joins" }, thursday, la, 0)).toBeNull();
 	});
 
-	it("reads schedules from before cron as their cron", () => {
-		const old = { type: "schedule" as const, time: "08:00", weekdays: [5, 1, 2, 3, 4] };
-		expect(scheduleCron(old)).toBe("0 8 * * 1-5");
-		expect(scheduleCron({ type: "schedule", time: "09:30", weekdays: [0, 6] })).toBe("30 9 * * 0,6");
-		expect(describeTrigger(old)).toBe("Weekdays at 8:00 AM");
-		expect(scheduleDue(old, thursday, la, eight - 1)).toBe(eight);
-		expect(normalizeCustomAutomation({ name: " a ", prompt: "b", trigger: old }).trigger).toEqual({ type: "schedule", cron: "0 8 * * 1-5" });
-	});
-
-	it("keeps a cron an alpha.9 app saves back unchanged, and takes its edits", () => {
-		const cron = "0 8-18/2 * * 1-5";
-		const shown = { type: "schedule" as const, cron, ...legacyFields(cron) };
-		expect(scheduleCron(shown)).toBe(cron);
-		expect(scheduleCron({ ...shown, time: "07:15" })).toBe("15 7 * * 1-5");
-		expect(legacyFields("0 9 * * 1,3")).toEqual({ time: "09:00", weekdays: [1, 3] });
-	});
-
 	it("checks schedules people make", () => {
 		const config = (trigger: { type: "schedule"; cron: string }) => ({ name: "Daily", prompt: "Do it", trigger });
 		expect(customAutomationError(config({ type: "schedule", cron: "0 9,13 * * 1-5" }))).toBeNull();
 		expect(customAutomationError(config({ type: "schedule", cron: "*/5 * * * *" }))).toMatch(/every 15 minutes/);
 		expect(customAutomationError(config({ type: "schedule", cron: "nine every day" }))).toMatch(/doesn't look right/);
-		expect(customAutomationError({ name: "x", prompt: "y", trigger: { type: "schedule", time: "9am", weekdays: [1] } })).toBe("Pick a time.");
 	});
 
 	it("describes triggers plainly", () => {

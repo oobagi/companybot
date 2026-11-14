@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { agentsOf, ownerAndMember, noMentions, turnsOf } from "./helpers";
+import { builtInRoleOf, agentsOf, ownerAndMember, noMentions, turnsOf } from "./helpers";
 
 afterEach(() => void vi.useRealTimers());
 
@@ -11,9 +11,9 @@ describe("settings", () => {
 		const team = (await owner.query(api.workspace.team))!;
 		const me = team.members.find((m) => m.isYou)!;
 		const them = team.members.find((m) => !m.isYou)!;
-		await expect(owner.mutation(api.workspace.setRole, { id: me.id, role: "member" })).rejects.toThrow("at least one owner");
-		await owner.mutation(api.workspace.setRole, { id: them.id, role: "owner" });
-		expect((await member.query(api.workspace.me))?.role).toBe("owner");
+		await expect(owner.mutation(api.workspace.setRoles, { id: me.id, roles: [await builtInRoleOf(owner, "member")] })).rejects.toThrow("at least one owner");
+		await owner.mutation(api.workspace.setRoles, { id: them.id, roles: [await builtInRoleOf(owner, "owner")] });
+		expect((await member.query(api.workspace.me))?.access?.owner).toBe(true);
 	});
 
 	it("refuses a stale workspace rename", async () => {

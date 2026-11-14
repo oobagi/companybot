@@ -109,20 +109,6 @@ describe("records tools", () => {
 		expect(await tools.save({ type: "deal", values: { name: "x", owner: "owner@co.com" } })).toMatchObject({ values: { owner: "owner@co.com" } });
 	});
 
-	// COMPAT(0.1.0-alpha.10): delete with migrations.memberProfiles.
-	it("find a teammate by name before their membership has a copy of it", async () => {
-		const { t, owner, member } = await ownerAndMember();
-		await member.mutation(api.preferences.update, { displayName: "Mia", timeZone: "Asia/Tokyo" });
-		await t.run(async (ctx) => {
-			for (const row of await ctx.db.query("members").collect()) await ctx.db.patch(row._id, { name: undefined, image: undefined, timeZone: undefined });
-		});
-		const tools = await turnFor(t, owner);
-		await tools.save({ type: "deal", values: { name: "Mia's deal", owner: "member@co.com" } });
-		expect((await tools.find({ type: "deal", filters: [{ field: "owner", eq: "mia" }] })).rows.map((r) => [r.name, r.owner])).toEqual([["Mia's deal", "Mia"]]);
-		const team = (await owner.query(api.workspace.team))!;
-		expect(team.members.find((m) => m.email === "member@co.com")).toMatchObject({ name: "Mia", timeZone: "Asia/Tokyo" });
-	});
-
 	it("explain what's wrong instead of failing the reply", async () => {
 		const { t, member } = await ownerAndMember();
 		const tools = await turnFor(t, member);

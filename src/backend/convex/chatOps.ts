@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { publicSearchChat, touchSeats, refreshAudience, ensureSeatActivity } from "./chatDiscovery";
 import { imageUrls } from "./images";
-import { type Member, type Who, checkPermission, getMember, memberOf, memo, nameOf, personOf } from "./lib";
+import { type Member, type Who, checkPermission, getMember, memberOf, memo, personOf } from "./lib";
 import { channelName, chatAccess, reach, requireAccess } from "./placeAccess";
 import { notePlace, readArtifact, writeSources } from "./replySources";
 import { canReadReply } from "./replyPrivacy";
@@ -178,18 +178,14 @@ export async function dropSeat(ctx: MutationCtx, row: Doc<"chatMembers">) {
 	const activity = await ctx.db.query("seatActivity").withIndex("by_seat", (q) => q.eq("seatId", row._id)).first();
 	if (activity) await ctx.db.delete(activity._id);
 	await ctx.db.delete(row._id);
-	await countSeats(ctx, row.chatId, -1, row._creationTime);
+	await countSeats(ctx, row.chatId, -1);
 }
 
-/** Keeps `chats.memberCount` in step with its seats. Read fresh: one mutation can add several. `seatAt`: a removed seat's _creationTime. */
-export async function countSeats(ctx: MutationCtx, chatId: Id<"chats">, by: 1 | -1, seatAt?: number) {
+/** Keeps `chats.memberCount` in step with its seats. Read fresh: one mutation can add several. */
+export async function countSeats(ctx: MutationCtx, chatId: Id<"chats">, by: 1 | -1) {
 	const chat = await ctx.db.get(chatId);
 	if (!chat) return;
-	if (chat.memberCount !== undefined) return await ctx.db.patch(chatId, { memberCount: Math.max(chat.memberCount + by, 0) });
-	// COMPAT(0.1.0-alpha.10): not counted yet (migrations.chatMemberCounts), so the count will read new seats.
-	// While it's partway, a removed seat it already counted comes off. Drop this with `seatCount`.
-	if (chat.seatCount && by === -1 && seatAt !== undefined && seatAt <= chat.seatCount.after)
-		await ctx.db.patch(chatId, { seatCount: { ...chat.seatCount, counted: chat.seatCount.counted - 1 } });
+	await ctx.db.patch(chatId, { memberCount: Math.max(chat.memberCount + by, 0) });
 }
 
 /** Sets the person's `lastReadAt` to now, if they're in the chat. */
@@ -338,8 +334,7 @@ export async function insertChat(ctx: MutationCtx, chat: WithoutSystemFields<Doc
 /** What changes with every message in a chat (`chatActivity`): its newest main-timeline message, and what agents spent there. */
 export async function activityOf(ctx: QueryCtx, chat: Doc<"chats">) {
 	const row = await ctx.db.query("chatActivity").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).unique();
-	// COMPAT(0.1.0-alpha.10): a chat migrations.chatActivity hasn't reached keeps its own.
-	return { row, lastMessageAt: row?.lastMessageAt ?? chat.lastMessageAt ?? chat._creationTime, costUsd: row?.costUsd ?? chat.costUsd ?? 0 };
+	return { row, lastMessageAt: row?.lastMessageAt ?? chat._creationTime, costUsd: row?.costUsd ?? 0 };
 }
 
 /** Moves a chat's activity on, never the chat itself, so nothing reading the chat re-runs. */

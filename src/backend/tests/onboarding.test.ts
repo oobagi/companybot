@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { agentsOf, generalOf, identityOf, newTest, noMentions, ownerAndMember, signIn, turnsOf, messagesIn } from "./helpers";
+import { builtInRoleOf, agentsOf, generalOf, identityOf, newTest, noMentions, ownerAndMember, signIn, turnsOf, messagesIn } from "./helpers";
 import { person } from "./person";
 
 afterEach(() => void vi.useRealTimers());
@@ -40,11 +40,11 @@ describe("onboarding", () => {
 		expect((await ada.query(api.preferences.get)).displayName).toBe("");
 
 		const id = await ada.mutation(api.workspace.setUp, { displayName: " Ada ", name: " Acme ", currency: "eur", invites: ["Bob@Co.com", "cy@co.com"] });
-		expect((await ada.query(api.workspace.mine))!.workspaces).toMatchObject([{ id, name: "Acme", role: "owner" }]);
+		expect((await ada.query(api.workspace.mine))!.workspaces).toMatchObject([{ id, name: "Acme", owner: true }]);
 		expect((await ada.query(api.preferences.get)).displayName).toBe("Ada");
 		const inAcme = ada.in(id);
 		expect(await inAcme.query(api.workspace.settings)).toMatchObject({ name: "Acme", currency: "EUR" });
-		expect((await inAcme.query(api.workspace.team))!.invites.map((i) => `${i.email} ${i.role}`)).toEqual(["bob@co.com member", "cy@co.com member"]);
+		expect((await inAcme.query(api.workspace.team))!.invites.map((i) => [i.email, i.roles])).toEqual([["bob@co.com", [await builtInRoleOf(inAcme, "member")]], ["cy@co.com", [await builtInRoleOf(inAcme, "member")]]]);
 		// Inviting counts as the tutorial's invite step, and the welcome knows their name.
 		expect((await inAcme.query(api.onboarding.tutorial))!.find((s) => s.id === "invite")).toMatchObject({ done: true });
 		const general = await generalOf(inAcme);
@@ -57,7 +57,7 @@ describe("onboarding", () => {
 		const t = newTest();
 		const owner = await signIn(t, "owner@co.com");
 		const { companybot } = await agentsOf(owner);
-		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "new@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const userId = await t.run((ctx) => ctx.db.insert("users", { email: "new@co.com" }));
 		await t.run((ctx) => ctx.db.insert("preferences", { userId, displayName: "Ada", sendWith: "enter" }));
 		await person(identityOf(t, userId)).mutation(api.workspace.ensure);
@@ -112,7 +112,7 @@ describe("onboarding", () => {
 		const owner = await signIn(t, "owner@co.com");
 		const { companybot } = await agentsOf(owner);
 		await t.run((ctx) => ctx.db.patch(companybot._id, { archived: true }));
-		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
+		await owner.mutation(api.workspace.invite, { email: "new@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		const joiner = await signIn(t, "new@co.com", { welcome: true });
 		expect(await joiner.query(api.chats.list)).toMatchObject({ dms: [] });
 	});

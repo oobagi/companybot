@@ -79,8 +79,6 @@ export type Message = {
 		count: number;
 		mine: boolean;
 		people: Participant[];
-		/** COMPAT(0.1.0-alpha.10): alpha.9 apps read `names` (their chips' title); delete it. */
-		names: string[];
 	}[];
 	/** Set when an automation posted this for its author. */
 	automation: { id: string; name: string } | null;
@@ -140,47 +138,13 @@ export async function readMessages(ctx: QueryCtx, member: Member, chatId: Id<"ch
 	return { ...result, page: await Promise.all(page.map((m) => toMessage(ctx, m, member, names, tags))) };
 }
 
-/**
- * A timeline's shown messages (quiet ones left out), in the order shown (`by_chat_shown`).
- * COMPAT(0.1.0-alpha.10): until migrations.messageShownAt has reached this place, some of its messages have no
- * `publishedAt` and that index would sort them out of the newest page, so it's read by when each was made instead.
- * One indexed read finds out. Once the migration has run on prod, delete the fallback: read `by_chat_shown`.
- */
+/** A timeline's shown messages, in display order. */
 async function timeline(ctx: QueryCtx, chatId: Id<"chats">, threadId: Id<"chatMessages"> | undefined) {
-	const messages = ctx.db.query("chatMessages");
-	const unplaced = await ctx.db
-		.query("chatMessages")
-		.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined).eq("publishedAt", undefined))
-		.first();
-	return unplaced
-		? messages.withIndex("by_chat_thread_quiet", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined))
-		: messages.withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined));
+	return ctx.db.query("chatMessages").withIndex("by_chat_shown", (q) => q.eq("chatId", chatId).eq("threadId", threadId).eq("quiet", undefined));
 }
 
 /** The most a page may ask for: what a page reads (reactions, previews, sources) stays within Convex's limits. */
 const PAGE_MAX = 200;
-
-/**
- * COMPAT(0.1.0-alpha.10): alpha.9 apps read the newest 200 of a timeline (or thread, parent first) here, as one
- * list in the order shown. Once they're gone, delete this and its test; the app reads `page`.
- */
-export const list = query({
-	args: { chatId: v.id("chats"), threadId: v.optional(v.id("chatMessages")) },
-	handler: async (ctx, { chatId, threadId }): Promise<Message[]> => {
-		const visible = await visibleChat(ctx, chatId);
-		if (!visible) return [];
-		const parent = threadId && (await ctx.db.get(threadId));
-		if (threadId && (!parent || parent.chatId !== chatId)) return [];
-		const docs = (
-			await (await timeline(ctx, chatId, threadId))
-				.order("desc")
-				.take(PAGE_MAX)
-		).sort((a, b) => shownAt(a) - shownAt(b));
-		const names = namer(ctx, { images: true });
-		const tags = recordTags(ctx, visible.member);
-		return Promise.all((parent ? [parent, ...docs] : docs).map((m) => toMessage(ctx, m, visible.member, names, tags)));
-	},
-});
 
 /** A streaming reply's content so far, or null once it ended (then it's on the message). */
 export const stream = query({
@@ -208,12 +172,11 @@ async function toMessage(ctx: QueryCtx, m: Doc<"chatMessages">, member: Member, 
 	const reactions: Message["reactions"] = [];
 	for (const r of privacy?.hidden ? [] : await reactionsOf(ctx, m._id)) {
 		let group = reactions.find((g) => g.emoji === r.emoji);
-		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, people: [], names: [] }));
+		if (!group) reactions.push((group = { emoji: r.emoji, count: 0, mine: false, people: [] }));
 		group.count++;
 		group.mine ||= r.userId === member.userId;
 		const who = await names.of(r);
 		group.people.push(who);
-		group.names.push(who.name);
 	}
 	const replyAuthors: Participant[] = m.threadId || privacy?.hidden ? [] : await Promise.all((await replyAuthorsOf(ctx, m)).map(names.of));
 	return {

@@ -136,17 +136,6 @@ describe("agents", () => {
 		expect((await agentsOf(owner)).companybot.tools).toContain("web.*");
 	});
 
-	// COMPAT(0.1.0-alpha.10): delete with `ownersOnly` in agents.options.
-	it("still tells alpha.9 apps which tools Member can't use (ownersOnly)", async () => {
-		const { owner } = await ownerAndMember();
-		const memory = async () => (await owner.query(api.agents.options)).groups.find((g) => g.id === "memory")!.tools;
-		const ownersOnly = async (id: string) => (await memory()).find((t) => t.id === id)!.ownersOnly;
-		expect([await ownersOnly("memory.remember"), await ownersOnly("memory.remember_for_team")]).toEqual([false, false]);
-		const memberRole = (await owner.query(api.roles.list))!.find((r) => r.builtIn === "member")!.id;
-		await owner.mutation(api.roles.setPermission, { id: memberRole, permission: "memory.team.write", on: false });
-		expect([await ownersOnly("memory.remember"), await ownersOnly("memory.remember_for_team")]).toEqual([false, true]);
-	});
-
 	it("accepts any cached gateway model and keeps an agent's dropped model valid", async () => {
 		const { t, owner } = await ownerAndMember();
 		const { scribe } = await agentsOf(owner);

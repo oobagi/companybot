@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 
-import { signIn, agentsOf, ownerAndMember, generalOf, agentTurn, settle } from "./helpers";
+import { builtInRoleOf, signIn, agentsOf, ownerAndMember, generalOf, agentTurn, settle } from "./helpers";
 
 // The tests drive turns themselves; keep scheduled model replies back.
 beforeEach(() => void vi.useFakeTimers());
@@ -16,7 +16,7 @@ describe("memory", () => {
 		await member.mutation(api.memory.create, { agentId, scope: "personal", content: "I like mornings." });
 
 		const third = await (async () => {
-			await owner.mutation(api.workspace.invite, { email: "third@co.com", role: "member" });
+			await owner.mutation(api.workspace.invite, { email: "third@co.com", roles: [await builtInRoleOf(owner, "member")] });
 			return signIn(t, "third@co.com");
 		})();
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 
-import { type As, agentsOf, inWorkspace, ownerAndMember, sideWorkspace, settle, setMemberSwitch } from "./helpers";
+import { builtInRoleOf, type As, agentsOf, inWorkspace, ownerAndMember, sideWorkspace, settle, setMemberSwitch } from "./helpers";
 import "./connectorFixtures";
 
 afterEach(() => void vi.useRealTimers());
@@ -9,25 +9,25 @@ afterEach(() => void vi.useRealTimers());
 describe("workspaces", () => {
 	it("makes the first person owner and lets invited people join as members", async () => {
 		const { owner, member } = await ownerAndMember();
-		expect((await owner.query(api.workspace.me))?.role).toBe("owner");
-		expect((await member.query(api.workspace.me))?.role).toBe("member");
+		expect((await owner.query(api.workspace.me))?.access?.owner).toBe(true);
+		expect((await member.query(api.workspace.me))?.access?.owner).toBe(false);
 		expect((await owner.query(api.workspace.team))?.members).toHaveLength(2);
 	});
 
 	it("only lets owners invite", async () => {
 		const { member } = await ownerAndMember();
-		await expect(member.mutation(api.workspace.invite, { email: "x@co.com", role: "member" })).rejects.toThrow(
+		await expect(member.mutation(api.workspace.invite, { email: "x@co.com", roles: [await builtInRoleOf(member, "member")] })).rejects.toThrow(
 			"Only people with the",
 		);
 	});
 
 	it("doesn't invite people who are already in", async () => {
 		const { owner } = await ownerAndMember();
-		await expect(owner.mutation(api.workspace.invite, { email: "MEMBER@co.com", role: "owner" })).rejects.toThrow(
+		await expect(owner.mutation(api.workspace.invite, { email: "MEMBER@co.com", roles: [await builtInRoleOf(owner, "owner")] })).rejects.toThrow(
 			"already a member",
 		);
-		await owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" });
-		await expect(owner.mutation(api.workspace.invite, { email: "new@co.com", role: "member" })).rejects.toThrow(
+		await owner.mutation(api.workspace.invite, { email: "new@co.com", roles: [await builtInRoleOf(owner, "member")] });
+		await expect(owner.mutation(api.workspace.invite, { email: "new@co.com", roles: [await builtInRoleOf(owner, "member")] })).rejects.toThrow(
 			"already has an invite",
 		);
 	});
@@ -42,7 +42,7 @@ describe("workspaces", () => {
 	}
 
 	async function acceptInvite({ owner, member }: Awaited<ReturnType<typeof ownerAndMember>>) {
-		if (!(await member.query(api.workspace.mine))!.invitations.length) await owner.mutation(api.workspace.invite, { email: "member@co.com", role: "member" });
+		if (!(await member.query(api.workspace.mine))!.invitations.length) await owner.mutation(api.workspace.invite, { email: "member@co.com", roles: [await builtInRoleOf(owner, "member")] });
 		await member.mutation(api.workspace.acceptInvite, { id: (await member.query(api.workspace.mine))!.invitations[0]!.id });
 	}
 

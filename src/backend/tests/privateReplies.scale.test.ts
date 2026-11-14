@@ -16,7 +16,7 @@ it("reacts, edits a topic and adds a member in a 300-person private chat with th
 		let extra!: Id<"users">;
 		for (let i = 0; i < 300; i++) {
 			const userId = await ctx.db.insert("users", { email: `reader${i}@co.com` });
-			await ctx.db.insert("members", { workspaceId, userId, roles: [memberRole] });
+			await ctx.db.insert("members", { workspaceId, userId, roles: [memberRole], name: `reader${i}@co.com`, timeZone: "UTC" });
 			if (i < 299) await ctx.db.insert("chatMembers", { workspaceId, chatId, userId });
 			else extra = userId;
 		}

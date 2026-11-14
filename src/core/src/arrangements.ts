@@ -85,7 +85,7 @@ export const databaseRowIds = ["mine", "due"];
 export const isPinKey = (id: string) => /^(chat|page|file|db|rec):./.test(id);
 
 type Legacy = { list: ArrangementList; workspaceId?: string; entityId?: string };
-/** COMPAT(0.1.0-alpha.10): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
+/** COMPAT(0.1.0-alpha.11): used only by the one-time localStorage importer, never by live reads or writes; delete with it. */
 export function legacyArrangement(key: string): Legacy | undefined {
 	const fixed = { "rail.order": "workspaces", "rail.tabs": "rail", "sidebar.folded": "folded" } as const;
 	if (key in fixed) return { list: fixed[key as keyof typeof fixed] };

@@ -1,5 +1,5 @@
 import { seedLegacyRecords } from "./legacyFixtures";
-import { addMember, newTest, identityOf, messagesIn } from "./helpers";
+import { builtInRoleOf, addMember, newTest, identityOf, messagesIn } from "./helpers";
 import { connectorCatalog, defineConnector } from "@companybot/core";
 import { describe, expect, it } from "vitest";
 import { api } from "../convex/_generated/api";
@@ -93,7 +93,7 @@ describe("requests naming a workspace", () => {
 	it("refuse every id from the other workspace", async () => {
 		const s = await setup();
 		const { t, A, B } = s;
-		await A.mutation(api.workspace.invite, { email: "someone@co.com", role: "member" });
+		await A.mutation(api.workspace.invite, { email: "someone@co.com", roles: [await builtInRoleOf(A, "member")] });
 		await deputyIn(s, s.a);
 		const team = (await A.query(api.workspace.team))!;
 		const deputy = team.members.find((m) => m.email === "deputy@co.com")!;
@@ -133,7 +133,7 @@ describe("requests naming a workspace", () => {
 			["agents.rename", () => B.mutation(api.agents.rename, { agentId, name: "x" })],
 			["trash.move agent", () => B.mutation(api.trash.move, { kind: "agent", id: agentId })],
 			["workspace.resendInvite", () => B.mutation(api.workspace.resendInvite, { id: invite.id })],
-			["workspace.setRole", () => B.mutation(api.workspace.setRole, { id: deputy.id, role: "member" })],
+			["workspace.setRoles", async () => B.mutation(api.workspace.setRoles, { id: deputy.id, roles: [await builtInRoleOf(B, "member")] })],
 		];
 		for (const [name, call] of refused) {
 			await expect(call(), name).rejects.toThrow(/not found|isn't available|can't/i);
@@ -240,7 +240,7 @@ describe("creating a workspace", () => {
 		const c = await A.mutation(api.workspace.create, { name: "  Clean Co  " });
 		const mine = (await A.query(api.workspace.mine))!.workspaces;
 		expect(mine.map((w) => w.id)).toContain(a);
-		expect(mine.find((w) => w.id === c)).toMatchObject({ name: "Clean Co", role: "owner" });
+		expect(mine.find((w) => w.id === c)).toMatchObject({ name: "Clean Co", owner: true });
 		const chats = await A.in(c).query(api.chats.list);
 		expect(chats!.channels.map((ch) => ch.name)).toContain("general");
 	});
