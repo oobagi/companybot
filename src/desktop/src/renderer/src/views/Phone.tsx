@@ -6,14 +6,13 @@ import { createPortal } from "react-dom";
 import type { Room } from "livekit-client";
 import { api, errorMessage } from "../api";
 import { useAction, useMutation, useQuery } from "../convex";
-import { BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PauseIcon, PhoneOutgoingIcon, PlayIcon, PopInIcon, PopOutIcon, ReloadIcon, SpeakerIcon, SpinnerIcon, WarningIcon } from "../icons";
+import { BackspaceIcon, CaretDownIcon, KeypadIcon, MicrophoneIcon, MicrophoneSlashIcon, PhoneDisconnectIcon, PhoneIcon, PhoneIncomingIcon, PauseIcon, PhoneOutgoingIcon, PlayIcon, PopInIcon, PopOutIcon, ReloadIcon, SparkleIcon, SpeakerIcon, SpinnerIcon, WarningIcon } from "../icons";
 import { navigate } from "../router";
 import {
 	answerButton,
 	callBarButton,
 	callBarHangUpButton,
 	callBarNameButton,
-	callTabButton,
 	compactButton,
 	declineButton,
 	dialDeleteButton,
@@ -29,8 +28,9 @@ import {
 	smallButton,
 	smallIconButton,
 	titleBarButton,
+	transcriptButton,
 } from "../ui";
-import { Avatar } from "./chat/common";
+import { Avatar, Modal } from "./chat/common";
 
 type Target = { agentId?: Id<"agents">; to?: string; recordId?: Id<"records"> };
 type Current = NonNullable<FunctionReturnType<typeof api.calls.current>>["calls"][number];
@@ -790,7 +790,7 @@ function Scrubber({ time, duration, playing, onSeek }: { time: number; duration:
 			aria-valuemin={0}
 			aria-valuemax={Math.floor(duration)}
 			aria-valuenow={Math.floor(time)}
-			aria-valuetext={disabled ? "Not loaded" : `${clock(Math.floor(time))} of ${clock(Math.floor(duration))}`}
+			aria-valuetext={disabled ? "Unknown length" : `${clock(Math.floor(time))} of ${clock(Math.floor(duration))}`}
 			className={`group relative flex h-8 min-w-0 flex-1 touch-none items-center outline-none ${disabled ? "" : "cursor-pointer"}`}
 			onPointerDown={(e) => {
 				if (disabled || e.button !== 0) return;
@@ -815,8 +815,8 @@ function Scrubber({ time, duration, playing, onSeek }: { time: number; duration:
 }
 
 /**
- * A call's recording: play, seek, time. Nothing loads until Play is pressed; that asks for a short-lived
- * private link. A link that expires mid-listen is renewed once, at the same spot; after that it's a Reload.
+ * A call's recording: play, seek, time. The first Play asks for a short-lived private link and starts playback.
+ * A link that expires mid-listen is renewed once, at the same spot; after that it's a Reload.
  */
 function CallRecording({ id }: { id: Id<"inboxMessages"> }) {
 	const playback = useAction(api.callRecordings.playback);
@@ -864,7 +864,7 @@ function CallRecording({ id }: { id: Id<"inboxMessages"> }) {
 		else el.pause();
 	};
 	const seek = (seconds: number) => {
-		if (audio.current) audio.current.currentTime = seconds;
+		if (url && audio.current) audio.current.currentTime = seconds;
 		setTime(seconds);
 	};
 	return (
@@ -958,130 +958,147 @@ function RecordingStatus({ call }: { call: CallEntryInfo }) {
 	return <p role="status" className="text-sm text-neutral-500">No recording for this call.</p>;
 }
 
-type Note = "summary" | "transcript";
-const noteNames: Record<Note, string> = { summary: "Summary", transcript: "Transcript" };
+/** Asks the server to run a call's failed transcription or summary again. */
+function useRetry(id: Id<"inboxMessages">) {
+	const retry = useMutation(api.callRecordings.retry);
+	const [retrying, setRetrying] = useState(false);
+	const [retryError, setRetryError] = useState("");
+	const run = async () => {
+		setRetryError("");
+		setRetrying(true);
+		try { await retry({ id }); }
+		catch (e) { setRetryError(errorMessage(e)); }
+		finally { setRetrying(false); }
+	};
+	return { retrying, retryError, run };
+}
+
+/** What a call's transcript or summary says while it has no text: waiting, working, or what went wrong (with a way to try again). */
+function NoteStatus({ id, tone, retry, children }: { id: Id<"inboxMessages">; tone: "quiet" | "busy" | "bad"; retry?: boolean; children: React.ReactNode }) {
+	const { retrying, retryError, run } = useRetry(id);
+	return (
+		<div className="flex flex-col items-start gap-2 text-sm">
+			<p role="status" className={`flex items-start gap-2 break-words ${tone === "bad" ? "text-amber-700" : "text-neutral-500"}`}>
+				{tone === "busy" && <SpinnerIcon className="mt-0.5 shrink-0 animate-spin" />}
+				{tone === "bad" && <WarningIcon className="mt-0.5 shrink-0" />}
+				{children}
+			</p>
+			{retry && (
+				<button type="button" className={smallButton} disabled={retrying} onClick={() => void run()}>
+					<ReloadIcon /> {retrying ? "Retrying…" : "Try again"}
+				</button>
+			)}
+			{retryError && <p role="alert" className="break-words text-red-600">{retryError}</p>}
+		</div>
+	);
+}
 
 /**
- * A call's summary and transcript, one at a time in a bounded panel, so a long call never stretches the conversation.
- * The summary shows first. The transcript stays out of the conversation's data and loads when its tab is first opened.
+ * A call's transcript, under its player: the first two lines, opening the whole thing in a dialog. The lines come
+ * with the conversation; the full text stays out of it and loads when the dialog opens. A transcript saved before
+ * previews existed loads once for its lines.
  */
-function CallNotes({ call }: { call: CallEntryInfo }) {
+function CallTranscript({ call }: { call: CallEntryInfo }) {
 	const fetchTranscript = useAction(api.callRecordings.transcript);
-	const retry = useMutation(api.callRecordings.retry);
-	const { transcript, summary } = call;
-	const notes = (["summary", "transcript"] as const).filter((n) => call[n]);
-	const [tab, setTab] = useState<Note | null>(summary ? "summary" : null);
-	const [wanted, setWanted] = useState(false);
+	const transcript = call.transcript!;
+	const ready = transcript.status === "ready";
+	const [open, setOpen] = useState(false);
 	const [request, setRequest] = useState(0);
 	const [text, setText] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState("");
-	const [retrying, setRetrying] = useState(false);
-	const [retryError, setRetryError] = useState("");
-	const transcriptReady = transcript?.status === "ready";
+	const wanted = ready && text === null && (open || transcript.preview === null);
 	useEffect(() => {
-		setText(null);
-		setLoadError("");
-		if (!wanted || !transcriptReady) return;
+		if (!wanted) return;
 		let ignore = false;
+		setLoadError("");
 		void fetchTranscript({ id: call.id }).then(
 			(result) => { if (!ignore) setText(result.text); },
 			(e) => { if (!ignore) setLoadError(errorMessage(e)); },
 		);
 		return () => { ignore = true; };
-	}, [call.id, wanted, request, transcriptReady, fetchTranscript]);
-	const show = (note: Note) => {
-		setTab(note);
-		if (note === "transcript") setWanted(true);
-	};
-	const retryFailed = async () => {
-		setRetryError("");
-		setRetrying(true);
-		try { await retry({ id: call.id }); }
-		catch (e) { setRetryError(errorMessage(e)); }
-		finally { setRetrying(false); }
-	};
-	const failed = transcript?.status === "failed" || summary?.status === "failed";
-	const state = tab && call[tab];
-	// What the open tab says while it has no text: waiting, working, or what went wrong.
-	const waiting =
-		!state ? null
-			: state.status === "failed" ? { tone: "bad" as const, text: state.error || (tab === "summary" ? "The summary couldn't be generated." : "The call couldn't be transcribed.") }
-				: state.status === "processing" ? { tone: "busy" as const, text: tab === "summary" ? "Writing summary…" : "Transcribing call…" }
-					: state.status !== "ready" ? { tone: "quiet" as const, text: tab === "transcript" ? "Waiting to transcribe the recording…" : transcript?.status === "failed" ? "A summary needs the transcript first." : "Summary will follow the transcript." }
-						: tab === "transcript" && loadError ? { tone: "bad" as const, text: loadError }
-							: tab === "transcript" && text === null ? { tone: "busy" as const, text: "Loading transcript…" }
-								: null;
-	const body = tab === "summary" ? summary?.text || "No summary available." : text || "No speech detected.";
-	return (
-		<div className="flex flex-col gap-2">
-			<div
-				role="tablist"
-				aria-label="Call notes"
-				className="flex gap-4 border-b border-neutral-200"
-				onKeyDown={(e) => {
-					if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-					const next = notes[(notes.indexOf(tab ?? notes[0]!) + (e.key === "ArrowRight" ? 1 : notes.length - 1)) % notes.length]!;
-					e.preventDefault();
-					show(next);
-					e.currentTarget.querySelector<HTMLButtonElement>(`[data-note="${next}"]`)?.focus();
-				}}
-			>
-				{notes.map((note) => (
-					<button key={note} type="button" role="tab" id={`${call.id}-${note}-tab`} data-note={note} aria-selected={tab === note} aria-controls={`${call.id}-notes`} tabIndex={note === (tab ?? notes[0]) ? 0 : -1} className={callTabButton} onClick={() => show(note)}>
-						{noteNames[note]}
-						{call[note]?.status === "failed" && (
-							<>
-								<span aria-hidden="true" className="size-1.5 rounded-full bg-amber-500" />
-								<span className="sr-only">(failed)</span>
-							</>
-						)}
-					</button>
-				))}
+	}, [call.id, wanted, request, fetchTranscript]);
+	if (transcript.status === "failed") return <NoteStatus id={call.id} tone="bad" retry>{transcript.error || "The call couldn't be transcribed."}</NoteStatus>;
+	if (transcript.status === "processing") return <NoteStatus id={call.id} tone="busy">Transcribing call…</NoteStatus>;
+	if (!ready) return <NoteStatus id={call.id} tone="quiet">Waiting to transcribe the recording…</NoteStatus>;
+	const reload = (
+		<button type="button" className={smallButton} onClick={() => setRequest((n) => n + 1)}>
+			<ReloadIcon /> Reload transcript
+		</button>
+	);
+	const preview = transcript.preview ?? (text === null ? null : text.replace(/\s+/g, " ").trim().slice(0, 320));
+	if (preview === null)
+		return loadError ? (
+			<div className="flex flex-col items-start gap-2">
+				<NoteStatus id={call.id} tone="bad">{loadError}</NoteStatus>
+				{reload}
 			</div>
-			{tab && (
-				<div role="tabpanel" id={`${call.id}-notes`} aria-labelledby={`${call.id}-${tab}-tab`} className="flex flex-col items-start gap-2 text-sm">
-					{waiting ? (
-						<p role="status" className={`flex items-start gap-2 break-words ${waiting.tone === "bad" ? "text-amber-700" : "text-neutral-500"}`}>
-							{waiting.tone === "busy" && <SpinnerIcon className="mt-0.5 shrink-0 animate-spin" />}
-							{waiting.tone === "bad" && <WarningIcon className="mt-0.5 shrink-0" />}
-							{waiting.text}
-						</p>
-					) : (
-						<p tabIndex={0} className="max-h-56 w-full overflow-y-auto rounded-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500">{body}</p>
-					)}
-					{waiting && tab === "transcript" && loadError && transcriptReady ? (
-						<button type="button" className={smallButton} onClick={() => setRequest((n) => n + 1)}>
-							<ReloadIcon /> Reload transcript
-						</button>
-					) : (
-						waiting && failed && (
-							<button type="button" className={smallButton} disabled={retrying} onClick={() => void retryFailed()}>
-								<ReloadIcon /> {retrying ? "Retrying…" : "Try again"}
-							</button>
-						)
-					)}
-					{retryError && <p role="alert" className="break-words text-red-600">{retryError}</p>}
-				</div>
+		) : <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>;
+	// Nothing was said: the summary says so.
+	if (!preview) return null;
+	return (
+		<>
+			<button type="button" aria-haspopup="dialog" title="Open transcript" className={transcriptButton} onClick={() => setOpen(true)}>
+				<span className="line-clamp-2">{preview}</span>
+			</button>
+			{open && (
+				<Modal title="Call transcript" onClose={() => setOpen(false)}>
+					{text !== null ? (
+						<p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700">{text || "No speech detected."}</p>
+					) : loadError ? (
+						<div className="flex flex-col items-start gap-2">
+							<NoteStatus id={call.id} tone="bad">{loadError}</NoteStatus>
+							{reload}
+						</div>
+					) : <NoteStatus id={call.id} tone="busy">Loading transcript…</NoteStatus>}
+				</Modal>
 			)}
-		</div>
+		</>
 	);
 }
 
-/** A call's outcome and private recording, transcript, and summary in the same Inbox entry. */
+/** A call's AI summary: its own block under the call, so it reads as a note about the call, not part of it. */
+function CallSummary({ call }: { call: CallEntryInfo }) {
+	const summary = call.summary!;
+	const transcriptFailed = call.transcript?.status === "failed";
+	return (
+		<section aria-label="AI summary" className="flex flex-col gap-1.5 rounded-2xl border border-neutral-200 bg-white px-3 py-2.5">
+			<p aria-hidden="true" className="flex items-center gap-1.5 text-xs font-medium text-neutral-500">
+				<SparkleIcon /> AI summary
+			</p>
+			{summary.status === "ready" ? (
+				<p tabIndex={0} className="max-h-56 overflow-y-auto rounded-sm text-sm leading-relaxed break-words whitespace-pre-wrap text-neutral-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500">{summary.text || "No summary available."}</p>
+			) : summary.status === "processing" ? (
+				<NoteStatus id={call.id} tone="busy">Writing summary…</NoteStatus>
+			) : transcriptFailed ? (
+				// The transcript's own failure, with Try again, is in the call above.
+				<NoteStatus id={call.id} tone="quiet">A summary needs the transcript first.</NoteStatus>
+			) : summary.status === "failed" ? (
+				<NoteStatus id={call.id} tone="bad" retry>{summary.error || "The summary couldn't be generated."}</NoteStatus>
+			) : (
+				<NoteStatus id={call.id} tone="quiet">Summary will follow the transcript.</NoteStatus>
+			)}
+		</section>
+	);
+}
+
+/** A call's outcome with its private recording and transcript, and the AI summary in its own block underneath. */
 export function CallEntry({ call, answeredBy }: { call: CallEntryInfo; answeredBy?: string | null }) {
 	useTick(call.state === "connected");
 	const { text, answered } = callStatus(call, answeredBy);
 	return (
-		<div className="flex w-80 max-w-full flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
-			<div className="flex items-center gap-3">
-				<CallIcon call={call} />
-				<div className="min-w-0">
-					<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
-					<p className="truncate text-sm text-neutral-500 tabular-nums">{text}</p>
+		<div className="flex w-80 max-w-full flex-col gap-1.5">
+			<div className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-3">
+				<div className="flex items-center gap-3">
+					<CallIcon call={call} />
+					<div className="min-w-0">
+						<p className="font-semibold text-neutral-900">{call.direction === "in" ? "Incoming call" : "Outgoing call"}</p>
+						<p className="truncate text-sm text-neutral-500 tabular-nums">{text}</p>
+					</div>
 				</div>
+				{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
+				{call.transcript && <CallTranscript key={`transcript:${call.id}`} call={call} />}
 			</div>
-			{call.recording?.status === "ready" ? <CallRecording key={`recording:${call.id}`} id={call.id} /> : (answered || call.recording) && <RecordingStatus call={call} />}
-			{(call.summary || call.transcript) && <CallNotes key={`notes:${call.id}`} call={call} />}
+			{call.summary && <CallSummary key={`summary:${call.id}`} call={call} />}
 		</div>
 	);
 }

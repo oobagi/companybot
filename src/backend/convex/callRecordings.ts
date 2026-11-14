@@ -150,7 +150,7 @@ export const saveTranscript = internalMutation({
 		const old = await ctx.db.query("callTranscripts").withIndex("by_message", q => q.eq("messageId", id)).first();
 		if (old) await ctx.db.patch(old._id, { text });
 		else await ctx.db.insert("callTranscripts", { messageId: id, workspaceId: m.workspaceId, conversationId: m.conversationId, text });
-		await ctx.db.patch(id, { call: { ...m.call, transcript: { status: "ready" }, summary: { status: text ? "processing" : "ready", ...(!text && { text: "No speech was detected in this recording." }) }, recording: { ...m.call.recording, processingSpentUsd: costUsd, ...(!text && { attempt: undefined, processingReserved: undefined }) } } });
+		await ctx.db.patch(id, { call: { ...m.call, transcript: { status: "ready", preview: text.replace(/\s+/g, " ").trim().slice(0, 320) }, summary: { status: text ? "processing" : "ready", ...(!text && { text: "No speech was detected in this recording." }) }, recording: { ...m.call.recording, processingSpentUsd: costUsd, ...(!text && { attempt: undefined, processingReserved: undefined }) } } });
 		const c = (await ctx.db.get(m.conversationId))!;
 		await recordUsage(ctx, { workspaceId: m.workspaceId, agentId: c.agentId, userId: m.call.userId, kind: "phone", model, costUsd });
 		return true;

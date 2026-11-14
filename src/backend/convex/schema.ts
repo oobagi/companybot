@@ -501,7 +501,7 @@ export default defineSchema({
 				processingReserved: v.optional(v.boolean()),
 				processingSpentUsd: v.optional(v.number()),
 			})),
-			transcript: v.optional(v.object({ status: v.union(v.literal("pending"), v.literal("processing"), v.literal("ready"), v.literal("failed")), error: v.optional(v.string()) })),
+			transcript: v.optional(v.object({ status: v.union(v.literal("pending"), v.literal("processing"), v.literal("ready"), v.literal("failed")), preview: v.optional(v.string()), error: v.optional(v.string()) })),
 			summary: v.optional(v.object({ status: v.union(v.literal("pending"), v.literal("processing"), v.literal("ready"), v.literal("failed")), text: v.optional(v.string()), error: v.optional(v.string()) })),
 		})),
 

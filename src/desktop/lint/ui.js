@@ -51,7 +51,7 @@ const buttonClasses = new Set([
 	"roundCallButton",
 	"callRowButton",
 	"playerButton",
-	"callTabButton",
+	"transcriptButton",
 	"timeRemoveButton",
 	"tabCloseButton",
 	"tabAddButton",

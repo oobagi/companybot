@@ -270,6 +270,20 @@ describe("recording capture and processing ownership", () => {
 		expect(await t.run(ctx => ctx.db.query("callTranscripts").collect())).toHaveLength(1);
 	});
 
+	it("keeps only a bounded excerpt in conversation data while retaining the full transcript", async () => {
+		const { t, owner, id, conversationId } = await fixture();
+		await t.run(async ctx => {
+			const m = (await ctx.db.get(id))!;
+			await ctx.db.patch(id, { call: { ...m.call!, transcript: { status: "pending" }, summary: { status: "pending" } } });
+		});
+		await t.mutation(internal.callRecordings.claimProcessing, { id, attempt: "preview", configured: true });
+		const text = `  ${"A caller asked about Tuesday.\n\t".repeat(100)}`;
+		await t.mutation(internal.callRecordings.saveTranscript, { id, attempt: "preview", text, costUsd: 0.006, model: "test-transcription" });
+		const message = (await owner.query(api.inbox.get, { id: conversationId }))!.messages.find(m => m.id === id)!;
+		expect(message.call!.transcript).toMatchObject({ text: null, preview: text.replace(/\s+/g, " ").trim().slice(0, 320) });
+		expect(await owner.action(api.callRecordings.transcript, { id })).toEqual({ text });
+	});
+
 	it("imports private audio, saves its transcript and summary, and accounts for each model once", async () => {
 		const { t, owner, id, room, key } = await fixture(false);
 		await t.mutation(internal.callRecordings.claimStart, { id, configured: true });
